@@ -13,7 +13,7 @@ env:
   TF_CLI_ARGS: "-no-color"
 
 jobs:
-  plan:
+  apply:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
