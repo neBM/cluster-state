@@ -1,4 +1,4 @@
-name: Terraform Plan
+name: Terraform Plan and Apply
 
 on:
   pull_request:
@@ -87,3 +87,13 @@ jobs:
                 body: output
               })
             }
+  apply:
+    runs-on: ubuntu-latest
+    needs: plan
+    if: github.ref == 'refs/heads/main'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+      - name: Terraform apply
+        id: apply
+        run: terraform apply -auto-approve tfplan
