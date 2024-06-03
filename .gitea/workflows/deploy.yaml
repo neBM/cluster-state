@@ -2,7 +2,7 @@ name: Terraform Deploy
 
 on:
   workflow_run:
-    workflows: ["plan"]
+    workflows: ["plan.yaml"]
     types:
       - completed
     branches:
