@@ -93,7 +93,7 @@ jobs:
           path: tfplan
       - uses: actions/upload-artifact@v3
         with:
-          name: .terraform/providers
+          name: providers
           path: .terraform/providers
   apply:
     runs-on: ubuntu-latest
@@ -107,7 +107,7 @@ jobs:
           name: tfplan
       - uses: actions/download-artifact@v3
         with:
-          name: .terraform/providers
+          name: providers
           path: .terraform
       - name: Terraform apply
         id: apply
