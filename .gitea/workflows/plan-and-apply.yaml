@@ -110,8 +110,7 @@ jobs:
           name: providers
           path: .terraform/providers
       - run: |
-          ls -la .terraform &&
-          tree .terraform
+          ls -la .terraform
       - name: Terraform apply
         id: apply
         run: terraform apply -auto-approve tfplan
