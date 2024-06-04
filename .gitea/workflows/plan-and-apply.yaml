@@ -109,6 +109,8 @@ jobs:
         with:
           name: .terraform
           path: .terraform
+      - name: Ensure providers are executable
+        run: chmod -Rv +x .terraform/providers
       - name: Terraform apply
         id: apply
         run: terraform apply -auto-approve tfplan
