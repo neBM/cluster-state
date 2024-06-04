@@ -93,7 +93,7 @@ jobs:
           path: tfplan
       - uses: actions/upload-artifact@v3
         with:
-          name: dotterraform
+          name: .terraform
           path: .terraform
   apply:
     runs-on: ubuntu-latest
@@ -107,7 +107,7 @@ jobs:
           name: tfplan
       - uses: actions/download-artifact@v3
         with:
-          name: dotterraform
+          name: .terraform
       - name: Terraform apply
         id: apply
         run: terraform apply -auto-approve tfplan
