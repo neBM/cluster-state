@@ -109,6 +109,9 @@ jobs:
         with:
           name: providers
           path: .terraform
+      - run: |
+          ls -la .terraform
+          tree .terraform
       - name: Terraform apply
         id: apply
         run: terraform apply -auto-approve tfplan
