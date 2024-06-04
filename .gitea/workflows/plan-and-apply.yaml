@@ -108,9 +108,9 @@ jobs:
       - uses: actions/download-artifact@v3
         with:
           name: providers
-          path: .terraform
+          path: .terraform/providers
       - run: |
-          ls -la .terraform
+          ls -la .terraform &&
           tree .terraform
       - name: Terraform apply
         id: apply
