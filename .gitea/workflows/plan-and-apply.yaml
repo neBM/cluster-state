@@ -91,6 +91,10 @@ jobs:
         with:
           name: tfplan
           path: tfplan
+      - uses: actions/upload-artifact@v3
+        with:
+          name: dotterraform
+          path: .terraform
   apply:
     runs-on: ubuntu-latest
     needs: plan
@@ -98,10 +102,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: hashicorp/setup-terraform@v3
-      - uses: hashicorp/setup-nomad@main
       - uses: actions/download-artifact@v3
         with:
           name: tfplan
+      - uses: actions/download-artifact@v3
+        with:
+          name: dotterraform
       - name: Terraform apply
         id: apply
         run: terraform apply -auto-approve tfplan
