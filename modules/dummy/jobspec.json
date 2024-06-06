@@ -48,7 +48,12 @@
       "Services": [
         {
           "PortLabel": "www",
-          "Provider": "nomad"
+          "Provider": "nomad",
+          "Name": "web",
+          "Tags": [
+            "traefik.enable=true",
+            "traefik.http.routers.web.rule=Host(`hello-world.brmartin.co.uk`)"
+          ]
         }
       ]
     }
