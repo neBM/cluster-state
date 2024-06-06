@@ -15,6 +15,7 @@ env:
   TF_IN_AUTOMATION: true
   TF_CLI_ARGS: "-no-color"
   PG_CONN_STR: "${{ secrets.PG_CONN_STR }}"
+  TF_PLUGIN_CACHE_DIR: ${{ gitea.workspace }}/.terraform.d/plugin-cache
 
 jobs:
   plan:
@@ -22,9 +23,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: hashicorp/setup-terraform@v3
+      - name: Create Terraform Plugin Cache Dir
+        run: mkdir -v -p $TF_PLUGIN_CACHE_DIR
+      - uses: actions/cache@v4
+        with:
+          path: ${{ env.TF_PLUGIN_CACHE_DIR }}
+          key: ${{ runner.os }}-terraform-${{ hashFiles('**/.terraform.lock.hcl') }}
       - name: Terraform fmt
         id: fmt
-        run: terraform fmt -check
+        run: terraform fmt -recursive -check
         continue-on-error: true
       - name: Terraform Init
         id: init
@@ -92,10 +99,6 @@ jobs:
         with:
           name: tfplan
           path: tfplan
-      - uses: actions/upload-artifact@v3
-        with:
-          name: .terraform
-          path: .terraform
   apply:
     runs-on: ubuntu-latest
     needs: plan
@@ -103,13 +106,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: hashicorp/setup-terraform@v3
+      - name: Create Terraform Plugin Cache Dir
+        run: mkdir -v -p $TF_PLUGIN_CACHE_DIR
+      - uses: actions/cache@v4
+        with:
+          path: ${{ env.TF_PLUGIN_CACHE_DIR }}
+          key: ${{ runner.os }}-terraform-${{ hashFiles('**/.terraform.lock.hcl') }}
       - uses: actions/download-artifact@v3
         with:
           name: tfplan
-      - uses: actions/download-artifact@v3
-        with:
-          name: .terraform
-          path: .terraform
       - name: Ensure providers are executable
         run: chmod -Rv +x .terraform/providers
       - name: Terraform apply
