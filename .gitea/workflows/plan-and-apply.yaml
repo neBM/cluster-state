@@ -14,6 +14,7 @@ permissions:
 env:
   TF_IN_AUTOMATION: true
   TF_CLI_ARGS: "-no-color"
+  PG_CONN_STR: "${{ secrets.PG_CONN_STR }}"
 
 jobs:
   plan:
