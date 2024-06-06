@@ -18,7 +18,7 @@ env:
   TF_PLUGIN_CACHE_DIR: ${{ gitea.workspace }}/.terraform.d/plugin-cache
 
 jobs:
-  plan:
+  cicd:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -95,28 +95,6 @@ jobs:
                 body: output
               })
             }
-      - uses: actions/upload-artifact@v3
-        with:
-          name: tfplan
-          path: tfplan
-  apply:
-    runs-on: ubuntu-latest
-    needs: plan
-    if: github.ref == 'refs/heads/main'
-    steps:
-      - uses: actions/checkout@v4
-      - uses: hashicorp/setup-terraform@v3
-      - name: Create Terraform Plugin Cache Dir
-        run: mkdir -v -p $TF_PLUGIN_CACHE_DIR
-      - uses: actions/cache@v4
-        with:
-          path: ${{ env.TF_PLUGIN_CACHE_DIR }}
-          key: ${{ runner.os }}-terraform-${{ hashFiles('**/.terraform.lock.hcl') }}
-      - uses: actions/download-artifact@v3
-        with:
-          name: tfplan
-      - name: Terraform Init
-        run: terraform init -input=false
       - name: Terraform apply
-        id: apply
+        if: github.ref == 'refs/heads/main' && steps.plan.outcome == 'success'
         run: terraform apply -auto-approve tfplan
