@@ -12,10 +12,11 @@ permissions:
   pull-requests: write
 
 env:
+  TF_PLUGIN_CACHE_DIR: ${{ gitea.workspace }}/.terraform.d/plugin-cache
   TF_IN_AUTOMATION: true
   TF_CLI_ARGS: "-no-color"
+  NOMAD_TOKEN: "${{ secrets.NOMAD_TOKEN }}"
   PG_CONN_STR: "${{ secrets.PG_CONN_STR }}"
-  TF_PLUGIN_CACHE_DIR: ${{ gitea.workspace }}/.terraform.d/plugin-cache
 
 jobs:
   cicd:
