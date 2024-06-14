@@ -7,7 +7,7 @@
       "Tasks": [
         {
           "Name": "Jellyfin",
-          "Type": "docker",
+          "Driver": "docker",
           "Config": {
             "image": "lscr.io/linuxserver/jellyfin:latest",
             "ports": [
