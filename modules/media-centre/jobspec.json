@@ -1,0 +1,73 @@
+{
+  "ID": "media-centre",
+  "Name": "Media Centre",
+  "TaskGroups": [
+    {
+      "Name": "Media Servers",
+      "Tasks": [
+        {
+          "Name": "Jellyfin",
+          "Type": "docker",
+          "Config": {
+            "image": "lscr.io/linuxserver/jellyfin:latest",
+            "ports": [
+              "jellyfin"
+            ],
+            "mounts": [
+              {
+                "type": "volume",
+                "target": "/media",
+                "VolumeOptions": {
+                  "driver": "local",
+                  "driver_opts": {
+                    "type": "nfs",
+                    "o": "addr=martinibar.lan,nolock,soft,rw",
+                    "device": ":/volume1/docker"
+                  }
+                }
+              },
+              {
+                "type": "volume",
+                "target": "/config",
+                "source": "jellyfin-config"
+              }
+            ]
+          },
+          "Env": {
+            "TZ": "Europe/London",
+            "PUID": "985",
+            "PGID": "997",
+            "JELLYFIN_PublishedServerUrl": "192.168.1.5"
+          },
+          "Resources": {
+            "CPU": 3100,
+            "MemoryMB": 8129
+          }
+        }
+      ],
+      "Services": [
+        {
+          "Name": "Jellyfin",
+          "Provider": "nomad",
+          "PortLabel": "jellyfin",
+          "Tags": [
+            "traefik.enable=true",
+            "traefik.http.routers.jellyfin.entrypoints=websecure",
+            "traefik.http.routers.jellyfin.rule=Host(`jellyfin.brmartin.co.uk`)"
+          ]
+
+        }
+      ],
+      "Networks": [
+        {
+          "DynamicPorts": [
+            {
+              "Label": "jellyfin",
+              "To": 8096
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
