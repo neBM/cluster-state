@@ -19,11 +19,14 @@
                 "target": "/media",
                 "volume_options": {
                   "driver_config": {
-                    "name": "nfs",
-                    "options": {
-                      "o": "addr=martinibar.lan,nolock,soft,rw",
-                      "device": ":/volume1/docker"
-                    }
+                    "name": "local",
+                    "options": [
+                      {
+                        "type": "nfs",
+                        "o": "addr=martinibar.lan,nolock,soft,rw",
+                        "device": ":/volume1/docker"
+                      }
+                    ]
                   }
                 }
               },
