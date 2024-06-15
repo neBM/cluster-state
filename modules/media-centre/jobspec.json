@@ -10,6 +10,7 @@
           "Driver": "docker",
           "Config": {
             "image": "lscr.io/linuxserver/jellyfin:latest",
+            "runtime": "nvidia",
             "ports": [
               "jellyfin"
             ],
