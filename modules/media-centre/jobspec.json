@@ -41,7 +41,7 @@
           "Artifacts": [
             {
               "GetterSource": "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp",
-              "RelativeDist": "usr/local/bin/yt-dlp"
+              "RelativeDest": "usr/local/bin/yt-dlp"
             }
           ],
           "Env": {
