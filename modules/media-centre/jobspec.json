@@ -38,10 +38,10 @@
               }
             ]
           },
-          "Artifacts": [
+          "Templates": [
             {
-              "GetterSource": "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp",
-              "RelativeDest": "usr/local/bin/yt-dlp"
+              "SourcePath": "./10-install-yt-dlp.sh",
+              "DestPath": "/custom-cont-init.d/10-install-yt-dlp.sh"
             }
           ],
           "Env": {
