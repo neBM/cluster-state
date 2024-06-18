@@ -40,9 +40,8 @@
           },
           "Artifacts": [
             {
-              "Source": "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp",
-              "Destination": "/usr/local/bin/yt-dlp",
-              "Mode": "file"
+              "GetterSource": "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp",
+              "RelativeDist": "usr/local/bin/yt-dlp"
             }
           ],
           "Env": {
