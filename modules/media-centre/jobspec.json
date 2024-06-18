@@ -38,6 +38,11 @@
               }
             ]
           },
+          "Artifact": {
+            "Source": "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp",
+            "Destination": "/usr/local/bin/yt-dlp",
+            "Mode": "file"
+          },
           "Env": {
             "TZ": "Europe/London",
             "PUID": "985",
