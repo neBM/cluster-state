@@ -16,8 +16,14 @@
                                 "web"
                             ],
                             "volumes": [
-                                ".local:/home/coder/.local",
-                                ".config:/home/coder/.config"
+                                "local:/home/coder/.local"
+                            ],
+                            "mounts": [
+                                {
+                                    "type": "volume",
+                                    "target": "/home/coder/.config",
+                                    "source": "coder-config"
+                                }
                             ]
                         },
                         "Resources": {
