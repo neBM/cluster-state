@@ -38,12 +38,6 @@
               }
             ]
           },
-          "Templates": [
-            {
-              "SourcePath": "./10-install-yt-dlp.sh",
-              "DestPath": "/custom-cont-init.d/10-install-yt-dlp.sh"
-            }
-          ],
           "Env": {
             "TZ": "Europe/London",
             "PUID": "985",
