@@ -46,7 +46,7 @@
                                 {
                                     "type": "volume",
                                     "target": "/var/lib/postgresql/data",
-                                    "source": "coder-daata"
+                                    "source": "coder-data"
                                 }
                             ],
                             "healthcheck": {
