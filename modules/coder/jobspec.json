@@ -20,9 +20,9 @@
                             ]
                         },
                         "Env": {
-                            "CODER_PG_CONNECTION_URL": "postgresql://${POSTGRES_USER:-username}:${POSTGRES_PASSWORD:-password}@${NOMAD_ADDR_database}/${POSTGRES_DB:-coder}?sslmode=disable",
+                            "CODER_PG_CONNECTION_URL": "postgresql://coder:reu2zeeth9BeeWai9ohl1tierea6ooze@${NOMAD_ADDR_database}/coder?sslmode=disable",
                             "CODER_HTTP_ADDRESS": "0.0.0.0:7080",
-                            "CODER_ACCESS_URL": "coder.brmartin.co.uk"
+                            "CODER_ACCESS_URL": "https://coder.brmartin.co.uk"
                         },
                         "Resources": {
                             "CPU": 1000,
@@ -51,9 +51,9 @@
                             ]
                         },
                         "Env": {
-                            "POSTGRES_USER": "${POSTGRES_USER:-username}",
-                            "POSTGRES_PASSWORD": "${POSTGRES_PASSWORD:-password}",
-                            "POSTGRES_DB": "${POSTGRES_DB:-coder}"
+                            "POSTGRES_USER": "coder",
+                            "POSTGRES_PASSWORD": "reu2zeeth9BeeWai9ohl1tierea6ooze",
+                            "POSTGRES_DB": "coder"
                         }
                     }
                 ],
