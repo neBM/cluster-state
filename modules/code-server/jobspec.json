@@ -8,7 +8,7 @@
                 "Tasks": [
                     {
                         "Driver": "docker",
-                        "Name": "Code Server",
+                        "Name": "code-server",
                         "Count": 1,
                         "Config": {
                             "image": "codercom/code-server:latest",
