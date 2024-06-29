@@ -1,0 +1,103 @@
+{
+    "Job": {
+        "ID": "coder",
+        "Name": "Coder",
+        "TaskGroups": [
+            {
+                "Name": "Coder",
+                "Tasks": [
+                    {
+                        "Driver": "docker",
+                        "Name": "coder",
+                        "Count": 1,
+                        "Config": {
+                            "image": "ghcr.io/coder/coder:latest",
+                            "ports": [
+                                "web"
+                            ],
+                            "volumes": [
+                                "/var/run/docker.sock:/var/run/docker.sock"
+                            ]
+                        },
+                        "Env": {
+                            "CODER_PG_CONNECTION_URL": "postgresql://${POSTGRES_USER:-username}:${POSTGRES_PASSWORD:-password}@${NOMAD_ADDR_database}/${POSTGRES_DB:-coder}?sslmode=disable",
+                            "CODER_HTTP_ADDRESS": "0.0.0.0:7080",
+                            "CODER_ACCESS_URL": "coder.brmartin.co.uk"
+                        },
+                        "Resources": {
+                            "CPU": 1000,
+                            "MemoryMB": 1024
+                        }
+                    },
+                    {
+                        "Driver": "docker",
+                        "Name": "database",
+                        "Count": 1,
+                        "Lifecycle": {
+                            "Hook": "prestart",
+                            "Sidecar": true
+                        },
+                        "Config": {
+                            "image": "postgres:16",
+                            "ports": [
+                                "database"
+                            ],
+                            "mounts": [
+                                {
+                                    "type": "volume",
+                                    "target": "/var/lib/postgresql/data",
+                                    "source": "coder-daata"
+                                }
+                            ],
+                            "healthcheck": {
+                                "test": [
+                                    "CMD-SHELL",
+                                    "pg_isready -U ${POSTGRES_USER:-username} -d ${POSTGRES_DB:-coder}"
+                                ],
+                                "interval": "5s",
+                                "timeout": "5s",
+                                "retries": 5
+                            }
+                        },
+                        "Env": {
+                            "POSTGRES_USER": "${POSTGRES_USER:-username}",
+                            "POSTGRES_PASSWORD": "${POSTGRES_PASSWORD:-password}",
+                            "POSTGRES_DB": "${POSTGRES_DB:-coder}"
+                        }
+                    }
+                ],
+                "Services": [
+                    {
+                        "Name": "coder",
+                        "Provider": "nomad",
+                        "PortLabel": "web",
+                        "Tags": [
+                            "traefik.enable=true",
+                            "traefik.http.routers.coder.entrypoints=websecure",
+                            "traefik.http.routers.coder.rule=Host(`coder.brmartin.co.uk`)"
+                        ]
+                    },
+                    {
+                        "Name": "database",
+                        "Provider": "nomad",
+                        "PortLabel": "database"
+                    }
+                ],
+                "Networks": [
+                    {
+                        "DynamicPorts": [
+                            {
+                                "Label": "web",
+                                "To": 8080
+                            },
+                            {
+                                "Label": "database",
+                                "To": 5432
+                            }
+                        ]
+                    }
+                ]
+            }
+        ]
+    }
+}

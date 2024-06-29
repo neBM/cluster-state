@@ -10,6 +10,6 @@ module "media-centre" {
   source = "./modules/media-centre"
 }
 
-module "code-server" {
-  source = "./modules/code-server"
+module "coder" {
+  source = "./modules/coder"
 }
