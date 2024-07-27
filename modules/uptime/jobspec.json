@@ -1,0 +1,55 @@
+{
+  "ID": "uptime",
+  "Name": "Uptime",
+  "TaskGroups": [
+    {
+      "Name": "Uptime Servers",
+      "Tasks": [
+        {
+          "Name": "kuma",
+          "Driver": "docker",
+          "Config": {
+            "image": "louislam/uptime-kuma:latest",
+            "ports": [
+              "web"
+            ],
+            "mounts": [
+              {
+                "type": "volume",
+                "target": "/app/data",
+                "source": "kuma-data"
+              }
+            ]
+          },
+          "Resources": {
+            "CPU": 1200,
+            "MemoryMB": 4096
+          }
+        }
+      ],
+      "Services": [
+        {
+          "Name": "Kuma",
+          "Provider": "nomad",
+          "PortLabel": "web",
+          "Tags": [
+            "traefik.enable=true",
+            "traefik.http.routers.kuma.entrypoints=websecure",
+            "traefik.http.routers.kuma.rule=Host(`kuma.brmartin.co.uk`)"
+          ]
+
+        }
+      ],
+      "Networks": [
+        {
+          "DynamicPorts": [
+            {
+              "Label": "web",
+              "To": 3001
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

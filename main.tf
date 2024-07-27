@@ -13,3 +13,7 @@ module "media-centre" {
 module "coder" {
   source = "./modules/coder"
 }
+
+module "uptime" {
+  source = "./modules/uptime"
+}
