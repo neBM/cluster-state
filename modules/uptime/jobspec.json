@@ -22,8 +22,8 @@
             ]
           },
           "Resources": {
-            "CPU": 1200,
-            "MemoryMB": 4096
+            "CPU": 500,
+            "MemoryMB": 512
           }
         }
       ],
