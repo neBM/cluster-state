@@ -35,7 +35,7 @@
           "Tags": [
             "traefik.enable=true",
             "traefik.http.routers.kuma.entrypoints=websecure",
-            "traefik.http.routers.kuma.rule=Host(`kuma.brmartin.co.uk`)"
+            "traefik.http.routers.kuma.rule=Host(`status.brmartin.co.uk`)"
           ]
 
         }
