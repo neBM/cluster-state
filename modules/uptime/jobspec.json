@@ -18,6 +18,11 @@
                 "type": "volume",
                 "target": "/app/data",
                 "source": "kuma-data"
+              },
+              {
+                "type": "bind",
+                "target": "/var/run/docker.sock",
+                "source": "/var/run/docker.sock"
               }
             ]
           },
