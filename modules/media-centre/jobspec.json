@@ -11,7 +11,7 @@
           "Config": {
             "image": "lscr.io/linuxserver/jellyfin:latest",
             "runtime": "nvidia",
-            "memory_hard_limit": "1.5g",
+            "memory_hard_limit": 1536,
             "ports": [
               "jellyfin"
             ],
