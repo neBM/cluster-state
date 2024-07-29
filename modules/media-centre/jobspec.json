@@ -10,7 +10,6 @@
           "Driver": "docker",
           "Config": {
             "image": "lscr.io/linuxserver/jellyfin:latest",
-            "runtime": "nvidia",
             "ports": [
               "jellyfin"
             ],
@@ -36,6 +35,12 @@
                 "target": "/config",
                 "source": "jellyfin-config"
               }
+            ],
+            "devices": [
+              {
+                "host_path": "/dev/dri",
+                "container_path": "/dev/dri"
+              }
             ]
           },
           "Env": {
@@ -46,13 +51,7 @@
           },
           "Resources": {
             "CPU": 1200,
-            "MemoryMB": 4096,
-            "Devices": [
-              {
-                "Name": "nvidia/gpu",
-                "Count": 1
-              }
-            ]
+            "MemoryMB": 4096
           }
         }
       ],
