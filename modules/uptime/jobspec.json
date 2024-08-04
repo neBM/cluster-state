@@ -27,7 +27,15 @@
             ],
             "extra_hosts": [
               "host.docker.internal:host-gateway"
-            ]
+            ],
+            "logging": {
+              "type": "elastic/elastic-logging-plugin:8.14.3",
+              "config": {
+                "hosts": "http://localhost:9200",
+                "user": "docker_writer",
+                "password": "oi*YWZSP_Ukd0y+pQ7EB"
+              }
+            }
           },
           "Resources": {
             "CPU": 500,
