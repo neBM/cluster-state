@@ -24,11 +24,13 @@
             ],
             "logging": {
               "type": "elastic/elastic-logging-plugin:8.14.3",
-              "config": {
-                "hosts": "http://localhost:9200",
-                "user": "docker_writer",
-                "password": "oi*YWZSP_Ukd0y+pQ7EB"
-              }
+              "config": [
+                {
+                  "hosts": "http://localhost:9200",
+                  "user": "docker_writer",
+                  "password": "oi*YWZSP_Ukd0y+pQ7EB"
+                }
+              ]
             }
           },
           "Templates": [
