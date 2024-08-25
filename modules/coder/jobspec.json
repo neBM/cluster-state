@@ -1,0 +1,115 @@
+{
+  "ID": "coder",
+  "Name": "Coder",
+  "TaskGroups": [
+    {
+      "Name": "Coder",
+      "Tasks": [
+        {
+          "Driver": "docker",
+          "Name": "coder",
+          "Count": 1,
+          "Config": {
+            "image": "ghcr.io/coder/coder:latest",
+            "ports": [
+              "web"
+            ],
+            "volumes": [
+              "/var/run/docker.sock:/var/run/docker.sock"
+            ],
+            "group_add": [
+              "998"
+            ],
+            "logging": {
+              "type": "elastic/elastic-logging-plugin:8.14.3",
+              "config": [
+                {
+                  "hosts": "http://localhost:9200",
+                  "user": "docker_writer",
+                  "password": "oi*YWZSP_Ukd0y+pQ7EB"
+                }
+              ]
+            }
+          },
+          "Env": {
+            "CODER_PG_CONNECTION_URL": "postgresql://coder:reu2zeeth9BeeWai9ohl1tierea6ooze@${NOMAD_ADDR_database}/coder?sslmode=disable",
+            "CODER_HTTP_ADDRESS": "0.0.0.0:7080",
+            "CODER_ACCESS_URL": "https://coder.brmartin.co.uk"
+          },
+          "Resources": {
+            "CPU": 1000,
+            "MemoryMB": 1024
+          }
+        },
+        {
+          "Driver": "docker",
+          "Name": "database",
+          "Count": 1,
+          "Lifecycle": {
+            "Hook": "prestart",
+            "Sidecar": true
+          },
+          "Config": {
+            "image": "postgres:16",
+            "ports": [
+              "database"
+            ],
+            "mounts": [
+              {
+                "type": "volume",
+                "target": "/var/lib/postgresql/data",
+                "source": "coder-data"
+              }
+            ],
+            "logging": {
+              "type": "elastic/elastic-logging-plugin:8.14.3",
+              "config": [
+                {
+                  "hosts": "http://localhost:9200",
+                  "user": "docker_writer",
+                  "password": "oi*YWZSP_Ukd0y+pQ7EB"
+                }
+              ]
+            }
+          },
+          "Env": {
+            "POSTGRES_USER": "coder",
+            "POSTGRES_PASSWORD": "reu2zeeth9BeeWai9ohl1tierea6ooze",
+            "POSTGRES_DB": "coder"
+          }
+        }
+      ],
+      "Services": [
+        {
+          "Name": "coder",
+          "Provider": "nomad",
+          "PortLabel": "web",
+          "Tags": [
+            "traefik.enable=true",
+            "traefik.http.routers.coder.entrypoints=websecure",
+            "traefik.http.routers.coder.rule=Host(`coder.brmartin.co.uk`)"
+          ]
+        },
+        {
+          "Name": "database",
+          "Provider": "nomad",
+          "PortLabel": "database"
+        }
+      ],
+      "Networks": [
+        {
+          "DynamicPorts": [
+            {
+              "Label": "web",
+              "To": 7080
+            },
+            {
+              "Label": "database",
+              "To": 5432
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
