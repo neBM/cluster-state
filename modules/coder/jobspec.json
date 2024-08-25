@@ -19,17 +19,7 @@
             ],
             "group_add": [
               "998"
-            ],
-            "logging": {
-              "type": "elastic/elastic-logging-plugin:8.14.3",
-              "config": [
-                {
-                  "hosts": "http://localhost:9200",
-                  "user": "docker_writer",
-                  "password": "oi*YWZSP_Ukd0y+pQ7EB"
-                }
-              ]
-            }
+            ]
           },
           "Env": {
             "CODER_PG_CONNECTION_URL": "postgresql://coder:reu2zeeth9BeeWai9ohl1tierea6ooze@${NOMAD_ADDR_database}/coder?sslmode=disable",
@@ -60,17 +50,7 @@
                 "target": "/var/lib/postgresql/data",
                 "source": "coder-data"
               }
-            ],
-            "logging": {
-              "type": "elastic/elastic-logging-plugin:8.14.3",
-              "config": [
-                {
-                  "hosts": "http://localhost:9200",
-                  "user": "docker_writer",
-                  "password": "oi*YWZSP_Ukd0y+pQ7EB"
-                }
-              ]
-            }
+            ]
           },
           "Env": {
             "POSTGRES_USER": "coder",
