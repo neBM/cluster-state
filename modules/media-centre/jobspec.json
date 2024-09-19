@@ -15,7 +15,6 @@
             "group_add": [
               "997"
             ],
-            "memory_hard_limit": 4096,
             "ports": [
               "jellyfin"
             ],
@@ -46,7 +45,7 @@
           },
           "Resources": {
             "CPU": 1200,
-            "MemoryMB": 400,
+            "MemoryMB": 4096,
             "Devices": [
               {
                 "Name": "nvidia/gpu",
