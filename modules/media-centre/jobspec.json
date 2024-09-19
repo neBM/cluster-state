@@ -7,10 +7,14 @@
       "Tasks": [
         {
           "Name": "Jellyfin",
+          "User": "985",
           "Driver": "docker",
           "Config": {
-            "image": "lscr.io/linuxserver/jellyfin:latest",
+            "image": "jellyfin/jellyfin",
             "runtime": "nvidia",
+            "group_add": [
+              "997"
+            ],
             "memory_hard_limit": 4096,
             "ports": [
               "jellyfin"
@@ -40,11 +44,7 @@
             ]
           },
           "Env": {
-            "TZ": "Europe/London",
-            "PUID": "985",
-            "PGID": "997",
-            "JELLYFIN_PublishedServerUrl": "192.168.1.5",
-            "MALLOC_TRIM_THRESHOLD_": "100000"
+            "JELLYFIN_PublishedServerUrl": "192.168.1.5"
           },
           "Resources": {
             "CPU": 1200,
