@@ -11,6 +11,7 @@
           "Config": {
             "image": "lscr.io/linuxserver/jellyfin:latest",
             "runtime": "nvidia",
+            "memory_hard_limit": 4096,
             "ports": [
               "jellyfin"
             ],
@@ -47,7 +48,7 @@
           },
           "Resources": {
             "CPU": 1200,
-            "MemoryMB": 4096,
+            "MemoryMB": 400,
             "Devices": [
               {
                 "Name": "nvidia/gpu",
