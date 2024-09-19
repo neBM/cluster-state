@@ -20,7 +20,7 @@
               "jellyfin"
             ],
             "volumes": [
-              "local/config/:/config"
+              "local/:/config"
             ],
             "mounts": [
               {
