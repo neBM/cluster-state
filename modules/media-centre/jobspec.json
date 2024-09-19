@@ -19,6 +19,9 @@
             "ports": [
               "jellyfin"
             ],
+            "volumes": [
+              "local/config/:/config"
+            ],
             "mounts": [
               {
                 "type": "volume",
@@ -35,11 +38,6 @@
                     ]
                   }
                 }
-              },
-              {
-                "type": "volume",
-                "target": "/config",
-                "source": "jellyfin-config"
               }
             ]
           },
