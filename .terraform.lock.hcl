@@ -2,21 +2,21 @@
 # Manual edits may be lost in future updates.
 
 provider "registry.terraform.io/hashicorp/nomad" {
-  version     = "2.2.0"
-  constraints = "2.2.0"
+  version     = "2.4.0"
+  constraints = "2.4.0"
   hashes = [
-    "h1:BAjqzVkuXxHtRKG+l9unaZJPk2kWZpSTCEcQPRcl2so=",
-    "zh:052f909d25121e93dc799290216292fca67943ccde12ba515068b838a6ff8c66",
-    "zh:20e29aeb9989f7a1e04bb4093817c7acc4e1e737bb21a3066f3ea46f2001feff",
-    "zh:2326d101ef427599b72cce30c0e0c1d18ae783f1a897c20f2319fbf54bab0a61",
-    "zh:3420cbe4fd19cdc96d715d0ae8e79c272608023a76033bbf582c30637f6d570f",
-    "zh:41ec570f87f578f1c57655e2e4fbdb9932d94cf92dc9cd11828cccedf36dd4a4",
-    "zh:5f90dcc58e3356ffead82ea211ecb4a2d7094d3c2fbd14ff85527c3652a595a2",
-    "zh:64aaa48609d2db868fcfd347490df0e12c6c3fcb8e4f12908c5d52b1a0adf73f",
+    "h1:MnNLz6rQIqiLk6EKf5XjJlE5S/wmqh+z0A4ndDHWEZA=",
+    "zh:0825c5d2e6cb6a92aa247366f10c74275fdf9027bdb874d374aa3a9c3983ec68",
+    "zh:0c939ce35dce82da62c4cc8642903b43292c9915ac1a13099885e7c89edb87ae",
+    "zh:23dd5d8300e7d6b42a1a55a541296227b3c054ad19dc8a6eb411ef8b2d689f5e",
+    "zh:26b76c1d2c25f1b9730d5b6fe0fce355a0a5f666c0818f7284d9663ee556adec",
+    "zh:4915e1f176c4aa910504113629dbe25120a3915e703cb8f8b637dd2d20a4ad6f",
+    "zh:4f9d3bb2e97c9a4a135aa9d8d65f37902a7f838655e21cc22fffc8ebab8d2d66",
+    "zh:51dad4566c56b9bbe0a59c25287f3e14c35b5fbfde167fdab6ae98dfc23a6ae1",
+    "zh:56a7f7939bc41dbcdadf1fbbc7096090a26aa38552060cef472c82181af26cc8",
+    "zh:68bc2c7d28e1a7de2655e194423e911433ea8f3b87ab0a54ed1833f44ef63bb5",
+    "zh:75f9d9c4c031c3ac83b2c2cf37163edf3b8eea9f58a379d1b83d096f0b3d98cc",
     "zh:78d5eefdd9e494defcb3c68d282b8f96630502cac21d1ea161f53cfe9bb483b3",
-    "zh:86b4923e10e6ba407d1d2aab83740b702058e8b01460af4f5f0e4008f40e492c",
-    "zh:ae89dcba33097af33a306344d20e4e25181f15dcc1a860b42db5b7199a97c6a6",
-    "zh:ce56d68cdfba60891765e94f9c0bf69eddb985d44d97db9f91874bea027f08e2",
-    "zh:e993bcde5dbddaedf3331e3014ffab904f98ab0f5e8b5d6082b7ca5083e0a2f1",
+    "zh:fea4d2a0df951ab8fad4d2f8da0e2c2198e93220cf9269d5c51d80db1988ae52",
   ]
 }
