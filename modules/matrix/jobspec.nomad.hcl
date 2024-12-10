@@ -73,8 +73,8 @@ job "matrix" {
           id: whatsapp
           url: http://matrix-whatsapp-bridge.virtual.consul
         	{{with nomadVar "nomad/jobs/matrix/synapse/synapse"}}
-          as_token="{{.as_token}}"
-          hs_token="{{.hs_token}}"
+          as_token: {{.as_token}}
+          hs_token: {{.hs_token}}
           {{end}}
           sender_localpart: ctvppZV8epjY9iUtTt0nR29e92V4nIJb
           rate_limited: false
