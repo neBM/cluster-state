@@ -279,7 +279,7 @@ job "matrix" {
       }
 
       env = {
-        SYNCV3_SERVER = "http://synapse.service.consul"
+        SYNCV3_SERVER = "http://matrix-synapse.virtual.consul"
       }
       
       template {
