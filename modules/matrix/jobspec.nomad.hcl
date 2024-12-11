@@ -281,7 +281,7 @@ job "matrix" {
       env = {
         SYNCV3_SERVER = "http://matrix-synapse.virtual.consul"
       }
-      
+
       template {
         data = <<-EOH
         	{{with nomadVar "nomad/jobs/matrix/syncv3/syncv3"}}
