@@ -3,7 +3,7 @@ resource "nomad_job" "elk" {
 
   hcl2 {
     vars = {
-      "elastic_version" = "8.16.1",
+      "elastic_version" = "8.17.0",
     }
   }
 }
