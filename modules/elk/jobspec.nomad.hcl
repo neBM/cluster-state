@@ -203,6 +203,7 @@ job "elk" {
             api_key: "{{.api_key}}"
           elasticsearch:
             host: "https://hestia.lan:9200"
+            verify_certs: false
             api_key: "{{.api_key}}"
           {{end}}
           EOF
