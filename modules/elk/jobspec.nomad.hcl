@@ -185,7 +185,7 @@ job "elk" {
         mount {
           type   = "bind"
           source = "local/config.yml"
-          targe  = "/config/config.yml"
+          target = "/config/config.yml"
         }
       }
 
