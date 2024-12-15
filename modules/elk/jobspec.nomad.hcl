@@ -167,52 +167,6 @@ job "elk" {
     }
   }
 
-  group "connectors" {
-
-    network {
-      mode = "bridge"
-    }
-
-    task "elastic-connectors" {
-      driver = "docker"
-
-      config {
-        image = "docker.elastic.co/integrations/elastic-connectors:${var.elastic_version}"
-
-        command = "/app/bin/elastic-ingest"
-        args    = ["-c", "/config/config.yml"]
-
-        mount {
-          type   = "bind"
-          source = "local/config.yml"
-          target = "/config/config.yml"
-        }
-      }
-
-      resources {
-        cpu    = 500
-        memory = 512
-      }
-
-      template {
-        data = <<-EOF
-        	{{with nomadVar "nomad/jobs/elk/connectors/elastic-connectors" }}
-          connectors:
-          - connector_id: "PDlTypMBJHtNrm356nUt"
-            service_type: "postgresql"
-            api_key: "{{.api_key}}"
-          elasticsearch:
-            host: "https://hestia.lan:9200"
-            verify_certs: false
-            api_key: "{{.api_key}}"
-          {{end}}
-          EOF
-
-        destination = "local/config.yml"
-      }
-    }
-  }
-
   group "kibana" {
 
     count = 2
