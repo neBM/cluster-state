@@ -53,11 +53,6 @@ job "elk" {
       }
     }
 
-    service {
-      provider = "consul"
-      port     = "transport"
-    }
-
     task "elasticsearch" {
       driver = "docker"
 
@@ -74,11 +69,44 @@ job "elk" {
         ulimit {
           memlock = "-1:-1"
         }
+        
+        mount {
+          type   = "bind"
+          source = "local/unicast_hosts.txt"
+          target = "/usr/share/elasticsearch/config/unicast_hosts.txt"
+        }
+      }
+      
+      env {
+        ES_PATH_CONF = "/usr/share/elasticsearch/config"
       }
 
       resources {
         cpu    = 2000
         memory = 2048
+      }
+      
+      template {
+        data = <<-EOF
+          {{ range service "elk-node-elasticsearch-transport" }}
+          {{ .Address }}:{{ .Port }}
+          {{ end }}
+          EOF
+
+        destination = "local/unicast_hosts.txt"
+        change_mode = "noop"
+      }
+
+      service {
+        name = "elk-node-elasticsearch-http"
+        provider = "consul"
+        port     = "http"
+      }
+
+      service {
+        name = "elk-node-elasticsearch-transport"
+        provider = "consul"
+        port     = "transport"
       }
     }
   }
