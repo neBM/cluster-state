@@ -144,7 +144,7 @@ job "matrix" {
       driver = "docker"
 
       config {
-        image = "dock.mau.dev/mautrix/whatsapp:v0.11.1"
+        image = "dock.mau.dev/mautrix/whatsapp:v0.11.2"
 
         ports = ["8082"]
 
