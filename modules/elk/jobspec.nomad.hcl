@@ -69,14 +69,14 @@ job "elk" {
         ulimit {
           memlock = "-1:-1"
         }
-        
+
         mount {
           type   = "bind"
           source = "local/unicast_hosts.txt"
           target = "/usr/share/elasticsearch/config/unicast_hosts.txt"
         }
       }
-      
+
       env {
         ES_PATH_CONF = "/usr/share/elasticsearch/config"
       }
@@ -85,7 +85,7 @@ job "elk" {
         cpu    = 2000
         memory = 2048
       }
-      
+
       template {
         data = <<-EOF
           {{ range service "elk-node-elasticsearch-transport" }}
@@ -98,13 +98,13 @@ job "elk" {
       }
 
       service {
-        name = "elk-node-elasticsearch-http"
+        name     = "elk-node-elasticsearch-http"
         provider = "consul"
         port     = "http"
       }
 
       service {
-        name = "elk-node-elasticsearch-transport"
+        name     = "elk-node-elasticsearch-transport"
         provider = "consul"
         port     = "transport"
       }
