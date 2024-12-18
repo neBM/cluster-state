@@ -127,7 +127,7 @@ job "elk" {
       config {
         image = "docker.elastic.co/elasticsearch/elasticsearch:${var.elastic_version}"
 
-        ports = ["9200", "9300"]
+        ports = ["http", "transport"]
 
         volumes = [
           "/mnt/docker/elastic-${node.unique.name}/config:/usr/share/elasticsearch/config",
