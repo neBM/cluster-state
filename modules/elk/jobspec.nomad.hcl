@@ -208,6 +208,12 @@ job "elk" {
         volumes = [
           "/mnt/docker/elastic/kibana/config:/usr/share/kibana/config",
         ]
+
+        mount {
+          type   = "bind"
+          source = "local/kibana.yml"
+          target = "/usr/share/kibana/config/kibana.yml"
+        }
       }
 
       resources {
@@ -233,6 +239,58 @@ job "elk" {
           timeout   = "2s"
           on_update = "ignore"
         }
+      }
+
+      template {
+        data = <<-EOF
+          elasticsearch:
+            hosts:
+              {{ range service "elk-node-elasticsearch-transport" }}
+              - https://{{ .Address }}:{{ .Port }}
+              {{ end }}
+            username: ${ELASTICSEARCH_USERNAME}
+            password: ${ELASTICSEARCH_PASSWORD}
+            requestTimeout: 600000
+            ssl:
+              certificateAuthorities:
+                - /usr/share/kibana/config/elasticsearch-ca.pem
+          server:
+            host: 0.0.0.0
+            publicBaseUrl: https://kibana.brmartin.co.uk
+            ssl:
+              enabled: false
+          xpack:
+            encryptedSavedObjects:
+              encryptionKey: ${XPACK_ENCRYPTEDSAVEDOBJECTS_ENCRYPTIONKEY}
+            reporting:
+              encryptionKey: ${XPACK_REPORTING_ENCRYPTIONKEY}
+            security:
+              encryptionKey: ${XPACK_SECURITY_ENCRYPTIONKEY}
+            alerting:
+              rules:
+                run:
+                  alerts:
+                    max: 10000
+          EOF
+
+        destination = "local/kibana.yml"
+        change_mode = "noop"
+      }
+
+      template {
+        data = <<-EOF
+          {{ with nomadVar "nomad/jobs/elk/kibana/kibana" }}
+          ELASTICSEARCH_USERNAME={{.kibana_username}}
+          ELASTICSEARCH_PASSWORD={{.kibana_password}}
+          XPACK_ENCRYPTEDSAVEDOBJECTS_ENCRYPTIONKEY={{.kibana_encryptedSavedObjects_encryptionKey}}
+          XPACK_REPORTING_ENCRYPTIONKEY={{.kibana_reporting_encryptionKey}}
+          XPACK_SECURITY_ENCRYPTIONKEY={{.kibana_security_encryptionKey}}
+          {{ end }}
+          {{end}}
+          EOF
+
+        destination = "secrets/file.env"
+        env         = true
       }
     }
   }
