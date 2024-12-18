@@ -252,6 +252,7 @@ job "elk" {
             password: ${ELASTICSEARCH_PASSWORD}
             requestTimeout: 600000
             ssl:
+              verificationMode: certificate # TODO: Change to full once we have a cert that signs for the ips
               certificateAuthorities:
                 - /usr/share/kibana/config/elasticsearch-ca.pem
           server:
