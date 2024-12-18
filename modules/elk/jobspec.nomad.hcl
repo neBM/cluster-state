@@ -88,9 +88,8 @@ job "elk" {
           "traefik.http.routers.es.rule=Host(`es.brmartin.co.uk`)",
           "traefik.http.routers.es.entrypoints=websecure",
           "traefik.http.routers.es.service=es",
-          "traefik.http.services.es.loadbalancer.serversTransport=es",
-          "traefik.http.serversTransports.es.rootCAs[0]=/etc/traefik/rootca/elasticsearch.crt",
-          "traefik.http.serversTransports.es.insecureSkipVerify=true", # TODO: Hostname verification will fail without this
+          "traefik.http.services.es.loadbalancer.server.scheme=https",
+          "traefik.http.services.es.loadbalancer.serversTransport=es@file",
         ]
       }
 
