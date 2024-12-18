@@ -110,7 +110,6 @@ job "elk" {
     }
 
     network {
-      mode = "bridge"
       port "http" {
         static = 9200
       }
