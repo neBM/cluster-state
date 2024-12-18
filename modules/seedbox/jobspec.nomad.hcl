@@ -42,6 +42,35 @@ job "seedbox" {
     }
   }
 
+  # services:
+  # qbittorrent-nox:
+  #   # for debugging
+  #   #cap_add:
+  #     #- SYS_PTRACE
+  #   environment:
+  #     #- PAGID=10000
+  #     #- PGID=1000
+  #     #- PUID=1000
+  #     - QBT_LEGAL_NOTICE=
+  #     - QBT_WEBUI_PORT=8080
+  #     #- TZ=UTC
+  #     #- UMASK=022
+  #   image: qbittorrentofficial/qbittorrent-nox:latest
+  #   ports:
+  #     # for bittorrent traffic
+  #     - 6881:6881/tcp
+  #     - 6881:6881/udp
+  #     # for WebUI
+  #     - 8080:8080/tcp
+  #   read_only: true
+  #   stop_grace_period: 30m
+  #   tmpfs:
+  #     - /tmp
+  #   tty: true
+  #   volumes:
+  #     - <your_path>/config:/config
+  #     - <your_path>/downloads:/downloads
+
   group "client" {
 
     network {
@@ -87,7 +116,7 @@ job "seedbox" {
       driver = "docker"
 
       config {
-        image = "ghcr.io/linuxserver/qbittorrent:5.0.2"
+        image = "ghcr.io/qbittorrent/docker-qbittorrent-nox:5.0.2-1"
       }
 
       resources {
@@ -96,11 +125,11 @@ job "seedbox" {
       }
 
       env {
-        PUID        = "991"
-        PGID        = "997"
-        WEBUI_PORT  = "${NOMAD_PORT_qbittorrent}"
-        TZ          = "Europe/London"
-        DOCKER_MODS = "ghcr.io/vuetorrent/vuetorrent-lsio-mod:latest"
+        PUID             = "991"
+        PGID             = "997"
+        QBT_LEGAL_NOTICE = "confirm"
+        QBT_WEBUI_PORT   = "${NOMAD_PORT_qbittorrent}"
+        TZ               = "Europe/London"
       }
 
       volume_mount {
