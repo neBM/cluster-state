@@ -245,7 +245,7 @@ job "elk" {
         data = <<-EOF
           elasticsearch:
             hosts:
-              {{ range service "elk-node-elasticsearch-transport" }}
+              {{ range service "elk-node-elasticsearch-http" }}
               - https://{{ .Address }}:{{ .Port }}
               {{ end }}
             username: ${ELASTICSEARCH_USERNAME}
