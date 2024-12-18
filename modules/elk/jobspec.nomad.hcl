@@ -31,34 +31,6 @@ job "elk" {
       }
     }
 
-    service {
-      provider = "consul"
-      port     = "9200"
-
-      meta {
-        envoy_metrics_port = "${NOMAD_HOST_PORT_envoy_metrics}"
-      }
-
-      connect {
-        sidecar_service {
-          proxy {
-            expose {
-              path {
-                path            = "/metrics"
-                protocol        = "http"
-                local_path_port = 9102
-                listener_port   = "envoy_metrics"
-              }
-            }
-            transparent_proxy {
-              exclude_inbound_ports  = ["9200", "9300"]
-              exclude_outbound_ports = [9200, 9300]
-            }
-          }
-        }
-      }
-    }
-
     task "elasticsearch" {
       driver = "docker"
 
@@ -95,6 +67,9 @@ job "elk" {
       template {
         data = <<-EOF
           {{ range service "elk-node-elasticsearch-transport" }}
+          {{ .Address }}:{{ .Port }}
+          {{ end }}
+          {{ range service "elk-tiebreaker-elasticsearch-transport" }}
           {{ .Address }}:{{ .Port }}
           {{ end }}
           EOF
@@ -137,34 +112,6 @@ job "elk" {
       }
     }
 
-    service {
-      provider = "consul"
-      port     = "9200"
-
-      meta {
-        envoy_metrics_port = "${NOMAD_HOST_PORT_envoy_metrics}"
-      }
-
-      connect {
-        sidecar_service {
-          proxy {
-            expose {
-              path {
-                path            = "/metrics"
-                protocol        = "http"
-                local_path_port = 9102
-                listener_port   = "envoy_metrics"
-              }
-            }
-            transparent_proxy {
-              exclude_inbound_ports  = ["9200", "9300"]
-              exclude_outbound_ports = [9200, 9300]
-            }
-          }
-        }
-      }
-    }
-
     task "elasticsearch" {
       driver = "docker"
 
@@ -203,6 +150,9 @@ job "elk" {
           {{ range service "elk-node-elasticsearch-transport" }}
           {{ .Address }}:{{ .Port }}
           {{ end }}
+          {{ range service "elk-tiebreaker-elasticsearch-transport" }}
+          {{ .Address }}:{{ .Port }}
+          {{ end }}
           EOF
 
         destination = "local/unicast_hosts.txt"
@@ -210,13 +160,13 @@ job "elk" {
       }
 
       service {
-        name     = "elk-node-elasticsearch-http"
+        name     = "elk-tiebreaker-elasticsearch-http"
         provider = "consul"
         port     = "http"
       }
 
       service {
-        name     = "elk-node-elasticsearch-transport"
+        name     = "elk-tiebreaker-elasticsearch-transport"
         provider = "consul"
         port     = "transport"
       }
