@@ -286,7 +286,6 @@ job "elk" {
           XPACK_REPORTING_ENCRYPTIONKEY={{.kibana_reporting_encryptionKey}}
           XPACK_SECURITY_ENCRYPTIONKEY={{.kibana_security_encryptionKey}}
           {{ end }}
-          {{end}}
           EOF
 
         destination = "secrets/file.env"
