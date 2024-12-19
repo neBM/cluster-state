@@ -24,7 +24,7 @@ job "elk" {
         to = 9200
       }
       port "transport" {
-        static = 9300
+        to = 9300
       }
       port "envoy_metrics" {
         to = 9102
