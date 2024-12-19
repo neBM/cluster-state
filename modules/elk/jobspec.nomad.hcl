@@ -78,6 +78,12 @@ job "elk" {
           source = "local/unicast_hosts.txt"
           target = "/usr/share/elasticsearch/config/unicast_hosts.txt"
         }
+
+        mount {
+          type   = "bind"
+          source = "local/elasticsearch.yml"
+          target = "/usr/share/elasticsearch/config/elasticsearch.yml"
+        }
       }
 
       env {
@@ -87,6 +93,42 @@ job "elk" {
       resources {
         cpu    = 2000
         memory = 2048
+      }
+
+      template {
+        data = <<-EOF
+          cluster:
+            name: "docker-cluster"
+          node:
+            name: {{ env "node.unique.name" }}
+          network:
+            host: 0.0.0.0
+            publish_host: "{{ env "NOMAD_IP_transport" }}"
+          discovery:
+            seed_providers: file
+          xpack:
+            security:
+              enrollment:
+                enabled: true
+              transport:
+                ssl:
+                  enabled: true
+                  verification_mode: certificate
+                  client_authentication: required
+                  keystore:
+                    path: certs/elastic-certificates.p12
+                  truststore:
+                    path: certs/elastic-certificates.p12
+              http:
+                ssl:
+                  enabled: true
+                  keystore:
+                    path: certs/http.p12
+          bootstrap:
+            memory_lock: true
+          EOF
+
+        destination = "local/elasticsearch.yml"
       }
 
       template {
