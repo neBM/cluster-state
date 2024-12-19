@@ -21,7 +21,7 @@
         "\\.tf$"
       ],
       "matchStrings": [
-        "\\s*#\\s?renovate:\\s?image=(?<depName>.*?)\\s?\\\"\\w+\\\"\\s?=\\s?\\\"(?<currentValue>[\\w+\\.\\-]*)\""
+        "\\s*#\\s?renovate:\\s?image=(?<depName>.*?)\\s?\"\\w+\"\\s?=\\s?\"(?<currentValue>[\\w+\\.\\-]*)\""
       ]
     }
   ]
