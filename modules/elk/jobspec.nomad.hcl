@@ -122,13 +122,13 @@ job "elk" {
     network {
       mode = "bridge"
       port "inbound" {
-        to = 8080
+        static = 9200
       }
     }
 
     service {
       name = "es-ingress-service"
-      port = "inbound"
+      port = 9200
 
       tags = [
         "traefik.enable=true",
@@ -143,7 +143,7 @@ job "elk" {
         gateway {
           ingress {
             listener {
-              port     = 8080
+              port     = 9200
               protocol = "tcp"
               service {
                 name = "elk-node"
