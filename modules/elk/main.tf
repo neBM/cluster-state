@@ -3,6 +3,7 @@ resource "nomad_job" "elk" {
 
   hcl2 {
     vars = {
+      # renovate: image=docker.elastic.co/elasticsearch/elasticsearch
       "elastic_version" = "8.17.0",
     }
   }

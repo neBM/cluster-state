@@ -13,6 +13,16 @@
       "matchStrings": [
         "\\s*image\\s*=\\s*\\\"(?<depName>.*?):(?<currentValue>.*?)\\\""
       ]
+    },
+    {
+      "customType": "regex",
+      "datasourceTemplate": "docker",
+      "fileMatch": [
+        "\\.tf$"
+      ],
+      "matchStrings": [
+        "#\\s?renovate:\\s?image=(?<depName>.*?)\\s?\\\"\\w+\\\"\\s?=\\s?\\\"(?<currentValue>[\\w+\\.\\-]*)\""
+      ]
     }
   ]
 }
