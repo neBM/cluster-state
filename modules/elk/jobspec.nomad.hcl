@@ -24,7 +24,7 @@ job "elk" {
         to = 9200
       }
       port "transport" {
-        to = 9300
+        static = 9300
       }
       port "envoy_metrics" {
         to = 9102
@@ -49,9 +49,6 @@ job "elk" {
                 local_path_port = 9102
                 listener_port   = "envoy_metrics"
               }
-            }
-            transparent_proxy {
-              exclude_inbound_ports = ["9300"]
             }
           }
         }
