@@ -21,7 +21,7 @@ job "elk" {
     network {
       mode = "bridge"
       port "http" {
-        static = 9200
+        to = 9200
       }
       port "transport" {
         static = 9300
