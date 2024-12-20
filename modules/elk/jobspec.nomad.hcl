@@ -24,7 +24,7 @@ job "elk" {
         to = 9200
       }
       port "transport" {
-        static = 9300
+        to = 9300
       }
       port "envoy_metrics" {
         to = 9102
@@ -32,8 +32,34 @@ job "elk" {
     }
 
     service {
+      name     = "elk-node-http"
       provider = "consul"
       port     = "9200"
+
+      meta {
+        envoy_metrics_port = "${NOMAD_HOST_PORT_envoy_metrics}"
+      }
+
+      connect {
+        sidecar_service {
+          proxy {
+            expose {
+              path {
+                path            = "/metrics"
+                protocol        = "http"
+                local_path_port = 9102
+                listener_port   = "envoy_metrics"
+              }
+            }
+          }
+        }
+      }
+    }
+
+    service {
+      name     = "elk-node-transport"
+      provider = "consul"
+      port     = "9300"
 
       meta {
         envoy_metrics_port = "${NOMAD_HOST_PORT_envoy_metrics}"
@@ -100,7 +126,13 @@ job "elk" {
             name: {{ env "node.unique.name" }}
           network:
             host: 0.0.0.0
-            publish_host: "{{ env "NOMAD_IP_transport" }}"
+            publish_host: {{ env "NOMAD_HOST_IP_transport" }}
+          http:
+            publish_host: {{ env "NOMAD_HOST_IP_http" }}
+            publish_port: {{ env "NOMAD_HOST_PORT_http" }}
+          transport:
+            publish_host: {{ env "NOMAD_HOST_IP_transport" }}
+            publish_port: {{ env "NOMAD_HOST_PORT_transport" }}
           discovery:
             seed_providers: file
           xpack:
@@ -130,28 +162,14 @@ job "elk" {
 
       template {
         data = <<-EOF
-          {{ range service "elk-node-elasticsearch-transport" }}
-          {{ .Address }}:{{ .Port }}
-          {{ end }}
-          {{ range service "elk-tiebreaker-elasticsearch-transport" }}
-          {{ .Address }}:{{ .Port }}
-          {{ end }}
+          {{ range service "elk-node-transport" }}
+          {{ .Address }}:{{ .Port }}{{ end }}
+          {{ range service "elk-tiebreaker-transport" }}
+          {{ .Address }}:{{ .Port }}{{ end }}
           EOF
 
         destination = "local/unicast_hosts.txt"
         change_mode = "noop"
-      }
-
-      service {
-        name     = "elk-node-elasticsearch-http"
-        provider = "consul"
-        port     = "http"
-      }
-
-      service {
-        name     = "elk-node-elasticsearch-transport"
-        provider = "consul"
-        port     = "transport"
       }
     }
   }
@@ -185,7 +203,7 @@ job "elk" {
               port     = 9200
               protocol = "tcp"
               service {
-                name = "elk-node"
+                name = "elk-node-http"
               }
             }
           }
@@ -202,14 +220,65 @@ job "elk" {
     }
 
     network {
+      mode = "bridge"
       port "http" {
-        static = 9200
+        to = 9200
       }
       port "transport" {
-        static = 9300
+        to = 9300
       }
       port "envoy_metrics" {
         to = 9102
+      }
+    }
+
+    service {
+      name     = "elk-tiebreaker-http"
+      provider = "consul"
+      port     = "9200"
+
+      meta {
+        envoy_metrics_port = "${NOMAD_HOST_PORT_envoy_metrics}"
+      }
+
+      connect {
+        sidecar_service {
+          proxy {
+            expose {
+              path {
+                path            = "/metrics"
+                protocol        = "http"
+                local_path_port = 9102
+                listener_port   = "envoy_metrics"
+              }
+            }
+          }
+        }
+      }
+    }
+
+    service {
+      name     = "elk-tiebreaker-transport"
+      provider = "consul"
+      port     = "9300"
+
+      meta {
+        envoy_metrics_port = "${NOMAD_HOST_PORT_envoy_metrics}"
+      }
+
+      connect {
+        sidecar_service {
+          proxy {
+            expose {
+              path {
+                path            = "/metrics"
+                protocol        = "http"
+                local_path_port = 9102
+                listener_port   = "envoy_metrics"
+              }
+            }
+          }
+        }
       }
     }
 
@@ -218,8 +287,6 @@ job "elk" {
 
       config {
         image = "docker.elastic.co/elasticsearch/elasticsearch:${var.elastic_version}"
-
-        ports = ["http", "transport"]
 
         volumes = [
           "/mnt/docker/elastic-${node.unique.name}/config:/usr/share/elasticsearch/config",
@@ -235,6 +302,12 @@ job "elk" {
           source = "local/unicast_hosts.txt"
           target = "/usr/share/elasticsearch/config/unicast_hosts.txt"
         }
+
+        mount {
+          type   = "bind"
+          source = "local/elasticsearch.yml"
+          target = "/usr/share/elasticsearch/config/elasticsearch.yml"
+        }
       }
 
       env {
@@ -249,28 +322,58 @@ job "elk" {
 
       template {
         data = <<-EOF
-          {{ range service "elk-node-elasticsearch-transport" }}
-          {{ .Address }}:{{ .Port }}
-          {{ end }}
-          {{ range service "elk-tiebreaker-elasticsearch-transport" }}
-          {{ .Address }}:{{ .Port }}
-          {{ end }}
+          cluster:
+            name: "docker-cluster"
+          node:
+            name: {{ env "node.unique.name" }}
+            roles:
+              - master
+          network:
+            host: 0.0.0.0
+            publish_host: {{ env "NOMAD_HOST_IP_transport" }}
+          http:
+            publish_host: {{ env "NOMAD_HOST_IP_http" }}
+            publish_port: {{ env "NOMAD_HOST_PORT_http" }}
+          transport:
+            publish_host: {{ env "NOMAD_HOST_IP_transport" }}
+            publish_port: {{ env "NOMAD_HOST_PORT_transport" }}
+          discovery:
+            seed_providers: file
+          xpack:
+            security:
+              enrollment:
+                enabled: true
+              transport:
+                ssl:
+                  enabled: true
+                  verification_mode: certificate
+                  client_authentication: required
+                  keystore:
+                    path: certs/elastic-certificates.p12
+                  truststore:
+                    path: certs/elastic-certificates.p12
+              http:
+                ssl:
+                  enabled: true
+                  keystore:
+                    path: certs/http.p12
+          bootstrap:
+            memory_lock: true
+          EOF
+
+        destination = "local/elasticsearch.yml"
+      }
+
+      template {
+        data = <<-EOF
+          {{ range service "elk-node-transport" }}
+          {{ .Address }}:{{ .Port }}{{ end }}
+          {{ range service "elk-tiebreaker-transport" }}
+          {{ .Address }}:{{ .Port }}{{ end }}
           EOF
 
         destination = "local/unicast_hosts.txt"
         change_mode = "noop"
-      }
-
-      service {
-        name     = "elk-tiebreaker-elasticsearch-http"
-        provider = "consul"
-        port     = "http"
-      }
-
-      service {
-        name     = "elk-tiebreaker-elasticsearch-transport"
-        provider = "consul"
-        port     = "transport"
       }
     }
   }
@@ -286,7 +389,7 @@ job "elk" {
     network {
       mode = "bridge"
       port "web" {
-        static = 5601
+        to = 5601
       }
       port "envoy_metrics" {
         to = 9102
@@ -344,7 +447,7 @@ job "elk" {
         data = <<-EOF
           elasticsearch:
             hosts:
-              - https://elk-node.virtual.consul
+              - https://elk-node-http.virtual.consul
             username: ${ELASTICSEARCH_USERNAME}
             password: ${ELASTICSEARCH_PASSWORD}
             requestTimeout: 600000
