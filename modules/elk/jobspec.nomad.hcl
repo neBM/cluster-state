@@ -277,10 +277,6 @@ job "elk" {
 
     count = 2
 
-    constraint {
-      distinct_hosts = true
-    }
-
     network {
       port "web" {
         to = 5601
