@@ -73,7 +73,6 @@ job "elk" {
         data = <<-EOF
           cluster:
             name: "docker-cluster"
-            initial_master_nodes: ["Hestia"]
           node:
             name: {{ env "node.unique.name" }}
           network:
@@ -209,7 +208,6 @@ job "elk" {
         data = <<-EOF
           cluster:
             name: "docker-cluster"
-            initial_master_nodes: ["Hestia"]
           node:
             name: {{ env "node.unique.name" }}
             roles:
