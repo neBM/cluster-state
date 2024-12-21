@@ -127,6 +127,16 @@ job "elk" {
         provider = "consul"
         port     = "http"
 
+        check {
+          type            = "http"
+          protocol        = "https"
+          tls_skip_verify = true
+          port            = "web"
+          path            = "/_cluster/health?local=true"
+          interval        = "5s"
+          timeout         = "2s"
+        }
+
         tags = [
           "traefik.enable=true",
           "traefik.http.routers.es.rule=Host(`es.brmartin.co.uk`)",
@@ -364,6 +374,14 @@ job "elk" {
         port     = "web"
         provider = "consul"
 
+        check {
+          type     = "http"
+          port     = "web"
+          path     = "/api/status"
+          interval = "5s"
+          timeout  = "2s"
+        }
+
         tags = [
           "traefik.enable=true",
           "traefik.http.routers.kibana.rule=Host(`kibana.brmartin.co.uk`)",
@@ -423,7 +441,7 @@ job "elk" {
           }
           EOF
 
-        destination = "local/nginx.conf"
+        destination   = "local/nginx.conf"
         change_mode   = "signal"
         change_signal = "SIGHUP"
       }
