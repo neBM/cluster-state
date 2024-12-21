@@ -427,6 +427,8 @@ job "elk" {
           EOF
 
         destination = "local/nginx.conf"
+        change_mode   = "signal"
+        change_signal = "SIGHUP"
       }
 
       service {
