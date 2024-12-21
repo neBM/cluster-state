@@ -112,9 +112,9 @@ job "elk" {
 
       template {
         data = <<-EOF
-          {{ range service "elk-node-transport" }}
+          {{ range service "elk-node-transport|any" }}
           {{ .Address }}:{{ .Port }}{{ end }}
-          {{ range service "elk-tiebreaker-transport" }}
+          {{ range service "elk-tiebreaker-transport|any" }}
           {{ .Address }}:{{ .Port }}{{ end }}
           EOF
 
@@ -262,9 +262,9 @@ job "elk" {
 
       template {
         data = <<-EOF
-          {{ range service "elk-node-transport" }}
+          {{ range service "elk-node-transport|any" }}
           {{ .Address }}:{{ .Port }}{{ end }}
-          {{ range service "elk-tiebreaker-transport" }}
+          {{ range service "elk-tiebreaker-transport|any" }}
           {{ .Address }}:{{ .Port }}{{ end }}
           EOF
 
@@ -327,7 +327,7 @@ job "elk" {
         data = <<-EOF
           elasticsearch:
             hosts:
-              {{ range service "elk-node-http" }}
+              {{ range service "elk-node-http|any" }}
               - https://{{ .Address }}:{{ .Port }}{{ end }}
             username: ${ELASTICSEARCH_USERNAME}
             password: ${ELASTICSEARCH_PASSWORD}
