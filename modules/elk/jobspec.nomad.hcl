@@ -347,7 +347,6 @@ job "elk" {
           EOF
 
         destination = "local/kibana.yml"
-        change_mode = "noop"
       }
 
       template {
