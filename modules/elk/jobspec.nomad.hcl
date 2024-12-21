@@ -127,15 +127,18 @@ job "elk" {
         provider = "consul"
         port     = "http"
 
-        check {
-          type            = "http"
-          protocol        = "https"
-          tls_skip_verify = true
-          port            = "http"
-          path            = "/_cluster/health?local=true&wait_for_status=yellow"
-          interval        = "5s"
-          timeout         = "2s"
-        }
+        # check {
+        #   type            = "http"
+        #   protocol        = "https"
+        #   tls_skip_verify = true
+        #   port            = "http"
+        #   path            = "/_cluster/health?local=true&wait_for_status=yellow"
+        #   interval        = "5s"
+        #   timeout         = "2s"
+        #   header {
+        #     Authorization = ["Bearer {{ with nomadVar "nomad/elk/node/elasticsearch" }}{{.healthcheck_token}}{{ end }}"]
+        #   }
+        # }
 
         tags = [
           "traefik.enable=true",
