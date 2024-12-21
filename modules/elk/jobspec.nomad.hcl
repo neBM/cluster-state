@@ -314,7 +314,8 @@ job "elk" {
         data = <<-EOF
           elasticsearch:
             hosts:
-              - https://elk-lb-nginx.service.consul:9200
+              {{ range service "elk-node-http" }}
+              - https://{{ .Address }}:{{ .Port }}{{ end }}
             username: ${ELASTICSEARCH_USERNAME}
             password: ${ELASTICSEARCH_PASSWORD}
             requestTimeout: 600000
