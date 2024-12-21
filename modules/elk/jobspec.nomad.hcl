@@ -19,7 +19,6 @@ job "elk" {
     }
 
     network {
-      mode = "bridge"
       port "http" {
         to = 9200
       }
@@ -31,61 +30,13 @@ job "elk" {
       }
     }
 
-    service {
-      name     = "elk-node-http"
-      provider = "consul"
-      port     = "9200"
-
-      meta {
-        envoy_metrics_port = "${NOMAD_HOST_PORT_envoy_metrics}"
-      }
-
-      connect {
-        sidecar_service {
-          proxy {
-            expose {
-              path {
-                path            = "/metrics"
-                protocol        = "http"
-                local_path_port = 9102
-                listener_port   = "envoy_metrics"
-              }
-            }
-          }
-        }
-      }
-    }
-
-    service {
-      name     = "elk-node-transport"
-      provider = "consul"
-      port     = "9300"
-
-      meta {
-        envoy_metrics_port = "${NOMAD_HOST_PORT_envoy_metrics}"
-      }
-
-      connect {
-        sidecar_service {
-          proxy {
-            expose {
-              path {
-                path            = "/metrics"
-                protocol        = "http"
-                local_path_port = 9102
-                listener_port   = "envoy_metrics"
-              }
-            }
-          }
-        }
-      }
-    }
-
     task "elasticsearch" {
       driver = "docker"
 
       config {
         image = "docker.elastic.co/elasticsearch/elasticsearch:${var.elastic_version}"
+
+        ports = ["http", "transport"]
 
         volumes = [
           "/mnt/docker/elastic-${node.unique.name}/config:/usr/share/elasticsearch/config",
@@ -122,11 +73,11 @@ job "elk" {
         data = <<-EOF
           cluster:
             name: "docker-cluster"
+            initial_master_nodes: ["Hestia"]
           node:
             name: {{ env "node.unique.name" }}
           network:
             host: 0.0.0.0
-            publish_host: {{ env "NOMAD_HOST_IP_transport" }}
           http:
             publish_host: {{ env "NOMAD_HOST_IP_http" }}
             publish_port: {{ env "NOMAD_HOST_PORT_http" }}
@@ -171,43 +122,26 @@ job "elk" {
         destination = "local/unicast_hosts.txt"
         change_mode = "noop"
       }
-    }
-  }
 
-  group "node-ingress-group" {
+      service {
+        name     = "elk-node-http"
+        provider = "consul"
+        port     = "http"
 
-    network {
-      mode = "bridge"
-      port "inbound" {
-        static = 9200
+        tags = [
+          "traefik.enable=true",
+          "traefik.http.routers.es.rule=Host(`es.brmartin.co.uk`)",
+          "traefik.http.routers.es.entrypoints=websecure",
+          "traefik.http.routers.es.service=es",
+          "traefik.http.services.es.loadbalancer.server.scheme=https",
+          "traefik.http.services.es.loadbalancer.serversTransport=es@file",
+        ]
       }
-    }
 
-    service {
-      name = "es-ingress-service"
-      port = 9200
-
-      tags = [
-        "traefik.enable=true",
-        "traefik.http.routers.es.rule=Host(`es.brmartin.co.uk`)",
-        "traefik.http.routers.es.entrypoints=websecure",
-        "traefik.http.routers.es.service=es",
-        "traefik.http.services.es.loadbalancer.server.scheme=https",
-        "traefik.http.services.es.loadbalancer.serversTransport=es@file",
-      ]
-
-      connect {
-        gateway {
-          ingress {
-            listener {
-              port     = 9200
-              protocol = "tcp"
-              service {
-                name = "elk-node-http"
-              }
-            }
-          }
-        }
+      service {
+        name     = "elk-node-transport"
+        provider = "consul"
+        port     = "transport"
       }
     }
   }
@@ -220,7 +154,6 @@ job "elk" {
     }
 
     network {
-      mode = "bridge"
       port "http" {
         to = 9200
       }
@@ -232,61 +165,13 @@ job "elk" {
       }
     }
 
-    service {
-      name     = "elk-tiebreaker-http"
-      provider = "consul"
-      port     = "9200"
-
-      meta {
-        envoy_metrics_port = "${NOMAD_HOST_PORT_envoy_metrics}"
-      }
-
-      connect {
-        sidecar_service {
-          proxy {
-            expose {
-              path {
-                path            = "/metrics"
-                protocol        = "http"
-                local_path_port = 9102
-                listener_port   = "envoy_metrics"
-              }
-            }
-          }
-        }
-      }
-    }
-
-    service {
-      name     = "elk-tiebreaker-transport"
-      provider = "consul"
-      port     = "9300"
-
-      meta {
-        envoy_metrics_port = "${NOMAD_HOST_PORT_envoy_metrics}"
-      }
-
-      connect {
-        sidecar_service {
-          proxy {
-            expose {
-              path {
-                path            = "/metrics"
-                protocol        = "http"
-                local_path_port = 9102
-                listener_port   = "envoy_metrics"
-              }
-            }
-          }
-        }
-      }
-    }
-
     task "elasticsearch" {
       driver = "docker"
 
       config {
         image = "docker.elastic.co/elasticsearch/elasticsearch:${var.elastic_version}"
+
+        ports = ["http", "transport"]
 
         volumes = [
           "/mnt/docker/elastic-${node.unique.name}/config:/usr/share/elasticsearch/config",
@@ -324,13 +209,13 @@ job "elk" {
         data = <<-EOF
           cluster:
             name: "docker-cluster"
+            initial_master_nodes: ["Hestia"]
           node:
             name: {{ env "node.unique.name" }}
             roles:
               - master
           network:
             host: 0.0.0.0
-            publish_host: {{ env "NOMAD_HOST_IP_transport" }}
           http:
             publish_host: {{ env "NOMAD_HOST_IP_http" }}
             publish_port: {{ env "NOMAD_HOST_PORT_http" }}
@@ -375,6 +260,18 @@ job "elk" {
         destination = "local/unicast_hosts.txt"
         change_mode = "noop"
       }
+
+      service {
+        name     = "elk-tiebreaker-http"
+        provider = "consul"
+        port     = "http"
+      }
+
+      service {
+        name     = "elk-tiebreaker-transport"
+        provider = "consul"
+        port     = "transport"
+      }
     }
   }
 
@@ -387,7 +284,6 @@ job "elk" {
     }
 
     network {
-      mode = "bridge"
       port "web" {
         to = 5601
       }
@@ -396,36 +292,13 @@ job "elk" {
       }
     }
 
-    service {
-      port     = "5601"
-      provider = "consul"
-
-      meta {
-        envoy_metrics_port = "${NOMAD_HOST_PORT_envoy_metrics}"
-      }
-
-      connect {
-        sidecar_service {
-          proxy {
-            expose {
-              path {
-                path            = "/metrics"
-                protocol        = "http"
-                local_path_port = 9102
-                listener_port   = "envoy_metrics"
-              }
-            }
-            transparent_proxy {}
-          }
-        }
-      }
-    }
-
     task "kibana" {
       driver = "docker"
 
       config {
         image = "docker.elastic.co/kibana/kibana:${var.elastic_version}"
+
+        ports = ["web"]
 
         volumes = [
           "/mnt/docker/elastic/kibana/config:/usr/share/kibana/config",
@@ -447,7 +320,8 @@ job "elk" {
         data = <<-EOF
           elasticsearch:
             hosts:
-              - https://elk-node-http.virtual.consul
+              {{ range service "elk-node-http" }}
+              - https://{{ .Address }}:{{ .Port }}{{ end }}
             username: ${ELASTICSEARCH_USERNAME}
             password: ${ELASTICSEARCH_PASSWORD}
             requestTimeout: 600000
@@ -492,40 +366,76 @@ job "elk" {
         destination = "secrets/file.env"
         env         = true
       }
+
+      service {
+        port     = "web"
+        provider = "consul"
+
+        tags = [
+          "traefik.enable=true",
+          "traefik.http.routers.kibana.rule=Host(`kibana.brmartin.co.uk`)",
+          "traefik.http.routers.kibana.entrypoints=websecure",
+        ]
+      }
     }
   }
 
-  group "kibana-ingress-group" {
-
+  group "lb" {
     network {
-      mode = "bridge"
-      port "inbound" {
-        to = 8080
+      port "web" {
+        static = 9200
       }
     }
 
-    service {
-      name = "kibana-ingress-service"
-      port = "inbound"
+    task "nginx" {
+      driver = "docker"
 
-      tags = [
-        "traefik.enable=true",
-        "traefik.http.routers.kibana.rule=Host(`kibana.brmartin.co.uk`)",
-        "traefik.http.routers.kibana.entrypoints=websecure",
-      ]
+      config {
+        image = "nginx:1.27.3-alpine"
 
-      connect {
-        gateway {
-          ingress {
-            listener {
-              port     = 8080
-              protocol = "tcp"
-              service {
-                name = "elk-kibana"
-              }
+        ports = ["web"]
+
+        mount {
+          type   = "bind"
+          source = "local/nginx.conf"
+          target = "/etc/nginx/nginx.conf"
+        }
+      }
+
+      resources {
+        cpu    = 10
+        memory = 16
+      }
+
+      template {
+        data = <<-EOF
+          user  nobody;
+          worker_processes  auto;
+          pid        /var/run/nginx.pid;
+
+          events {
+              worker_connections  1024;
+          }
+          
+          stream {
+            upstream es {
+              {{- range service "elk-node-http" }}
+              server {{ .Address }}:{{ .Port }};{{- end }}
+            }
+
+            server {
+              listen {{ env "NOMAD_PORT_web" }};
+              proxy_pass es;
             }
           }
-        }
+          EOF
+
+        destination = "local/nginx.conf"
+      }
+
+      service {
+        port     = "web"
+        provider = "consul"
       }
     }
   }
