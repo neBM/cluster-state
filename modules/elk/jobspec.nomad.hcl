@@ -131,7 +131,7 @@ job "elk" {
           type            = "http"
           protocol        = "https"
           tls_skip_verify = true
-          port            = "web"
+          port            = "http"
           path            = "/_cluster/health?local=true&wait_for_status=yellow"
           interval        = "5s"
           timeout         = "2s"
