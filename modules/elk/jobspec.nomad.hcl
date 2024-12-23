@@ -339,8 +339,8 @@ job "elk" {
                   3MDhLOwZNtEqgKgmQD8jptUPZqA7fRYAFVxMS4OH
                   -----END CERTIFICATE-----
           connectors:
-            - connector_id: "nKHt9JMBI0Po0M1lBKl2\"
-              service_type: "network_drive\"
+            - connector_id: "nKHt9JMBI0Po0M1lBKl2"
+              service_type: "network_drive"
               api_key: "{{ with nomadVar "nomad/jobs/elk/connector/connector" }}{{.api_key}}{{ end }}"
           EOF
 
