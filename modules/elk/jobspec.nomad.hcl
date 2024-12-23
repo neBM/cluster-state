@@ -286,6 +286,69 @@ job "elk" {
     }
   }
 
+  group "connector" {
+
+    task "connector" {
+      driver = "docker"
+
+      config {
+        image = "docker.elastic.co/integrations/elastic-connectors:${var.elastic_version}"
+
+        command = "/app/bin/elastic-ingest"
+        args    = ["-c", "/config/config.yml"]
+
+        mount {
+          type   = "bind"
+          source = "local/config.yml"
+          target = "/config/config.yml"
+        }
+      }
+
+      resources {
+        cpu    = 500
+        memory = 512
+      }
+
+      template {
+        data = <<-EOF
+          elasticsearch:
+            host: "https://{{ range service "elk-lb-nginx" }}{{ .Address }}:{{ .Port }}{{ end }}"
+            api_key: "{{ with nomadVar "nomad/jobs/elk/connector/connector" }}{{.api_key}}{{ end }}"
+            tls:
+              verification_mode: certificate
+              certificate_authorities:
+                - |
+                  -----BEGIN CERTIFICATE-----
+                  MIIDSjCCAjKgAwIBAgIVAIBOtzcdNrOdaYVMlCwIwXEon2d5MA0GCSqGSIb3DQEB
+                  CwUAMDQxMjAwBgNVBAMTKUVsYXN0aWMgQ2VydGlmaWNhdGUgVG9vbCBBdXRvZ2Vu
+                  ZXJhdGVkIENBMB4XDTI0MDgxODE0MjMxOFoXDTI3MDgxODE0MjMxOFowNDEyMDAG
+                  A1UEAxMpRWxhc3RpYyBDZXJ0aWZpY2F0ZSBUb29sIEF1dG9nZW5lcmF0ZWQgQ0Ew
+                  ggEiMA0GCSqGSIb3DQEBAQUAA4IBDwAwggEKAoIBAQCX3s3QrSr8hML1aKGp6npl
+                  bBr3CMNMvs4jddQXDrnZKklrU7AM01XzvDH0GGlq+6QaOVhQAK8gwKsuiTzog1YP
+                  H424EWJ2oDdHBnW4xIU0JO+x9rKVIEDlxvZGfjGM+oBVCXBwRyaT/iohHdiWedtp
+                  PAcjIrH3N5Fnhyeg8M2SE2eLbfHn+yjr0Dh2wh2us5eKRyXw/WokFSSug/pMf2x3
+                  9xjKpYOl5WqCK1OfdxlDLtHqr+UwqZao3RDazvkXq8Pxn310xcUxCdmTkU69Hwpb
+                  KanX8ES/KOO40fHvo9MaRKPFpNa4B7ZQ4MfPWJbx9G8/rU2MdWA+DvEcxJwEv/Cn
+                  AgMBAAGjUzBRMB0GA1UdDgQWBBRhHqO4e2XbUOrVsWO7q8eFrzSnhjAfBgNVHSME
+                  GDAWgBRhHqO4e2XbUOrVsWO7q8eFrzSnhjAPBgNVHRMBAf8EBTADAQH/MA0GCSqG
+                  SIb3DQEBCwUAA4IBAQB7sds4bt/LlY3KEKLzb84e7YCd6tUVtQgFRsVFKTTC1sqW
+                  FOctXN1IijX3IP9nLs4LfUy+K/XmCtMJPwI4GB1k+Sj0GMoVgggduGKVrRqaafU1
+                  yl3m8fHZimN/vE5yO+jgsnEw8p47O5Op2y8DZM50Z9LTsiCVIiPhXmReSYJvebja
+                  uT5BUhul5laraZwLfVpPSgNQ278AE5BUjhM/Lh3FjaIkUGKJEGH2lik4mQJEK7Ge
+                  PcZADj93MaxqPOl0H3BMJRcm0tpWVLDqOwFuWFrAb48WgwvJjX4aM5G2zORwjAub
+                  3MDhLOwZNtEqgKgmQD8jptUPZqA7fRYAFVxMS4OH
+                  -----END CERTIFICATE-----
+          connectors:
+            - connector_id: "nKHt9JMBI0Po0M1lBKl2\"
+              service_type: "network_drive\"
+              api_key: "{{ with nomadVar "nomad/jobs/elk/connector/connector" }}{{.api_key}}{{ end }}"
+          EOF
+
+        destination = "local/config.yml"
+      }
+    }
+  }
+
   group "kibana" {
 
     count = 2
