@@ -402,6 +402,7 @@ job "elk" {
             hosts:
               {{ range service "elk-node-http|any" }}
               - https://{{ .Address }}:{{ .Port }}{{ end }}
+            publicBaseUrl: https://es.brmartin.co.uk
             username: ${ELASTICSEARCH_USERNAME}
             password: ${ELASTICSEARCH_PASSWORD}
             requestTimeout: 600000
