@@ -93,8 +93,8 @@ job "matrix" {
 
       resources {
         cpu        = 500
-        memory     = 128
-        memory_max = 256
+        memory     = 256
+        memory_max = 512
       }
 
       meta = {
