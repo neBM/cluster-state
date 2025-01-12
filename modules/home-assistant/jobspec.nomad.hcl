@@ -11,9 +11,9 @@ job "homeassistant" {
       driver = "docker"
 
       config {
-        image = "ghcr.io/home-assistant/home-assistant:2025.1.2"
+        image        = "ghcr.io/home-assistant/home-assistant:2025.1.2"
         network_mode = "host"
-        privileged = true
+        privileged   = true
 
         volumes = [
           "/etc/localtime:/etc/localtime:ro",
@@ -22,7 +22,7 @@ job "homeassistant" {
       }
 
       volume_mount {
-        volume = "config"
+        volume      = "config"
         destination = "/config"
       }
 
@@ -33,11 +33,11 @@ job "homeassistant" {
     }
 
     volume "config" {
-      type      = "csi"
-      read_only = false
-      source    = "martinibar_prod_home-assistant_config"
+      type            = "csi"
+      read_only       = false
+      source          = "martinibar_prod_home-assistant_config"
       attachment_mode = "file-system"
-      access_mode = "single-node-writer"
+      access_mode     = "single-node-writer"
     }
 
     service {
