@@ -29,3 +29,7 @@ module "renovate" {
 module "plugin-csi" {
   source = "./modules/plugin-csi"
 }
+
+module "home-assistant" {
+  source = "./modules/home-assistant"
+}
