@@ -33,3 +33,7 @@ module "plugin-csi" {
 module "home-assistant" {
   source = "./modules/home-assistant"
 }
+
+module "forgejo" {
+  source = "./modules/forgejo"
+}
