@@ -54,7 +54,7 @@ job "matrix" {
       driver = "docker"
 
       config {
-        image = "ghcr.io/element-hq/synapse:v1.121.1"
+        image = "ghcr.io/element-hq/synapse:v1.122.0"
 
         ports = ["8008"]
 
