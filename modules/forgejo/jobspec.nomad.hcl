@@ -100,8 +100,9 @@ job "forgejo" {
       }
 
       resources {
-        cpu    = 150
-        memory = 64
+        cpu        = 150
+        memory     = 128
+        memory_max = 256
       }
 
       template {
