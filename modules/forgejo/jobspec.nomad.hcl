@@ -15,7 +15,7 @@ job "forgejo" {
       driver = "docker"
 
       config {
-        image = "codeberg.org/forgejo/forgejo:9.0.3"
+        image = "codeberg.org/forgejo/forgejo:10.0.0"
 
         volumes = [
           "/etc/timezone:/etc/timezone:ro",
