@@ -85,6 +85,9 @@ job "elk" {
             publish_port: {{ env "NOMAD_HOST_PORT_transport" }}
           discovery:
             seed_providers: file
+          path:
+            repo:
+              - /mnt/backups
           xpack:
             security:
               enrollment:
@@ -155,6 +158,19 @@ job "elk" {
         provider = "consul"
         port     = "transport"
       }
+
+      volume_mount {
+        volume      = "backups"
+        destination = "/mnt/backups"
+      }
+    }
+
+    volume "backups" {
+      type            = "csi"
+      read_only       = false
+      source          = "martinibar_prod_elasticsearch_backups"
+      attachment_mode = "file-system"
+      access_mode     = "multi-node-multi-writer"
     }
   }
 
@@ -235,6 +251,9 @@ job "elk" {
             publish_port: {{ env "NOMAD_HOST_PORT_transport" }}
           discovery:
             seed_providers: file
+          path:
+            repo:
+              - /mnt/backups
           xpack:
             security:
               enrollment:
@@ -283,6 +302,19 @@ job "elk" {
         provider = "consul"
         port     = "transport"
       }
+
+      volume_mount {
+        volume      = "backups"
+        destination = "/mnt/backups"
+      }
+    }
+
+    volume "backups" {
+      type            = "csi"
+      read_only       = false
+      source          = "martinibar_prod_elasticsearch_backups"
+      attachment_mode = "file-system"
+      access_mode     = "multi-node-multi-writer"
     }
   }
 
