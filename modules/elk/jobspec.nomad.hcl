@@ -30,6 +30,11 @@ job "elk" {
       }
     }
 
+    ephemeral_disk {
+      migrate = true
+      size    = 10000
+    }
+
     task "elasticsearch" {
       driver = "docker"
 
@@ -40,7 +45,6 @@ job "elk" {
 
         volumes = [
           "/mnt/docker/elastic-${node.unique.name}/config:/usr/share/elasticsearch/config",
-          "/mnt/docker/elastic-${node.unique.name}/data:/usr/share/elasticsearch/data",
         ]
 
         ulimit {
@@ -86,6 +90,7 @@ job "elk" {
           discovery:
             seed_providers: file
           path:
+            data: {{ env "NOMAD_TASK_DIR" }}/data
             repo:
               - /mnt/backups
           xpack:
@@ -193,6 +198,11 @@ job "elk" {
       }
     }
 
+    ephemeral_disk {
+      migrate = true
+      size    = 10
+    }
+
     task "elasticsearch" {
       driver = "docker"
 
@@ -203,7 +213,6 @@ job "elk" {
 
         volumes = [
           "/mnt/docker/elastic-${node.unique.name}/config:/usr/share/elasticsearch/config",
-          "/mnt/docker/elastic-${node.unique.name}/data:/usr/share/elasticsearch/data",
         ]
 
         ulimit {
@@ -252,6 +261,7 @@ job "elk" {
           discovery:
             seed_providers: file
           path:
+            data: {{ env "NOMAD_TASK_DIR" }}/data
             repo:
               - /mnt/backups
           xpack:
