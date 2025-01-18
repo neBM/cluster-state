@@ -77,6 +77,7 @@ job "forgejo" {
 
     network {
       mode = "bridge"
+      port "cache_server" {}
       port "envoy_metrics" {
         to = 9102
       }
@@ -122,6 +123,8 @@ job "forgejo" {
           cache:
             enabled: true
             dir: "{{ env "NOMAD_TASK_DIR" }}/cache"
+            host: "forgejo-runner.virtual.consul"
+            port: {{ env "NOMAD_PORT_cache_server" }}
           container:
             network: "host"
             enable_ipv6: false
@@ -152,6 +155,7 @@ job "forgejo" {
     }
 
     service {
+      port     = "9040"
       provider = "consul"
 
       meta {
