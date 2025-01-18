@@ -200,7 +200,7 @@ job "elk" {
 
     ephemeral_disk {
       migrate = true
-      size    = 10
+      size    = 100
     }
 
     task "elasticsearch" {
