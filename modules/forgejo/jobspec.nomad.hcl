@@ -155,7 +155,7 @@ job "forgejo" {
     }
 
     service {
-      port     = "9040"
+      port     = "cache_server"
       provider = "consul"
 
       meta {
