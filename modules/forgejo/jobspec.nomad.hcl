@@ -121,10 +121,7 @@ job "forgejo" {
             labels: []
           cache:
             enabled: true
-            dir: ""
-            host: ""
-            port: 0
-            external_server: ""
+            dir: "{{ env "NOMAD_TASK_DIR" }}/cache"
           container:
             network: "host"
             enable_ipv6: false
