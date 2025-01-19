@@ -56,8 +56,6 @@ job "matrix" {
       config {
         image = "ghcr.io/element-hq/synapse:v1.122.0"
 
-        ports = ["8008"]
-
         volumes = [
           "/mnt/docker/matrix/synapse:/data",
           "/mnt/docker/matrix/media_store:/media_store",
@@ -146,8 +144,6 @@ job "matrix" {
       config {
         image = "dock.mau.dev/mautrix/whatsapp:v0.11.2"
 
-        ports = ["8082"]
-
         volumes = [
           "/mnt/docker/matrix/whatsapp-data:/data"
         ]
@@ -209,8 +205,6 @@ job "matrix" {
         image      = "ghcr.io/matrix-org/matrix-authentication-service:main"
         force_pull = true
 
-        ports = ["8081"]
-
         volumes = [
           "/mnt/docker/matrix/synapse-mas/config.yaml:/config.yaml:ro"
         ]
@@ -236,9 +230,7 @@ job "matrix" {
 
     network {
       mode = "bridge"
-      port "nginx" {
-        to = 80
-      }
+      port "http" {}
       port "envoy_metrics" {
         to = 9102
       }
@@ -246,7 +238,7 @@ job "matrix" {
 
     service {
       provider = "consul"
-      port     = "80"
+      port     = "http"
 
       meta {
         envoy_metrics_port = "${NOMAD_HOST_PORT_envoy_metrics}"
@@ -279,16 +271,61 @@ job "matrix" {
       config {
         image = "docker.io/library/nginx:1.27.3-alpine"
 
-        ports = ["80"]
-
         volumes = [
-          "/mnt/docker/matrix/nginx/templates:/etc/nginx/templates:ro",
           "/mnt/docker/matrix/nginx/html:/usr/share/nginx/html:ro",
         ]
+
+        mount {
+          type   = "bind"
+          source = "local/nginx.conf"
+          target = "/etc/nginx/nginx.conf"
+        }
       }
 
-      env = {
-        NGINX_PORT = "80"
+      template {
+        data = <<-EOF
+          user              nginx;
+          worker_processes  auto;
+
+          error_log  stderr;
+          pid        /var/run/nginx.pid;
+
+          events {
+            worker_connections  1024;
+          }
+
+          http {
+            include            /etc/nginx/mime.types;
+            default_type       application/octet-stream;
+            access_log         off;
+            http2              on;
+            proxy_buffering    off;
+            sendfile           on;
+            keepalive_timeout  65;
+
+            server {
+              listen  {{ env "NOMAD_PORT_http" }};
+
+              location / {
+                return  404;
+              }
+
+              location /health {
+                return        200 "OK";
+                default_type  text/plain;
+              }
+
+              location /.well-known/matrix {
+                root          /usr/share/nginx/html;
+              }
+            }
+          }
+
+          EOF
+
+        destination   = "local/nginx.conf"
+        change_mode   = "signal"
+        change_signal = "SIGHUP"
       }
 
       resources {
