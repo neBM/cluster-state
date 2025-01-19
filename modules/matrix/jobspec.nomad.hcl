@@ -232,80 +232,6 @@ job "matrix" {
     }
   }
 
-  group "syncv3" {
-
-    network {
-      mode = "bridge"
-      port "envoy_metrics" {
-        to = 9102
-      }
-    }
-
-    service {
-      provider = "consul"
-      port     = "8008"
-
-      meta {
-        envoy_metrics_port = "${NOMAD_HOST_PORT_envoy_metrics}"
-      }
-
-      connect {
-        sidecar_service {
-          proxy {
-            config {
-              protocol = "http"
-            }
-            expose {
-              path {
-                path            = "/metrics"
-                protocol        = "http"
-                local_path_port = 9102
-                listener_port   = "envoy_metrics"
-              }
-            }
-            transparent_proxy {}
-          }
-        }
-      }
-    }
-
-    task "syncv3" {
-      driver = "docker"
-
-      config {
-        image = "ghcr.io/matrix-org/sliding-sync:v0.99.19"
-
-        ports = ["8008"]
-      }
-
-      env = {
-        SYNCV3_SERVER = "http://matrix-synapse.virtual.consul"
-      }
-
-      template {
-        data = <<-EOH
-        	{{with nomadVar "nomad/jobs/matrix/syncv3/syncv3"}}
-          SYNCV3_SECRET="{{.SYNCV3_SECRET}}"
-          SYNCV3_DB="{{.SYNCV3_DB}}"
-          {{end}}
-          EOH
-
-        destination = "secrets/file.env"
-        env         = true
-      }
-
-      resources {
-        cpu        = 50
-        memory     = 16
-        memory_max = 32
-      }
-
-      meta = {
-        "service.name" = "syncv3"
-      }
-    }
-  }
-
   group "nginx" {
 
     network {
@@ -484,41 +410,6 @@ job "matrix" {
               protocol = "http"
               service {
                 name  = "matrix-nginx"
-                hosts = ["*"]
-              }
-            }
-          }
-        }
-      }
-    }
-  }
-
-  group "syncv3-ingress-group" {
-
-    network {
-      mode = "bridge"
-      port "inbound" {
-        to = 8080
-      }
-    }
-
-    service {
-      port = "inbound"
-      tags = [
-        "traefik.enable=true",
-
-        "traefik.http.routers.matrixsyncv3.rule=Host(`matrix.brmartin.co.uk`) && (PathPrefix(`/client`) || PathPrefix(`/_matrix/client/unstable/org.matrix.msc3575/sync`))",
-        "traefik.http.routers.matrixsyncv3.entrypoints=websecure",
-      ]
-
-      connect {
-        gateway {
-          ingress {
-            listener {
-              port     = 8080
-              protocol = "http"
-              service {
-                name  = "matrix-syncv3"
                 hosts = ["*"]
               }
             }
