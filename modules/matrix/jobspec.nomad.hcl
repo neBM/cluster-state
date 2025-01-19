@@ -8,6 +8,7 @@ job "matrix" {
 
     network {
       mode = "bridge"
+      port "synapse" {}
       port "envoy_metrics" {
         to = 9102
       }
@@ -15,19 +16,19 @@ job "matrix" {
 
     service {
       provider = "consul"
-      port     = "8008"
+      port     = "synapse"
 
       meta {
         envoy_metrics_port = "${NOMAD_HOST_PORT_envoy_metrics}"
       }
 
-      check {
-        type     = "http"
-        path     = "/health"
-        interval = "20s"
-        timeout  = "5s"
-        expose   = true
-      }
+      # check {
+      #   type     = "http"
+      #   path     = "/health"
+      #   interval = "20s"
+      #   timeout  = "5s"
+      #   expose   = true
+      # }
 
       connect {
         sidecar_service {
@@ -63,7 +64,8 @@ job "matrix" {
       }
 
       env = {
-        SYNAPSE_WORKER = "synapse.app.homeserver"
+        SYNAPSE_CONFIG_PATH = "${NOMAD_TASK_DIR}/synapse-config.yaml"
+        SYNAPSE_WORKER      = "synapse.app.homeserver"
       }
 
       template {
@@ -87,6 +89,101 @@ job "matrix" {
           EOF
 
         destination = "local/matrix-whatsapp-registration.yaml"
+      }
+
+      template {
+        data = <<-EOF
+          server_name: "brmartin.co.uk"
+          public_baseurl: https://matrix.brmartin.co.uk/
+          pid_file: /data/homeserver.pid
+          worker_app: synapse.app.homeserver
+          listeners:
+            - bind_addresses: [127.0.0.1]
+              port: {{ env "NOMAD_PORT_synapse" }}
+              type: http
+              x_forwarded: true
+              resources:
+                - names: [client, federation]
+          max_upload_size: 500M
+          event_cache_size: 15K
+          caches:
+            cache_autotuning:
+              max_cache_memory_usage: {{ env "NOMAD_MEMORY_MAX_LIMIT" }}M
+              target_cache_memory_usage: {{ env "NOMAD_MEMORY_LIMIT" }}M
+              min_cache_ttl: 5m
+          database:
+            name: psycopg2
+            args:
+              user: synapse_user
+              password: "{{ with nomadVar "nomad/jobs/matrix/synapse/synapse" }}{{ .db_password }}{{ end }}"
+              database: synapse
+              host: pgdb.service.consul
+              port: 5433
+              cp_min: 5
+              cp_max: 10
+          log_config: "/data/brmartin.co.uk.log.config"
+          registration_shared_secret: "{{ with nomadVar "nomad/jobs/matrix/synapse/synapse" }}{{ .registration_shared_secret }}{{ end }}"
+          report_stats: true
+          macaroon_secret_key: "{{ with nomadVar "nomad/jobs/matrix/synapse/synapse" }}{{ .macaroon_secret_key }}{{ end }}"
+          form_secret: "{{ with nomadVar "nomad/jobs/matrix/synapse/synapse" }}{{ .form_secret }}{{ end }}"
+          signing_key_path: "/data/brmartin.co.uk.signing.key"
+          suppress_key_server_warning: true
+          trusted_key_servers:
+            - server_name: "matrix.org"
+          app_service_config_files:
+            - /local/matrix-whatsapp-registration.yaml
+            - /data/matrix-instagram-registration.yaml
+          turn_uris: [ "turn:turn.brmartin.co.uk?transport=udp", "turn:turn.brmartin.co.uk?transport=tcp" ]
+          turn_shared_secret: "{{ with nomadVar "nomad/jobs/matrix/synapse/synapse" }}{{ .turn_shared_secret }}{{ end }}"
+          turn_user_lifetime: 86400000
+          turn_allow_guests: true
+          forgotten_room_retention_period: 1d
+          retention:
+            enabled: true
+            default_policy:
+              min_lifetime: 1d
+              max_lifetime: 1y
+            allowed_lifetime_min: 1d
+            allowed_lifetime_max: 1y
+          media_retention:
+            local_media_lifetime: 1y
+            remote_media_lifetime: 1y
+          rc_message:
+            per_second: 1
+            burst_count: 50
+          url_preview_enabled: true
+          url_preview_ip_range_blacklist:
+            - '127.0.0.0/8'
+            - '10.0.0.0/8'
+            - '172.16.0.0/12'
+            - '192.168.0.0/16'
+            - '100.64.0.0/10'
+            - '192.0.0.0/24'
+            - '169.254.0.0/16'
+            - '192.88.99.0/24'
+            - '198.18.0.0/15'
+            - '192.0.2.0/24'
+            - '198.51.100.0/24'
+            - '203.0.113.0/24'
+            - '224.0.0.0/4'
+            - '::1/128'
+            - 'fe80::/10'
+            - 'fc00::/7'
+            - '2001:db8::/32'
+            - 'ff00::/8'
+            - 'fec0::/10'
+          experimental_features:
+            msc3861:
+              enabled: true
+              issuer: https://mas.brmartin.co.uk
+              client_id: 0000000000000000000SYNAPSE
+              client_auth_method: client_secret_basic
+              client_secret: "{{ with nomadVar "nomad/jobs/matrix/synapse/synapse" }}{{ .mas_client_secret }}{{ end }}"
+              admin_token: "{{ with nomadVar "nomad/jobs/matrix/synapse/synapse" }}{{ .mas_admin_token }}{{ end }}"
+              account_management_url: "https://sso.brmartin.co.uk/settings"
+        EOF
+
+        destination = "local/synapse-config.yaml"
       }
 
       resources {
