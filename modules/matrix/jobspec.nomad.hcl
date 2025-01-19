@@ -121,7 +121,7 @@ job "matrix" {
               port: 5433
               cp_min: 5
               cp_max: 10
-          log_config: "/data/brmartin.co.uk.log.config"
+          log_config: "{{ env "NOMAD_TASK_DIR" }}/log_config.yaml"
           registration_shared_secret: "{{ with nomadVar "nomad/jobs/matrix/synapse/synapse" }}{{ .registration_shared_secret }}{{ end }}"
           report_stats: true
           macaroon_secret_key: "{{ with nomadVar "nomad/jobs/matrix/synapse/synapse" }}{{ .macaroon_secret_key }}{{ end }}"
@@ -184,6 +184,32 @@ job "matrix" {
         EOF
 
         destination = "local/synapse-config.yaml"
+      }
+
+      template {
+        data = <<-EOF
+          version: 1
+          formatters:
+            structured:
+              class: synapse.logging.TerseJsonFormatter
+          handlers:
+            console:
+              class: logging.StreamHandler
+              formatter: structured
+          loggers:
+            synapse.federation.transport.server.federation:
+              level: WARN
+            synapse.access.http.8008:
+              level: WARN
+            synapse.util.caches.response_cache:
+              level: WARN
+          root:
+            level: WARN
+            handlers: [console]
+          disable_existing_loggers: false
+          EOF
+
+        destination = "local/log_config.yaml"
       }
 
       resources {
