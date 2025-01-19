@@ -132,7 +132,6 @@ job "matrix" {
             - server_name: "matrix.org"
           app_service_config_files:
             - /local/matrix-whatsapp-registration.yaml
-            - /data/matrix-instagram-registration.yaml
           turn_uris: [ "turn:turn.brmartin.co.uk?transport=udp", "turn:turn.brmartin.co.uk?transport=tcp" ]
           turn_shared_secret: "{{ with nomadVar "nomad/jobs/matrix/synapse/synapse" }}{{ .turn_shared_secret }}{{ end }}"
           turn_user_lifetime: 86400000
