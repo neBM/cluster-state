@@ -594,14 +594,70 @@ job "matrix" {
 
         ports = ["element"]
 
-        volumes = [
-          "/mnt/docker/matrix/element/config.json:/app/config.json:ro"
-        ]
+        mount {
+          type   = "bind"
+          source = "local/config.json"
+          target = "/app/config.json"
+        }
       }
 
       resources {
         cpu    = 100
         memory = 16
+      }
+
+      template {
+        data = <<-EOF
+          {
+            "default_server_config": {
+              "m.homeserver": {
+                "base_url": "https://matrix.brmartin.co.uk",
+                "server_name": "matrix.brmartin.co.uk"
+              },
+              "m.identity_server": {
+                "base_url": "https://vector.im"
+              }
+            },
+            "disable_custom_urls": true,
+            "disable_guests": true,
+            "disable_login_language_selector": true,
+            "disable_3pid_login": true,
+            "brand": "Element",
+            "sso_redirect_options": {
+              "immediate": true
+            },
+            "integrations_ui_url": "https://scalar.vector.im/",
+            "integrations_rest_url": "https://scalar.vector.im/api",
+            "integrations_widgets_urls": [
+              "https://scalar.vector.im/_matrix/integrations/v1",
+              "https://scalar.vector.im/api",
+              "https://scalar-staging.vector.im/_matrix/integrations/v1",
+              "https://scalar-staging.vector.im/api",
+              "https://scalar-staging.riot.im/scalar/api"
+            ],
+            "bug_report_endpoint_url": "https://element.io/bugreports/submit",
+            "uisi_autorageshake_app": "element-auto-uisi",
+            "default_country_code": "GB",
+            "show_labs_settings": false,
+            "features": {},
+            "default_federate": true,
+            "default_theme": "light",
+            "room_directory": {
+              "servers": [
+                "matrix.org"
+              ]
+            },
+            "enable_presence_by_hs_url": {
+              "https://matrix.org": false,
+              "https://matrix-client.matrix.org": false
+            },
+            "setting_defaults": {
+              "breadcrumbs": true
+            }
+          }
+          EOF
+
+        destination = "local/config.json"
       }
 
       service {
