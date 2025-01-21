@@ -112,7 +112,7 @@ job "forgejo" {
             level: info
           runner:
             file: .runner
-            capacity: 3
+            capacity: 1
             timeout: 3h
             shutdown_timeout: 3h
             insecure: false
