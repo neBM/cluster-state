@@ -87,7 +87,7 @@ job "forgejo" {
       driver = "docker"
 
       config {
-        image = "data.forgejo.org/forgejo/runner:6.0.1"
+        image = "data.forgejo.org/forgejo/runner:6.2.0"
 
         command = "forgejo-runner"
         args    = ["daemon", "--config=${NOMAD_TASK_DIR}/config.yml"]
