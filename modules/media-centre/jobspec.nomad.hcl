@@ -10,7 +10,7 @@ job "media-centre" {
       }
 
       config {
-        image     = "ghcr.io/jellyfin/jellyfin:10.10.3"
+        image     = "ghcr.io/jellyfin/jellyfin:10.10.4"
         runtime   = "nvidia"
         group_add = ["997"]
         ports     = ["jellyfin"]
