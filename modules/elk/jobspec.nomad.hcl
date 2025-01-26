@@ -69,8 +69,9 @@ job "elk" {
       }
 
       resources {
-        cpu    = 2000
-        memory = 2048
+        cpu        = 2000
+        memory     = 2048
+        memory_max = 3072
       }
 
       template {
@@ -544,7 +545,7 @@ job "elk" {
           pid        /var/run/nginx.pid;
 
           events {
-              worker_connections  1024;
+            worker_connections  1024;
           }
           
           stream {
