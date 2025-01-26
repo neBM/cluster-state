@@ -564,6 +564,11 @@ job "elk" {
         destination   = "local/nginx.conf"
         change_mode   = "signal"
         change_signal = "SIGHUP"
+
+        wait {
+          min = "5s"
+          max = "10s"
+        }
       }
 
       service {
