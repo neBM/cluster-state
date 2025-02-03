@@ -405,13 +405,11 @@ job "elk" {
           }
           EOF
 
-        destination   = "local/nginx.conf"
-        change_mode   = "signal"
-        change_signal = "SIGHUP"
-
-        wait {
-          min = "5s"
-          max = "10s"
+        destination = "local/nginx.conf"
+        change_mode = "script"
+        change_script {
+          command = "/usr/sbin/nginx"
+          args    = ["-s", "reload"]
         }
       }
 
