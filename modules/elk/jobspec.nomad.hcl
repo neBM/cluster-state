@@ -6,16 +6,10 @@ job "elk" {
 
   group "node" {
 
-    count = 2
+    count = 3
 
     constraint {
       distinct_hosts = true
-    }
-
-    constraint {
-      attribute = "${node.unique.name}"
-      operator  = "set_contains_any"
-      value     = "Hestia,Nyx"
     }
 
     network {
@@ -123,8 +117,6 @@ job "elk" {
         data = <<-EOF
           {{ range service "elk-node-transport|any" }}
           {{ .Address }}:{{ .Port }}{{ end }}
-          {{ range service "elk-tiebreaker-transport|any" }}
-          {{ .Address }}:{{ .Port }}{{ end }}
           EOF
 
         destination = "local/unicast_hosts.txt"
@@ -161,155 +153,6 @@ job "elk" {
 
       service {
         name     = "elk-node-transport"
-        provider = "consul"
-        port     = "transport"
-      }
-
-      volume_mount {
-        volume      = "backups"
-        destination = "/mnt/backups"
-      }
-    }
-
-    volume "backups" {
-      type            = "csi"
-      read_only       = false
-      source          = "martinibar_prod_elasticsearch_backups"
-      attachment_mode = "file-system"
-      access_mode     = "multi-node-multi-writer"
-    }
-  }
-
-  group "tiebreaker" {
-
-    constraint {
-      attribute = "${node.unique.name}"
-      value     = "Neto"
-    }
-
-    network {
-      port "http" {
-        to = 9200
-      }
-      port "transport" {
-        to = 9300
-      }
-      port "envoy_metrics" {
-        to = 9102
-      }
-    }
-
-    ephemeral_disk {
-      migrate = true
-      size    = 128
-    }
-
-    task "elasticsearch" {
-      driver = "docker"
-
-      config {
-        image = "docker.elastic.co/elasticsearch/elasticsearch:${var.elastic_version}"
-
-        ports = ["http", "transport"]
-
-        volumes = [
-          "/mnt/docker/elastic-${node.unique.name}/config:/usr/share/elasticsearch/config",
-        ]
-
-        ulimit {
-          memlock = "-1:-1"
-        }
-
-        mount {
-          type   = "bind"
-          source = "local/unicast_hosts.txt"
-          target = "/usr/share/elasticsearch/config/unicast_hosts.txt"
-        }
-
-        mount {
-          type   = "bind"
-          source = "local/elasticsearch.yml"
-          target = "/usr/share/elasticsearch/config/elasticsearch.yml"
-        }
-      }
-
-      env {
-        ES_PATH_CONF = "/usr/share/elasticsearch/config"
-      }
-
-      resources {
-        cpu        = 1000
-        memory     = 1024
-        memory_max = 2048
-      }
-
-      template {
-        data = <<-EOF
-          cluster:
-            name: "docker-cluster"
-          node:
-            name: {{ env "node.unique.name" }}
-            roles:
-              - master
-          network:
-            host: 0.0.0.0
-          http:
-            publish_host: {{ env "NOMAD_HOST_IP_http" }}
-            publish_port: {{ env "NOMAD_HOST_PORT_http" }}
-          transport:
-            publish_host: {{ env "NOMAD_HOST_IP_transport" }}
-            publish_port: {{ env "NOMAD_HOST_PORT_transport" }}
-          discovery:
-            seed_providers: file
-          path:
-            data: {{ env "NOMAD_TASK_DIR" }}/data
-            repo:
-              - /mnt/backups
-          xpack:
-            security:
-              enrollment:
-                enabled: true
-              transport:
-                ssl:
-                  enabled: true
-                  verification_mode: certificate
-                  client_authentication: required
-                  keystore:
-                    path: certs/elastic-certificates.p12
-                  truststore:
-                    path: certs/elastic-certificates.p12
-              http:
-                ssl:
-                  enabled: true
-                  keystore:
-                    path: certs/http.p12
-          bootstrap:
-            memory_lock: true
-          EOF
-
-        destination = "local/elasticsearch.yml"
-      }
-
-      template {
-        data = <<-EOF
-          {{ range service "elk-node-transport|any" }}
-          {{ .Address }}:{{ .Port }}{{ end }}
-          {{ range service "elk-tiebreaker-transport|any" }}
-          {{ .Address }}:{{ .Port }}{{ end }}
-          EOF
-
-        destination = "local/unicast_hosts.txt"
-        change_mode = "noop"
-      }
-
-      service {
-        name     = "elk-tiebreaker-http"
-        provider = "consul"
-        port     = "http"
-      }
-
-      service {
-        name     = "elk-tiebreaker-transport"
         provider = "consul"
         port     = "transport"
       }
