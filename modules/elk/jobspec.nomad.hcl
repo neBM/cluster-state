@@ -366,7 +366,7 @@ job "elk" {
       driver = "docker"
 
       config {
-        image = "nginx:1.27.3-alpine"
+        image = "nginx:1.27.4-alpine"
 
         ports = ["web"]
 
