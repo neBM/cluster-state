@@ -406,11 +406,11 @@ job "elk" {
           EOF
 
         destination = "local/nginx.conf"
-        change_mode = "script"
-        change_script {
-          command = "/usr/sbin/nginx"
-          args    = ["-s", "reload"]
-        }
+        # change_mode = "script"
+        # change_script {
+        #   command = "/usr/sbin/nginx"
+        #   args    = ["-s", "reload"]
+        # }
       }
 
       service {
