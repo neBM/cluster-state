@@ -197,8 +197,9 @@ job "elk" {
       }
 
       resources {
-        cpu    = 10
-        memory = 256
+        cpu        = 10
+        memory     = 128
+        memory_max = 512
       }
 
       template {
