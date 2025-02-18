@@ -209,7 +209,7 @@ job "elk" {
             api_key: "{{ with nomadVar "nomad/jobs/elk/connector/connector" }}{{.api_key}}{{ end }}"
             ca_certs: "/config/elasticsearch-ca.crt"
           connectors:
-            - connector_id: "YkmYD5UBRGICAw51_LS6"
+            - connector_id: "{{ with nomadVar "nomad/jobs/elk/connector/connector" }}{{.connector_id}}{{ end }}"
               service_type: "network_drive"
               api_key: "{{ with nomadVar "nomad/jobs/elk/connector/connector" }}{{.api_key}}{{ end }}"
           EOF
