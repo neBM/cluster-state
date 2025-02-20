@@ -50,21 +50,21 @@ job "keycloak" {
       }
 
       env = {
-        KC_DB = "postgres"
-        KC_DB_USERNAME = "keycloak"
-        KC_DB_URL_HOST = "martinibar.lan"
-        KC_DB_URL_PORT = "5433"
+        KC_DB                = "postgres"
+        KC_DB_USERNAME       = "keycloak"
+        KC_DB_URL_HOST       = "martinibar.lan"
+        KC_DB_URL_PORT       = "5433"
         KC_DB_URL_PROPERTIES = "?sslmode=disable"
-        KC_DB_URL_DATABASE = "keycloak"
-        KC_HTTP_ENABLED = "true"
-        KC_PROXY_HEADERS = "xforwarded"
-        KC_HTTP_HOST = "127.0.0.1"
-        KC_HOSTNAME = "keycloak.brmartin.co.uk"
+        KC_DB_URL_DATABASE   = "keycloak"
+        KC_HTTP_ENABLED      = "true"
+        KC_PROXY_HEADERS     = "xforwarded"
+        KC_HTTP_HOST         = "127.0.0.1"
+        KC_HOSTNAME          = "keycloak.brmartin.co.uk"
       }
 
       resources {
-        cpu        = 500
-        memory     = 512
+        cpu    = 500
+        memory = 512
       }
 
       template {
