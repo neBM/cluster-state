@@ -5,8 +5,8 @@ job "media-centre" {
       driver = "docker"
 
       constraint {
-        attribute = "${node.unique.id}"
-        value     = "3f6d897a-f755-5677-27c3-e3f0af1dfb7e"
+        attribute = "${node.unique.name}"
+        value     = "Hestia"
       }
 
       config {
@@ -73,8 +73,8 @@ job "media-centre" {
       driver = "docker"
 
       constraint {
-        attribute = "${node.unique.id}"
-        value     = "3f6d897a-f755-5677-27c3-e3f0af1dfb7e"
+        attribute = "${node.unique.name}"
+        value     = "Hestia"
       }
 
       config {
