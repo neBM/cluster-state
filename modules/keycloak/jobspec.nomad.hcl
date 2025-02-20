@@ -59,7 +59,7 @@ job "keycloak" {
         KC_HTTP_ENABLED      = "true"
         KC_PROXY_HEADERS     = "xforwarded"
         KC_HTTP_HOST         = "127.0.0.1"
-        KC_HOSTNAME          = "keycloak.brmartin.co.uk"
+        KC_HOSTNAME          = "sso.brmartin.co.uk"
       }
 
       resources {
@@ -98,7 +98,7 @@ job "keycloak" {
       tags = [
         "traefik.enable=true",
 
-        "traefik.http.routers.keycloak.rule=Host(`keycloak.brmartin.co.uk`)",
+        "traefik.http.routers.keycloak.rule=Host(`sso.brmartin.co.uk`)",
         "traefik.http.routers.keycloak.entrypoints=websecure",
       ]
 
