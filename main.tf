@@ -37,3 +37,7 @@ module "home-assistant" {
 module "forgejo" {
   source = "./modules/forgejo"
 }
+
+module "keycloak" {
+  source = "./modules/keycloak"
+}
