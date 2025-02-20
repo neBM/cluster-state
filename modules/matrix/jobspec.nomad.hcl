@@ -117,7 +117,7 @@ job "matrix" {
               user: synapse_user
               password: "{{ with nomadVar "nomad/jobs/matrix/synapse/synapse" }}{{ .db_password }}{{ end }}"
               database: synapse
-              host: pgdb.service.consul
+              host: martinibar.lan
               port: 5433
               cp_min: 5
               cp_max: 10
