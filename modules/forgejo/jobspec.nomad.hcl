@@ -250,7 +250,7 @@ job "forgejo" {
       tags = [
         "traefik.enable=true",
 
-        "traefik.http.routers.forgejo.entrypoints=wanwebsecure,lanwebsecure",
+        "traefik.http.routers.forgejo.entrypoints=websecure",
         "traefik.http.routers.forgejo.rule=Host(`git.brmartin.co.uk`)"
       ]
 

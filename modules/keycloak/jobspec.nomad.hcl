@@ -99,7 +99,7 @@ job "keycloak" {
         "traefik.enable=true",
 
         "traefik.http.routers.keycloak.rule=Host(`sso.brmartin.co.uk`)",
-        "traefik.http.routers.keycloak.entrypoints=wanwebsecure,lanwebsecure",
+        "traefik.http.routers.keycloak.entrypoints=websecure",
       ]
 
       connect {

@@ -144,7 +144,7 @@ job "elk" {
         tags = [
           "traefik.enable=true",
           "traefik.http.routers.es.rule=Host(`es.brmartin.co.uk`)",
-          "traefik.http.routers.es.entrypoints=wanwebsecure,lanwebsecure",
+          "traefik.http.routers.es.entrypoints=websecure",
           "traefik.http.routers.es.service=es",
           "traefik.http.services.es.loadbalancer.server.scheme=https",
           "traefik.http.services.es.loadbalancer.serversTransport=es@file",
@@ -350,7 +350,7 @@ job "elk" {
         tags = [
           "traefik.enable=true",
           "traefik.http.routers.kibana.rule=Host(`kibana.brmartin.co.uk`)",
-          "traefik.http.routers.kibana.entrypoints=wanwebsecure,lanwebsecure",
+          "traefik.http.routers.kibana.entrypoints=websecure",
         ]
       }
     }

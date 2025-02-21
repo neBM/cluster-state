@@ -56,7 +56,7 @@ job "media-centre" {
       port     = "jellyfin"
       tags = [
         "traefik.enable=true",
-        "traefik.http.routers.jellyfin.entrypoints=wanwebsecure,lanwebsecure",
+        "traefik.http.routers.jellyfin.entrypoints=websecure",
         "traefik.http.routers.jellyfin.rule=Host(`jellyfin.brmartin.co.uk`)"
       ]
     }
@@ -148,7 +148,7 @@ job "media-centre" {
       port     = "plex"
       tags = [
         "traefik.enable=true",
-        "traefik.http.routers.plex.entrypoints=wanwebsecure,lanwebsecure",
+        "traefik.http.routers.plex.entrypoints=websecure",
         "traefik.http.routers.plex.rule=Host(`plex.brmartin.co.uk`)"
       ]
     }
@@ -191,7 +191,7 @@ job "media-centre" {
       port     = "tautulli"
       tags = [
         "traefik.enable=true",
-        "traefik.http.routers.tautulli.entrypoints=wanwebsecure,lanwebsecure",
+        "traefik.http.routers.tautulli.entrypoints=websecure",
         "traefik.http.routers.tautulli.rule=Host(`tautulli.brmartin.co.uk`)"
       ]
     }

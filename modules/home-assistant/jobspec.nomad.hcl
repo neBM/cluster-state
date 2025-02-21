@@ -45,7 +45,7 @@ job "homeassistant" {
       provider = "consul"
       tags = [
         "traefik.enable=true",
-        "traefik.http.routers.homeassistant.entrypoints=wanwebsecure,lanwebsecure",
+        "traefik.http.routers.homeassistant.entrypoints=websecure",
         "traefik.http.routers.homeassistant.rule=Host(`homeassistant.brmartin.co.uk`)"
       ]
     }
