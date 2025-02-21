@@ -476,7 +476,7 @@ job "matrix" {
         "traefik.enable=true",
 
         "traefik.http.routers.synapse.rule=Host(`matrix.brmartin.co.uk`)",
-        "traefik.http.routers.synapse.entrypoints=websecure",
+        "traefik.http.routers.synapse.entrypoints=wanwebsecure,lanwebsecure",
         "traefik.http.routers.synapse.middlewares=synapseHeaders,synapseBuffering",
         "traefik.http.middlewares.synapseHeaders.headers.accesscontrolallowmethods=GET,POST,PUT,DELETE,OPTIONS",
         "traefik.http.middlewares.synapseHeaders.headers.accesscontrolallowheaders=Origin,X-Requested-With,Content-Type,Accept,Authorization",
@@ -521,7 +521,7 @@ job "matrix" {
         "traefik.enable=true",
 
         "traefik.http.routers.mas.rule=Host(`mas.brmartin.co.uk`) || (Host(`matrix.brmartin.co.uk`) && PathRegexp(`^/_matrix/client/(.*)/(login|logout|refresh)`))",
-        "traefik.http.routers.mas.entrypoints=websecure",
+        "traefik.http.routers.mas.entrypoints=wanwebsecure,lanwebsecure",
       ]
 
       connect {
@@ -556,7 +556,7 @@ job "matrix" {
         "traefik.enable=true",
 
         "traefik.http.routers.matrixWellKnown.rule=PathPrefix(`/.well-known/matrix`)",
-        "traefik.http.routers.matrixWellKnown.entrypoints=websecure",
+        "traefik.http.routers.matrixWellKnown.entrypoints=wanwebsecure,lanwebsecure",
         "traefik.http.routers.matrixWellKnown.middlewares=matrixWellKnown",
         "traefik.http.middlewares.matrixWellKnown.headers.accesscontrolalloworiginlist=*",
       ]
@@ -664,7 +664,7 @@ job "matrix" {
         tags = [
           "traefik.enable=true",
           "traefik.http.routers.element.rule=Host(`element.brmartin.co.uk`)",
-          "traefik.http.routers.element.entrypoints=websecure",
+          "traefik.http.routers.element.entrypoints=wanwebsecure,lanwebsecure",
         ]
 
         port         = "element"
@@ -708,7 +708,7 @@ job "matrix" {
         tags = [
           "traefik.enable=true",
           "traefik.http.routers.cinny.rule=Host(`cinny.brmartin.co.uk`)",
-          "traefik.http.routers.cinny.entrypoints=websecure",
+          "traefik.http.routers.cinny.entrypoints=wanwebsecure,lanwebsecure",
         ]
 
         port         = "cinny"
