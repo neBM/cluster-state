@@ -63,8 +63,9 @@ job "keycloak" {
       }
 
       resources {
-        cpu    = 500
-        memory = 512
+        cpu        = 500
+        memory     = 512
+        memory_max = 1024
       }
 
       template {
