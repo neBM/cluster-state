@@ -60,11 +60,12 @@ job "keycloak" {
         KC_PROXY_HEADERS     = "xforwarded"
         KC_HTTP_HOST         = "127.0.0.1"
         KC_HOSTNAME          = "sso.brmartin.co.uk"
+        JAVA_OPTS_KC_HEAP    = "-Xms200m -Xmx200m"
       }
 
       resources {
         cpu        = 500
-        memory     = 512
+        memory     = 250
         memory_max = 1024
       }
 
