@@ -8,7 +8,9 @@ job "matrix" {
 
     network {
       mode = "bridge"
-      port "synapse" {}
+      port "synapse" {
+        to = 8008
+      }
       port "envoy_metrics" {
         to = 9102
       }
@@ -16,19 +18,19 @@ job "matrix" {
 
     service {
       provider = "consul"
-      port     = "synapse"
+      port     = "8008"
 
       meta {
         envoy_metrics_port = "${NOMAD_HOST_PORT_envoy_metrics}"
       }
 
-      # check {
-      #   type     = "http"
-      #   path     = "/health"
-      #   interval = "20s"
-      #   timeout  = "5s"
-      #   expose   = true
-      # }
+      check {
+        type     = "http"
+        path     = "/health"
+        interval = "20s"
+        timeout  = "5s"
+        expose   = true
+      }
 
       connect {
         sidecar_service {
