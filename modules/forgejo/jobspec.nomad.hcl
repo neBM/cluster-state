@@ -132,7 +132,7 @@ job "forgejo" {
             options:
             workdir_parent:
             valid_volumes: []
-            docker_host: "-"
+            docker_host: "automount"
             force_pull: false
           host:
             workdir_parent:
