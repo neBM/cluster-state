@@ -129,10 +129,10 @@ job "forgejo" {
             network: "host"
             enable_ipv6: false
             privileged: true
-            options:
+            options: "-e DOCKER_HOST=tcp://127.0.0.1:2375"
             workdir_parent:
             valid_volumes: []
-            docker_host: "automount"
+            docker_host: "-"
             force_pull: false
           host:
             workdir_parent:
