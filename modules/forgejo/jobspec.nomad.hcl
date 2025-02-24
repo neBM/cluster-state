@@ -192,6 +192,11 @@ job "forgejo" {
       }
     }
 
+    ephemeral_disk {
+      migrate = true
+      size    = 10000
+    }
+
     task "docker-in-docker" {
       driver = "docker"
 
@@ -201,6 +206,12 @@ job "forgejo" {
 
         command = "dockerd"
         args    = ["-H=tcp://0.0.0.0:2375", "--tls=false"]
+
+        mount {
+          type   = "bind"
+          source = "local"
+          target = "/var/lib/docker"
+        }
       }
 
       resources {
