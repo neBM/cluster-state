@@ -205,7 +205,7 @@ job "forgejo" {
         privileged = true
 
         command = "dockerd"
-        args    = ["-H=tcp://0.0.0.0:2375", "--tls=false"]
+        args    = ["-H=tcp://127.0.0.1:2375", "--tls=false"]
 
         mount {
           type   = "bind"
