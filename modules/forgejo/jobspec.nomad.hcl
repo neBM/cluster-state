@@ -89,10 +89,8 @@ job "forgejo" {
       config {
         image = "data.forgejo.org/forgejo/runner:6.2.2"
 
-        command = "forgejo-runner"
-        args    = ["daemon", "--config=${NOMAD_TASK_DIR}/config.yml"]
-
-        volumes = ["/var/run/docker.sock:/var/run/docker.sock"]
+        command = "sh"
+        args    = ["-c", "sleep 5; forgejo-runner daemon --config=${NOMAD_TASK_DIR}/config.yml"]
       }
 
       volume_mount {
@@ -129,10 +127,10 @@ job "forgejo" {
             network: "host"
             enable_ipv6: false
             privileged: true
-            options: "-e DOCKER_HOST=tcp://127.0.0.1:2375"
+            options: ""
             workdir_parent:
             valid_volumes: []
-            docker_host: "-"
+            docker_host: "automount"
             force_pull: false
           host:
             workdir_parent:
