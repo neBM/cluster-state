@@ -124,7 +124,7 @@ job "media-centre" {
           target   = "/transcode"
           readonly = false
           tmpfs_options {
-          	mode = 1023
+            mode = 1023
           }
         }
       }
