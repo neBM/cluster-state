@@ -120,9 +120,9 @@ job "media-centre" {
         }
 
         mount {
-          type   = "volume"
-          target = "/transcode"
-          source = "plex-transcode"
+          type     = "tmpfs"
+          target   = "/transcode"
+          readonly = false
         }
       }
 
