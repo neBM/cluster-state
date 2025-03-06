@@ -58,6 +58,13 @@ job "media-centre" {
         "traefik.http.routers.jellyfin.entrypoints=websecure",
         "traefik.http.routers.jellyfin.rule=Host(`jellyfin.brmartin.co.uk`)"
       ]
+
+      check {
+        type     = "http"
+        path     = "/health"
+        interval = "5s"
+        timeout  = "2s"
+      }
     }
 
     network {
