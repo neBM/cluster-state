@@ -51,7 +51,6 @@ job "media-centre" {
     }
 
     service {
-      name     = "Jellyfin"
       provider = "consul"
       port     = "jellyfin"
       tags = [
@@ -146,7 +145,6 @@ job "media-centre" {
     }
 
     service {
-      name     = "Plex"
       provider = "consul"
       port     = "plex"
       tags = [
