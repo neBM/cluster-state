@@ -6,9 +6,10 @@ job "forgejo" {
       port "forgejo" {
         to = 3000
       }
-      port "envoy_metrics" {
-        to = 9102
+      port "websocket" {
+        to = 2375
       }
+      port "cache_server" {}
     }
 
     task "forgejo" {
@@ -16,6 +17,8 @@ job "forgejo" {
 
       config {
         image = "codeberg.org/forgejo/forgejo:10.0.1"
+
+        ports = ["forgejo"]
 
         volumes = [
           "/etc/timezone:/etc/timezone:ro",
@@ -37,49 +40,16 @@ job "forgejo" {
         USER_UID = "1000"
         USER_GID = "1000"
       }
-    }
 
-    volume "data" {
-      type            = "csi"
-      read_only       = false
-      source          = "martinibar_prod_forgejo_data"
-      attachment_mode = "file-system"
-      access_mode     = "single-node-writer"
-    }
+      service {
+        port     = "forgejo"
+        provider = "consul"
+        tags = [
+          "traefik.enable=true",
 
-    service {
-      port     = "3000"
-      provider = "consul"
-
-      meta {
-        envoy_metrics_port = "${NOMAD_HOST_PORT_envoy_metrics}"
-      }
-
-      connect {
-        sidecar_service {
-          proxy {
-            expose {
-              path {
-                path            = "/metrics"
-                protocol        = "http"
-                local_path_port = 9102
-                listener_port   = "envoy_metrics"
-              }
-            }
-            transparent_proxy {}
-          }
-        }
-      }
-    }
-  }
-
-  group "runner" {
-
-    network {
-      mode = "bridge"
-      port "cache_server" {}
-      port "envoy_metrics" {
-        to = 9102
+          "traefik.http.routers.forgejo.entrypoints=websecure",
+          "traefik.http.routers.forgejo.rule=Host(`git.brmartin.co.uk`)"
+        ]
       }
     }
 
@@ -94,7 +64,7 @@ job "forgejo" {
       }
 
       volume_mount {
-        volume      = "data"
+        volume      = "runner_data"
         destination = "/data"
       }
 
@@ -121,16 +91,16 @@ job "forgejo" {
           cache:
             enabled: true
             dir: "{{ env "NOMAD_TASK_DIR" }}/cache"
-            host: "forgejo-runner.virtual.consul"
+            host: "127.0.0.1"
             port: {{ env "NOMAD_PORT_cache_server" }}
           container:
             network: "host"
             enable_ipv6: false
             privileged: true
-            options: ""
+            options: "-v /var/run/docker.sock:/var/run/docker.sock"
             workdir_parent:
-            valid_volumes: []
-            docker_host: "automount"
+            valid_volumes: ["/var/run/docker.sock"]
+            docker_host: ""
             force_pull: false
           host:
             workdir_parent:
@@ -140,59 +110,13 @@ job "forgejo" {
       }
 
       env {
-        DOCKER_HOST = "tcp://forgejo-docker-in-docker.virtual.consul:2375"
-      }
-    }
-
-    volume "data" {
-      type            = "csi"
-      read_only       = false
-      source          = "martinibar_prod_forgejo-runner_data"
-      attachment_mode = "file-system"
-      access_mode     = "single-node-writer"
-    }
-
-    service {
-      port     = "cache_server"
-      provider = "consul"
-
-      meta {
-        envoy_metrics_port = "${NOMAD_HOST_PORT_envoy_metrics}"
+        DOCKER_HOST = "tcp://127.0.0.1:2375"
       }
 
-      connect {
-        sidecar_service {
-          proxy {
-            expose {
-              path {
-                path            = "/metrics"
-                protocol        = "http"
-                local_path_port = 9102
-                listener_port   = "envoy_metrics"
-              }
-            }
-            transparent_proxy {}
-          }
-        }
+      service {
+        port     = "cache_server"
+        provider = "consul"
       }
-    }
-  }
-
-  group "docker-in-docker" {
-
-    network {
-      mode = "bridge"
-      port "websocket" {
-        to = 2375
-      }
-      port "envoy_metrics" {
-        to = 9102
-      }
-    }
-
-    ephemeral_disk {
-      migrate = true
-      size    = 10000
     }
 
     task "docker-in-docker" {
@@ -203,7 +127,7 @@ job "forgejo" {
         privileged = true
 
         command = "dockerd"
-        args    = ["-H=tcp://127.0.0.1:2375", "--tls=false"]
+        args    = ["-H=tcp://0.0.0.0:2375", "-H=unix:///var/run/docker.sock", "--tls=false", "--default-address-pool=base=10.255.0.0/24,size=29"]
 
         mount {
           type   = "bind"
@@ -217,66 +141,32 @@ job "forgejo" {
         memory     = 512
         memory_max = 4096
       }
-    }
 
-    service {
-      port     = "2375"
-      provider = "consul"
-
-      meta {
-        envoy_metrics_port = "${NOMAD_HOST_PORT_envoy_metrics}"
-      }
-
-      connect {
-        sidecar_service {
-          proxy {
-            expose {
-              path {
-                path            = "/metrics"
-                protocol        = "http"
-                local_path_port = 9102
-                listener_port   = "envoy_metrics"
-              }
-            }
-            transparent_proxy {}
-          }
-        }
-      }
-    }
-  }
-
-  group "forgejo-ingress-group" {
-
-    network {
-      mode = "bridge"
-      port "inbound" {
-        to = 8080
+      service {
+        port     = "websocket"
+        provider = "consul"
       }
     }
 
-    service {
-      port = "inbound"
-      tags = [
-        "traefik.enable=true",
+    volume "data" {
+      type            = "csi"
+      read_only       = false
+      source          = "martinibar_prod_forgejo_data"
+      attachment_mode = "file-system"
+      access_mode     = "single-node-writer"
+    }
 
-        "traefik.http.routers.forgejo.entrypoints=websecure",
-        "traefik.http.routers.forgejo.rule=Host(`git.brmartin.co.uk`)"
-      ]
+    volume "runner_data" {
+      type            = "csi"
+      read_only       = false
+      source          = "martinibar_prod_forgejo-runner_data"
+      attachment_mode = "file-system"
+      access_mode     = "single-node-writer"
+    }
 
-      connect {
-        gateway {
-          ingress {
-            listener {
-              port     = 8080
-              protocol = "http"
-              service {
-                name  = "forgejo-forgejo"
-                hosts = ["*"]
-              }
-            }
-          }
-        }
-      }
+    ephemeral_disk {
+      migrate = true
+      size    = 10000
     }
   }
 }
