@@ -147,7 +147,7 @@ job "media-centre" {
       resources {
         cpu        = 1200
         memory     = 1024
-        memory_max = 2048
+        memory_max = 4096
       }
     }
 
