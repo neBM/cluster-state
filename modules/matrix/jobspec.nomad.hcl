@@ -266,7 +266,7 @@ job "matrix" {
       driver = "docker"
 
       config {
-        image = "dock.mau.dev/mautrix/whatsapp:v0.11.3"
+        image = "dock.mau.dev/mautrix/whatsapp:v0.11.4"
 
         volumes = [
           "/mnt/docker/matrix/whatsapp-data:/data"
