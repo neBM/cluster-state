@@ -85,7 +85,7 @@ job "elk" {
           discovery:
             seed_providers: file
           path:
-            data: {{ env "NOMAD_TASK_DIR" }}/data
+            data: {{ env "NOMAD_ALLOC_DIR" }}/data
             repo:
               - /mnt/backups
           xpack:
