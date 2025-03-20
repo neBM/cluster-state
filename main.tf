@@ -41,3 +41,7 @@ module "forgejo" {
 module "keycloak" {
   source = "./modules/keycloak"
 }
+
+module "ollama" {
+  source = "./modules/ollama"
+}
