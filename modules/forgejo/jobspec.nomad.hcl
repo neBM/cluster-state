@@ -16,7 +16,7 @@ job "forgejo" {
       driver = "docker"
 
       config {
-        image = "codeberg.org/forgejo/forgejo:10.0.1"
+        image = "codeberg.org/forgejo/forgejo:10.0.2"
 
         ports = ["forgejo"]
 
