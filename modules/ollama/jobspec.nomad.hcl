@@ -56,6 +56,10 @@ job "ollama" {
       connect {
         sidecar_service {
           proxy {
+            config {
+              protocol              = "http"
+              local_idle_timeout_ms = 120000
+            }
             expose {
               path {
                 path            = "/metrics"
