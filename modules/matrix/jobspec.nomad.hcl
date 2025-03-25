@@ -592,7 +592,7 @@ job "matrix" {
       driver = "docker"
 
       config {
-        image = "docker.io/vectorim/element-web:v1.11.95"
+        image = "docker.io/vectorim/element-web:v1.11.96"
 
         ports = ["element"]
 
