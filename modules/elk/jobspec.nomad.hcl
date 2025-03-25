@@ -14,13 +14,10 @@ job "elk" {
 
     network {
       port "http" {
-        to = 9200
+        static = 9200
       }
       port "transport" {
-        to = 9300
-      }
-      port "envoy_metrics" {
-        to = 9102
+        static = 9300
       }
     }
 
@@ -43,12 +40,6 @@ job "elk" {
 
         ulimit {
           memlock = "-1:-1"
-        }
-
-        mount {
-          type   = "bind"
-          source = "local/unicast_hosts.txt"
-          target = "/usr/share/elasticsearch/config/unicast_hosts.txt"
         }
 
         mount {
@@ -83,7 +74,10 @@ job "elk" {
             publish_host: {{ env "NOMAD_HOST_IP_transport" }}
             publish_port: {{ env "NOMAD_HOST_PORT_transport" }}
           discovery:
-            seed_providers: file
+            seed_hosts:
+              - hestia.lan:9300
+              - neto.lan:9300
+              - nyx.lan:9300
           path:
             data: {{ env "NOMAD_ALLOC_DIR" }}/data
             repo:
@@ -111,16 +105,6 @@ job "elk" {
           EOF
 
         destination = "local/elasticsearch.yml"
-      }
-
-      template {
-        data = <<-EOF
-          {{ range service "elk-node-transport|any" }}
-          {{ .Address }}:{{ .Port }}{{ end }}
-          EOF
-
-        destination = "local/unicast_hosts.txt"
-        change_mode = "noop"
       }
 
       service {
@@ -180,9 +164,6 @@ job "elk" {
       port "web" {
         to = 5601
       }
-      port "envoy_metrics" {
-        to = 9102
-      }
     }
 
     task "kibana" {
@@ -214,8 +195,9 @@ job "elk" {
         data = <<-EOF
           elasticsearch:
             hosts:
-              {{ range service "elk-node-http|any" }}
-              - https://{{ .Address }}:{{ .Port }}{{ end }}
+              - https://hestia.lan:9200
+              - https://neto.lan:9200
+              - https://nyx.lan:9200
             publicBaseUrl: https://es.brmartin.co.uk
             username: ${ELASTICSEARCH_USERNAME}
             password: ${ELASTICSEARCH_PASSWORD}
@@ -278,71 +260,6 @@ job "elk" {
           "traefik.http.routers.kibana.rule=Host(`kibana.brmartin.co.uk`)",
           "traefik.http.routers.kibana.entrypoints=websecure",
         ]
-      }
-    }
-  }
-
-  group "lb" {
-    network {
-      port "web" {
-        static = 9200
-      }
-    }
-
-    task "nginx" {
-      driver = "docker"
-
-      config {
-        image = "nginx:1.27.4-alpine"
-
-        ports = ["web"]
-
-        mount {
-          type   = "bind"
-          source = "local/nginx.conf"
-          target = "/etc/nginx/nginx.conf"
-        }
-      }
-
-      resources {
-        cpu    = 10
-        memory = 16
-      }
-
-      template {
-        data = <<-EOF
-          user  nobody;
-          worker_processes  auto;
-          pid        /var/run/nginx.pid;
-
-          events {
-            worker_connections  1024;
-          }
-          
-          stream {
-            upstream es {
-              {{- range service "elk-node-http" }}
-              server {{ .Address }}:{{ .Port }};{{- end }}
-            }
-
-            server {
-              listen {{ env "NOMAD_PORT_web" }};
-              proxy_pass es;
-            }
-          }
-          EOF
-
-        destination = "local/nginx.conf"
-        # change_mode = "script"
-        # change_script {
-        #   command = "/usr/sbin/nginx"
-        #   args    = ["-s", "reload"]
-        # }
-      }
-
-      service {
-        port     = "web"
-        provider = "consul"
       }
     }
   }
