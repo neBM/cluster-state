@@ -94,6 +94,12 @@ job "media-centre" {
   }
 
   group "tautulli" {
+
+    ephemeral_disk {
+      migrate = true
+      size    = 2000
+    }
+
     task "tautulli" {
       driver = "docker"
 
@@ -102,7 +108,7 @@ job "media-centre" {
         ports = ["tautulli"]
 
         volumes = [
-          "/mnt/docker/downloads/config/tautulli:/config",
+          "alloc/data/:/config",
         ]
       }
 
