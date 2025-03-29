@@ -45,3 +45,7 @@ module "keycloak" {
 module "ollama" {
   source = "./modules/ollama"
 }
+
+module "jayne-martin-counselling" {
+  source = "./modules/jayne-martin-counselling"
+}
