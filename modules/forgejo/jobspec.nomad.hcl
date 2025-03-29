@@ -90,7 +90,7 @@ job "forgejo" {
             labels: []
           cache:
             enabled: true
-            dir: "{{ env "NOMAD_ALLOC_DIR" }}/data/cache"
+            dir: "{{ env "NOMAD_TASK_DIR" }}/local"
             host: "127.0.0.1"
             port: {{ env "NOMAD_PORT_cache_server" }}
           container:
