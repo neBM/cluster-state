@@ -95,7 +95,7 @@ job "ollama" {
         force_pull = true
 
         volumes = [
-          "alloc/data/:/app/backend/data"
+          "../alloc/data/:/app/backend/data"
         ]
       }
 
