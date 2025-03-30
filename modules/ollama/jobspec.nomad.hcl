@@ -35,8 +35,9 @@ job "ollama" {
       }
 
       resources {
-        cpu    = 100
-        memory = 1024
+        cpu        = 100
+        memory     = 256
+        memory_max = 4096
       }
     }
 
