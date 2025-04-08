@@ -21,11 +21,6 @@ job "elk" {
       }
     }
 
-    ephemeral_disk {
-      migrate = true
-      size    = 10000
-    }
-
     task "elasticsearch" {
       driver = "docker"
 
@@ -36,6 +31,7 @@ job "elk" {
 
         volumes = [
           "/mnt/docker/elastic-${node.unique.name}/config:/usr/share/elasticsearch/config",
+          "/var/lib/elasticsearch:/var/lib/elasticsearch",
         ]
 
         ulimit {
@@ -79,7 +75,7 @@ job "elk" {
               - neto.lan:9300
               - nyx.lan:9300
           path:
-            data: {{ env "NOMAD_ALLOC_DIR" }}/data
+            data: /var/lib/elasticsearch
             repo:
               - /mnt/backups
           xpack:
