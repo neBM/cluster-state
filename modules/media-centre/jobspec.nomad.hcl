@@ -9,10 +9,8 @@ job "media-centre" {
       }
 
       config {
-        image        = "plexinc/pms-docker:latest"
-        runtime      = "nvidia"
-        ports        = ["plex"]
-        network_mode = "host"
+        image   = "plexinc/pms-docker:latest"
+        runtime = "nvidia"
 
         mount {
           type   = "volume"
@@ -78,17 +76,36 @@ job "media-centre" {
 
     service {
       provider = "consul"
-      port     = "plex"
-      tags = [
-        "traefik.enable=true",
-        "traefik.http.routers.plex.entrypoints=websecure",
-        "traefik.http.routers.plex.rule=Host(`plex.brmartin.co.uk`)"
-      ]
+      port     = "32400"
+
+      meta {
+        envoy_metrics_port = "${NOMAD_HOST_PORT_envoy_metrics}"
+      }
+
+      connect {
+        sidecar_service {
+          proxy {
+            expose {
+              path {
+                path            = "/metrics"
+                protocol        = "http"
+                local_path_port = 9102
+                listener_port   = "envoy_metrics"
+              }
+            }
+            transparent_proxy {}
+          }
+        }
+      }
     }
 
     network {
+      mode = "bridge"
       port "plex" {
-        static = 32400
+        to = 32400
+      }
+      port "envoy_metrics" {
+        to = 9102
       }
     }
   }
@@ -132,6 +149,41 @@ job "media-centre" {
     network {
       port "tautulli" {
         to = 8181
+      }
+    }
+  }
+
+  group "plex-ingress-group" {
+
+    network {
+      mode = "bridge"
+      port "inbound" {
+        to = 8080
+      }
+    }
+
+    service {
+      port = "inbound"
+      tags = [
+        "traefik.enable=true",
+
+        "traefik.http.routers.plex.entrypoints=websecure",
+        "traefik.http.routers.plex.rule=Host(`plex.brmartin.co.uk`)"
+      ]
+
+      connect {
+        gateway {
+          ingress {
+            listener {
+              port     = 8080
+              protocol = "http"
+              service {
+                name  = "media-centre-plex"
+                hosts = ["*"]
+              }
+            }
+          }
+        }
       }
     }
   }
