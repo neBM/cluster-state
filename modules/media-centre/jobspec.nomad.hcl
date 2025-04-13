@@ -115,7 +115,7 @@ job "media-centre" {
       driver = "docker"
 
       config {
-        image = "ghcr.io/tautulli/tautulli:v2.15.1"
+        image = "ghcr.io/tautulli/tautulli:v2.15.2"
         ports = ["tautulli"]
 
         volumes = [
