@@ -50,8 +50,8 @@ job "elk" {
       }
 
       resources {
-        cpu        = 2000
-        memory     = 2048
+        cpu    = 2000
+        memory = 2048
       }
 
       template {
