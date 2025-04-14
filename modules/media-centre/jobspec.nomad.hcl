@@ -168,9 +168,7 @@ job "media-centre" {
         "traefik.enable=true",
 
         "traefik.http.routers.plex.entrypoints=websecure",
-        "traefik.http.routers.plex.rule=Host(`plex.brmartin.co.uk`)",
-        "traefik.http.routers.plex.service=plex",
-        "traefik.http.services.plex.loadbalancer.serversTransport=plex@file",
+        "traefik.http.routers.plex.rule=Host(`plex.brmartin.co.uk`)"
       ]
 
       connect {
