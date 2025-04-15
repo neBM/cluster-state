@@ -38,6 +38,14 @@ job "keycloak" {
           }
         }
       }
+
+      tags = [
+        "traefik.enable=true",
+
+        "traefik.http.routers.keycloak.rule=Host(`sso.brmartin.co.uk`)",
+        "traefik.http.routers.keycloak.entrypoints=websecure",
+        "traefik.consulcatalog.connect=true",
+      ]
     }
 
     task "keycloak" {
@@ -83,41 +91,6 @@ job "keycloak" {
 
     meta = {
       "service.name" = "keycloak"
-    }
-  }
-
-  group "keycloak-ingress-group" {
-
-    network {
-      mode = "bridge"
-      port "inbound" {
-        to = 8080
-      }
-    }
-
-    service {
-      port = "inbound"
-      tags = [
-        "traefik.enable=true",
-
-        "traefik.http.routers.keycloak.rule=Host(`sso.brmartin.co.uk`)",
-        "traefik.http.routers.keycloak.entrypoints=websecure",
-      ]
-
-      connect {
-        gateway {
-          ingress {
-            listener {
-              port     = 8080
-              protocol = "http"
-              service {
-                name  = "keycloak-keycloak"
-                hosts = ["*"]
-              }
-            }
-          }
-        }
-      }
     }
   }
 }
