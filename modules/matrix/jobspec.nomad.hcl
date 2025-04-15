@@ -51,6 +51,19 @@ job "matrix" {
           }
         }
       }
+
+      tags = [
+        "traefik.enable=true",
+
+        "traefik.http.routers.synapse.rule=Host(`matrix.brmartin.co.uk`)",
+        "traefik.http.routers.synapse.entrypoints=websecure",
+        "traefik.http.routers.synapse.middlewares=synapseHeaders,synapseBuffering",
+        "traefik.http.middlewares.synapseHeaders.headers.accesscontrolallowmethods=GET,POST,PUT,DELETE,OPTIONS",
+        "traefik.http.middlewares.synapseHeaders.headers.accesscontrolallowheaders=Origin,X-Requested-With,Content-Type,Accept,Authorization",
+        "traefik.http.middlewares.synapseHeaders.headers.accesscontrolalloworiginlist=*",
+        "traefik.http.middlewares.synapseBuffering.buffering.maxRequestBodyBytes=1000000000",
+        "traefik.consulcatalog.connect=true",
+      ]
     }
 
     task "synapse" {
@@ -320,6 +333,14 @@ job "matrix" {
           }
         }
       }
+
+      tags = [
+        "traefik.enable=true",
+
+        "traefik.http.routers.mas.rule=Host(`mas.brmartin.co.uk`) || (Host(`matrix.brmartin.co.uk`) && PathRegexp(`^/_matrix/client/(.*)/(login|logout|refresh)`))",
+        "traefik.http.routers.mas.entrypoints=websecure",
+        "traefik.consulcatalog.connect=true",
+      ]
     }
 
     task "mas" {
@@ -387,6 +408,17 @@ job "matrix" {
           }
         }
       }
+
+      tags = [
+        "traefik.enable=true",
+
+        "traefik.http.routers.matrixWellKnown.rule=PathPrefix(`/.well-known/matrix`)",
+        "traefik.http.routers.matrixWellKnown.entrypoints=websecure",
+        "traefik.http.routers.matrixWellKnown.middlewares=matrixWellKnown",
+        "traefik.http.middlewares.matrixWellKnown.headers.accesscontrolalloworiginlist=*",
+        "traefik.consulcatalog.connect=true",
+      ]
+
     }
 
     task "nginx" {
@@ -459,123 +491,6 @@ job "matrix" {
 
       meta = {
         "service.name" = "nginx"
-      }
-    }
-  }
-
-  group "synapse-ingress-group" {
-
-    network {
-      mode = "bridge"
-      port "inbound" {
-        to = 8080
-      }
-    }
-
-    service {
-      port = "inbound"
-      tags = [
-        "traefik.enable=true",
-
-        "traefik.http.routers.synapse.rule=Host(`matrix.brmartin.co.uk`)",
-        "traefik.http.routers.synapse.entrypoints=websecure",
-        "traefik.http.routers.synapse.middlewares=synapseHeaders,synapseBuffering",
-        "traefik.http.middlewares.synapseHeaders.headers.accesscontrolallowmethods=GET,POST,PUT,DELETE,OPTIONS",
-        "traefik.http.middlewares.synapseHeaders.headers.accesscontrolallowheaders=Origin,X-Requested-With,Content-Type,Accept,Authorization",
-        "traefik.http.middlewares.synapseHeaders.headers.accesscontrolalloworiginlist=*",
-        "traefik.http.middlewares.synapseBuffering.buffering.maxRequestBodyBytes=1000000000",
-      ]
-
-      connect {
-        gateway {
-          proxy {
-            config {
-              local_idle_timeout_ms = 120000
-            }
-          }
-          ingress {
-            listener {
-              port     = 8080
-              protocol = "http"
-              service {
-                name  = "matrix-synapse"
-                hosts = ["*"]
-              }
-            }
-          }
-        }
-      }
-    }
-  }
-
-  group "mas-ingress-group" {
-
-    network {
-      mode = "bridge"
-      port "inbound" {
-        to = 8080
-      }
-    }
-
-    service {
-      port = "inbound"
-      tags = [
-        "traefik.enable=true",
-
-        "traefik.http.routers.mas.rule=Host(`mas.brmartin.co.uk`) || (Host(`matrix.brmartin.co.uk`) && PathRegexp(`^/_matrix/client/(.*)/(login|logout|refresh)`))",
-        "traefik.http.routers.mas.entrypoints=websecure",
-      ]
-
-      connect {
-        gateway {
-          ingress {
-            listener {
-              port     = 8080
-              protocol = "http"
-              service {
-                name  = "matrix-mas"
-                hosts = ["*"]
-              }
-            }
-          }
-        }
-      }
-    }
-  }
-
-  group "wellknown-ingress-group" {
-
-    network {
-      mode = "bridge"
-      port "inbound" {
-        to = 8080
-      }
-    }
-
-    service {
-      port = "inbound"
-      tags = [
-        "traefik.enable=true",
-
-        "traefik.http.routers.matrixWellKnown.rule=PathPrefix(`/.well-known/matrix`)",
-        "traefik.http.routers.matrixWellKnown.entrypoints=websecure",
-        "traefik.http.routers.matrixWellKnown.middlewares=matrixWellKnown",
-        "traefik.http.middlewares.matrixWellKnown.headers.accesscontrolalloworiginlist=*",
-      ]
-
-      connect {
-        gateway {
-          ingress {
-            listener {
-              port     = 8080
-              protocol = "http"
-              service {
-                name  = "matrix-nginx"
-                hosts = ["*"]
-              }
-            }
-          }
-        }
       }
     }
   }
