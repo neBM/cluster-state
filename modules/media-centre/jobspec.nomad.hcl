@@ -97,6 +97,14 @@ job "media-centre" {
           }
         }
       }
+
+      tags = [
+        "traefik.enable=true",
+
+        "traefik.http.routers.plex.entrypoints=websecure",
+        "traefik.http.routers.plex.rule=Host(`plex.brmartin.co.uk`)",
+        "traefik.consulcatalog.connect=true",
+      ]
     }
 
     network {
@@ -149,41 +157,6 @@ job "media-centre" {
     network {
       port "tautulli" {
         to = 8181
-      }
-    }
-  }
-
-  group "plex-ingress-group" {
-
-    network {
-      mode = "bridge"
-      port "inbound" {
-        to = 8080
-      }
-    }
-
-    service {
-      port = "inbound"
-      tags = [
-        "traefik.enable=true",
-
-        "traefik.http.routers.plex.entrypoints=websecure",
-        "traefik.http.routers.plex.rule=Host(`plex.brmartin.co.uk`)"
-      ]
-
-      connect {
-        gateway {
-          ingress {
-            listener {
-              port     = 8080
-              protocol = "http"
-              service {
-                name  = "media-centre-plex"
-                hosts = ["*"]
-              }
-            }
-          }
-        }
       }
     }
   }
