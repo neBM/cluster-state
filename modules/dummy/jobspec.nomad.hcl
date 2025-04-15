@@ -1,8 +1,15 @@
 job "hello-world" {
-  datacenters = ["dc1"]
-
   group "servers" {
-    count = 1
+
+    network {
+      mode = "bridge"
+      port "www" {
+        to = 8001
+      }
+      port "envoy_metrics" {
+        to = 9102
+      }
+    }
 
     task "web" {
       driver = "docker"
@@ -25,20 +32,30 @@ job "hello-world" {
       }
     }
 
-    network {
-      mode = "bridge"
-      port "www" {
-        to = 8001
-      }
-    }
-
     service {
-      port     = "www"
+      port     = 8001
       provider = "consul"
+
+      connect {
+        sidecar_service {
+          proxy {
+            expose {
+              path {
+                path            = "/metrics"
+                protocol        = "http"
+                local_path_port = 9102
+                listener_port   = "envoy_metrics"
+              }
+            }
+            transparent_proxy {}
+          }
+        }
+      }
 
       tags = [
         "traefik.enable=true",
         "traefik.http.routers.web.rule=Host(`hello-world.brmartin.co.uk`)",
+        "traefik.consulcatalog.connect=true",
       ]
     }
   }
