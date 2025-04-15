@@ -50,41 +50,14 @@ job "jayne-martin-counselling" {
           }
         }
       }
-    }
-  }
 
-  group "webserver-ingress-group" {
-
-    network {
-      mode = "bridge"
-      port "inbound" {
-        to = 8080
-      }
-    }
-
-    service {
-      port = "inbound"
       tags = [
         "traefik.enable=true",
 
         "traefik.http.routers.jmc.rule=Host(`www.jaynemartincounselling.co.uk`)",
-        "traefik.http.routers.jmc.entrypoints=websecure"
+        "traefik.http.routers.jmc.entrypoints=websecure",
+        "traefik.consulcatalog.connect=true",
       ]
-
-      connect {
-        gateway {
-          ingress {
-            listener {
-              port     = 8080
-              protocol = "http"
-              service {
-                name  = "jayne-martin-counselling-webserver"
-                hosts = ["*"]
-              }
-            }
-          }
-        }
-      }
     }
   }
 }
