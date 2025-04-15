@@ -133,41 +133,14 @@ job "ollama" {
           }
         }
       }
-    }
-  }
 
-  group "open-webui-ingress-group" {
-
-    network {
-      mode = "bridge"
-      port "inbound" {
-        to = 8080
-      }
-    }
-
-    service {
-      port = "inbound"
       tags = [
         "traefik.enable=true",
 
         "traefik.http.routers.openwebui.rule=Host(`eos.brmartin.co.uk`)",
-        "traefik.http.routers.openwebui.entrypoints=websecure"
+        "traefik.http.routers.openwebui.entrypoints=websecure",
+        "traefik.consulcatalog.connect=true",
       ]
-
-      connect {
-        gateway {
-          ingress {
-            listener {
-              port     = 8080
-              protocol = "http"
-              service {
-                name  = "ollama-open-webui"
-                hosts = ["*"]
-              }
-            }
-          }
-        }
-      }
     }
   }
 }
