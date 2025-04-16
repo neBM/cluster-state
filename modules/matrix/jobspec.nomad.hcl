@@ -425,7 +425,7 @@ job "matrix" {
       driver = "docker"
 
       config {
-        image = "docker.io/library/nginx:1.27.4-alpine"
+        image = "docker.io/library/nginx:1.27.5-alpine"
 
         volumes = [
           "/mnt/docker/matrix/nginx/html:/usr/share/nginx/html:ro",
