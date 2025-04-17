@@ -54,6 +54,7 @@ job "media-centre" {
           readonly = false
           tmpfs_options {
             mode = 1023
+            size = 3.5e+9
           }
         }
       }
