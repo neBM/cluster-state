@@ -29,14 +29,14 @@ jobs:
       - name: Setup Nomad
         uses: hashicorp/setup-nomad@main
 
+      - name: Create Terraform Plugin Cache Dir
+        run: mkdir -v -p $TF_PLUGIN_CACHE_DIR
+
       - name: Terraform Format Check
         run: terraform fmt -check -recursive
 
       - name: Nomad fmt
         run: nomad fmt -recursive -check
-
-      - name: Create Terraform Plugin Cache Dir
-        run: mkdir -v -p $TF_PLUGIN_CACHE_DIR
 
       - name: Cache Terraform Plugin Dir
         uses: actions/cache@v4
