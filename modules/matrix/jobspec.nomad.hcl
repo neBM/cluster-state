@@ -195,6 +195,7 @@ job "matrix" {
               client_secret: "{{ with nomadVar "nomad/jobs/matrix/synapse/synapse" }}{{ .mas_client_secret }}{{ end }}"
               admin_token: "{{ with nomadVar "nomad/jobs/matrix/synapse/synapse" }}{{ .mas_admin_token }}{{ end }}"
               account_management_url: "https://sso.brmartin.co.uk/settings"
+              introspection_endpoint: "http://matrix-mas.virtual.consul/oauth2/introspect"
         EOF
 
         destination = "local/synapse-config.yaml"
