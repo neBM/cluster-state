@@ -348,8 +348,7 @@ job "matrix" {
       driver = "docker"
 
       config {
-        image      = "ghcr.io/matrix-org/matrix-authentication-service:main"
-        force_pull = true
+        image      = "ghcr.io/element-hq/matrix-authentication-service:0.15.0"
 
         volumes = [
           "/mnt/docker/matrix/synapse-mas/config.yaml:/config.yaml:ro"
