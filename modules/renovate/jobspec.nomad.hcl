@@ -16,7 +16,7 @@ job "renovate" {
 
       resources {
         cpu    = 2000
-        memory = 1024
+        memory = 1536
       }
 
       env {
