@@ -24,6 +24,8 @@ job "renovate" {
         RENOVATE_AUTODISCOVER         = "true"
         RENOVATE_ENDPOINT             = "https://git.brmartin.co.uk"
         RENOVATE_GIT_AUTHOR           = "Renovate Bot <renovate@brmartin.co.uk>"
+        RENOVATE_BASE_DIR             = "${NOMAD_TASK_DIR}"
+        RENOVATE_CACHE_DIR            = "${NOMAD_TASK_DIR}/../tmp"
         LOG_FORMAT                    = "json"
         RENOVATE_DEPENDENCY_DASHBOARD = "true"
       }
