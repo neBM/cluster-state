@@ -243,6 +243,7 @@ job "elk" {
         provider = "consul"
 
         check {
+          name     = "healthiness"
           type     = "tcp"
           port     = "web"
           interval = "5s"
@@ -250,6 +251,7 @@ job "elk" {
         }
 
         check {
+          name      = "readiness"
           type      = "http"
           port      = "web"
           path      = "/api/status"
