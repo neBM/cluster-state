@@ -243,11 +243,19 @@ job "elk" {
         provider = "consul"
 
         check {
-          type     = "http"
+          type     = "tcp"
           port     = "web"
-          path     = "/api/status"
           interval = "5s"
           timeout  = "2s"
+        }
+
+        check {
+          type      = "http"
+          port      = "web"
+          path      = "/api/status"
+          interval  = "5s"
+          timeout   = "2s"
+          on_update = "ignore"
         }
 
         tags = [
