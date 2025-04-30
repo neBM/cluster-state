@@ -71,7 +71,7 @@ job "elk" {
           discovery:
             seed_hosts:
               - hestia.lan:9300
-              - neto.lan:9300
+              - heracles.lan:9300
               - nyx.lan:9300
           path:
             data: /var/lib/elasticsearch
@@ -191,7 +191,7 @@ job "elk" {
           elasticsearch:
             hosts:
               - https://hestia.lan:9200
-              - https://neto.lan:9200
+              - https://heracles.lan:9200
               - https://nyx.lan:9200
             publicBaseUrl: https://es.brmartin.co.uk
             username: ${ELASTICSEARCH_USERNAME}
