@@ -1,5 +1,15 @@
 job "media-centre" {
   group "plex" {
+    network {
+      mode = "bridge"
+      port "plex" {
+        to = 32400
+      }
+      port "envoy_metrics" {
+        to = 9102
+      }
+    }
+    
     task "plex" {
       driver = "docker"
 
@@ -107,19 +117,19 @@ job "media-centre" {
         "traefik.consulcatalog.connect=true",
       ]
     }
+  }
 
+  group "tautulli" {
     network {
       mode = "bridge"
-      port "plex" {
-        to = 32400
+      port "tautulli" {
+        to = 8181
       }
       port "envoy_metrics" {
         to = 9102
       }
     }
-  }
-
-  group "tautulli" {
+    
     task "tautulli" {
       driver = "docker"
 
@@ -147,18 +157,34 @@ job "media-centre" {
 
     service {
       provider = "consul"
-      port     = "tautulli"
+      port     = "8181"
+
+      meta {
+        envoy_metrics_port = "${NOMAD_HOST_PORT_envoy_metrics}"
+      }
+
+      connect {
+        sidecar_service {
+          proxy {
+            expose {
+              path {
+                path            = "/metrics"
+                protocol        = "http"
+                local_path_port = 9102
+                listener_port   = "envoy_metrics"
+              }
+            }
+            transparent_proxy {}
+          }
+        }
+      }
+      
       tags = [
         "traefik.enable=true",
         "traefik.http.routers.tautulli.entrypoints=websecure",
-        "traefik.http.routers.tautulli.rule=Host(`tautulli.brmartin.co.uk`)"
+        "traefik.http.routers.tautulli.rule=Host(`tautulli.brmartin.co.uk`)",
+        "traefik.consulcatalog.connect=true",
       ]
-    }
-
-    network {
-      port "tautulli" {
-        to = 8181
-      }
     }
   }
 }
