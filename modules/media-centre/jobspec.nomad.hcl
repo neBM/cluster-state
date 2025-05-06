@@ -9,7 +9,7 @@ job "media-centre" {
         to = 9102
       }
     }
-    
+
     task "plex" {
       driver = "docker"
 
@@ -129,7 +129,7 @@ job "media-centre" {
         to = 9102
       }
     }
-    
+
     task "tautulli" {
       driver = "docker"
 
@@ -178,7 +178,7 @@ job "media-centre" {
           }
         }
       }
-      
+
       tags = [
         "traefik.enable=true",
         "traefik.http.routers.tautulli.entrypoints=websecure",
