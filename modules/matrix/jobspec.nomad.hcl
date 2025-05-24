@@ -607,7 +607,7 @@ job "matrix" {
       driver = "docker"
 
       config {
-        image = "ghcr.io/cinnyapp/cinny:v4.7.1"
+        image = "ghcr.io/cinnyapp/cinny:v4.8.0"
 
         ports = ["cinny"]
 
