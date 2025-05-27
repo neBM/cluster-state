@@ -11,7 +11,7 @@ job "renovate" {
       driver = "docker"
 
       config {
-        image = "ghcr.io/renovatebot/renovate:40.32.6"
+        image = "ghcr.io/renovatebot/renovate:40.32.7"
       }
 
       resources {
