@@ -66,6 +66,8 @@ job "monica" {
       env = {
         DB_HOST             = "martinibar.lan"
         DB_USERNAME         = "monica"
+        APP_ENV             = "production"
+        APP_URL             = "https://monica.brmartin.co.uk"
         APP_TRUSTED_PROXIES = "*"
       }
 
