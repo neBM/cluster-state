@@ -46,3 +46,7 @@ module "ollama" {
 module "jayne-martin-counselling" {
   source = "./modules/jayne-martin-counselling"
 }
+
+module "monica" {
+  source = "./modules/monica"
+}
