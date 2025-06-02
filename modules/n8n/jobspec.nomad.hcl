@@ -73,6 +73,7 @@ job "n8n" {
         N8N_PROTOCOL           = "https"
         N8N_HOST               = "n8n.brmartin.co.uk"
         N8N_PORT               = "443"
+        N8N_PROXY_HOPS         = "2"
       }
 
       template {
