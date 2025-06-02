@@ -70,6 +70,9 @@ job "n8n" {
         DB_POSTGRESDB_PORT     = "5433"
         DB_POSTGRESDB_USER     = "n8n"
         DB_POSTGRESDB_SCHEMA   = "n8n"
+        N8N_PROTOCOL           = "https"
+        N8N_HOST               = "n8n.brmartin.co.uk"
+        N8N_PORT               = "443"
       }
 
       template {
