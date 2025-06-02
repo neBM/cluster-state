@@ -50,3 +50,7 @@ module "jayne-martin-counselling" {
 module "monica" {
   source = "./modules/monica"
 }
+
+module "n8n" {
+  source = "./modules/n8n"
+}
