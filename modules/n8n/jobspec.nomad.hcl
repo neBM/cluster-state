@@ -5,7 +5,7 @@ job "n8n" {
     network {
       mode = "bridge"
       port "http" {
-        to = 5678
+        to = 443
       }
       port "envoy_metrics" {
         to = 9102
@@ -14,7 +14,7 @@ job "n8n" {
 
     service {
       provider = "consul"
-      port     = "5678"
+      port     = "443"
 
       meta {
         envoy_metrics_port = "${NOMAD_HOST_PORT_envoy_metrics}"
