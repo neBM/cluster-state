@@ -64,8 +64,9 @@ job "monica" {
       }
 
       env = {
-        DB_HOST     = "martinibar.lan"
-        DB_USERNAME = "monica"
+        DB_HOST             = "martinibar.lan"
+        DB_USERNAME         = "monica"
+        APP_TRUSTED_PROXIES = "*"
       }
 
       template {
