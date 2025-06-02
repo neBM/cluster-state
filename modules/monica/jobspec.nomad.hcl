@@ -84,8 +84,8 @@ job "monica" {
       }
 
       resources {
-        cpu    = 500
-        memory = 1024
+        cpu    = 100
+        memory = 256
       }
 
       volume_mount {
