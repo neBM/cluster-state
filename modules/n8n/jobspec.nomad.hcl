@@ -66,7 +66,7 @@ job "n8n" {
       env = {
         DB_TYPE                = "postgresdb"
         DB_POSTGRESDB_DATABASE = "n8n"
-        DB_POSTGRESDB_HOST     = "martinibar.lan"
+        DB_POSTGRESDB_HOST     = "192.168.1.10"
         DB_POSTGRESDB_PORT     = "5433"
         DB_POSTGRESDB_USER     = "n8n"
         DB_POSTGRESDB_SCHEMA   = "n8n"
