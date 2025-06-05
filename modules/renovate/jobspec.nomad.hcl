@@ -22,7 +22,6 @@ job "renovate" {
       env {
         RENOVATE_PLATFORM             = "gitea"
         RENOVATE_AUTODISCOVER         = "true"
-        RENOVATE_ENDPOINT             = "https://git.brmartin.co.uk"
         RENOVATE_GIT_AUTHOR           = "Renovate Bot <renovate@brmartin.co.uk>"
         RENOVATE_BASE_DIR             = "${NOMAD_TASK_DIR}"
         RENOVATE_CACHE_DIR            = "${NOMAD_TASK_DIR}/../tmp"
@@ -32,7 +31,17 @@ job "renovate" {
 
       template {
         data = <<-EOH
-        	{{with nomadVar "nomad/jobs/renovate/renovate/renovate" }}
+          {{ range service "forgejo-forgejo-forgejo" }}
+          RENOVATE_ENDPOINT = "http://{{ .Address }}:{{ .Port }}"{{ end }}
+          EOH
+
+        destination = "local/file.env"
+        env         = true
+      }
+
+      template {
+        data = <<-EOH
+          {{with nomadVar "nomad/jobs/renovate/renovate/renovate" }}
           RENOVATE_TOKEN = "{{.RENOVATE_TOKEN}}"
           GITHUB_COM_TOKEN = "{{.GITHUB_COM_TOKEN}}"
           {{end}}
