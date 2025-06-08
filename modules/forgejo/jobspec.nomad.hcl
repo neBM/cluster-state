@@ -16,7 +16,7 @@ job "forgejo" {
       driver = "docker"
 
       config {
-        image = "codeberg.org/forgejo/forgejo:11.0.1"
+        image = "codeberg.org/forgejo/forgejo:11.0.1-rootless"
 
         ports = ["forgejo"]
 
@@ -25,20 +25,22 @@ job "forgejo" {
           "/etc/localtime:/etc/localtime:ro"
         ]
       }
+      
+      user = "1000:1000"
 
       volume_mount {
-        volume      = "data"
-        destination = "/data"
+        volume      = "gitea"
+        destination = "/etc/gitea"
+      }
+
+      volume_mount {
+        volume      = "git"
+        destination = "/var/lib/gitea"
       }
 
       resources {
         cpu    = 500
         memory = 512
-      }
-
-      env {
-        USER_UID = "1000"
-        USER_GID = "1000"
       }
 
       service {
@@ -148,10 +150,18 @@ job "forgejo" {
       }
     }
 
-    volume "data" {
+    volume "gitea" {
       type            = "csi"
       read_only       = false
-      source          = "martinibar_prod_forgejo_data"
+      source          = "martinibar_prod_forgejo_gitea"
+      attachment_mode = "file-system"
+      access_mode     = "single-node-writer"
+    }
+
+    volume "git" {
+      type            = "csi"
+      read_only       = false
+      source          = "martinibar_prod_forgejo_git"
       attachment_mode = "file-system"
       access_mode     = "single-node-writer"
     }
