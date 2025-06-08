@@ -25,7 +25,7 @@ job "forgejo" {
           "/etc/localtime:/etc/localtime:ro"
         ]
       }
-      
+
       user = "1000:1000"
 
       volume_mount {
