@@ -22,6 +22,12 @@ job "media-centre" {
         image   = "plexinc/pms-docker:latest"
         runtime = "nvidia"
 
+        devices = [
+          {
+            host_path = "/dev/dri"
+          }
+        ]
+
         mount {
           type   = "volume"
           target = "/data"
