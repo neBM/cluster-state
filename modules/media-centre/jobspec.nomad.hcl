@@ -150,7 +150,9 @@ job "media-centre" {
 
       config {
         image = "ghcr.io/jellyfin/jellyfin:10.10.7"
+
         group_add = ["997"]
+
         ports = ["jellyfin"]
 
         devices = [
