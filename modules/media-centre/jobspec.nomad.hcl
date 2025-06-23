@@ -125,6 +125,91 @@ job "media-centre" {
     }
   }
 
+  group "jellyfin" {
+
+    network {
+      port "jellyfin" {
+        to = 8096
+      }
+    }
+
+    service {
+      provider = "consul"
+      port     = "jellyfin"
+      tags = [
+        "traefik.enable=true",
+        "traefik.http.routers.jellyfin.entrypoints=websecure",
+        "traefik.http.routers.jellyfin.rule=Host(`jellyfin.brmartin.co.uk`)"
+      ]
+    }
+
+    task "jellyfin" {
+      driver = "docker"
+
+      user = "985"
+
+      config {
+        image = "ghcr.io/jellyfin/jellyfin:10.10.7"
+        group_add = ["997"]
+        ports = ["jellyfin"]
+
+        devices = [
+          {
+            host_path = "/dev/dri"
+          }
+        ]
+
+        mount {
+          type   = "volume"
+          target = "/media"
+          volume_options {
+            driver_config {
+              name = "local"
+              options {
+                type   = "nfs"
+                o      = "addr=martinibar.lan,nolock,soft,rw"
+                device = ":/volume1/docker"
+              }
+            }
+          }
+        }
+
+        mount {
+          type     = "tmpfs"
+          target   = "/cache"
+          readonly = false
+          tmpfs_options {
+            mode = 1023
+            size = 3.5e+9
+          }
+        }
+      }
+
+      env {
+        JELLYFIN_PublishedServerUrl = "https://jellyfin.brmartin.co.uk"
+      }
+
+      resources {
+        cpu        = 300
+        memory     = 512
+        memory_max = 2048
+      }
+
+      volume_mount {
+        volume      = "config"
+        destination = "/config"
+      }
+    }
+
+    volume "config" {
+      type            = "csi"
+      read_only       = false
+      source          = "martinibar_prod_jellyfin_config"
+      attachment_mode = "file-system"
+      access_mode     = "single-node-writer"
+    }
+  }
+
   group "tautulli" {
     network {
       mode = "bridge"
