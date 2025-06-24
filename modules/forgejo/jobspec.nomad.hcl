@@ -173,10 +173,5 @@ job "forgejo" {
       attachment_mode = "file-system"
       access_mode     = "single-node-writer"
     }
-
-    ephemeral_disk {
-      migrate = true
-      size    = 10000
-    }
   }
 }
