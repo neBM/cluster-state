@@ -133,6 +133,11 @@ job "media-centre" {
       }
     }
 
+    ephemeral_disk {
+      migrate = true
+      size    = 200
+    }
+
     service {
       provider = "consul"
       port     = "jellyfin"
@@ -185,6 +190,14 @@ job "media-centre" {
             size = 3.5e+9
           }
         }
+
+        volumes = [
+          "local/config:/config/config",
+          "local/data:/config/data",
+          "local/log:/config/log",
+          "local/plugins:/config/plugins",
+          "local/root:/config/root",
+        ]
       }
 
       env {
