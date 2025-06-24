@@ -190,11 +190,11 @@ job "media-centre" {
         }
 
         volumes = [
-          "local/config:/config/config",
-          "local/data:/config/data",
-          "local/log:/config/log",
-          "local/plugins:/config/plugins",
-          "local/root:/config/root",
+          "../alloc/data/config:/config/config",
+          "../alloc/data/data:/config/data",
+          "../alloc/data/log:/config/log",
+          "../alloc/data/plugins:/config/plugins",
+          "../alloc/data/root:/config/root",
         ]
       }
 

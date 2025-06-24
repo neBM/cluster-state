@@ -12,6 +12,11 @@ job "ollama" {
       }
     }
 
+    ephemeral_disk {
+      migrate = true
+      size    = 200
+    }
+
     task "ollama" {
       driver = "docker"
 
@@ -25,7 +30,7 @@ job "ollama" {
         runtime = "nvidia"
 
         volumes = [
-          "data/:/root/.ollama"
+          "../alloc/data/:/root/.ollama"
         ]
       }
 
