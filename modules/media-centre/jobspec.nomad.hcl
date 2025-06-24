@@ -151,8 +151,6 @@ job "media-centre" {
     task "jellyfin" {
       driver = "docker"
 
-      user = "985"
-
       config {
         image = "ghcr.io/jellyfin/jellyfin:10.10.7"
 
