@@ -128,8 +128,12 @@ job "media-centre" {
   group "jellyfin" {
 
     network {
+      mode = "bridge"
       port "jellyfin" {
         to = 8096
+      }
+      port "envoy_metrics" {
+        to = 9102
       }
     }
 
@@ -140,11 +144,34 @@ job "media-centre" {
 
     service {
       provider = "consul"
-      port     = "jellyfin"
+      port     = "8096"
+
+      meta {
+        envoy_metrics_port = "${NOMAD_HOST_PORT_envoy_metrics}"
+      }
+
+      connect {
+        sidecar_service {
+          proxy {
+            expose {
+              path {
+                path            = "/metrics"
+                protocol        = "http"
+                local_path_port = 9102
+                listener_port   = "envoy_metrics"
+              }
+            }
+            transparent_proxy {}
+          }
+        }
+      }
+
       tags = [
         "traefik.enable=true",
+
         "traefik.http.routers.jellyfin.entrypoints=websecure",
-        "traefik.http.routers.jellyfin.rule=Host(`jellyfin.brmartin.co.uk`)"
+        "traefik.http.routers.jellyfin.rule=Host(`jellyfin.brmartin.co.uk`)",
+        "traefik.consulcatalog.connect=true",
       ]
     }
 
