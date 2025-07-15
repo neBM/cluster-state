@@ -70,7 +70,7 @@ job "matrix" {
       driver = "docker"
 
       config {
-        image = "ghcr.io/element-hq/synapse:v1.133.0"
+        image = "ghcr.io/element-hq/synapse:v1.134.0"
 
         volumes = [
           "/mnt/docker/matrix/synapse:/data",
