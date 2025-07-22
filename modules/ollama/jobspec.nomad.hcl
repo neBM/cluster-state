@@ -99,10 +99,6 @@ job "ollama" {
       config {
         image      = "ghcr.io/open-webui/open-webui:main"
         force_pull = true
-
-        volumes = [
-          "../alloc/data/:/app/backend/data"
-        ]
       }
 
       env {
@@ -113,6 +109,19 @@ job "ollama" {
         cpu    = 100
         memory = 1024
       }
+
+      volume_mount {
+        volume      = "data"
+        destination = "/app/backend/data"
+      }
+    }
+
+    volume "data" {
+      type            = "csi"
+      read_only       = false
+      source          = "martinibar_prod_ollama_data"
+      attachment_mode = "file-system"
+      access_mode     = "multi-node-single-writer"
     }
 
     service {
