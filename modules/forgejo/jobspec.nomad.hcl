@@ -53,6 +53,11 @@ job "forgejo" {
           "traefik.http.routers.forgejo.rule=Host(`git.brmartin.co.uk`)"
         ]
       }
+
+      env {
+        USER_UID = "1000"
+        USER_GID = "1000"
+      }
     }
 
     task "runner" {
