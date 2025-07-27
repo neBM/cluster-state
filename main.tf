@@ -54,3 +54,7 @@ module "monica" {
 module "n8n" {
   source = "./modules/n8n"
 }
+
+module "volts-app" {
+  source = "./modules/volts-app"
+}
