@@ -22,7 +22,7 @@ job "volts-app" {
 
       resources {
         cpu    = 10
-        memory = 200
+        memory = 400
       }
 
       env {
