@@ -78,6 +78,8 @@ job "elk" {
             repo:
               - /mnt/backups
           xpack:
+            ml:
+              enabled: false
             security:
               enrollment:
                 enabled: true
