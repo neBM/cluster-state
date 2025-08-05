@@ -64,7 +64,7 @@ job "forgejo" {
       driver = "docker"
 
       config {
-        image = "data.forgejo.org/forgejo/runner:7.0.0"
+        image = "data.forgejo.org/forgejo/runner:9.0.3"
 
         command = "sh"
         args    = ["-c", "sleep 5; forgejo-runner daemon --config=${NOMAD_TASK_DIR}/config.yml"]
