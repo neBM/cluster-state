@@ -60,7 +60,7 @@ job "n8n" {
       driver = "docker"
 
       config {
-        image = "docker.n8n.io/n8nio/n8n:1.106.0"
+        image = "docker.n8n.io/n8nio/n8n:1.106.1"
       }
 
       env = {
