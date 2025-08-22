@@ -7,8 +7,8 @@
     {
       "customType": "regex",
       "datasourceTemplate": "docker",
-      "fileMatch": [
-        "\\.hcl$"
+      "managerFilePatterns": [
+        "/\\.hcl$/"
       ],
       "matchStrings": [
         "\\s*image\\s*=\\s*\\\"(?<depName>.*?):(?<currentValue>.*?)\\\""
@@ -17,8 +17,8 @@
     {
       "customType": "regex",
       "datasourceTemplate": "docker",
-      "fileMatch": [
-        "\\.tf$"
+      "managerFilePatterns": [
+        "/\\.tf$/"
       ],
       "matchStrings": [
         "\\s*#\\s?renovate:\\s?image=(?<depName>.*?)\\s+\"\\w+\"\\s?=\\s?\"(?<currentValue>[\\w+\\.\\-]*)\""
