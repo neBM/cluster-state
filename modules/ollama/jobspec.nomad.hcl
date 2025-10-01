@@ -96,13 +96,34 @@ job "ollama" {
     task "open-webui" {
       driver = "docker"
 
+      vault {
+        env = false
+      }
+
       config {
         image      = "ghcr.io/open-webui/open-webui:main"
         force_pull = true
       }
 
       env {
-        OLLAMA_BASE_URL = "http://ollama-ollama.virtual.consul"
+        OLLAMA_BASE_URL     = "http://ollama-ollama.virtual.consul"
+        ENABLE_OAUTH_SIGNUP = "true"
+        OAUTH_CLIENT_ID     = "open-webui"
+        OPENID_PROVIDER_URL = "https://sso.brmartin.co.uk/realms/prod/.well-known/openid-configuration"
+        OAUTH_PROVIDER_NAME = "Keycloak"
+        OPENID_REDIRECT_URI = "https://chat.brmartin.co.uk/oauth/oidc/callback"
+      }
+
+
+      template {
+        data = <<-EOF
+      	  {{ with secret "nomad/data/default/ollama" }}
+          OAUTH_CLIENT_SECRET="{{.Data.data.OAUTH_CLIENT_SECRET}}"
+          {{ end }}
+          EOF
+
+        destination = "secrets/file.env"
+        env         = true
       }
 
       resources {
@@ -151,7 +172,7 @@ job "ollama" {
       tags = [
         "traefik.enable=true",
 
-        "traefik.http.routers.openwebui.rule=Host(`eos.brmartin.co.uk`)",
+        "traefik.http.routers.openwebui.rule=Host(`chat.brmartin.co.uk`)",
         "traefik.http.routers.openwebui.entrypoints=websecure",
         "traefik.consulcatalog.connect=true",
       ]
@@ -176,7 +197,7 @@ job "ollama" {
       config {
         image      = "ghcr.io/open-webui/mcpo:main"
         force_pull = true
-        args       = ["--port", "8000", "--config", "${NOMAD_SECRETS_DIR}/config.json"]
+        args = ["--port", "8000", "--config", "${NOMAD_SECRETS_DIR}/config.json"]
       }
 
       resources {
