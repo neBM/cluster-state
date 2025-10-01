@@ -197,7 +197,7 @@ job "ollama" {
       config {
         image      = "ghcr.io/open-webui/mcpo:main"
         force_pull = true
-        args = ["--port", "8000", "--config", "${NOMAD_SECRETS_DIR}/config.json"]
+        args       = ["--port", "8000", "--config", "${NOMAD_SECRETS_DIR}/config.json"]
       }
 
       resources {
