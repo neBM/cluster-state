@@ -11,7 +11,7 @@ job "homeassistant" {
       driver = "docker"
 
       config {
-        image        = "ghcr.io/home-assistant/home-assistant:2025.10.0"
+        image        = "ghcr.io/home-assistant/home-assistant:2025.10.1"
         network_mode = "host"
         privileged   = true
 
