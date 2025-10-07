@@ -507,7 +507,7 @@ job "matrix" {
       driver = "docker"
 
       config {
-        image = "docker.io/vectorim/element-web:v1.12.0"
+        image = "docker.io/vectorim/element-web:v1.12.1"
 
         ports = ["element"]
 
