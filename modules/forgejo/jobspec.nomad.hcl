@@ -162,7 +162,7 @@ job "forgejo" {
       driver = "docker"
 
       config {
-        image = "docker.io/jenkins/jenkins:2.530-alpine"
+        image = "docker.io/jenkins/jenkins:2.531-alpine"
 
         ports = ["jenkins"]
       }
