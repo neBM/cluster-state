@@ -106,12 +106,14 @@ job "ollama" {
       }
 
       env {
-        OLLAMA_BASE_URL     = "http://ollama-ollama.virtual.consul"
-        ENABLE_OAUTH_SIGNUP = "true"
-        OAUTH_CLIENT_ID     = "open-webui"
-        OPENID_PROVIDER_URL = "https://sso.brmartin.co.uk/realms/prod/.well-known/openid-configuration"
-        OAUTH_PROVIDER_NAME = "Keycloak"
-        OPENID_REDIRECT_URI = "https://chat.brmartin.co.uk/oauth/oidc/callback"
+        OLLAMA_BASE_URL             = "http://ollama-ollama.virtual.consul"
+        ENABLE_OAUTH_SIGNUP         = "true"
+        OAUTH_CLIENT_ID             = "open-webui"
+        OPENID_PROVIDER_URL         = "https://sso.brmartin.co.uk/realms/prod/.well-known/openid-configuration"
+        OAUTH_PROVIDER_NAME         = "Keycloak"
+        OPENID_REDIRECT_URI         = "https://chat.brmartin.co.uk/oauth/oidc/callback"
+        JWT_EXPIRES_IN              = "1h"
+        WEBUI_SESSION_COOKIE_SECURE = "true"
       }
 
 
@@ -119,6 +121,7 @@ job "ollama" {
         data = <<-EOF
       	  {{ with secret "nomad/data/default/ollama" }}
           OAUTH_CLIENT_SECRET="{{.Data.data.OAUTH_CLIENT_SECRET}}"
+          WEBUI_SECRET_KEY="{{.Data.data.WEBUI_SECRET_KEY}}"
           {{ end }}
           EOF
 
