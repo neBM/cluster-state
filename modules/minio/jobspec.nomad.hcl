@@ -51,6 +51,10 @@ job "minio" {
     task "minio" {
       driver = "docker"
 
+      vault {
+        env = false
+      }
+
       config {
         image = "quay.io/minio/minio:latest"
 
@@ -60,6 +64,18 @@ job "minio" {
       volume_mount {
         volume      = "data"
         destination = "/data"
+      }
+
+      template {
+        data = <<-EOF
+      	  {{ with secret "nomad/data/default/minio" }}
+          MINIO_ROOT_USER="{{.Data.data.MINIO_ROOT_USER}}"
+          MINIO_ROOT_PASSWORD="{{.Data.data.MINIO_ROOT_PASSWORD}}"
+          {{ end }}
+          EOF
+
+        destination = "secrets/file.env"
+        env         = true
       }
 
       env {
