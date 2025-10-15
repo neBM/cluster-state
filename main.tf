@@ -58,3 +58,7 @@ module "n8n" {
 module "volts-app" {
   source = "./modules/volts-app"
 }
+
+module "minio" {
+  source = "./modules/minio"
+}
