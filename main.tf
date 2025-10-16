@@ -62,3 +62,7 @@ module "volts-app" {
 module "minio" {
   source = "./modules/minio"
 }
+
+module "appflowy" {
+  source = "./modules/appflowy"
+}
