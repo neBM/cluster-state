@@ -114,12 +114,13 @@ job "minio" {
           }
 
           http {
-            include            /etc/nginx/mime.types;
-            default_type       application/octet-stream;
-            access_log         off;
-            proxy_buffering    off;
-            sendfile           on;
-            keepalive_timeout  65;
+            include              /etc/nginx/mime.types;
+            default_type         application/octet-stream;
+            access_log           off;
+            proxy_buffering      off;
+            sendfile             on;
+            keepalive_timeout    65;
+            client_max_body_size 1000M;
 
             server {
               listen  {{ env "NOMAD_PORT_http" }};
