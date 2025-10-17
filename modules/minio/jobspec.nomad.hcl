@@ -124,6 +124,19 @@ job "minio" {
 
             server {
               listen  {{ env "NOMAD_PORT_http" }};
+              server_name _;
+
+              location / {
+                proxy_set_header Host $http_host;
+                proxy_set_header X-Real-IP $remote_addr;
+                proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+                proxy_set_header X-Forwarded-Proto $scheme;
+                proxy_pass http://127.0.0.1:9000/;
+              }
+            }
+
+            server {
+              listen  {{ env "NOMAD_PORT_http" }};
               server_name minio.brmartin.co.uk;
 
               location / {
@@ -133,20 +146,7 @@ job "minio" {
                 proxy_set_header X-Forwarded-Proto $scheme;
                 proxy_set_header Upgrade $http_upgrade;
                 proxy_set_header Connection "upgrade";
-                proxy_pass http://127.0.0.1:9001/; 
-              }
-            }
-
-            server {
-              listen  {{ env "NOMAD_PORT_http" }};
-              server_name _;
-
-              location / {
-                proxy_set_header Host $http_host;
-                proxy_set_header X-Real-IP $remote_addr;
-                proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-                proxy_set_header X-Forwarded-Proto $scheme;
-                proxy_pass http://127.0.0.1:9000/; 
+                proxy_pass http://127.0.0.1:9001/;
               }
             }
           }
