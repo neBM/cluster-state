@@ -24,22 +24,23 @@ job "appflowy" {
       }
 
       env {
-        GOTRUE_SITE_URL                       = "appflowy-flutter://"
-        GOTRUE_JWT_EXP                        = "604800"
+        API_EXTERNAL_URL                      = "https://docs.brmartin.co.uk/gotrue"
         GOTRUE_DB_DRIVER                      = "postgres"
-        GOTRUE_URI_ALLOW_LIST                 = "https://docs.brmartin.co.uk"
-        GOTRUE_EXTERNAL_KEYCLOAK_ENABLED      = "true"
+        GOTRUE_DISABLE_SIGNUP                 = "true"
         GOTRUE_EXTERNAL_KEYCLOAK_CLIENT_ID    = "appflowy"
+        GOTRUE_EXTERNAL_KEYCLOAK_ENABLED      = "true"
         GOTRUE_EXTERNAL_KEYCLOAK_REDIRECT_URI = "https://docs.brmartin.co.uk/gotrue/callback"
         GOTRUE_EXTERNAL_KEYCLOAK_URL          = "https://sso.brmartin.co.uk/realms/prod"
+        GOTRUE_JWT_EXP                        = "604800"
         GOTRUE_MAILER_AUTOCONFIRM             = "true"
-        GOTRUE_SMTP_HOST                      = "mail.brmartin.co.uk"
-        GOTRUE_SMTP_PORT                      = "465"
         GOTRUE_MAILER_URLPATHS_CONFIRMATION   = "/gotrue/verify"
+        GOTRUE_MAILER_URLPATHS_EMAIL_CHANGE   = "/gotrue/verify"
         GOTRUE_MAILER_URLPATHS_INVITE         = "/gotrue/verify"
         GOTRUE_MAILER_URLPATHS_RECOVERY       = "/gotrue/verify"
-        GOTRUE_MAILER_URLPATHS_EMAIL_CHANGE   = "/gotrue/verify"
-        API_EXTERNAL_URL                      = "https://docs.brmartin.co.uk/gotrue"
+        GOTRUE_SITE_URL                       = "appflowy-flutter://"
+        GOTRUE_SMTP_HOST                      = "mail.brmartin.co.uk"
+        GOTRUE_SMTP_PORT                      = "465"
+        GOTRUE_URI_ALLOW_LIST                 = "https://docs.brmartin.co.uk"
         PORT                                  = "9999"
       }
 
