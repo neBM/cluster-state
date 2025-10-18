@@ -32,7 +32,7 @@ job "appflowy" {
         GOTRUE_EXTERNAL_KEYCLOAK_REDIRECT_URI = "https://docs.brmartin.co.uk/gotrue/callback"
         GOTRUE_EXTERNAL_KEYCLOAK_URL          = "https://sso.brmartin.co.uk/realms/prod"
         GOTRUE_JWT_EXP                        = "604800"
-        GOTRUE_MAILER_AUTOCONFIRM             = "true"
+        GOTRUE_MAILER_AUTOCONFIRM             = "false"
         GOTRUE_MAILER_URLPATHS_CONFIRMATION   = "/gotrue/verify"
         GOTRUE_MAILER_URLPATHS_EMAIL_CHANGE   = "/gotrue/verify"
         GOTRUE_MAILER_URLPATHS_INVITE         = "/gotrue/verify"
