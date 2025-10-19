@@ -268,6 +268,75 @@ job "ollama" {
     }
   }
 
+  group "firecrawl" {
+
+    network {
+      mode = "bridge"
+      port "web" {
+        to = 3002
+      }
+      port "envoy_metrics" {
+        to = 9102
+      }
+    }
+
+    task "firecrawl" {
+      driver = "docker"
+
+      config {
+        image = "ghcr.io/firecrawl/firecrawl:latest"
+
+        args = ["node", "dist/src/harness.js", "--start-docker"]
+      }
+      env = {
+        HOST                        = "127.0.0.1"
+        PORT                        = "3002"
+        WORKER_PORT                 = "3005"
+        ENV                         = "local"
+        REDIS_URL                   = "redis://ollama-redis.virtual.consul"
+        REDIS_RATE_LIMIT_URL        = "redis://ollama-redis.virtual.consul"
+        PLAYWRIGHT_MICROSERVICE_URL = "http://ollama-playwright.virtual.consul/scrape"
+        NUQ_DATABASE_URL            = "postgres://postgres:postgres@ollama-postgres.virtual.consul:5432/postgres"
+        OLLAMA_BASE_URL             = "http://ollama-ollama.virtual.consul"
+        SEARXNG_ENDPOINT            = "http://ollama-searxng.virtual.consul"
+      }
+
+      resources {
+        cpu        = 500
+        memory     = 1000
+        memory_max = 2000
+      }
+    }
+
+    service {
+      provider = "consul"
+      port     = "3002"
+
+      meta {
+        envoy_metrics_port = "${NOMAD_HOST_PORT_envoy_metrics}"
+      }
+
+      connect {
+        sidecar_service {
+          proxy {
+            config {
+              protocol = "http"
+            }
+            expose {
+              path {
+                path            = "/metrics"
+                protocol        = "http"
+                local_path_port = 9102
+                listener_port   = "envoy_metrics"
+              }
+            }
+            transparent_proxy {}
+          }
+        }
+      }
+    }
+  }
+
   group "searxng" {
 
     network {
@@ -335,6 +404,181 @@ job "ollama" {
           }
         }
       }
+    }
+  }
+
+  group "playwright" {
+
+    network {
+      mode = "bridge"
+      port "web" {
+        to = 3000
+      }
+      port "envoy_metrics" {
+        to = 9102
+      }
+    }
+
+    task "playwright-service" {
+      driver = "docker"
+
+      config {
+        image = "ghcr.io/firecrawl/playwright-service:latest"
+      }
+      env = {
+        PORT = "3000"
+      }
+
+      resources {
+        cpu    = 500
+        memory = 512
+      }
+    }
+
+    service {
+      provider = "consul"
+      port     = "3000"
+
+      meta {
+        envoy_metrics_port = "${NOMAD_HOST_PORT_envoy_metrics}"
+      }
+
+      connect {
+        sidecar_service {
+          proxy {
+            expose {
+              path {
+                path            = "/metrics"
+                protocol        = "http"
+                local_path_port = 9102
+                listener_port   = "envoy_metrics"
+              }
+            }
+            transparent_proxy {}
+          }
+        }
+      }
+    }
+  }
+
+  group "redis" {
+
+    network {
+      mode = "bridge"
+      port "redis" {
+        to = 6379
+      }
+      port "envoy_metrics" {
+        to = 9102
+      }
+    }
+
+    task "redis" {
+      driver = "docker"
+
+      config {
+        image = "redis:alpine"
+      }
+
+      resources {
+        cpu    = 500
+        memory = 512
+      }
+    }
+
+    service {
+      provider = "consul"
+      port     = "6379"
+
+      meta {
+        envoy_metrics_port = "${NOMAD_HOST_PORT_envoy_metrics}"
+      }
+
+      connect {
+        sidecar_service {
+          proxy {
+            expose {
+              path {
+                path            = "/metrics"
+                protocol        = "http"
+                local_path_port = 9102
+                listener_port   = "envoy_metrics"
+              }
+            }
+            transparent_proxy {}
+          }
+        }
+      }
+    }
+  }
+
+  group "postgres" {
+
+    network {
+      mode = "bridge"
+      port "postgres" {
+        to = 5432
+      }
+      port "envoy_metrics" {
+        to = 9102
+      }
+    }
+
+    task "nuq-postgres" {
+      driver = "docker"
+
+      config {
+        image = "ghcr.io/firecrawl/nuq-postgres:latest"
+      }
+
+      env = {
+        POSTGRES_USER     = "postgres"
+        POSTGRES_PASSWORD = "postgres"
+        POSTGRES_DB       = "postgres"
+      }
+
+      volume_mount {
+        volume      = "postgres_data"
+        destination = "/var/lib/postgresql/data"
+      }
+
+      resources {
+        cpu    = 500
+        memory = 512
+      }
+    }
+
+    service {
+      provider = "consul"
+      port     = "5432"
+
+      meta {
+        envoy_metrics_port = "${NOMAD_HOST_PORT_envoy_metrics}"
+      }
+
+      connect {
+        sidecar_service {
+          proxy {
+            expose {
+              path {
+                path            = "/metrics"
+                protocol        = "http"
+                local_path_port = 9102
+                listener_port   = "envoy_metrics"
+              }
+            }
+            transparent_proxy {}
+          }
+        }
+      }
+    }
+
+    volume "postgres_data" {
+      type            = "csi"
+      read_only       = false
+      source          = "martinibar_prod_firecrawl_postgres_data"
+      attachment_mode = "file-system"
+      access_mode     = "multi-node-single-writer"
     }
   }
 }

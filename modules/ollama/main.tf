@@ -2,6 +2,7 @@ resource "nomad_job" "ollama" {
   depends_on = [
     nomad_csi_volume_registration.nfs_volume_ollama_data,
     nomad_csi_volume_registration.nfs_volume_searxng_config,
+    nomad_csi_volume_registration.nfs_volume_firecrawl_data,
   ]
 
   jobspec = file("${path.module}/jobspec.nomad.hcl")
@@ -55,5 +56,28 @@ resource "nomad_csi_volume_registration" "nfs_volume_searxng_config" {
   context = {
     "server" = "martinibar.lan",
     "share"  = "/volume1/csi/searxng/config",
+  }
+}
+
+resource "nomad_csi_volume_registration" "nfs_volume_firecrawl_data" {
+  depends_on = [data.nomad_plugin.nfs]
+
+  lifecycle {
+    prevent_destroy = true
+  }
+
+  plugin_id   = "nfs"
+  name        = "martinibar_prod_firecrawl_postgres_data"
+  volume_id   = "martinibar_prod_firecrawl_postgres_data"
+  external_id = "martinibar_prod_firecrawl_postgres_data"
+
+  capability {
+    access_mode     = "multi-node-single-writer"
+    attachment_mode = "file-system"
+  }
+
+  context = {
+    "server" = "martinibar.lan",
+    "share"  = "/volume1/csi/firecrawl/postgres-data",
   }
 }
