@@ -92,7 +92,7 @@ job "minio" {
       driver = "docker"
 
       config {
-        image = "docker.io/library/nginx:1.29.2-alpine"
+        image = "docker.io/library/nginx:1.29.3-alpine"
 
         mount {
           type   = "bind"
