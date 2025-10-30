@@ -116,7 +116,6 @@ job "ollama" {
         WEBUI_SESSION_COOKIE_SECURE = "true"
         VECTOR_DB                   = "pgvector"
         REDIS_URL                   = "redis://ollama-redis.virtual.consul/0"
-        AIOHTTP_CLIENT_TIMEOUT      = "10"
       }
 
 
