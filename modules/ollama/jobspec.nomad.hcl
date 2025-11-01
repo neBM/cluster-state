@@ -294,7 +294,7 @@ job "ollama" {
       }
 
       env {
-        SEARXNG_BASE_URL   = "http://ollama-searxng.virtual.consul"
+        SEARXNG_BASE_URL   = "https://searx.brmartin.co.uk"
         SEARXNG_VALKEY_URL = "valkey://ollama-valkey.virtual.consul/1"
       }
 
@@ -340,6 +340,15 @@ job "ollama" {
           }
         }
       }
+
+      tags = [
+        "traefik.enable=true",
+
+        "traefik.http.routers.searxng.rule=Host(`searx.brmartin.co.uk`)",
+        "traefik.http.routers.searxng.entrypoints=websecure",
+        "traefik.http.routers.searxng.middlewares=oauth-auth@docker",
+        "traefik.consulcatalog.connect=true",
+      ]
     }
   }
 
