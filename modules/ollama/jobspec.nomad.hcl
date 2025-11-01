@@ -293,7 +293,8 @@ job "ollama" {
       }
 
       env {
-        SEARXNG_BASE_URL = "http://ollama-searxng.virtual.consul"
+        SEARXNG_BASE_URL   = "http://ollama-searxng.virtual.consul"
+        SEARXNG_VALKEY_URL = "valkey://ollama-valkey.virtual.consul/1"
       }
 
       resources {
