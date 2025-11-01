@@ -116,6 +116,7 @@ job "ollama" {
         WEBUI_SESSION_COOKIE_SECURE = "true"
         VECTOR_DB                   = "pgvector"
         REDIS_URL                   = "redis://ollama-valkey.virtual.consul/0"
+        CORS_ALLOW_ORIGIN           = "https://chat.brmartin.co.uk"
       }
 
 
