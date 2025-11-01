@@ -26,7 +26,7 @@ job "ollama" {
       }
 
       config {
-        image   = "ollama/ollama:latest"
+        image   = "ollama/ollama:0.12.9"
         runtime = "nvidia"
 
         volumes = [
@@ -288,7 +288,7 @@ job "ollama" {
       driver = "docker"
 
       config {
-        image = "docker.io/searxng/searxng:latest"
+        image = "docker.io/searxng/searxng:2025.11.1-0245327fc"
 
         volumes = ["local:/var/cache/searxng"]
       }
@@ -368,7 +368,7 @@ job "ollama" {
       driver = "docker"
 
       config {
-        image = "valkey/valkey:alpine"
+        image = "valkey/valkey:9.0.0-alpine3.22"
       }
 
       resources {
