@@ -115,7 +115,7 @@ job "ollama" {
         JWT_EXPIRES_IN              = "1h"
         WEBUI_SESSION_COOKIE_SECURE = "true"
         VECTOR_DB                   = "pgvector"
-        REDIS_URL                   = "redis://ollama-redis.virtual.consul/0"
+        REDIS_URL                   = "redis://ollama-valkey.virtual.consul/0"
       }
 
 
@@ -341,11 +341,11 @@ job "ollama" {
     }
   }
 
-  group "redis" {
+  group "valkey" {
 
     network {
       mode = "bridge"
-      port "redis" {
+      port "valkey" {
         to = 6379
       }
       port "envoy_metrics" {
@@ -353,11 +353,11 @@ job "ollama" {
       }
     }
 
-    task "redis" {
+    task "valkey" {
       driver = "docker"
 
       config {
-        image = "redis:alpine"
+        image = "valkey/valkey:alpine"
       }
 
       resources {
