@@ -101,7 +101,7 @@ job "ollama" {
       }
 
       config {
-        image      = "ghcr.io/open-webui/open-webui:0.6.34"
+        image      = "ghcr.io/open-webui/open-webui:0.6.35"
         force_pull = true
       }
 
