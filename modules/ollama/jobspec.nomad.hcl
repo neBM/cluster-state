@@ -134,8 +134,9 @@ job "ollama" {
       }
 
       resources {
-        cpu    = 100
-        memory = 1024
+        cpu        = 100
+        memory     = 512
+        memory_max = 2048
       }
 
       volume_mount {
