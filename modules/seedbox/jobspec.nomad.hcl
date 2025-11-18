@@ -6,7 +6,7 @@ job "seedbox" {
       driver = "docker"
 
       config {
-        image      = "docker.io/qmcgaw/gluetun:v3.40.2"
+        image      = "docker.io/qmcgaw/gluetun:v3.40.3"
         force_pull = true
 
         cap_add = ["NET_ADMIN"]
