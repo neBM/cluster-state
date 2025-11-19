@@ -9,9 +9,6 @@ job "forgejo" {
       port "websocket" {
         to = 2375
       }
-      port "jenkins" {
-        to = 8080
-      }
       port "cache_server" {}
     }
 
@@ -158,42 +155,6 @@ job "forgejo" {
       }
     }
 
-    task "jenkins" {
-      driver = "docker"
-
-      config {
-        image = "docker.io/jenkins/jenkins:2.538-alpine"
-
-        ports = ["jenkins"]
-      }
-
-      env {
-        DOCKER_HOST       = "tcp://127.0.0.1:2375"
-        DOCKER_TLS_VERIFY = 0
-      }
-
-      resources {
-        cpu    = 500
-        memory = 512
-      }
-
-      volume_mount {
-        volume      = "jenkins"
-        destination = "/var/jenkins_home"
-      }
-
-      service {
-        port     = "jenkins"
-        provider = "consul"
-        tags = [
-          "traefik.enable=true",
-
-          "traefik.http.routers.jenkins.entrypoints=websecure",
-          "traefik.http.routers.jenkins.rule=Host(`jenkins.brmartin.co.uk`)"
-        ]
-      }
-    }
-
     volume "gitea" {
       type            = "csi"
       read_only       = false
@@ -216,14 +177,6 @@ job "forgejo" {
       source          = "martinibar_prod_forgejo-runner_data"
       attachment_mode = "file-system"
       access_mode     = "single-node-writer"
-    }
-
-    volume "jenkins" {
-      type            = "csi"
-      read_only       = false
-      source          = "martinibar_prod_forgejo_jenkins"
-      attachment_mode = "file-system"
-      access_mode     = "multi-node-single-writer"
     }
   }
 }
