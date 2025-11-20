@@ -116,7 +116,7 @@ job "seedbox" {
       driver = "docker"
 
       config {
-        image = "ghcr.io/qbittorrent/docker-qbittorrent-nox:5.1.3-1"
+        image = "ghcr.io/qbittorrent/docker-qbittorrent-nox:5.1.4-1"
       }
 
       resources {
