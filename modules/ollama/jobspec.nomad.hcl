@@ -54,6 +54,14 @@ job "ollama" {
         envoy_metrics_port = "${NOMAD_HOST_PORT_envoy_metrics}"
       }
 
+      check {
+        type     = "http"
+        path     = "/"
+        expose   = true
+        interval = "10s"
+        timeout  = "2s"
+      }
+
       connect {
         sidecar_service {
           proxy {
@@ -159,6 +167,14 @@ job "ollama" {
 
       meta {
         envoy_metrics_port = "${NOMAD_HOST_PORT_envoy_metrics}"
+      }
+
+      check {
+        type     = "http"
+        path     = "/health"
+        expose   = true
+        interval = "10s"
+        timeout  = "2s"
       }
 
       connect {
@@ -324,6 +340,14 @@ job "ollama" {
 
       meta {
         envoy_metrics_port = "${NOMAD_HOST_PORT_envoy_metrics}"
+      }
+
+      check {
+        type     = "http"
+        path     = "/healthz"
+        expose   = true
+        interval = "10s"
+        timeout  = "2s"
       }
 
       connect {
