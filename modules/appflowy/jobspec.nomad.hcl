@@ -62,7 +62,7 @@ job "appflowy" {
 
       resources {
         cpu        = 100
-        memory     = 1024
+        memory     = 128
         memory_max = 2048
       }
     }
@@ -467,7 +467,7 @@ job "appflowy" {
 
       resources {
         cpu    = 100
-        memory = 256
+        memory = 128
       }
     }
 

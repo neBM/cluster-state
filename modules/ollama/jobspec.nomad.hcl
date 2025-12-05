@@ -226,7 +226,7 @@ job "ollama" {
 
       resources {
         cpu    = 100
-        memory = 1024
+        memory = 128
       }
 
       template {
@@ -317,7 +317,7 @@ job "ollama" {
 
       resources {
         cpu    = 100
-        memory = 200
+        memory = 120
       }
 
       volume_mount {
@@ -398,7 +398,7 @@ job "ollama" {
 
       resources {
         cpu    = 500
-        memory = 512
+        memory = 128
       }
     }
 
@@ -460,7 +460,7 @@ job "ollama" {
 
       resources {
         cpu    = 500
-        memory = 512
+        memory = 128
       }
     }
 
