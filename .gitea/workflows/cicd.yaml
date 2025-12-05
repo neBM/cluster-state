@@ -17,8 +17,8 @@ env:
   TF_PLUGIN_CACHE_DIR: ${{ github.workspace }}/.terraform.d/plugin-cache
 
 jobs:
-  terraform-ci:
-    name: Terraform Format, Validate, Lint, Scan
+  terraform-cicd:
+    name: Terraform CICD
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -66,62 +66,17 @@ jobs:
           tflint --init
           tflint
 
-  terraform-plan:
-    name: Terraform Plan
-    runs-on: ubuntu-latest
-    needs: terraform-ci
-    if: github.event_name == 'pull_request'
-    steps:
-      - uses: actions/checkout@v6
-      - uses: hashicorp/setup-terraform@v3
-      - uses: hashicorp/setup-nomad@main
-
-      - name: Create Terraform Plugin Cache Dir
-        run: mkdir -v -p $TF_PLUGIN_CACHE_DIR
-
-      - name: Cache Terraform Plugin Dir
-        uses: actions/cache@v4
-        with:
-          path: ${{ env.TF_PLUGIN_CACHE_DIR }}
-          key: ${{ runner.os }}-terraform-plugins-${{ hashFiles('**/.terraform.lock.hcl') }}
-          restore-keys: |
-            ${{ runner.os }}-terraform-plugins-
-
-      - name: Terraform Init
-        run: terraform init
-
       - name: Terraform Plan
+        if: github.event_name == 'pull_request'
         run: terraform plan -out=tfplan
 
-#      - name: Upload Terraform Plan
-#        uses: actions/upload-artifact@v4
-#        with:
-#          name: tfplan
-#          path: tfplan
-
-  terraform-apply:
-    name: Terraform Apply
-    runs-on: ubuntu-latest
-    needs: terraform-ci
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-    steps:
-      - uses: actions/checkout@v6
-      - uses: hashicorp/setup-terraform@v3
-      - uses: hashicorp/setup-nomad@main
-
-      - name: Create Terraform Plugin Cache Dir
-        run: mkdir -v -p $TF_PLUGIN_CACHE_DIR
-
-      - name: Cache Terraform Plugin Dir
-        uses: actions/cache@v4
+      - name: Upload Terraform Plan
+        if: github.event_name == 'pull_request'
+        uses: actions/upload-artifact@v4
         with:
-          path: ${{ env.TF_PLUGIN_CACHE_DIR }}
-          key: ${{ runner.os }}-terraform-plugins-${{ hashFiles('**/.terraform.lock.hcl') }}
-          restore-keys: |
-            ${{ runner.os }}-terraform-plugins-
-
-      - name: Terraform Init
-        run: terraform init
+          name: tfplan
+          path: tfplan
 
       - name: Terraform Apply
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
         run: terraform apply -auto-approve
