@@ -3,10 +3,6 @@ terraform {
   backend "pg" {}
 }
 
-module "dummy" {
-  source = "./modules/dummy"
-}
-
 module "media-centre" {
   source = "./modules/media-centre"
 }
@@ -45,18 +41,6 @@ module "ollama" {
 
 module "jayne-martin-counselling" {
   source = "./modules/jayne-martin-counselling"
-}
-
-module "monica" {
-  source = "./modules/monica"
-}
-
-module "n8n" {
-  source = "./modules/n8n"
-}
-
-module "volts-app" {
-  source = "./modules/volts-app"
 }
 
 module "minio" {
