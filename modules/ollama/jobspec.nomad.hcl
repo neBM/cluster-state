@@ -26,7 +26,7 @@ job "ollama" {
       }
 
       config {
-        image   = "ollama/ollama:0.13.1"
+        image   = "ollama/ollama:0.13.2"
         runtime = "nvidia"
 
         volumes = [
