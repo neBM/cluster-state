@@ -179,7 +179,7 @@ job "media-centre" {
       driver = "docker"
 
       config {
-        image = "ghcr.io/jellyfin/jellyfin:10.11.4"
+        image = "ghcr.io/jellyfin/jellyfin:10.11.5"
 
         group_add = ["997"]
 
