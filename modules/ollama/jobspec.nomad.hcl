@@ -80,6 +80,12 @@ job "ollama" {
             transparent_proxy {}
           }
         }
+
+        sidecar_task {
+          resources {
+            memory_max = 1024
+          }
+        }
       }
     }
   }
