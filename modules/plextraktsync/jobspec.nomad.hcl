@@ -12,7 +12,7 @@ job "plextraktsync" {
       driver = "docker"
 
       config {
-        image = "ghcr.io/taxel/plextraktsync:0.34.19"
+        image = "ghcr.io/taxel/plextraktsync:0.34.20"
         volumes = [
           "/mnt/docker/downloads/config/plextraktsync:/app/config"
         ]
