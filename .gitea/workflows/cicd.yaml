@@ -38,13 +38,6 @@ jobs:
       - name: Nomad fmt
         run: nomad fmt -recursive -check
 
-      - name: Nomad Job Validate
-        run: |
-          find modules -name "*.nomad.hcl" -type f -print0 | while IFS= read -r -d '' file; do
-            echo "Validating $file"
-            nomad job validate "$file" || exit 1
-          done
-
       - name: Cache Terraform Plugin Dir
         uses: actions/cache@v4
         with:
@@ -77,6 +70,42 @@ jobs:
         if: github.event_name == 'pull_request'
         run: terraform plan -out=tfplan
 
+      - name: Validate Nomad Jobs from Plan
+        if: github.event_name == 'pull_request'
+        run: |
+          # Extract jobspecs from plan and validate them
+          terraform show -json tfplan | jq -r '
+            .planned_values.root_module.child_modules[]? |
+            select(.resources[]?.type == "nomad_job") |
+            .resources[] |
+            select(.type == "nomad_job") |
+            .values.jobspec
+          ' | while read -r jobspec; do
+            if [ -n "$jobspec" ] && [ "$jobspec" != "null" ]; then
+              echo "$jobspec" | nomad job validate - || exit 1
+            fi
+          done
+
+      - name: Terraform Plan (for main branch)
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        run: terraform plan -out=tfplan
+
+      - name: Validate Nomad Jobs from Plan (for main branch)
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        run: |
+          # Extract jobspecs from plan and validate them
+          terraform show -json tfplan | jq -r '
+            .planned_values.root_module.child_modules[]? |
+            select(.resources[]?.type == "nomad_job") |
+            .resources[] |
+            select(.type == "nomad_job") |
+            .values.jobspec
+          ' | while read -r jobspec; do
+            if [ -n "$jobspec" ] && [ "$jobspec" != "null" ]; then
+              echo "$jobspec" | nomad job validate - || exit 1
+            fi
+          done
+
       - name: Terraform Apply
         if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-        run: terraform apply -auto-approve
+        run: terraform apply tfplan
