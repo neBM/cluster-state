@@ -74,31 +74,35 @@ jobs:
         if: github.event_name == 'pull_request'
         run: |
           # Extract and validate jobspecs from plan
-          mkdir -p /tmp/jobspecs
-          
-          terraform show -json tfplan | jq -r '
-            .planned_values.root_module.child_modules[]? |
-            select(.resources[]?.type == "nomad_job") |
-            .resources[] |
-            select(.type == "nomad_job") |
-            "\(.address)\n\(.values.jobspec)\n---JOBSPEC_END---"
-          ' | {
-            while IFS= read -r address; do
-              # Read until we hit the delimiter
-              jobspec=""
-              while IFS= read -r line; do
-                if [ "$line" = "---JOBSPEC_END---" ]; then
-                  break
-                fi
-                jobspec="${jobspec}${line}\n"
-              done
-              
-              if [ -n "$jobspec" ] && [ "$jobspec" != "null" ]; then
-                echo "Validating $address..."
-                printf "%b" "$jobspec" | nomad job validate - || exit 1
-              fi
-            done
-          }
+          terraform show -json tfplan | jq -c '.resource_changes[] | select(.type == "nomad_job") | {address, jobspec: .change.after.jobspec, hcl2: .change.after.hcl2}' | while read -r job; do
+            address=$(echo "$job" | jq -r '.address')
+            jobspec=$(echo "$job" | jq -r '.jobspec')
+            hcl2_vars=$(echo "$job" | jq -r '.hcl2[0].vars // empty')
+            
+            echo "Validating $address..."
+            
+            # Write jobspec to temp file
+            tmpfile=$(mktemp)
+            echo "$jobspec" > "$tmpfile"
+            
+            # Build var args if HCL2 vars exist
+            var_args=""
+            if [ -n "$hcl2_vars" ] && [ "$hcl2_vars" != "null" ]; then
+              while IFS= read -r key; do
+                value=$(echo "$hcl2_vars" | jq -r ".$key")
+                var_args="$var_args -var=$key=$value"
+              done < <(echo "$hcl2_vars" | jq -r 'keys[]')
+            fi
+            
+            # Validate with vars if present
+            if [ -n "$var_args" ]; then
+              nomad job validate $var_args "$tmpfile" || exit 1
+            else
+              nomad job validate "$tmpfile" || exit 1
+            fi
+            
+            rm -f "$tmpfile"
+          done
 
       - name: Terraform Plan (for main branch)
         if: github.ref == 'refs/heads/main' && github.event_name == 'push'
@@ -108,31 +112,35 @@ jobs:
         if: github.ref == 'refs/heads/main' && github.event_name == 'push'
         run: |
           # Extract and validate jobspecs from plan
-          mkdir -p /tmp/jobspecs
-          
-          terraform show -json tfplan | jq -r '
-            .planned_values.root_module.child_modules[]? |
-            select(.resources[]?.type == "nomad_job") |
-            .resources[] |
-            select(.type == "nomad_job") |
-            "\(.address)\n\(.values.jobspec)\n---JOBSPEC_END---"
-          ' | {
-            while IFS= read -r address; do
-              # Read until we hit the delimiter
-              jobspec=""
-              while IFS= read -r line; do
-                if [ "$line" = "---JOBSPEC_END---" ]; then
-                  break
-                fi
-                jobspec="${jobspec}${line}\n"
-              done
-              
-              if [ -n "$jobspec" ] && [ "$jobspec" != "null" ]; then
-                echo "Validating $address..."
-                printf "%b" "$jobspec" | nomad job validate - || exit 1
-              fi
-            done
-          }
+          terraform show -json tfplan | jq -c '.resource_changes[] | select(.type == "nomad_job") | {address, jobspec: .change.after.jobspec, hcl2: .change.after.hcl2}' | while read -r job; do
+            address=$(echo "$job" | jq -r '.address')
+            jobspec=$(echo "$job" | jq -r '.jobspec')
+            hcl2_vars=$(echo "$job" | jq -r '.hcl2[0].vars // empty')
+            
+            echo "Validating $address..."
+            
+            # Write jobspec to temp file
+            tmpfile=$(mktemp)
+            echo "$jobspec" > "$tmpfile"
+            
+            # Build var args if HCL2 vars exist
+            var_args=""
+            if [ -n "$hcl2_vars" ] && [ "$hcl2_vars" != "null" ]; then
+              while IFS= read -r key; do
+                value=$(echo "$hcl2_vars" | jq -r ".$key")
+                var_args="$var_args -var=$key=$value"
+              done < <(echo "$hcl2_vars" | jq -r 'keys[]')
+            fi
+            
+            # Validate with vars if present
+            if [ -n "$var_args" ]; then
+              nomad job validate $var_args "$tmpfile" || exit 1
+            else
+              nomad job validate "$tmpfile" || exit 1
+            fi
+            
+            rm -f "$tmpfile"
+          done
 
       - name: Terraform Apply
         if: github.ref == 'refs/heads/main' && github.event_name == 'push'
