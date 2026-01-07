@@ -317,7 +317,7 @@ job "ollama" {
       }
 
       resources {
-        cpu    = 500
+        cpu    = 100
         memory = 128
       }
     }
@@ -379,7 +379,7 @@ job "ollama" {
       }
 
       resources {
-        cpu    = 500
+        cpu    = 100
         memory = 128
       }
     }
