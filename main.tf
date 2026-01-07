@@ -3,50 +3,96 @@ terraform {
   backend "pg" {}
 }
 
+# CSI plugin should be deployed first as other jobs may depend on it
+module "plugin-csi-controller" {
+  source = "./modules/nomad-job"
+
+  jobspec_path = "./modules/plugin-csi/jobspec-controller.nomad.hcl"
+}
+
+module "plugin-csi-nodes" {
+  source = "./modules/nomad-job"
+
+  jobspec_path = "./modules/plugin-csi/jobspec-nodes.nomad.hcl"
+}
+
 module "media-centre" {
-  source = "./modules/media-centre"
+  source = "./modules/nomad-job"
+
+  jobspec_path = "./modules/media-centre/jobspec.nomad.hcl"
 }
 
 module "plextraktsync" {
-  source = "./modules/plextraktsync"
+  source = "./modules/nomad-job"
+
+  jobspec_path = "./modules/plextraktsync/jobspec.nomad.hcl"
 }
 
 module "matrix" {
-  source = "./modules/matrix"
+  source = "./modules/nomad-job"
+
+  jobspec_path = "./modules/matrix/jobspec.nomad.hcl"
 }
 
 module "elk" {
-  source = "./modules/elk"
+  source = "./modules/nomad-job"
+
+  jobspec_path = "./modules/elk/jobspec.nomad.hcl"
+  use_hcl2     = true
+  hcl2_vars = {
+    # renovate: image=docker.elastic.co/elasticsearch/elasticsearch
+    elastic_version = "9.2.3"
+  }
 }
 
 module "renovate" {
-  source = "./modules/renovate"
-}
+  source = "./modules/nomad-job"
 
-module "plugin-csi" {
-  source = "./modules/plugin-csi"
+  jobspec_path = "./modules/renovate/jobspec.nomad.hcl"
 }
 
 module "forgejo" {
-  source = "./modules/forgejo"
+  source = "./modules/nomad-job"
+
+  jobspec_path = "./modules/forgejo/jobspec.nomad.hcl"
 }
 
 module "keycloak" {
-  source = "./modules/keycloak"
-}
+  source = "./modules/nomad-job"
 
-module "ollama" {
-  source = "./modules/ollama"
+  jobspec_path = "./modules/keycloak/jobspec.nomad.hcl"
 }
 
 module "jayne-martin-counselling" {
-  source = "./modules/jayne-martin-counselling"
+  source = "./modules/nomad-job"
+
+  jobspec_path = "./modules/jayne-martin-counselling/jobspec.nomad.hcl"
+}
+
+# Modules with CSI volume dependencies
+module "ollama" {
+  source = "./modules/ollama"
+
+  depends_on = [
+    module.plugin-csi-controller,
+    module.plugin-csi-nodes
+  ]
 }
 
 module "minio" {
   source = "./modules/minio"
+
+  depends_on = [
+    module.plugin-csi-controller,
+    module.plugin-csi-nodes
+  ]
 }
 
 module "appflowy" {
   source = "./modules/appflowy"
+
+  depends_on = [
+    module.plugin-csi-controller,
+    module.plugin-csi-nodes
+  ]
 }

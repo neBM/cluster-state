@@ -1,0 +1,35 @@
+# Example Terraform variables file
+# Copy this to terraform.tfvars and customize for your environment
+
+# Nomad Configuration
+nomad_address = "http://hestia.lan:4646"
+# nomad_token = "your-nomad-token-here"  # Uncomment and set if using ACLs
+
+# Environment
+environment = "prod"  # Options: dev, staging, prod
+
+# NFS Storage
+nfs_server = "martinibar.lan"
+
+# Common Settings
+timezone       = "Europe/London"
+default_domain = "brmartin.co.uk"
+
+# Plex Configuration
+plex_uid = "990"
+plex_gid = "997"
+
+# PostgreSQL
+postgres_host = "martinibar.lan"
+postgres_port = "5433"
+
+# Resource Defaults
+default_cpu        = 100
+default_memory     = 256
+default_memory_max = 512
+
+# Tags
+common_tags = {
+  managed_by = "terraform"
+  project    = "homelab-cluster"
+}

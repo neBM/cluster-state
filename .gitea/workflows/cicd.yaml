@@ -38,6 +38,13 @@ jobs:
       - name: Nomad fmt
         run: nomad fmt -recursive -check
 
+      - name: Nomad Job Validate
+        run: |
+          find modules -name "*.nomad.hcl" -type f -print0 | while IFS= read -r -d '' file; do
+            echo "Validating $file"
+            nomad job validate "$file" || exit 1
+          done
+
       - name: Cache Terraform Plugin Dir
         uses: actions/cache@v4
         with:
