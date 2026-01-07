@@ -52,9 +52,12 @@ module "renovate" {
 }
 
 module "forgejo" {
-  source = "./modules/nomad-job"
+  source = "./modules/forgejo"
 
-  jobspec_path = "./modules/forgejo/jobspec.nomad.hcl"
+  depends_on = [
+    module.plugin_csi_controller,
+    module.plugin_csi_nodes
+  ]
 }
 
 module "keycloak" {

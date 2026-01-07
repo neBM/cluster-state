@@ -75,6 +75,11 @@ job "forgejo" {
         destination = "/data"
       }
 
+      volume_mount {
+        volume      = "actions_cache"
+        destination = "/data/.cache/act"
+      }
+
       resources {
         cpu        = 150
         memory     = 128
@@ -175,6 +180,14 @@ job "forgejo" {
       type            = "csi"
       read_only       = false
       source          = "martinibar_prod_forgejo-runner_data"
+      attachment_mode = "file-system"
+      access_mode     = "single-node-writer"
+    }
+
+    volume "actions_cache" {
+      type            = "csi"
+      read_only       = false
+      source          = "martinibar_prod_forgejo_actions_cache"
       attachment_mode = "file-system"
       access_mode     = "single-node-writer"
     }
