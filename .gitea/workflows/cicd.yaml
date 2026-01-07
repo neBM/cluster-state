@@ -73,18 +73,32 @@ jobs:
       - name: Validate Nomad Jobs from Plan
         if: github.event_name == 'pull_request'
         run: |
-          # Extract jobspecs from plan and validate them
+          # Extract and validate jobspecs from plan
+          mkdir -p /tmp/jobspecs
+          
           terraform show -json tfplan | jq -r '
             .planned_values.root_module.child_modules[]? |
             select(.resources[]?.type == "nomad_job") |
             .resources[] |
             select(.type == "nomad_job") |
-            .values.jobspec
-          ' | while read -r jobspec; do
-            if [ -n "$jobspec" ] && [ "$jobspec" != "null" ]; then
-              echo "$jobspec" | nomad job validate - || exit 1
-            fi
-          done
+            "\(.address)\n\(.values.jobspec)\n---JOBSPEC_END---"
+          ' | {
+            while IFS= read -r address; do
+              # Read until we hit the delimiter
+              jobspec=""
+              while IFS= read -r line; do
+                if [ "$line" = "---JOBSPEC_END---" ]; then
+                  break
+                fi
+                jobspec="${jobspec}${line}\n"
+              done
+              
+              if [ -n "$jobspec" ] && [ "$jobspec" != "null" ]; then
+                echo "Validating $address..."
+                printf "%b" "$jobspec" | nomad job validate - || exit 1
+              fi
+            done
+          }
 
       - name: Terraform Plan (for main branch)
         if: github.ref == 'refs/heads/main' && github.event_name == 'push'
@@ -93,18 +107,32 @@ jobs:
       - name: Validate Nomad Jobs from Plan (for main branch)
         if: github.ref == 'refs/heads/main' && github.event_name == 'push'
         run: |
-          # Extract jobspecs from plan and validate them
+          # Extract and validate jobspecs from plan
+          mkdir -p /tmp/jobspecs
+          
           terraform show -json tfplan | jq -r '
             .planned_values.root_module.child_modules[]? |
             select(.resources[]?.type == "nomad_job") |
             .resources[] |
             select(.type == "nomad_job") |
-            .values.jobspec
-          ' | while read -r jobspec; do
-            if [ -n "$jobspec" ] && [ "$jobspec" != "null" ]; then
-              echo "$jobspec" | nomad job validate - || exit 1
-            fi
-          done
+            "\(.address)\n\(.values.jobspec)\n---JOBSPEC_END---"
+          ' | {
+            while IFS= read -r address; do
+              # Read until we hit the delimiter
+              jobspec=""
+              while IFS= read -r line; do
+                if [ "$line" = "---JOBSPEC_END---" ]; then
+                  break
+                fi
+                jobspec="${jobspec}${line}\n"
+              done
+              
+              if [ -n "$jobspec" ] && [ "$jobspec" != "null" ]; then
+                echo "Validating $address..."
+                printf "%b" "$jobspec" | nomad job validate - || exit 1
+              fi
+            done
+          }
 
       - name: Terraform Apply
         if: github.ref == 'refs/heads/main' && github.event_name == 'push'
