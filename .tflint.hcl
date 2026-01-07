@@ -3,12 +3,6 @@ plugin "terraform" {
   preset  = "recommended"
 }
 
-plugin "nomad" {
-  enabled = true
-  version = "0.3.0"
-  source  = "github.com/hashicorp/tflint-ruleset-nomad"
-}
-
 rule "terraform_deprecated_interpolation" {
   enabled = true
 }
