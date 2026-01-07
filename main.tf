@@ -4,19 +4,19 @@ terraform {
 }
 
 # CSI plugin should be deployed first as other jobs may depend on it
-module "plugin-csi-controller" {
+module "plugin_csi_controller" {
   source = "./modules/nomad-job"
 
   jobspec_path = "./modules/plugin-csi/jobspec-controller.nomad.hcl"
 }
 
-module "plugin-csi-nodes" {
+module "plugin_csi_nodes" {
   source = "./modules/nomad-job"
 
   jobspec_path = "./modules/plugin-csi/jobspec-nodes.nomad.hcl"
 }
 
-module "media-centre" {
+module "media_centre" {
   source = "./modules/nomad-job"
 
   jobspec_path = "./modules/media-centre/jobspec.nomad.hcl"
@@ -63,7 +63,7 @@ module "keycloak" {
   jobspec_path = "./modules/keycloak/jobspec.nomad.hcl"
 }
 
-module "jayne-martin-counselling" {
+module "jayne_martin_counselling" {
   source = "./modules/nomad-job"
 
   jobspec_path = "./modules/jayne-martin-counselling/jobspec.nomad.hcl"
@@ -74,8 +74,8 @@ module "ollama" {
   source = "./modules/ollama"
 
   depends_on = [
-    module.plugin-csi-controller,
-    module.plugin-csi-nodes
+    module.plugin_csi_controller,
+    module.plugin_csi_nodes
   ]
 }
 
@@ -83,8 +83,8 @@ module "minio" {
   source = "./modules/minio"
 
   depends_on = [
-    module.plugin-csi-controller,
-    module.plugin-csi-nodes
+    module.plugin_csi_controller,
+    module.plugin_csi_nodes
   ]
 }
 
@@ -92,7 +92,7 @@ module "appflowy" {
   source = "./modules/appflowy"
 
   depends_on = [
-    module.plugin-csi-controller,
-    module.plugin-csi-nodes
+    module.plugin_csi_controller,
+    module.plugin_csi_nodes
   ]
 }

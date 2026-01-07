@@ -4,13 +4,6 @@ variable "nomad_address" {
   default     = "http://hestia.lan:4646"
 }
 
-variable "nomad_token" {
-  description = "Nomad authentication token"
-  type        = string
-  default     = ""
-  sensitive   = true
-}
-
 variable "environment" {
   description = "Environment name (dev, staging, prod)"
   type        = string
@@ -27,24 +20,6 @@ variable "timezone" {
   description = "Default timezone for containers"
   type        = string
   default     = "Europe/London"
-}
-
-variable "default_domain" {
-  description = "Default domain for services"
-  type        = string
-  default     = "brmartin.co.uk"
-}
-
-variable "plex_uid" {
-  description = "UID for Plex user"
-  type        = string
-  default     = "990"
-}
-
-variable "plex_gid" {
-  description = "GID for Plex group"
-  type        = string
-  default     = "997"
 }
 
 variable "default_cpu" {
