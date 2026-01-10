@@ -1,4 +1,4 @@
-job "plugin-nfs-controller" {
+job "plugin-martinibar-controller" {
   group "controller" {
     task "plugin" {
       driver = "docker"
@@ -14,7 +14,7 @@ job "plugin-nfs-controller" {
       }
 
       csi_plugin {
-        id        = "nfs"
+        id        = "martinibar"
         type      = "controller"
         mount_dir = "/csi"
       }

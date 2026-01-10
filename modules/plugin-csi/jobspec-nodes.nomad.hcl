@@ -1,4 +1,4 @@
-job "plugin-nfs-nodes" {
+job "plugin-martinibar-nodes" {
   type = "system"
 
   group "nodes" {
@@ -17,7 +17,7 @@ job "plugin-nfs-nodes" {
       }
 
       csi_plugin {
-        id        = "nfs"
+        id        = "martinibar"
         type      = "node"
         mount_dir = "/csi"
       }
