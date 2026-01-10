@@ -12,6 +12,32 @@ job "forgejo" {
       port "cache_server" {}
     }
 
+    ephemeral_disk {
+      migrate = true
+      size    = 500
+      sticky  = true
+    }
+
+    task "init-dirs" {
+      driver = "docker"
+
+      lifecycle {
+        hook    = "prestart"
+        sidecar = false
+      }
+
+      config {
+        image   = "alpine:3.19"
+        command = "sh"
+        args    = ["-c", "mkdir -p /alloc/data/queues /alloc/data/indexers && chown -R 1000:1000 /alloc/data/queues /alloc/data/indexers"]
+      }
+
+      resources {
+        cpu    = 50
+        memory = 32
+      }
+    }
+
     task "forgejo" {
       driver = "docker"
 
@@ -22,7 +48,9 @@ job "forgejo" {
 
         volumes = [
           "/etc/timezone:/etc/timezone:ro",
-          "/etc/localtime:/etc/localtime:ro"
+          "/etc/localtime:/etc/localtime:ro",
+          "../alloc/data/queues:/var/lib/gitea/queues",
+          "../alloc/data/indexers:/var/lib/gitea/custom/indexers",
         ]
       }
 
@@ -163,7 +191,7 @@ job "forgejo" {
     volume "gitea" {
       type            = "csi"
       read_only       = false
-      source          = "martinibar_prod_forgejo_gitea"
+      source          = "glusterfs_forgejo_gitea"
       attachment_mode = "file-system"
       access_mode     = "single-node-writer"
     }
@@ -171,7 +199,7 @@ job "forgejo" {
     volume "git" {
       type            = "csi"
       read_only       = false
-      source          = "martinibar_prod_forgejo_git"
+      source          = "glusterfs_forgejo_git"
       attachment_mode = "file-system"
       access_mode     = "single-node-writer"
     }
@@ -179,7 +207,7 @@ job "forgejo" {
     volume "runner_data" {
       type            = "csi"
       read_only       = false
-      source          = "martinibar_prod_forgejo-runner_data"
+      source          = "glusterfs_forgejo_runner_data"
       attachment_mode = "file-system"
       access_mode     = "single-node-writer"
     }
@@ -187,7 +215,7 @@ job "forgejo" {
     volume "actions_cache" {
       type            = "csi"
       read_only       = false
-      source          = "martinibar_prod_forgejo_actions_cache"
+      source          = "glusterfs_forgejo_actions_cache"
       attachment_mode = "file-system"
       access_mode     = "single-node-writer"
     }

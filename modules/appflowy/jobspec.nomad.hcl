@@ -499,7 +499,7 @@ job "appflowy" {
     volume "postgres_data" {
       type            = "csi"
       read_only       = false
-      source          = "martinibar_prod_appflowy_postgres_data"
+      source          = "glusterfs_appflowy_postgres"
       attachment_mode = "file-system"
       access_mode     = "multi-node-single-writer"
     }

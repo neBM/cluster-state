@@ -10,12 +10,149 @@ job "media-centre" {
       }
     }
 
+    ephemeral_disk {
+      migrate = true
+      size    = 1000
+      sticky  = true
+    }
+
+    volume "config" {
+      type            = "csi"
+      read_only       = false
+      source          = "glusterfs_plex_config"
+      attachment_mode = "file-system"
+      access_mode     = "single-node-writer"
+    }
+
+    task "litestream-restore" {
+      driver = "docker"
+
+      lifecycle {
+        hook    = "prestart"
+        sidecar = false
+      }
+
+      config {
+        image      = "litestream/litestream:0.3"
+        entrypoint = ["/bin/sh"]
+        args       = [
+          "-c",
+          <<-EOF
+          set -e
+          DB_DIR="/alloc/data/Databases"
+          mkdir -p "$DB_DIR"
+
+          litestream restore -if-db-not-exists -if-replica-exists \
+            -config /local/litestream.yml \
+            "$DB_DIR/com.plexapp.plugins.library.db" || true
+
+          litestream restore -if-db-not-exists -if-replica-exists \
+            -config /local/litestream.yml \
+            -replica blobs \
+            "$DB_DIR/com.plexapp.plugins.library.blobs.db" || true
+
+          echo "Litestream restore complete"
+          EOF
+        ]
+      }
+
+      template {
+        destination = "local/litestream.yml"
+        data        = <<-EOF
+{{ with secret "nomad/default/media-centre" }}
+dbs:
+  - path: /alloc/data/Databases/com.plexapp.plugins.library.db
+    replicas:
+      - name: library
+        type: s3
+        bucket: plex-litestream
+        path: library
+        endpoint: http://localhost:9000
+        access-key-id: {{ .Data.data.MINIO_ACCESS_KEY }}
+        secret-access-key: {{ .Data.data.MINIO_SECRET_KEY }}
+        force-path-style: true
+  - path: /alloc/data/Databases/com.plexapp.plugins.library.blobs.db
+    replicas:
+      - name: blobs
+        type: s3
+        bucket: plex-litestream
+        path: blobs
+        endpoint: http://localhost:9000
+        access-key-id: {{ .Data.data.MINIO_ACCESS_KEY }}
+        secret-access-key: {{ .Data.data.MINIO_SECRET_KEY }}
+        force-path-style: true
+{{ end }}
+EOF
+      }
+
+      vault {}
+
+      resources {
+        cpu    = 100
+        memory = 256
+      }
+    }
+
+    task "litestream" {
+      driver = "docker"
+
+      lifecycle {
+        hook    = "poststart"
+        sidecar = true
+      }
+
+      config {
+        image = "litestream/litestream:0.3"
+        args  = ["replicate", "-config", "/local/litestream.yml"]
+      }
+
+      template {
+        destination = "local/litestream.yml"
+        data        = <<-EOF
+{{ with secret "nomad/default/media-centre" }}
+dbs:
+  - path: /alloc/data/Databases/com.plexapp.plugins.library.db
+    replicas:
+      - name: library
+        type: s3
+        bucket: plex-litestream
+        path: library
+        endpoint: http://localhost:9000
+        access-key-id: {{ .Data.data.MINIO_ACCESS_KEY }}
+        secret-access-key: {{ .Data.data.MINIO_SECRET_KEY }}
+        force-path-style: true
+        sync-interval: 1s
+  - path: /alloc/data/Databases/com.plexapp.plugins.library.blobs.db
+    replicas:
+      - name: blobs
+        type: s3
+        bucket: plex-litestream
+        path: blobs
+        endpoint: http://localhost:9000
+        access-key-id: {{ .Data.data.MINIO_ACCESS_KEY }}
+        secret-access-key: {{ .Data.data.MINIO_SECRET_KEY }}
+        force-path-style: true
+        sync-interval: 10s
+{{ end }}
+EOF
+      }
+
+      vault {}
+
+      resources {
+        cpu        = 100
+        memory     = 256
+        memory_max = 512
+      }
+    }
+
     task "plex" {
       driver = "docker"
 
-      constraint {
-        attribute = "${node.unique.name}"
-        value     = "Hestia"
+      affinity {
+        attribute = "${attr.driver.docker.runtime.nvidia}"
+        value     = "true"
+        weight    = 100
       }
 
       config {
@@ -26,6 +163,10 @@ job "media-centre" {
           {
             host_path = "/dev/dri"
           }
+        ]
+
+        volumes = [
+          "../alloc/data/Databases:/config/Library/Application Support/Plex Media Server/Plug-in Support/Databases",
         ]
 
         mount {
@@ -59,12 +200,6 @@ job "media-centre" {
         }
 
         mount {
-          type   = "volume"
-          target = "/config"
-          source = "plex-config"
-        }
-
-        mount {
           type     = "tmpfs"
           target   = "/transcode"
           readonly = false
@@ -73,6 +208,11 @@ job "media-centre" {
             size = 3.5e+9
           }
         }
+      }
+
+      volume_mount {
+        volume      = "config"
+        destination = "/config"
       }
 
       env {
@@ -102,6 +242,10 @@ job "media-centre" {
       connect {
         sidecar_service {
           proxy {
+            upstreams {
+              destination_name = "minio-minio"
+              local_bind_port  = 9000
+            }
             expose {
               path {
                 path            = "/metrics"
@@ -117,7 +261,6 @@ job "media-centre" {
 
       tags = [
         "traefik.enable=true",
-
         "traefik.http.routers.plex.entrypoints=websecure",
         "traefik.http.routers.plex.rule=Host(`plex.brmartin.co.uk`)",
         "traefik.consulcatalog.connect=true",
@@ -126,7 +269,6 @@ job "media-centre" {
   }
 
   group "jellyfin" {
-
     network {
       mode = "bridge"
       port "jellyfin" {
@@ -168,7 +310,6 @@ job "media-centre" {
 
       tags = [
         "traefik.enable=true",
-
         "traefik.http.routers.jellyfin.entrypoints=websecure",
         "traefik.http.routers.jellyfin.rule=Host(`jellyfin.brmartin.co.uk`)",
         "traefik.consulcatalog.connect=true",
@@ -244,7 +385,7 @@ job "media-centre" {
     volume "config" {
       type            = "csi"
       read_only       = false
-      source          = "martinibar_prod_jellyfin_config"
+      source          = "glusterfs_jellyfin_config"
       attachment_mode = "file-system"
       access_mode     = "single-node-writer"
     }

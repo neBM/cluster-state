@@ -1,35 +1,31 @@
 resource "nomad_job" "minio" {
   depends_on = [
-    nomad_csi_volume_registration.nfs_volume,
+    nomad_csi_volume.glusterfs_minio_data,
   ]
 
   jobspec = file("${path.module}/jobspec.nomad.hcl")
 }
 
-data "nomad_plugin" "nfs" {
-  plugin_id        = "nfs"
+data "nomad_plugin" "glusterfs" {
+  plugin_id        = "glusterfs"
   wait_for_healthy = true
 }
 
-resource "nomad_csi_volume_registration" "nfs_volume" {
-  depends_on = [data.nomad_plugin.nfs]
+resource "nomad_csi_volume" "glusterfs_minio_data" {
+  depends_on = [data.nomad_plugin.glusterfs]
 
   lifecycle {
     prevent_destroy = true
   }
 
-  plugin_id   = "nfs"
-  name        = "martinibar_prod_minio_data"
-  volume_id   = "martinibar_prod_minio_data"
-  external_id = "martinibar_prod_minio_data"
+  plugin_id    = "glusterfs"
+  name         = "glusterfs_minio_data"
+  volume_id    = "glusterfs_minio_data"
+  capacity_min = "1GiB"
+  capacity_max = "500GiB"
 
   capability {
     access_mode     = "multi-node-single-writer"
     attachment_mode = "file-system"
-  }
-
-  context = {
-    "server" = "martinibar.lan",
-    "share"  = "/volume1/csi/minio/data",
   }
 }

@@ -1,83 +1,71 @@
 resource "nomad_job" "ollama" {
   depends_on = [
-    nomad_csi_volume_registration.nfs_volume_ollama_data,
-    nomad_csi_volume_registration.nfs_volume_searxng_config,
-    nomad_csi_volume_registration.nfs_volume_ollama_postgres,
+    nomad_csi_volume.glusterfs_ollama_data,
+    nomad_csi_volume.glusterfs_searxng_config,
+    nomad_csi_volume.glusterfs_ollama_postgres,
   ]
 
   jobspec = file("${path.module}/jobspec.nomad.hcl")
 }
 
-data "nomad_plugin" "nfs" {
-  plugin_id        = "nfs"
+data "nomad_plugin" "glusterfs" {
+  plugin_id        = "glusterfs"
   wait_for_healthy = true
 }
 
-resource "nomad_csi_volume_registration" "nfs_volume_ollama_data" {
-  depends_on = [data.nomad_plugin.nfs]
+resource "nomad_csi_volume" "glusterfs_ollama_data" {
+  depends_on = [data.nomad_plugin.glusterfs]
 
   lifecycle {
     prevent_destroy = true
   }
 
-  plugin_id   = "nfs"
-  name        = "martinibar_prod_ollama_data"
-  volume_id   = "martinibar_prod_ollama_data"
-  external_id = "martinibar_prod_ollama_data"
+  plugin_id    = "glusterfs"
+  name         = "glusterfs_ollama_data"
+  volume_id    = "glusterfs_ollama_data"
+  capacity_min = "1GiB"
+  capacity_max = "500GiB"
 
   capability {
     access_mode     = "multi-node-single-writer"
     attachment_mode = "file-system"
-  }
-
-  context = {
-    "server" = "martinibar.lan",
-    "share"  = "/volume1/csi/ollama/data",
   }
 }
 
-resource "nomad_csi_volume_registration" "nfs_volume_searxng_config" {
-  depends_on = [data.nomad_plugin.nfs]
+resource "nomad_csi_volume" "glusterfs_searxng_config" {
+  depends_on = [data.nomad_plugin.glusterfs]
 
   lifecycle {
     prevent_destroy = true
   }
 
-  plugin_id   = "nfs"
-  name        = "martinibar_prod_searxng_config"
-  volume_id   = "martinibar_prod_searxng_config"
-  external_id = "martinibar_prod_searxng_config"
+  plugin_id    = "glusterfs"
+  name         = "glusterfs_searxng_config"
+  volume_id    = "glusterfs_searxng_config"
+  capacity_min = "1GiB"
+  capacity_max = "10GiB"
 
   capability {
     access_mode     = "multi-node-single-writer"
     attachment_mode = "file-system"
-  }
-
-  context = {
-    "server" = "martinibar.lan",
-    "share"  = "/volume1/csi/searxng/config",
   }
 }
 
-resource "nomad_csi_volume_registration" "nfs_volume_ollama_postgres" {
-  depends_on = [data.nomad_plugin.nfs]
+resource "nomad_csi_volume" "glusterfs_ollama_postgres" {
+  depends_on = [data.nomad_plugin.glusterfs]
 
   lifecycle {
     prevent_destroy = true
   }
 
-  plugin_id   = "nfs"
-  name        = "martinibar_prod_ollama_postgres"
-  volume_id   = "martinibar_prod_ollama_postgres"
-  external_id = "martinibar_prod_ollama_postgres"
+  plugin_id    = "glusterfs"
+  name         = "glusterfs_ollama_postgres"
+  volume_id    = "glusterfs_ollama_postgres"
+  capacity_min = "1GiB"
+  capacity_max = "50GiB"
 
   capability {
     access_mode     = "multi-node-single-writer"
     attachment_mode = "file-system"
-  }
-
-  context = {
-    "server" = "martinibar.lan",
-    "share"  = "/volume1/csi/ollama/postgres",
   }
 }

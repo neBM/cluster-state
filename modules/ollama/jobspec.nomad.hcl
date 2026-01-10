@@ -162,7 +162,7 @@ job "ollama" {
     volume "data" {
       type            = "csi"
       read_only       = false
-      source          = "martinibar_prod_ollama_data"
+      source          = "glusterfs_ollama_data"
       attachment_mode = "file-system"
       access_mode     = "multi-node-single-writer"
     }
@@ -249,7 +249,7 @@ job "ollama" {
     volume "config" {
       type            = "csi"
       read_only       = false
-      source          = "martinibar_prod_searxng_config"
+      source          = "glusterfs_searxng_config"
       attachment_mode = "file-system"
       access_mode     = "multi-node-single-writer"
     }
@@ -412,7 +412,7 @@ job "ollama" {
     volume "postgres_data" {
       type            = "csi"
       read_only       = false
-      source          = "martinibar_prod_ollama_postgres"
+      source          = "glusterfs_ollama_postgres"
       attachment_mode = "file-system"
       access_mode     = "multi-node-single-writer"
     }

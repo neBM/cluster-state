@@ -83,8 +83,9 @@ job "minio" {
       }
 
       resources {
-        cpu    = 100
-        memory = 128
+        cpu        = 100
+        memory     = 256
+        memory_max = 512
       }
     }
 
@@ -171,7 +172,7 @@ job "minio" {
     volume "data" {
       type            = "csi"
       read_only       = false
-      source          = "martinibar_prod_minio_data"
+      source          = "glusterfs_minio_data"
       attachment_mode = "file-system"
       access_mode     = "multi-node-single-writer"
     }

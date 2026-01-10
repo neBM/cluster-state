@@ -16,11 +16,21 @@ module "plugin_csi_nodes" {
   jobspec_path = "./modules/plugin-csi/jobspec-nodes.nomad.hcl"
 }
 
-module "media_centre" {
+# GlusterFS CSI plugin (democratic-csi) for local storage
+module "plugin_csi_glusterfs_controller" {
   source = "./modules/nomad-job"
 
-  jobspec_path = "./modules/media-centre/jobspec.nomad.hcl"
+  jobspec_path = "./modules/plugin-csi-glusterfs/jobspec-controller.nomad.hcl"
 }
+
+module "plugin_csi_glusterfs_nodes" {
+  source = "./modules/nomad-job"
+
+  jobspec_path = "./modules/plugin-csi-glusterfs/jobspec-nodes.nomad.hcl"
+}
+
+# media_centre now uses its own module with CSI volume registration
+# (defined below with GlusterFS dependencies)
 
 module "plextraktsync" {
   source = "./modules/nomad-job"
@@ -55,8 +65,8 @@ module "forgejo" {
   source = "./modules/forgejo"
 
   depends_on = [
-    module.plugin_csi_controller,
-    module.plugin_csi_nodes
+    module.plugin_csi_glusterfs_controller,
+    module.plugin_csi_glusterfs_nodes
   ]
 }
 
@@ -72,13 +82,13 @@ module "jayne_martin_counselling" {
   jobspec_path = "./modules/jayne-martin-counselling/jobspec.nomad.hcl"
 }
 
-# Modules with CSI volume dependencies
+# Modules with GlusterFS CSI volume dependencies
 module "ollama" {
   source = "./modules/ollama"
 
   depends_on = [
-    module.plugin_csi_controller,
-    module.plugin_csi_nodes
+    module.plugin_csi_glusterfs_controller,
+    module.plugin_csi_glusterfs_nodes
   ]
 }
 
@@ -86,8 +96,8 @@ module "minio" {
   source = "./modules/minio"
 
   depends_on = [
-    module.plugin_csi_controller,
-    module.plugin_csi_nodes
+    module.plugin_csi_glusterfs_controller,
+    module.plugin_csi_glusterfs_nodes
   ]
 }
 
@@ -95,7 +105,16 @@ module "appflowy" {
   source = "./modules/appflowy"
 
   depends_on = [
-    module.plugin_csi_controller,
-    module.plugin_csi_nodes
+    module.plugin_csi_glusterfs_controller,
+    module.plugin_csi_glusterfs_nodes
+  ]
+}
+
+module "media_centre" {
+  source = "./modules/media-centre"
+
+  depends_on = [
+    module.plugin_csi_glusterfs_controller,
+    module.plugin_csi_glusterfs_nodes
   ]
 }
