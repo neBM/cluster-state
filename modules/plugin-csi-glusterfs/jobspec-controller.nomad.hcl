@@ -32,6 +32,18 @@ nfs:
   dirPermissionsMode: "0777"
   dirPermissionsUser: root
   dirPermissionsGroup: root
+  mountOptions:
+    - nfsvers=3
+    - noatime
+    - ac
+    - actimeo=60
+    - lookupcache=positive
+    - hard
+    - intr
+    - retrans=3
+    - timeo=600
+    - rsize=1048576
+    - wsize=1048576
 EOF
       }
 
