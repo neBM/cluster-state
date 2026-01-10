@@ -33,7 +33,7 @@ job "media-centre" {
       }
 
       config {
-        image      = "litestream/litestream:0.3"
+        image      = "litestream/litestream:0.5"
         entrypoint = ["/bin/sh"]
         args       = [
           "-c",
@@ -102,7 +102,7 @@ EOF
       }
 
       config {
-        image = "litestream/litestream:0.3"
+        image = "litestream/litestream:0.5"
         args  = ["replicate", "-config", "/local/litestream.yml"]
       }
 
