@@ -1,5 +1,10 @@
 job "media-centre" {
   group "plex" {
+    constraint {
+      attribute = "${node.unique.name}"
+      value     = "Hestia"
+    }
+
     network {
       mode = "bridge"
       port "plex" {
