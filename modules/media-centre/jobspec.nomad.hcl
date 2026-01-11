@@ -45,12 +45,14 @@ job "media-centre" {
           <<-EOF
           set -e
           DB_DIR="/alloc/data/Databases"
+          CSI_DB_DIR="/csi/config/Library/Application Support/Plex Media Server/Plug-in Support/Databases"
           mkdir -p "$DB_DIR"
 
           # Wait for connect-proxy to be ready (60 seconds)
           echo "Waiting for connect-proxy to be ready..."
           sleep 60
 
+          # Try to restore from litestream backup first
           litestream restore -if-db-not-exists -if-replica-exists \
             -config /local/litestream.yml \
             "$DB_DIR/com.plexapp.plugins.library.db" || true
@@ -59,6 +61,14 @@ job "media-centre" {
             -config /local/litestream.yml \
             -replica blobs \
             "$DB_DIR/com.plexapp.plugins.library.blobs.db" || true
+
+          # If database doesn't exist and old CSI database exists, copy it
+          if [ ! -f "$DB_DIR/com.plexapp.plugins.library.db" ] && [ -f "$CSI_DB_DIR/com.plexapp.plugins.library.db" ]; then
+            echo "No litestream backup found, copying database from CSI volume..."
+            cp "$CSI_DB_DIR/com.plexapp.plugins.library.db" "$DB_DIR/com.plexapp.plugins.library.db"
+            chmod 666 "$DB_DIR/com.plexapp.plugins.library.db"
+            echo "Database copied from CSI volume and permissions fixed"
+          fi
 
           echo "Litestream restore complete"
           EOF
@@ -92,6 +102,12 @@ dbs:
         force-path-style: true
 {{ end }}
 EOF
+      }
+
+      volume_mount {
+        volume      = "config"
+        destination = "/csi/config"
+        read_only   = true
       }
 
       vault {}
