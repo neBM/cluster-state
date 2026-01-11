@@ -40,7 +40,7 @@ job "media-centre" {
       config {
         image      = "litestream/litestream:0.5"
         entrypoint = ["/bin/sh"]
-        args       = [
+        args = [
           "-c",
           <<-EOF
           set -e
