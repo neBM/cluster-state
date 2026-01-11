@@ -46,9 +46,26 @@ This document tracks the agent sessions involved in migrating services from NFS 
      - Removed stale database files from CSI volume (database should be on ephemeral disk via litestream)
      - Added Hestia constraint to Plex task group (requires NVIDIA runtime)
      - Restarted GlusterFS plugin to apply new mount options
-   - **Note:** Discovered pre-existing litestream issue - cannot connect to MinIO during prestart task (separate issue to fix)
 
-4. **Git Commits:**
+4. **Litestream Fixes**
+   - Fixed MinIO endpoint from `localhost:9000` to `minio-minio.virtual.consul:9000`
+   - Added 60-second wait for connect-proxy to be ready before restore
+   - Implemented database fallback copy from CSI volume backup
+   - Fixed database file permissions (chmod 666)
+   - Litestream successfully connecting to MinIO and writing snapshots
+   - **Known Issue:** Plex has database lock conflicts with litestream sidecar (MinIO bucket created but locks prevent Plex access)
+
+5. **Transparent Proxy Migration**
+   - Removed explicit upstream definitions (minio-minio) from Plex service
+   - All 22 services now using transparent proxy mode exclusively
+   - Services connect via DNS (*.virtual.consul) without explicit upstreams
+   - Cleaner configuration and improved flexibility
+
+6. **Git Commits:**
+   - `d810e0a` - Remove explicit upstreams in favor of transparent proxy
+   - `ba77c42` - Add database fallback copy from CSI volume for Plex
+   - `76ebcaa` - Fix litestream MinIO endpoint and add connect-proxy wait
+   - `9d48447` - Update AGENTS.md with Plex volume migration
    - `dc649b0` - Add Hestia constraint to Plex task group
    - `6fa4a9e` - Enable NFS attribute caching for GlusterFS CSI plugin
    - `0692bd1` - Add AGENTS.md documentation for migration tracking
