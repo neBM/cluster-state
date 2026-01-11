@@ -34,10 +34,24 @@ This document tracks the agent sessions involved in migrating services from NFS 
      - Stopped media-centre job
      - Restored data using: `rsync -av --progress /mnt/csi/jellyfin/config/ /storage/v/glusterfs_jellyfin_config/`
      - Restarted media-centre job successfully
-     - All tasks (Jellyfin, Plex, Tautulli) deployed healthy
+     - Jellyfin task deployed healthy
 
-3. **Git Commits:**
+3. **Plex Volume Migration**
+   - Plex was crashing with SQLite database locking errors due to old GlusterFS mount options
+   - Old `glusterfs_plex_config` volume was created before plugin updates (without `ac`,`actimeo`,`lookupcache`)
+   - **Migration Process:**
+     - Backed up 4.7GB of Plex config: `rsync /storage/v/glusterfs_plex_config/ /mnt/csi/plex/`
+     - Deleted old volume and recreated with new GlusterFS plugin configuration
+     - Restored data: `rsync /mnt/csi/plex/ /storage/v/glusterfs_plex_config/`
+     - Removed stale database files from CSI volume (database should be on ephemeral disk via litestream)
+     - Added Hestia constraint to Plex task group (requires NVIDIA runtime)
+     - Restarted GlusterFS plugin to apply new mount options
+   - **Note:** Discovered pre-existing litestream issue - cannot connect to MinIO during prestart task (separate issue to fix)
+
+4. **Git Commits:**
+   - `dc649b0` - Add Hestia constraint to Plex task group
    - `6fa4a9e` - Enable NFS attribute caching for GlusterFS CSI plugin
+   - `0692bd1` - Add AGENTS.md documentation for migration tracking
    - `e1fcc4f` - Clean up workspace and fix Forgejo CSI dependency (previous session)
 
 #### Lessons Learned:
