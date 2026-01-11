@@ -86,7 +86,7 @@ This document tracks the agent sessions involved in migrating services from NFS 
   5. Restart application/job
 
 ### Phase 2: Matrix Migration  
-**Status:** 🔄 In Progress (Started 2026-01-11)
+**Status:** ✅ Completed (2026-01-11)
 
 #### Completed Tasks:
 1. **Created Matrix Terraform Module** ✅
@@ -97,23 +97,34 @@ This document tracks the agent sessions involved in migrating services from NFS 
 2. **Created Matrix CSI Volumes** ✅
    - Applied Terraform to create all 4 CSI volumes
    - Volumes created successfully:
-     - `glusterfs_matrix_synapse_data` (1-5GB)
-     - `glusterfs_matrix_media_store` (10-50GB)
-     - `glusterfs_matrix_whatsapp_data` (1-5GB)
-     - `glusterfs_matrix_config` (100MB-1GB)
+     - `glusterfs_matrix_synapse_data` (1.9MB - signing key, homeserver.db)
+     - `glusterfs_matrix_media_store` (3.6GB - user media)
+     - `glusterfs_matrix_whatsapp_data` (38KB - bridge config)
+     - `glusterfs_matrix_config` (35KB - MAS config)
    - Created GlusterFS directories on Hestia with proper permissions
 
-3. **Matrix Data Backup** 🔄 In Progress
+3. **Matrix Data Backup** ✅
    - Created comprehensive backup script (`scripts/backup-matrix.sh`)
    - Backup includes critical signing key with verification
    - Backup location: `/mnt/csi/backups/glusterfs-migration-20260111-105755/phase2/`
-   - Media store backup in progress (466MB+ and counting)
 
-#### Remaining Tasks:
-- Complete Matrix data backup (waiting for media store)
-- Copy data to new GlusterFS volumes
-- Update Matrix jobspec to use CSI volumes
-- Deploy and verify Matrix federation
+4. **Data Migration** ✅
+   - Copied all data from NFS to GlusterFS volumes using rsync
+   - Verified signing key present in new location
+
+5. **Jobspec Updates** ✅
+   - Updated synapse to use CSI volumes for `/data` and `/media_store`
+   - Updated whatsapp-bridge to use CSI volume for `/data`
+   - Updated MAS to use CSI volume for config
+   - Converted nginx and cinny configs to templates (static content)
+   - Added well-known matrix files as templates
+
+6. **Deployment and Verification** ✅
+   - Deployed Matrix with new CSI volumes
+   - All 6 task groups healthy: synapse, whatsapp-bridge, mas, nginx, element, cinny
+   - Federation endpoint verified: `/_matrix/federation/v1/version`
+   - Health endpoint verified: `/health`
+   - Well-known files verified
 
 ### Remaining Volumes to Migrate
 
