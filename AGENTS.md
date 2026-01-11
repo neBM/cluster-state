@@ -61,7 +61,7 @@ This document tracks the agent sessions involved in migrating services from NFS 
    - Services connect via DNS (*.virtual.consul) without explicit upstreams
    - Cleaner configuration and improved flexibility
 
-6. **Git Commits:**
+6. **Git Commits (Phase 1):**
    - `d810e0a` - Remove explicit upstreams in favor of transparent proxy
    - `ba77c42` - Add database fallback copy from CSI volume for Plex
    - `76ebcaa` - Fix litestream MinIO endpoint and add connect-proxy wait
@@ -70,6 +70,9 @@ This document tracks the agent sessions involved in migrating services from NFS 
    - `6fa4a9e` - Enable NFS attribute caching for GlusterFS CSI plugin
    - `0692bd1` - Add AGENTS.md documentation for migration tracking
    - `e1fcc4f` - Clean up workspace and fix Forgejo CSI dependency (previous session)
+
+7. **Git Commits (Phase 2):**
+   - `3aee226` - feat(matrix): Create Matrix Terraform module and CSI volumes
 
 #### Lessons Learned:
 - ⚠️ **CRITICAL:** Deleting a Nomad CSI volume with `nomad volume delete` also deletes the underlying storage data
@@ -82,13 +85,35 @@ This document tracks the agent sessions involved in migrating services from NFS 
   4. Restore data to new volume location
   5. Restart application/job
 
-### Phase 2: Matrix Migration (Pending)
-**Status:** 🔄 Pending
+### Phase 2: Matrix Migration  
+**Status:** 🔄 In Progress (Started 2026-01-11)
 
-**Tasks:**
-- Create Matrix Terraform module
-- Backup and migrate Matrix data
-- Deploy and verify Matrix
+#### Completed Tasks:
+1. **Created Matrix Terraform Module** ✅
+   - Created `modules/matrix/main.tf` with proper CSI volume definitions
+   - Created 4 volume definition files: synapse-data, media-store, whatsapp-data, config
+   - Integrated module into main Terraform configuration
+
+2. **Created Matrix CSI Volumes** ✅
+   - Applied Terraform to create all 4 CSI volumes
+   - Volumes created successfully:
+     - `glusterfs_matrix_synapse_data` (1-5GB)
+     - `glusterfs_matrix_media_store` (10-50GB)
+     - `glusterfs_matrix_whatsapp_data` (1-5GB)
+     - `glusterfs_matrix_config` (100MB-1GB)
+   - Created GlusterFS directories on Hestia with proper permissions
+
+3. **Matrix Data Backup** 🔄 In Progress
+   - Created comprehensive backup script (`scripts/backup-matrix.sh`)
+   - Backup includes critical signing key with verification
+   - Backup location: `/mnt/csi/backups/glusterfs-migration-20260111-105755/phase2/`
+   - Media store backup in progress (466MB+ and counting)
+
+#### Remaining Tasks:
+- Complete Matrix data backup (waiting for media store)
+- Copy data to new GlusterFS volumes
+- Update Matrix jobspec to use CSI volumes
+- Deploy and verify Matrix federation
 
 ### Remaining Volumes to Migrate
 
