@@ -267,10 +267,6 @@ EOF
       connect {
         sidecar_service {
           proxy {
-            upstreams {
-              destination_name = "minio-minio"
-              local_bind_port  = 9000
-            }
             expose {
               path {
                 path            = "/metrics"
