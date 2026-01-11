@@ -47,6 +47,10 @@ job "media-centre" {
           DB_DIR="/alloc/data/Databases"
           mkdir -p "$DB_DIR"
 
+          # Wait for connect-proxy to be ready (60 seconds)
+          echo "Waiting for connect-proxy to be ready..."
+          sleep 60
+
           litestream restore -if-db-not-exists -if-replica-exists \
             -config /local/litestream.yml \
             "$DB_DIR/com.plexapp.plugins.library.db" || true
@@ -72,7 +76,7 @@ dbs:
         type: s3
         bucket: plex-litestream
         path: library
-        endpoint: http://localhost:9000
+        endpoint: http://minio-minio.virtual.consul:9000
         access-key-id: {{ .Data.data.MINIO_ACCESS_KEY }}
         secret-access-key: {{ .Data.data.MINIO_SECRET_KEY }}
         force-path-style: true
@@ -82,7 +86,7 @@ dbs:
         type: s3
         bucket: plex-litestream
         path: blobs
-        endpoint: http://localhost:9000
+        endpoint: http://minio-minio.virtual.consul:9000
         access-key-id: {{ .Data.data.MINIO_ACCESS_KEY }}
         secret-access-key: {{ .Data.data.MINIO_SECRET_KEY }}
         force-path-style: true
@@ -122,7 +126,7 @@ dbs:
         type: s3
         bucket: plex-litestream
         path: library
-        endpoint: http://localhost:9000
+        endpoint: http://minio-minio.virtual.consul:9000
         access-key-id: {{ .Data.data.MINIO_ACCESS_KEY }}
         secret-access-key: {{ .Data.data.MINIO_SECRET_KEY }}
         force-path-style: true
@@ -133,7 +137,7 @@ dbs:
         type: s3
         bucket: plex-litestream
         path: blobs
-        endpoint: http://localhost:9000
+        endpoint: http://minio-minio.virtual.consul:9000
         access-key-id: {{ .Data.data.MINIO_ACCESS_KEY }}
         secret-access-key: {{ .Data.data.MINIO_SECRET_KEY }}
         force-path-style: true
