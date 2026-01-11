@@ -39,9 +39,7 @@ module "plextraktsync" {
 }
 
 module "matrix" {
-  source = "./modules/nomad-job"
-
-  jobspec_path = "./modules/matrix/jobspec.nomad.hcl"
+  source = "./modules/matrix"
 }
 
 module "elk" {
