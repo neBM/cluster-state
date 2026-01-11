@@ -6,6 +6,22 @@ job "matrix" {
 
   group "synapse" {
 
+    volume "synapse_data" {
+      type            = "csi"
+      source          = "glusterfs_matrix_synapse_data"
+      read_only       = false
+      attachment_mode = "file-system"
+      access_mode     = "single-node-writer"
+    }
+
+    volume "media_store" {
+      type            = "csi"
+      source          = "glusterfs_matrix_media_store"
+      read_only       = false
+      attachment_mode = "file-system"
+      access_mode     = "single-node-writer"
+    }
+
     network {
       mode = "bridge"
       port "synapse" {
@@ -69,13 +85,20 @@ job "matrix" {
     task "synapse" {
       driver = "docker"
 
+      volume_mount {
+        volume      = "synapse_data"
+        destination = "/data"
+        read_only   = false
+      }
+
+      volume_mount {
+        volume      = "media_store"
+        destination = "/media_store"
+        read_only   = false
+      }
+
       config {
         image = "ghcr.io/element-hq/synapse:v1.144.0"
-
-        volumes = [
-          "/mnt/docker/matrix/synapse:/data",
-          "/mnt/docker/matrix/media_store:/media_store",
-        ]
       }
 
       env = {
@@ -241,6 +264,14 @@ job "matrix" {
 
   group "whatsapp-bridge" {
 
+    volume "whatsapp_data" {
+      type            = "csi"
+      source          = "glusterfs_matrix_whatsapp_data"
+      read_only       = false
+      attachment_mode = "file-system"
+      access_mode     = "single-node-writer"
+    }
+
     network {
       mode = "bridge"
       port "envoy_metrics" {
@@ -279,12 +310,14 @@ job "matrix" {
     task "whatsapp-bridge" {
       driver = "docker"
 
+      volume_mount {
+        volume      = "whatsapp_data"
+        destination = "/data"
+        read_only   = false
+      }
+
       config {
         image = "dock.mau.dev/mautrix/whatsapp:v0.2512.0"
-
-        volumes = [
-          "/mnt/docker/matrix/whatsapp-data:/data"
-        ]
       }
 
       resources {
@@ -300,6 +333,14 @@ job "matrix" {
   }
 
   group "mas" {
+
+    volume "matrix_config" {
+      type            = "csi"
+      source          = "glusterfs_matrix_config"
+      read_only       = true
+      attachment_mode = "file-system"
+      access_mode     = "multi-node-reader-only"
+    }
 
     network {
       mode = "bridge"
@@ -347,16 +388,18 @@ job "matrix" {
     task "mas" {
       driver = "docker"
 
+      volume_mount {
+        volume      = "matrix_config"
+        destination = "/matrix-config"
+        read_only   = true
+      }
+
       config {
         image = "ghcr.io/element-hq/matrix-authentication-service:1.8.0"
-
-        volumes = [
-          "/mnt/docker/matrix/synapse-mas/config.yaml:/config.yaml:ro"
-        ]
       }
 
       env {
-        MAS_CONFIG = "/config.yaml"
+        MAS_CONFIG = "/matrix-config/synapse-mas/config.yaml"
       }
 
       resources {
@@ -427,14 +470,16 @@ job "matrix" {
       config {
         image = "docker.io/library/nginx:1.29.4-alpine"
 
-        volumes = [
-          "/mnt/docker/matrix/nginx/html:/usr/share/nginx/html:ro",
-        ]
-
         mount {
           type   = "bind"
           source = "local/nginx.conf"
           target = "/etc/nginx/nginx.conf"
+        }
+
+        mount {
+          type   = "bind"
+          source = "local/html"
+          target = "/usr/share/nginx/html"
         }
       }
 
@@ -482,6 +527,31 @@ job "matrix" {
         destination   = "local/nginx.conf"
         change_mode   = "signal"
         change_signal = "SIGHUP"
+      }
+
+      template {
+        data        = <<-EOF
+          {"m.server":"matrix.brmartin.co.uk:443"}
+          EOF
+        destination = "local/html/.well-known/matrix/server"
+      }
+
+      template {
+        data        = <<-EOF
+          {
+            "m.homeserver": {
+              "base_url": "https://matrix.brmartin.co.uk"
+            },
+            "org.matrix.msc3575.proxy": {
+              "url": "https://matrix.brmartin.co.uk"
+            },
+            "org.matrix.msc2965.authentication": {
+              "issuer": "https://mas.brmartin.co.uk/",
+              "account": "https://mas.brmartin.co.uk/account"
+            }
+          }
+          EOF
+        destination = "local/html/.well-known/matrix/client"
       }
 
       resources {
@@ -611,9 +681,49 @@ job "matrix" {
 
         ports = ["cinny"]
 
-        volumes = [
-          "/mnt/docker/matrix/cinny/config.json:/app/config.json:ro"
-        ]
+        mount {
+          type   = "bind"
+          source = "local/config.json"
+          target = "/app/config.json"
+        }
+      }
+
+      template {
+        data = <<-EOF
+          {
+            "defaultHomeserver": 0,
+            "homeserverList": [
+              "brmartin.co.uk"
+            ],
+            "allowCustomHomeservers": false,
+            "featuredCommunities": {
+              "openAsDefault": false,
+              "spaces": [
+                "#cinny-space:matrix.org",
+                "#community:matrix.org",
+                "#space:envs.net",
+                "#science-space:matrix.org",
+                "#libregaming-games:tchncs.de",
+                "#mathematics-on:matrix.org"
+              ],
+              "rooms": [
+                "#cinny:matrix.org",
+                "#freesoftware:matrix.org",
+                "#pcapdroid:matrix.org",
+                "#gentoo:matrix.org",
+                "#PrivSec.dev:arcticfoxes.net",
+                "#disroot:aria-net.org"
+              ],
+              "servers": ["envs.net", "matrix.org", "monero.social", "mozilla.org"]
+            },
+            "hashRouter": {
+              "enabled": false,
+              "basename": "/"
+            }
+          }
+          EOF
+
+        destination = "local/config.json"
       }
 
       resources {
