@@ -59,15 +59,6 @@ module "renovate" {
   jobspec_path = "./modules/renovate/jobspec.nomad.hcl"
 }
 
-module "forgejo" {
-  source = "./modules/forgejo"
-
-  depends_on = [
-    module.plugin_csi_controller,
-    module.plugin_csi_nodes
-  ]
-}
-
 module "keycloak" {
   source = "./modules/nomad-job"
 
@@ -115,4 +106,14 @@ module "media_centre" {
     module.plugin_csi_glusterfs_controller,
     module.plugin_csi_glusterfs_nodes
   ]
+}
+
+module "gitlab" {
+  source = "./modules/gitlab"
+}
+
+module "gitlab_runner" {
+  source = "./modules/nomad-job"
+
+  jobspec_path = "./modules/gitlab-runner/jobspec.nomad.hcl"
 }

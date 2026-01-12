@@ -26,6 +26,7 @@ job "plugin-glusterfs-controller" {
         data        = <<-EOF
 driver: nfs-client
 nfs:
+  # Using kernel NFS on Hestia with noac to prevent stale file handles
   shareHost: 127.0.0.1
   shareBasePath: /storage
   controllerBasePath: /storage
@@ -35,9 +36,8 @@ nfs:
   mountOptions:
     - nfsvers=3
     - noatime
-    - ac
-    - actimeo=60
-    - lookupcache=positive
+    - noac
+    - lookupcache=none
     - hard
     - intr
     - retrans=3

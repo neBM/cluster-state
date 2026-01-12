@@ -77,7 +77,7 @@ dbs:
         type: s3
         bucket: plex-litestream
         path: library
-        endpoint: http://minio-minio.virtual.consul:9000
+        endpoint: http://127.0.0.1:9000
         access-key-id: {{ .Data.data.MINIO_ACCESS_KEY }}
         secret-access-key: {{ .Data.data.MINIO_SECRET_KEY }}
         force-path-style: true
@@ -87,7 +87,7 @@ dbs:
         type: s3
         bucket: plex-litestream
         path: blobs
-        endpoint: http://minio-minio.virtual.consul:9000
+        endpoint: http://127.0.0.1:9000
         access-key-id: {{ .Data.data.MINIO_ACCESS_KEY }}
         secret-access-key: {{ .Data.data.MINIO_SECRET_KEY }}
         force-path-style: true
@@ -127,7 +127,7 @@ dbs:
         type: s3
         bucket: plex-litestream
         path: library
-        endpoint: http://minio-minio.virtual.consul:9000
+        endpoint: http://127.0.0.1:9000
         access-key-id: {{ .Data.data.MINIO_ACCESS_KEY }}
         secret-access-key: {{ .Data.data.MINIO_SECRET_KEY }}
         force-path-style: true
@@ -138,7 +138,7 @@ dbs:
         type: s3
         bucket: plex-litestream
         path: blobs
-        endpoint: http://minio-minio.virtual.consul:9000
+        endpoint: http://127.0.0.1:9000
         access-key-id: {{ .Data.data.MINIO_ACCESS_KEY }}
         secret-access-key: {{ .Data.data.MINIO_SECRET_KEY }}
         force-path-style: true
@@ -252,6 +252,11 @@ EOF
       connect {
         sidecar_service {
           proxy {
+            # Explicit upstream for MinIO (used by litestream for backups)
+            upstreams {
+              destination_name = "minio-minio"
+              local_bind_port  = 9000
+            }
             expose {
               path {
                 path            = "/metrics"
@@ -260,7 +265,6 @@ EOF
                 listener_port   = "envoy_metrics"
               }
             }
-            transparent_proxy {}
           }
         }
       }
