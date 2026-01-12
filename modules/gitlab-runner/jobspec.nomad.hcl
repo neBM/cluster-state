@@ -9,6 +9,8 @@ job "gitlab-runner" {
     task "gitlab-runner" {
       driver = "docker"
 
+      vault {}
+
       config {
         image      = "gitlab/gitlab-runner:latest"
         privileged = true
