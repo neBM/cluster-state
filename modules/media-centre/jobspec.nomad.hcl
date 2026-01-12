@@ -38,64 +38,42 @@ job "media-centre" {
       }
 
       config {
-        image      = "litestream/litestream:0.5"
+        image      = "alpine:3.19"
         entrypoint = ["/bin/sh"]
         args = [
           "-c",
           <<-EOF
           set -e
+          apk add --no-cache sqlite
+
           DB_DIR="/alloc/data/Databases"
+          CSI_DB_DIR="/config/Library/Application Support/Plex Media Server/Plug-in Support/Databases"
           mkdir -p "$DB_DIR"
 
-          # Wait for connect-proxy to be ready
-          echo "Waiting for connect-proxy to be ready..."
-          sleep 60
+          # Seed from CSI volume if databases exist there (manual restore scenario)
+          if [ -f "$CSI_DB_DIR/com.plexapp.plugins.library.db" ] && [ ! -f "$DB_DIR/com.plexapp.plugins.library.db" ]; then
+            echo "Seeding databases from CSI volume..."
+            cp "$CSI_DB_DIR/com.plexapp.plugins.library.db" "$DB_DIR/"
+            cp "$CSI_DB_DIR/com.plexapp.plugins.library.blobs.db" "$DB_DIR/" || true
+            # Ensure WAL mode and create WAL file for litestream
+            sqlite3 "$DB_DIR/com.plexapp.plugins.library.db" "PRAGMA journal_mode=WAL; SELECT 1;"
+            sqlite3 "$DB_DIR/com.plexapp.plugins.library.blobs.db" "PRAGMA journal_mode=WAL; SELECT 1;"
+            chown -R 990:997 "$DB_DIR"
+            echo "Database seeding complete"
+          else
+            echo "No CSI databases to seed, or ephemeral DB already exists"
+          fi
 
-          # Restore from litestream backup
-          litestream restore -if-db-not-exists -if-replica-exists \
-            -config /local/litestream.yml \
-            "$DB_DIR/com.plexapp.plugins.library.db" || true
-
-          litestream restore -if-db-not-exists -if-replica-exists \
-            -config /local/litestream.yml \
-            -replica blobs \
-            "$DB_DIR/com.plexapp.plugins.library.blobs.db" || true
-
-          echo "Litestream restore complete"
+          echo "Restore task complete"
           EOF
         ]
       }
 
-      template {
-        destination = "local/litestream.yml"
-        data        = <<-EOF
-{{ with secret "nomad/default/media-centre" }}
-dbs:
-  - path: /alloc/data/Databases/com.plexapp.plugins.library.db
-    replicas:
-      - name: library
-        type: s3
-        bucket: plex-litestream
-        path: library
-        endpoint: http://127.0.0.1:9000
-        access-key-id: {{ .Data.data.MINIO_ACCESS_KEY }}
-        secret-access-key: {{ .Data.data.MINIO_SECRET_KEY }}
-        force-path-style: true
-  - path: /alloc/data/Databases/com.plexapp.plugins.library.blobs.db
-    replicas:
-      - name: blobs
-        type: s3
-        bucket: plex-litestream
-        path: blobs
-        endpoint: http://127.0.0.1:9000
-        access-key-id: {{ .Data.data.MINIO_ACCESS_KEY }}
-        secret-access-key: {{ .Data.data.MINIO_SECRET_KEY }}
-        force-path-style: true
-{{ end }}
-EOF
+      volume_mount {
+        volume      = "config"
+        destination = "/config"
+        read_only   = true
       }
-
-      vault {}
 
       resources {
         cpu    = 100
@@ -253,9 +231,13 @@ EOF
         sidecar_service {
           proxy {
             # Explicit upstream for MinIO (used by litestream for backups)
+            # MinIO service exposes nginx on port 80, which proxies to minio:9000
             upstreams {
-              destination_name = "minio-minio"
-              local_bind_port  = 9000
+              destination_name   = "minio-minio"
+              local_bind_port    = 9000
+              destination_peer   = ""
+              destination_type   = "service"
+              local_bind_address = "127.0.0.1"
             }
             expose {
               path {

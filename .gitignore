@@ -17,3 +17,4 @@ override.tf.json
 terraform.rc
 .env
 !.env.example
+tfplan
