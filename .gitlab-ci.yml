@@ -1,0 +1,64 @@
+stages:
+  - validate
+  - plan
+  - apply
+
+variables:
+  TF_IN_AUTOMATION: "true"
+
+.terraform-base:
+  image: debian:bookworm-slim
+  cache:
+    key: terraform-plugins
+    paths:
+      - .terraform/providers
+  before_script:
+    - apt-get update && apt-get install -y curl unzip gnupg
+    # Install Terraform and Nomad from HashiCorp repos
+    - curl -fsSL https://apt.releases.hashicorp.com/gpg | gpg --dearmor -o /usr/share/keyrings/hashicorp-archive-keyring.gpg
+    - echo "deb [signed-by=/usr/share/keyrings/hashicorp-archive-keyring.gpg] https://apt.releases.hashicorp.com bookworm main" > /etc/apt/sources.list.d/hashicorp.list
+    - apt-get update && apt-get install -y terraform nomad
+
+validate:
+  extends: .terraform-base
+  stage: validate
+  script:
+    # Format checks - no backend required
+    - terraform fmt -check -recursive
+    - nomad fmt -recursive -check
+    # Validate with -backend=false (no credentials needed)
+    - terraform init -backend=false
+    - terraform validate
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH == "main"
+
+plan:
+  extends: .terraform-base
+  stage: plan
+  script:
+    - terraform init -backend-config="conn_str=$PG_CONN_STR"
+    - terraform plan -var="nomad_address=$NOMAD_ADDR" -out=tfplan
+  artifacts:
+    paths:
+      - tfplan
+      - .terraform
+      - .terraform.lock.hcl
+    expire_in: 1 hour
+  rules:
+    # Only run on main branch where protected variables are available
+    - if: $CI_COMMIT_BRANCH == "main"
+
+apply:
+  extends: .terraform-base
+  stage: apply
+  dependencies:
+    - plan
+  script:
+    - terraform init -backend-config="conn_str=$PG_CONN_STR"
+    - terraform apply -var="nomad_address=$NOMAD_ADDR" -auto-approve
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
+      when: manual
+  environment:
+    name: production
