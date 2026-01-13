@@ -117,3 +117,7 @@ module "gitlab_runner" {
 
   jobspec_path = "./modules/gitlab-runner/jobspec.nomad.hcl"
 }
+
+module "restic_backup" {
+  source = "./modules/restic-backup"
+}

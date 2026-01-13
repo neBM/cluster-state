@@ -7,6 +7,10 @@ job "minio" {
       port "http" {
         to = 80
       }
+      port "s3" {
+        static = 9000
+        to     = 9000
+      }
       port "envoy_metrics" {
         to = 9102
       }
@@ -23,9 +27,6 @@ job "minio" {
       connect {
         sidecar_service {
           proxy {
-            config {
-              protocol = "http"
-            }
             expose {
               path {
                 path            = "/metrics"
@@ -46,6 +47,14 @@ job "minio" {
         "traefik.http.routers.minio.entrypoints=websecure",
         "traefik.consulcatalog.connect=true",
       ]
+    }
+
+    # Direct S3 API access - bypasses service mesh for internal bulk transfers
+    # Use minio-s3.service.consul:9000 for direct access
+    service {
+      name     = "minio-s3"
+      provider = "consul"
+      port     = "s3"
     }
 
     task "minio" {
@@ -83,9 +92,9 @@ job "minio" {
       }
 
       resources {
-        cpu        = 100
-        memory     = 256
-        memory_max = 512
+        cpu        = 200
+        memory     = 512
+        memory_max = 1024
       }
     }
 
@@ -133,6 +142,9 @@ job "minio" {
                 proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
                 proxy_set_header X-Forwarded-Proto $scheme;
                 proxy_pass http://127.0.0.1:9000/;
+                proxy_connect_timeout 300;
+                proxy_send_timeout    300;
+                proxy_read_timeout    300;
               }
             }
 
@@ -160,8 +172,9 @@ job "minio" {
       }
 
       resources {
-        cpu    = 50
-        memory = 16
+        cpu        = 50
+        memory     = 64
+        memory_max = 128
       }
 
       meta = {

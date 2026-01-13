@@ -38,42 +38,93 @@ job "media-centre" {
       }
 
       config {
-        image      = "alpine:3.19"
+        image      = "litestream/litestream:0.5"
         entrypoint = ["/bin/sh"]
         args = [
           "-c",
           <<-EOF
           set -e
-          apk add --no-cache sqlite
 
           DB_DIR="/alloc/data/Databases"
-          CSI_DB_DIR="/config/Library/Application Support/Plex Media Server/Plug-in Support/Databases"
+          LIBRARY_DB="$DB_DIR/com.plexapp.plugins.library.db"
+          BLOBS_DB="$DB_DIR/com.plexapp.plugins.library.blobs.db"
           mkdir -p "$DB_DIR"
 
-          # Seed from CSI volume if databases exist there (manual restore scenario)
-          if [ -f "$CSI_DB_DIR/com.plexapp.plugins.library.db" ] && [ ! -f "$DB_DIR/com.plexapp.plugins.library.db" ]; then
-            echo "Seeding databases from CSI volume..."
-            cp "$CSI_DB_DIR/com.plexapp.plugins.library.db" "$DB_DIR/"
-            cp "$CSI_DB_DIR/com.plexapp.plugins.library.blobs.db" "$DB_DIR/" || true
-            # Ensure WAL mode and create WAL file for litestream
-            sqlite3 "$DB_DIR/com.plexapp.plugins.library.db" "PRAGMA journal_mode=WAL; SELECT 1;"
-            sqlite3 "$DB_DIR/com.plexapp.plugins.library.blobs.db" "PRAGMA journal_mode=WAL; SELECT 1;"
-            chown -R 990:997 "$DB_DIR"
-            echo "Database seeding complete"
-          else
-            echo "No CSI databases to seed, or ephemeral DB already exists"
+          # Skip if databases already exist (ephemeral disk persisted)
+          if [ -f "$LIBRARY_DB" ]; then
+            echo "Databases already exist on ephemeral disk, skipping restore"
+            exit 0
           fi
 
-          echo "Restore task complete"
+          # Wait for sidecar proxy to be ready (needed to reach MinIO)
+          echo "Waiting for sidecar proxy..."
+          TIMEOUT=60
+          ELAPSED=0
+          while [ $ELAPSED -lt $TIMEOUT ]; do
+            if wget -q --spider http://minio-minio.virtual.consul:9000/minio/health/live 2>/dev/null; then
+              echo "MinIO reachable via proxy"
+              break
+            fi
+            sleep 2
+            ELAPSED=$((ELAPSED + 2))
+          done
+
+          if [ $ELAPSED -ge $TIMEOUT ]; then
+            echo "WARNING: Could not reach MinIO, proxy may not be ready"
+            echo "Continuing anyway - litestream will retry on failure"
+          fi
+
+          # Restore from S3 (MinIO)
+          echo "Restoring databases from S3..."
+          if litestream restore -config /local/litestream.yml -o "$LIBRARY_DB" "$LIBRARY_DB"; then
+            echo "Library database restored successfully"
+          else
+            echo "ERROR: Failed to restore library database from S3"
+            exit 1
+          fi
+
+          if litestream restore -config /local/litestream.yml -o "$BLOBS_DB" "$BLOBS_DB"; then
+            echo "Blobs database restored successfully"
+          else
+            echo "WARNING: Failed to restore blobs database (may not exist yet)"
+          fi
+
+          chown -R 990:997 "$DB_DIR"
+          echo "Restore complete"
           EOF
         ]
       }
 
-      volume_mount {
-        volume      = "config"
-        destination = "/config"
-        read_only   = true
+      template {
+        destination = "local/litestream.yml"
+        data        = <<-EOF
+{{ with secret "nomad/default/media-centre" }}
+dbs:
+  - path: /alloc/data/Databases/com.plexapp.plugins.library.db
+    replicas:
+      - name: library
+        type: s3
+        bucket: plex-litestream
+        path: library
+        endpoint: http://minio-minio.virtual.consul:9000
+        access-key-id: {{ .Data.data.MINIO_ACCESS_KEY }}
+        secret-access-key: {{ .Data.data.MINIO_SECRET_KEY }}
+        force-path-style: true
+  - path: /alloc/data/Databases/com.plexapp.plugins.library.blobs.db
+    replicas:
+      - name: blobs
+        type: s3
+        bucket: plex-litestream
+        path: blobs
+        endpoint: http://minio-minio.virtual.consul:9000
+        access-key-id: {{ .Data.data.MINIO_ACCESS_KEY }}
+        secret-access-key: {{ .Data.data.MINIO_SECRET_KEY }}
+        force-path-style: true
+{{ end }}
+EOF
       }
+
+      vault {}
 
       resources {
         cpu    = 100
@@ -105,22 +156,32 @@ dbs:
         type: s3
         bucket: plex-litestream
         path: library
-        endpoint: http://127.0.0.1:9000
+        endpoint: http://minio-minio.virtual.consul:9000
         access-key-id: {{ .Data.data.MINIO_ACCESS_KEY }}
         secret-access-key: {{ .Data.data.MINIO_SECRET_KEY }}
         force-path-style: true
-        sync-interval: 1s
+        sync-interval: 5m
+        snapshot-interval: 1h
+        retention: 168h
+        retention-check-interval: 1h
+        part-size: 6MB
+        concurrency: 2
   - path: /alloc/data/Databases/com.plexapp.plugins.library.blobs.db
     replicas:
       - name: blobs
         type: s3
         bucket: plex-litestream
         path: blobs
-        endpoint: http://127.0.0.1:9000
+        endpoint: http://minio-minio.virtual.consul:9000
         access-key-id: {{ .Data.data.MINIO_ACCESS_KEY }}
         secret-access-key: {{ .Data.data.MINIO_SECRET_KEY }}
         force-path-style: true
-        sync-interval: 10s
+        sync-interval: 5m
+        snapshot-interval: 1h
+        retention: 168h
+        retention-check-interval: 1h
+        part-size: 6MB
+        concurrency: 2
 {{ end }}
 EOF
       }
@@ -128,9 +189,9 @@ EOF
       vault {}
 
       resources {
-        cpu        = 100
-        memory     = 256
-        memory_max = 512
+        cpu        = 500
+        memory     = 512
+        memory_max = 1024
       }
     }
 
@@ -230,15 +291,6 @@ EOF
       connect {
         sidecar_service {
           proxy {
-            # Explicit upstream for MinIO (used by litestream for backups)
-            # MinIO service exposes nginx on port 80, which proxies to minio:9000
-            upstreams {
-              destination_name   = "minio-minio"
-              local_bind_port    = 9000
-              destination_peer   = ""
-              destination_type   = "service"
-              local_bind_address = "127.0.0.1"
-            }
             expose {
               path {
                 path            = "/metrics"
@@ -247,6 +299,16 @@ EOF
                 listener_port   = "envoy_metrics"
               }
             }
+            transparent_proxy {}
+          }
+        }
+        # Memory for HTTP L7 proxy - peak RSS observed ~70MB
+        # Virtual memory can spike to 3GB+ but that's address space, not RAM
+        sidecar_task {
+          resources {
+            cpu        = 250
+            memory     = 256
+            memory_max = 512
           }
         }
       }
