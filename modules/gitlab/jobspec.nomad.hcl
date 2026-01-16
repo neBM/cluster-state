@@ -193,7 +193,9 @@ EOF
                 listener_port   = "envoy_metrics"
               }
             }
-            transparent_proxy {}
+            transparent_proxy {
+              exclude_outbound_ports = [5433]
+            }
           }
         }
       }
