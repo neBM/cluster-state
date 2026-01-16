@@ -72,8 +72,21 @@ module "jayne_martin_counselling" {
 }
 
 # Modules with GlusterFS CSI volume dependencies
-module "ollama" {
-  source = "./modules/ollama"
+module "ollama_core" {
+  source = "./modules/ollama-core"
+}
+
+module "open_webui" {
+  source = "./modules/open-webui"
+
+  depends_on = [
+    module.plugin_csi_glusterfs_controller,
+    module.plugin_csi_glusterfs_nodes
+  ]
+}
+
+module "searxng" {
+  source = "./modules/searxng"
 
   depends_on = [
     module.plugin_csi_glusterfs_controller,

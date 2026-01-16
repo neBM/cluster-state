@@ -287,14 +287,6 @@ job "matrix" {
         envoy_metrics_port = "${NOMAD_HOST_PORT_envoy_metrics}"
       }
 
-      check {
-        name     = "whatsapp-bridge-alive"
-        type     = "tcp"
-        port     = "8082"
-        interval = "30s"
-        timeout  = "5s"
-      }
-
       connect {
         sidecar_service {
           proxy {

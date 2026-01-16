@@ -418,14 +418,6 @@ job "appflowy" {
         envoy_metrics_port = "${NOMAD_HOST_PORT_envoy_metrics}"
       }
 
-      check {
-        name     = "appflowy-web-alive"
-        type     = "tcp"
-        port     = "http"
-        interval = "30s"
-        timeout  = "5s"
-      }
-
       connect {
         sidecar_service {
           proxy {
@@ -515,14 +507,6 @@ job "appflowy" {
         envoy_metrics_port = "${NOMAD_HOST_PORT_envoy_metrics}"
       }
 
-      check {
-        name     = "postgres-alive"
-        type     = "tcp"
-        port     = "pg"
-        interval = "30s"
-        timeout  = "5s"
-      }
-
       connect {
         sidecar_service {
           proxy {
@@ -580,14 +564,6 @@ job "appflowy" {
 
       meta {
         envoy_metrics_port = "${NOMAD_HOST_PORT_envoy_metrics}"
-      }
-
-      check {
-        name     = "redis-alive"
-        type     = "tcp"
-        port     = "redis"
-        interval = "30s"
-        timeout  = "5s"
       }
 
       connect {
