@@ -46,6 +46,16 @@ job "forgejo" {
       service {
         port     = "forgejo"
         provider = "consul"
+
+        check {
+          name     = "forgejo-alive"
+          type     = "http"
+          path     = "/api/healthz"
+          port     = "forgejo"
+          interval = "30s"
+          timeout  = "5s"
+        }
+
         tags = [
           "traefik.enable=true",
 

@@ -287,6 +287,14 @@ job "matrix" {
         envoy_metrics_port = "${NOMAD_HOST_PORT_envoy_metrics}"
       }
 
+      check {
+        name     = "whatsapp-bridge-alive"
+        type     = "tcp"
+        port     = "8082"
+        interval = "30s"
+        timeout  = "5s"
+      }
+
       connect {
         sidecar_service {
           proxy {
@@ -355,6 +363,15 @@ job "matrix" {
 
       meta {
         envoy_metrics_port = "${NOMAD_HOST_PORT_envoy_metrics}"
+      }
+
+      check {
+        name     = "mas-alive"
+        type     = "http"
+        path     = "/health"
+        interval = "30s"
+        timeout  = "5s"
+        expose   = true
       }
 
       connect {
@@ -430,6 +447,15 @@ job "matrix" {
 
       meta {
         envoy_metrics_port = "${NOMAD_HOST_PORT_envoy_metrics}"
+      }
+
+      check {
+        name     = "matrix-nginx-alive"
+        type     = "http"
+        path     = "/health"
+        interval = "30s"
+        timeout  = "5s"
+        expose   = true
       }
 
       connect {
@@ -657,6 +683,14 @@ job "matrix" {
         port         = "element"
         address_mode = "host"
         provider     = "consul"
+
+        check {
+          name     = "element-alive"
+          type     = "tcp"
+          port     = "element"
+          interval = "30s"
+          timeout  = "5s"
+        }
       }
 
       meta = {
@@ -741,6 +775,14 @@ job "matrix" {
         port         = "cinny"
         address_mode = "host"
         provider     = "consul"
+
+        check {
+          name     = "cinny-alive"
+          type     = "tcp"
+          port     = "cinny"
+          interval = "30s"
+          timeout  = "5s"
+        }
       }
 
       meta = {

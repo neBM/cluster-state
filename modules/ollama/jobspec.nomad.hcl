@@ -330,6 +330,14 @@ job "ollama" {
         envoy_metrics_port = "${NOMAD_HOST_PORT_envoy_metrics}"
       }
 
+      check {
+        name     = "valkey-alive"
+        type     = "tcp"
+        port     = "valkey"
+        interval = "30s"
+        timeout  = "5s"
+      }
+
       connect {
         sidecar_service {
           proxy {
@@ -390,6 +398,14 @@ job "ollama" {
 
       meta {
         envoy_metrics_port = "${NOMAD_HOST_PORT_envoy_metrics}"
+      }
+
+      check {
+        name     = "postgres-alive"
+        type     = "tcp"
+        port     = "postgres"
+        interval = "30s"
+        timeout  = "5s"
       }
 
       connect {

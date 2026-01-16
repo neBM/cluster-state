@@ -24,6 +24,26 @@ job "minio" {
         envoy_metrics_port = "${NOMAD_HOST_PORT_envoy_metrics}"
       }
 
+      # Health check via nginx proxy to MinIO health endpoint
+      check {
+        name     = "minio-alive"
+        type     = "http"
+        path     = "/minio/health/live"
+        interval = "30s"
+        timeout  = "5s"
+        expose   = true
+      }
+
+      check {
+        name     = "minio-ready"
+        type     = "http"
+        path     = "/minio/health/ready"
+        interval = "30s"
+        timeout  = "5s"
+        expose   = true
+        on_update = "ignore"
+      }
+
       connect {
         sidecar_service {
           proxy {
@@ -145,6 +165,11 @@ job "minio" {
                 proxy_connect_timeout 300;
                 proxy_send_timeout    300;
                 proxy_read_timeout    300;
+              }
+
+              # Health check endpoints
+              location /minio/health/ {
+                proxy_pass http://127.0.0.1:9000/minio/health/;
               }
             }
 

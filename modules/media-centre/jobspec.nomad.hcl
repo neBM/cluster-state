@@ -198,12 +198,6 @@ EOF
     task "plex" {
       driver = "docker"
 
-      affinity {
-        attribute = "${attr.driver.docker.runtime.nvidia}"
-        value     = "true"
-        weight    = 100
-      }
-
       config {
         image   = "plexinc/pms-docker:latest"
         runtime = "nvidia"
@@ -288,6 +282,17 @@ EOF
         envoy_metrics_port = "${NOMAD_HOST_PORT_envoy_metrics}"
       }
 
+      # Plex health endpoint returns 401 for unauthenticated requests
+      # but that confirms the server is running
+      check {
+        name     = "plex-alive"
+        type     = "http"
+        path     = "/identity"
+        interval = "30s"
+        timeout  = "5s"
+        expose   = true
+      }
+
       connect {
         sidecar_service {
           proxy {
@@ -344,6 +349,15 @@ EOF
 
       meta {
         envoy_metrics_port = "${NOMAD_HOST_PORT_envoy_metrics}"
+      }
+
+      check {
+        name     = "jellyfin-alive"
+        type     = "http"
+        path     = "/health"
+        interval = "30s"
+        timeout  = "5s"
+        expose   = true
       }
 
       connect {
@@ -487,6 +501,15 @@ EOF
 
       meta {
         envoy_metrics_port = "${NOMAD_HOST_PORT_envoy_metrics}"
+      }
+
+      check {
+        name     = "tautulli-alive"
+        type     = "http"
+        path     = "/status"
+        interval = "30s"
+        timeout  = "5s"
+        expose   = true
       }
 
       connect {

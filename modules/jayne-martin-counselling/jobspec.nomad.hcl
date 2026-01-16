@@ -18,7 +18,7 @@ job "jayne-martin-counselling" {
       driver = "docker"
 
       config {
-        image = "git.brmartin.co.uk/jayne-martin-counselling/website:latest"
+        image = "registry.brmartin.co.uk/jayne-martin-counselling/website:latest"
       }
 
       resources {
@@ -33,6 +33,15 @@ job "jayne-martin-counselling" {
 
       meta {
         envoy_metrics_port = "${NOMAD_HOST_PORT_envoy_metrics}"
+      }
+
+      check {
+        name     = "jmc-alive"
+        type     = "http"
+        path     = "/"
+        interval = "30s"
+        timeout  = "5s"
+        expose   = true
       }
 
       connect {

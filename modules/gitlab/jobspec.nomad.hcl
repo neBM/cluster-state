@@ -158,6 +158,27 @@ EOF
         envoy_metrics_port = "${NOMAD_HOST_PORT_envoy_metrics}"
       }
 
+      # GitLab readiness check - confirms app is ready to serve requests
+      check {
+        name     = "gitlab-ready"
+        type     = "http"
+        path     = "/-/readiness"
+        interval = "30s"
+        timeout  = "10s"
+        expose   = true
+      }
+
+      # GitLab liveness check - confirms app is alive
+      check {
+        name      = "gitlab-alive"
+        type      = "http"
+        path      = "/-/liveness"
+        interval  = "30s"
+        timeout   = "5s"
+        expose    = true
+        on_update = "ignore"
+      }
+
       connect {
         sidecar_service {
           proxy {
