@@ -54,5 +54,4 @@ module "my_job_with_vars" {
 | name | The name of the Nomad job |
 | namespace | The namespace of the Nomad job |
 | type | The type of the Nomad job |
-| allocation_ids | The allocation IDs for the job |
 | task_groups | The task groups of the job |

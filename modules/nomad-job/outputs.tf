@@ -18,11 +18,6 @@ output "type" {
   value       = nomad_job.this.type
 }
 
-output "allocation_ids" {
-  description = "The allocation IDs for the job"
-  value       = nomad_job.this.allocation_ids
-}
-
 output "task_groups" {
   description = "The task groups of the job"
   value       = nomad_job.this.task_groups
