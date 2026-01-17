@@ -28,7 +28,7 @@ job "gitlab-runner" {
 
       template {
         data        = <<-EOT
-concurrent = 4
+concurrent = 1
 check_interval = 0
 shutdown_timeout = 0
 
@@ -105,7 +105,7 @@ EOT
 
       template {
         data        = <<-EOT
-concurrent = 4
+concurrent = 1
 check_interval = 0
 shutdown_timeout = 0
 

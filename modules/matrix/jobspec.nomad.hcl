@@ -427,13 +427,16 @@ job "matrix" {
 
     network {
       mode = "bridge"
-      port "http" {}
+      port "http" {
+        to = 8080
+      }
       port "envoy_metrics" {
         to = 9102
       }
     }
 
     service {
+      name     = "matrix-nginx"
       provider = "consul"
       port     = "http"
 
@@ -441,14 +444,7 @@ job "matrix" {
         envoy_metrics_port = "${NOMAD_HOST_PORT_envoy_metrics}"
       }
 
-      check {
-        name     = "matrix-nginx-alive"
-        type     = "http"
-        path     = "/health"
-        interval = "30s"
-        timeout  = "5s"
-        expose   = true
-      }
+
 
       connect {
         sidecar_service {
@@ -523,7 +519,7 @@ job "matrix" {
             keepalive_timeout  65;
 
             server {
-              listen  {{ env "NOMAD_PORT_http" }};
+              listen  8080;
 
               location / {
                 return  404;
