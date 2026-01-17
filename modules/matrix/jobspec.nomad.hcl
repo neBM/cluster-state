@@ -438,7 +438,7 @@ job "matrix" {
     service {
       name     = "matrix-nginx"
       provider = "consul"
-      port     = "http"
+      port     = 8080
 
       meta {
         envoy_metrics_port = "${NOMAD_HOST_PORT_envoy_metrics}"
