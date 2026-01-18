@@ -77,19 +77,19 @@ job "keycloak" {
       }
 
       env = {
-        KC_DB                         = "postgres"
-        KC_DB_USERNAME                = "keycloak"
-        KC_DB_URL_HOST                = "martinibar.lan"
-        KC_DB_URL_PORT                = "5433"
-        KC_DB_URL_PROPERTIES          = "?sslmode=disable"
-        KC_DB_URL_DATABASE            = "keycloak"
-        KC_HTTP_ENABLED               = "true"
-        KC_PROXY_HEADERS              = "xforwarded"
-        KC_HTTP_HOST                  = "127.0.0.1"
-        KC_HOSTNAME                   = "sso.brmartin.co.uk"
-        KC_HEALTH_ENABLED             = "true"
+        KC_DB                             = "postgres"
+        KC_DB_USERNAME                    = "keycloak"
+        KC_DB_URL_HOST                    = "martinibar.lan"
+        KC_DB_URL_PORT                    = "5433"
+        KC_DB_URL_PROPERTIES              = "?sslmode=disable"
+        KC_DB_URL_DATABASE                = "keycloak"
+        KC_HTTP_ENABLED                   = "true"
+        KC_PROXY_HEADERS                  = "xforwarded"
+        KC_HTTP_HOST                      = "127.0.0.1"
+        KC_HOSTNAME                       = "sso.brmartin.co.uk"
+        KC_HEALTH_ENABLED                 = "true"
         KC_HTTP_MANAGEMENT_HEALTH_ENABLED = "false" # Expose health on main port 8080 instead of management port 9000
-        JAVA_OPTS_KC_HEAP             = "-Xms200m -Xmx200m"
+        JAVA_OPTS_KC_HEAP                 = "-Xms200m -Xmx200m"
       }
 
       resources {

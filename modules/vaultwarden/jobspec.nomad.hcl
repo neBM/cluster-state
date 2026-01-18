@@ -71,14 +71,14 @@ job "vaultwarden" {
       }
 
       env {
-        DOMAIN                  = "https://bw.brmartin.co.uk"
-        SIGNUPS_ALLOWED         = "false"
-        SMTP_HOST               = "mail.brmartin.co.uk"
-        SMTP_FROM               = "services@brmartin.co.uk"
-        SMTP_PORT               = "587"
-        SMTP_SECURITY           = "starttls"
-        SMTP_USERNAME           = "ben@brmartin.co.uk"
-        ROCKET_PORT             = "80"
+        DOMAIN          = "https://bw.brmartin.co.uk"
+        SIGNUPS_ALLOWED = "false"
+        SMTP_HOST       = "mail.brmartin.co.uk"
+        SMTP_FROM       = "services@brmartin.co.uk"
+        SMTP_PORT       = "587"
+        SMTP_SECURITY   = "starttls"
+        SMTP_USERNAME   = "ben@brmartin.co.uk"
+        ROCKET_PORT     = "80"
       }
 
       resources {

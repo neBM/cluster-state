@@ -63,7 +63,7 @@ job "nextcloud" {
 
       config {
         image = "redis:7-alpine"
-        args  = ["--save", ""]  # Disable persistence, ephemeral cache only
+        args  = ["--save", ""] # Disable persistence, ephemeral cache only
       }
 
       resources {
@@ -241,9 +241,9 @@ job "nextcloud" {
             transparent_proxy {}
             local_service_port = 9980
             config {
-              protocol                  = "http"
-              local_request_timeout_ms  = 30000
-              local_connect_timeout_ms  = 5000
+              protocol                 = "http"
+              local_request_timeout_ms = 30000
+              local_connect_timeout_ms = 5000
             }
             local_service_address = "127.0.0.1"
           }

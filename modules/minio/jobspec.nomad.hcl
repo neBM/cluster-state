@@ -35,12 +35,12 @@ job "minio" {
       }
 
       check {
-        name     = "minio-ready"
-        type     = "http"
-        path     = "/minio/health/ready"
-        interval = "30s"
-        timeout  = "5s"
-        expose   = true
+        name      = "minio-ready"
+        type      = "http"
+        path      = "/minio/health/ready"
+        interval  = "30s"
+        timeout   = "5s"
+        expose    = true
         on_update = "ignore"
       }
 

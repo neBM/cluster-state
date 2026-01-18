@@ -189,22 +189,12 @@ job "appflowy" {
       }
 
       check {
-        name     = "appflowy-cloud-alive"
+        name     = "appflowy-cloud-health"
         type     = "http"
-        path     = "/api/v1/health/alive"
+        path     = "/api/health"
         interval = "30s"
         timeout  = "5s"
         expose   = true
-      }
-
-      check {
-        name      = "appflowy-cloud-ready"
-        type      = "http"
-        path      = "/api/v1/health/ready"
-        interval  = "30s"
-        timeout   = "5s"
-        expose    = true
-        on_update = "ignore"
       }
 
       connect {
