@@ -37,10 +37,9 @@ nfs:
     - noatime
     - noac
     - lookupcache=none
-    - hard
-    - intr
+    - softerr
     - retrans=3
-    - timeo=600
+    - timeo=100
     - rsize=1048576
     - wsize=1048576
 EOF
