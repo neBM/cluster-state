@@ -143,3 +143,12 @@ module "vaultwarden" {
     module.plugin_csi_glusterfs_nodes
   ]
 }
+
+module "nginx_sites" {
+  source = "./modules/nginx-sites"
+
+  depends_on = [
+    module.plugin_csi_glusterfs_controller,
+    module.plugin_csi_glusterfs_nodes
+  ]
+}
