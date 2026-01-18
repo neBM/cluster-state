@@ -32,16 +32,13 @@ nfs:
   dirPermissionsMode: "0777"
   dirPermissionsUser: root
   dirPermissionsGroup: root
-  mountOptions:
-    - nfsvers=3
-    - noatime
-    - noac
-    - lookupcache=none
-    - softerr
-    - retrans=3
-    - timeo=100
-    - rsize=1048576
-    - wsize=1048576
+node:
+  mount:
+    # Comma-separated mount options for NFS
+    # softerr: return ETIMEDOUT on failure instead of hanging
+    # timeo=100: 10 second timeout (in deciseconds)
+    # retrans=3: 3 retries before failing
+    mount_flags: "nfsvers=3,noatime,noac,lookupcache=none,softerr,retrans=3,timeo=100,rsize=1048576,wsize=1048576"
 EOF
       }
 
