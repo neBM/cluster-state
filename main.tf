@@ -134,3 +134,12 @@ module "gitlab_runner" {
 module "restic_backup" {
   source = "./modules/restic-backup"
 }
+
+module "vaultwarden" {
+  source = "./modules/vaultwarden"
+
+  depends_on = [
+    module.plugin_csi_glusterfs_controller,
+    module.plugin_csi_glusterfs_nodes
+  ]
+}
