@@ -26,24 +26,14 @@ job "plugin-glusterfs-controller" {
         data        = <<-EOF
 driver: nfs-client
 nfs:
-  # Using kernel NFS on Hestia with noac to prevent stale file handles
+  # Controller creates/deletes volume directories on the bind-mounted /storage
+  # It does not perform NFS mounts - mount options are in the node plugin config
   shareHost: 127.0.0.1
   shareBasePath: /storage
   controllerBasePath: /storage
   dirPermissionsMode: "0777"
   dirPermissionsUser: root
   dirPermissionsGroup: root
-  mountOptions:
-    - nfsvers=3
-    - noatime
-    - noac
-    - lookupcache=none
-    - hard
-    - intr
-    - retrans=3
-    - timeo=600
-    - rsize=1048576
-    - wsize=1048576
 EOF
       }
 
