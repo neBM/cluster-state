@@ -152,3 +152,12 @@ module "nginx_sites" {
     module.plugin_csi_glusterfs_nodes
   ]
 }
+
+module "nextcloud" {
+  source = "./modules/nextcloud"
+
+  depends_on = [
+    module.plugin_csi_glusterfs_controller,
+    module.plugin_csi_glusterfs_nodes
+  ]
+}

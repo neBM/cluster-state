@@ -35,10 +35,14 @@ nfs:
 node:
   mount:
     # Comma-separated mount options for NFS
-    # softerr: return ETIMEDOUT on failure instead of hanging
-    # timeo=100: 10 second timeout (in deciseconds)
-    # retrans=3: 3 retries before failing
-    mount_flags: "nfsvers=3,noatime,noac,lookupcache=none,softerr,retrans=3,timeo=100,rsize=1048576,wsize=1048576"
+    # softerr: return ETIMEDOUT on timeout (vs EIO for soft, or hang for hard)
+    # lookupcache=none: don't cache directory lookups (helps with stale handles)
+    # actimeo=0: disable attribute caching
+    # cto: close-to-open consistency (revalidate on open)
+    # timeo=150: 15 second timeout (in deciseconds)
+    # retrans=5: 5 retries before reporting error  
+    # local_lock=all: handle locking locally (required for flock)
+    mount_flags: "nfsvers=3,noatime,softerr,lookupcache=none,actimeo=0,cto,timeo=150,retrans=5,rsize=1048576,wsize=1048576,local_lock=all"
 EOF
       }
 
