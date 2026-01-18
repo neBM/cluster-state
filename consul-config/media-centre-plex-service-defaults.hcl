@@ -11,7 +11,7 @@ UpstreamConfig {
     {
       Name             = "minio-minio"
       Protocol         = "http"
-      ConnectTimeoutMs = 30000  # 30s connection timeout
+      ConnectTimeoutMs = 30000 # 30s connection timeout
     }
   ]
 }
