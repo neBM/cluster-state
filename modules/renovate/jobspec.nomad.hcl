@@ -7,6 +7,22 @@ job "renovate" {
   }
 
   group "renovate" {
+    network {
+      mode = "bridge"
+    }
+
+    service {
+      name = "renovate"
+
+      connect {
+        sidecar_service {
+          proxy {
+            transparent_proxy {}
+          }
+        }
+      }
+    }
+
     task "renovate" {
       driver = "docker"
 
@@ -20,7 +36,8 @@ job "renovate" {
       }
 
       env {
-        RENOVATE_PLATFORM             = "gitea"
+        RENOVATE_PLATFORM             = "gitlab"
+        RENOVATE_ENDPOINT             = "http://gitlab.virtual.consul/api/v4"
         RENOVATE_AUTODISCOVER         = "true"
         RENOVATE_GIT_AUTHOR           = "Renovate Bot <renovate@brmartin.co.uk>"
         RENOVATE_BASE_DIR             = "${NOMAD_TASK_DIR}"
@@ -29,22 +46,14 @@ job "renovate" {
         RENOVATE_DEPENDENCY_DASHBOARD = "true"
       }
 
-      template {
-        data = <<-EOH
-          {{ range service "forgejo-forgejo-forgejo" }}
-          RENOVATE_ENDPOINT = "http://{{ .Address }}:{{ .Port }}"{{ end }}
-          EOH
-
-        destination = "local/file.env"
-        env         = true
-      }
+      vault {}
 
       template {
         data = <<-EOH
-          {{with nomadVar "nomad/jobs/renovate/renovate/renovate" }}
-          RENOVATE_TOKEN = "{{.RENOVATE_TOKEN}}"
-          GITHUB_COM_TOKEN = "{{.GITHUB_COM_TOKEN}}"
-          {{end}}
+          {{ with secret "nomad/data/default/renovate" }}
+          RENOVATE_TOKEN = "{{ .Data.data.RENOVATE_TOKEN }}"
+          GITHUB_COM_TOKEN = "{{ .Data.data.GITHUB_COM_TOKEN }}"
+          {{ end }}
           EOH
 
         destination = "secrets/file.env"
