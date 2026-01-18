@@ -75,8 +75,6 @@ job "elk" {
               - nyx.lan:9300
           path:
             data: /var/lib/elasticsearch
-            repo:
-              - /mnt/backups
           xpack:
             ml:
               enabled: false
@@ -138,18 +136,6 @@ job "elk" {
         port     = "transport"
       }
 
-      volume_mount {
-        volume      = "backups"
-        destination = "/mnt/backups"
-      }
-    }
-
-    volume "backups" {
-      type            = "csi"
-      read_only       = false
-      source          = "martinibar_prod_elasticsearch_backups"
-      attachment_mode = "file-system"
-      access_mode     = "multi-node-multi-writer"
     }
   }
 
