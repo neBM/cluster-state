@@ -17,7 +17,7 @@ job "restic-backup" {
       driver = "docker"
 
       config {
-        image      = "restic/restic:0.17.3"
+        image      = "restic/restic:0.18.1"
         args       = ["/local/backup.sh"]
         entrypoint = ["/bin/sh"]
 

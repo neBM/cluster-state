@@ -71,7 +71,7 @@ job "keycloak" {
       driver = "docker"
 
       config {
-        image = "quay.io/keycloak/keycloak:26.5.0"
+        image = "quay.io/keycloak/keycloak:26.5.1"
 
         args = ["start"]
       }

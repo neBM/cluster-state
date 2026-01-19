@@ -29,7 +29,7 @@ job "gitlab" {
       driver = "docker"
 
       config {
-        image      = "gitlab/gitlab-ce:18.7.1-ce.0"
+        image      = "gitlab/gitlab-ce:18.8.0-ce.0"
         ports      = ["http", "https", "ssh"]
         shm_size   = 256 * 1024 * 1024 # 256MB for shared memory
         privileged = true

@@ -189,7 +189,7 @@ job "nginx-sites" {
       user = "101:101"
 
       config {
-        image = "php:8.1-fpm-alpine"
+        image = "php:8.5-fpm-alpine"
       }
 
       volume_mount {

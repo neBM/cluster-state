@@ -16,7 +16,7 @@ job "forgejo" {
       driver = "docker"
 
       config {
-        image = "codeberg.org/forgejo/forgejo:13.0.4-rootless"
+        image = "codeberg.org/forgejo/forgejo:13.0.5-rootless"
 
         ports = ["forgejo"]
 
@@ -74,7 +74,7 @@ job "forgejo" {
       driver = "docker"
 
       config {
-        image = "data.forgejo.org/forgejo/runner:12.5.0"
+        image = "data.forgejo.org/forgejo/runner:12.5.3"
 
         command = "sh"
         args    = ["-c", "sleep 5; forgejo-runner daemon --config=${NOMAD_TASK_DIR}/config.yml"]
