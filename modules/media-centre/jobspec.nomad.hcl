@@ -389,7 +389,7 @@ EOF
       driver = "docker"
 
       config {
-        image = "ghcr.io/jellyfin/jellyfin:10.11.5"
+        image = "ghcr.io/jellyfin/jellyfin:10.11.6"
 
         group_add = ["997"]
 
