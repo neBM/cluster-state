@@ -81,12 +81,11 @@ puma['worker_processes'] = 0
 sidekiq['max_concurrency'] = 5
 prometheus_monitoring['enable'] = false
 
-# Reduce log verbosity - Sidekiq generates ~48k logs/hour at INFO level
-logging['svlogd_prefix'] = false
-sidekiq['log_level'] = 'warn'
-gitlab_rails['env'] = { 'SIDEKIQ_LOG_ARGUMENTS' => '0' }
-gitaly['configuration']['logging'] = { 'level' => 'warn' }
-gitlab_workhorse['log_level'] = 'warn'
+# Reduce log verbosity - only log warnings and errors
+gitlab_rails['env'] = {
+  'GITLAB_LOG_LEVEL' => 'warn',
+  'SIDEKIQ_LOG_ARGUMENTS' => '0'
+}
 
 # Disable bundled PostgreSQL - use external server
 postgresql['enable'] = false
