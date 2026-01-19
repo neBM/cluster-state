@@ -39,8 +39,8 @@ node:
     # - noatime: don't update access times (performance)
     # - softerr: return ETIMEDOUT on timeout (vs EIO for soft, or hang for hard)
     # - lookupcache=positive: cache positive lookups only (safer than none, faster than all)
-    # - actimeo=0: disable attribute caching for consistency
-    mount_flags: nfsvers=4.2,noatime,softerr,lookupcache=positive,actimeo=0
+    # Note: using default actimeo (3-60s) now that NFS v4.2 is stable
+    mount_flags: nfsvers=4.2,noatime,softerr,lookupcache=positive
 EOF
       }
 
