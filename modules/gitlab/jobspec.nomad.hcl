@@ -87,6 +87,10 @@ gitlab_rails['env'] = {
   'SIDEKIQ_LOG_ARGUMENTS' => '0'
 }
 
+# Disable duplicate access logs (workhorse logs are more detailed)
+nginx['access_log_format'] = 'off'
+registry_nginx['access_log_format'] = 'off'
+
 # Disable bundled PostgreSQL - use external server
 postgresql['enable'] = false
 gitlab_rails['db_adapter'] = 'postgresql'
