@@ -11,7 +11,7 @@ job "plugin-glusterfs-controller" {
           "--csi-version=1.5.0",
           "--csi-name=org.democratic-csi.nfs-glusterfs",
           "--driver-config-file=${NOMAD_TASK_DIR}/driver-config.yaml",
-          "--log-level=info",
+          "--log-level=warn",
           "--csi-mode=controller",
           "--server-socket=/csi/csi.sock",
         ]
