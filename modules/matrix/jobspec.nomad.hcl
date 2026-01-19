@@ -98,7 +98,7 @@ job "matrix" {
       }
 
       config {
-        image = "ghcr.io/element-hq/synapse:v1.144.0"
+        image = "ghcr.io/element-hq/synapse:v1.145.0"
       }
 
       env = {
@@ -317,7 +317,7 @@ job "matrix" {
       }
 
       config {
-        image = "dock.mau.dev/mautrix/whatsapp:v0.2512.0"
+        image = "dock.mau.dev/mautrix/whatsapp:v0.2601.0"
       }
 
       resources {
@@ -404,7 +404,7 @@ job "matrix" {
       }
 
       config {
-        image = "ghcr.io/element-hq/matrix-authentication-service:1.8.0"
+        image = "ghcr.io/element-hq/matrix-authentication-service:1.9.0"
       }
 
       env {
@@ -591,7 +591,7 @@ job "matrix" {
       driver = "docker"
 
       config {
-        image = "docker.io/vectorim/element-web:v1.12.7"
+        image = "docker.io/vectorim/element-web:v1.12.8"
 
         ports = ["element"]
 
