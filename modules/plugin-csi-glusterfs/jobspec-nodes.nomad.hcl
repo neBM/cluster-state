@@ -34,13 +34,15 @@ nfs:
   dirPermissionsGroup: root
 node:
   mount:
-    # NFS v4.2 mount options
-    # - nfsvers=4.2: Use NFS v4.2 for better file handle stability with FUSE re-export
-    # - noatime: don't update access times (performance)
-    # - softerr: return ETIMEDOUT on timeout (vs EIO for soft, or hang for hard)
-    # - lookupcache=positive: cache positive lookups only (safer than none, faster than all)
+    # NFS v4.2 mount options for GlusterFS re-export via localhost
+    # - nfsvers=4.2: Better file handle stability with FUSE re-export
+    # - noatime: Don't update access times (performance)
+    # - async: Async writes - safe since GlusterFS provides durability
+    # - softerr: Return ETIMEDOUT on timeout (vs EIO for soft, or hang for hard)
+    # - nocto: Skip close-to-open consistency (safe for single-writer volumes)
+    # - lookupcache=all: Cache both positive and negative lookups
     # Note: using default actimeo (3-60s) now that NFS v4.2 is stable
-    mount_flags: nfsvers=4.2,noatime,softerr,lookupcache=positive
+    mount_flags: nfsvers=4.2,noatime,async,softerr,nocto,lookupcache=all
 EOF
       }
 
