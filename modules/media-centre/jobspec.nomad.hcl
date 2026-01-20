@@ -76,20 +76,27 @@ job "media-centre" {
 
           # Restore from S3 (MinIO)
           echo "Restoring databases from S3..."
+          RESTORE_CACHE="/config/restore-cache"
+          
           if litestream restore -config /local/litestream.yml -o "$LIBRARY_DB" "$LIBRARY_DB"; then
-            echo "Library database restored successfully"
+            echo "Library database restored successfully from S3"
+          elif [ -f "$RESTORE_CACHE/com.plexapp.plugins.library.db" ]; then
+            echo "S3 restore failed, using cached backup from $RESTORE_CACHE"
+            cp "$RESTORE_CACHE/com.plexapp.plugins.library.db" "$LIBRARY_DB"
           else
-            echo "ERROR: Failed to restore library database from S3"
-            exit 1
+            echo "WARNING: No backup available - Plex will start fresh"
           fi
 
           if litestream restore -config /local/litestream.yml -o "$BLOBS_DB" "$BLOBS_DB"; then
-            echo "Blobs database restored successfully"
+            echo "Blobs database restored successfully from S3"
+          elif [ -f "$RESTORE_CACHE/com.plexapp.plugins.library.blobs.db" ]; then
+            echo "S3 restore failed, using cached blobs backup"
+            cp "$RESTORE_CACHE/com.plexapp.plugins.library.blobs.db" "$BLOBS_DB"
           else
-            echo "WARNING: Failed to restore blobs database (may not exist yet)"
+            echo "WARNING: No blobs backup available (may not exist yet)"
           fi
 
-          chown -R 990:997 "$DB_DIR"
+          chown -R 990:997 "$DB_DIR" 2>/dev/null || true
           echo "Restore complete"
           EOF
         ]
@@ -125,6 +132,12 @@ EOF
       }
 
       vault {}
+
+      volume_mount {
+        volume      = "config"
+        destination = "/config"
+        read_only   = true
+      }
 
       resources {
         cpu        = 100
@@ -308,13 +321,13 @@ EOF
             transparent_proxy {}
           }
         }
-        # Memory for HTTP L7 proxy - peak RSS observed ~70MB
-        # Virtual memory can spike to 3GB+ but that's address space, not RAM
+        # Memory for HTTP L7 proxy - Plex streams large media through Envoy
+        # which buffers requests/responses in memory
         sidecar_task {
           resources {
-            cpu        = 250
-            memory     = 256
-            memory_max = 512
+            cpu        = 500
+            memory     = 1024
+            memory_max = 2048
           }
         }
       }
