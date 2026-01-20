@@ -27,9 +27,9 @@ main.tf            # Root terraform config
 
 | Node | IP | Architecture | Role |
 |------|-----|--------------|------|
-| Hestia | 192.168.1.5 | amd64 | Primary node, NVIDIA GPU, GlusterFS primary |
-| Heracles | 192.168.1.6 | arm64 | Worker node |
-| Nyx | 192.168.1.7 | arm64 | Worker node |
+| Hestia | 192.168.1.5 | amd64 | Primary node, NVIDIA GPU, GlusterFS client |
+| Heracles | 192.168.1.6 | arm64 | Worker node, GlusterFS brick |
+| Nyx | 192.168.1.7 | arm64 | Worker node, GlusterFS brick |
 
 ### Storage Paths (on Hestia)
 
@@ -164,8 +164,48 @@ Note: The `message` field is `match_only_text` type, so it cannot be used in agg
 - "database disk image is malformed" during checkpoint = WAL/database mismatch
 - Fix: Stop allocation, restore clean database, remove `-wal` and `-shm` files, restart
 
+### GlusterFS Architecture
+
+```
+Heracles (/data/glusterfs/brick1) ─┬─ GlusterFS "nomad-vol" (Distributed)
+Nyx (/data/glusterfs/brick1) ──────┘
+                                   │
+                                   ▼
+All nodes ─── FUSE mount (localhost:/nomad-vol → /storage)
+                                   │
+                                   ▼
+                          NFS re-export (127.0.0.1:/storage/v/*)
+                                   │
+                                   ▼
+                          democratic-csi mounts into containers
+```
+
+**Key points:**
+- Bricks are on Heracles and Nyx (btrfs filesystem)
+- Volume is **distributed** (data split across bricks), NOT replicated
+- Each node has its own FUSE mount and local NFS re-export
+- CSI plugin uses NFS to mount subdirectories into containers
+
+### GlusterFS + Btrfs Configuration
+
+The GlusterFS bricks run on btrfs subvolumes. To prevent NFS "fileid changed" errors caused by btrfs copy-on-write:
+
+**Required:** `nodatacow` attribute on brick directories:
+```bash
+# Check current setting
+/usr/bin/ssh 192.168.1.6 "lsattr -d /data/glusterfs"
+/usr/bin/ssh 192.168.1.7 "lsattr -d /data/glusterfs"
+
+# Should show 'C' flag: ---------------C------ /data/glusterfs
+```
+
+**Why:** Btrfs COW causes inode changes that propagate through GlusterFS to NFS, causing stale file handles. `nodatacow` disables COW for data (metadata COW still occurs).
+
+**Trade-off:** nodatacow disables btrfs checksums for file data. GlusterFS has its own integrity mechanisms.
+
+**Do NOT use btrfs snapshots** on GlusterFS brick directories - with nodatacow, snapshots don't preserve point-in-time data (files are overwritten in-place).
+
 ### GlusterFS Issues
-- Stale mounts: Restart CSI node plugin
 - Mount options configured in `modules/plugin-csi-glusterfs/`
 
 ### NFS Stale File Handle Errors
@@ -180,6 +220,13 @@ nomad job eval -force-reschedule plugin-glusterfs-nodes
 
 # 3. Reschedule the affected job
 nomad job eval -force-reschedule <job-name>
+```
+
+If the above doesn't work (mount still shows `d?????????`), stop the affected allocation to force fresh mounts:
+```bash
+# Find and stop the allocation with stale mounts
+nomad alloc stop <alloc-id>
+# Nomad will automatically reschedule with fresh CSI mounts
 ```
 
 ### GlusterFS Socket Limitations
