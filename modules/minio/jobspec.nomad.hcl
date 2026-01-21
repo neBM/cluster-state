@@ -58,6 +58,12 @@ job "minio" {
             transparent_proxy {}
           }
         }
+        sidecar_task {
+          resources {
+            cpu    = 100
+            memory = 256
+          }
+        }
       }
 
       tags = [
