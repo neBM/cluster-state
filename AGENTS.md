@@ -264,7 +264,7 @@ sudo grep dht-rename /var/log/glusterfs/storage.log | tail -5
 | `nodatacow` on btrfs | Only prevents btrfs inode changes; DHT creates new GFIDs at GlusterFS layer |
 | `fsid=1` on NFS export | Stabilizes filesystem ID, but fileid still comes from underlying inode |
 | NFS v4.2 | Better filehandle stability, but can't fix unstable upstream inodes |
-| NFS-Ganesha with FSAL_GLUSTER | Requires running Ganesha on each node; democratic-csi expects kernel NFS |
+| NFS-Ganesha with FSAL_GLUSTER | Segfaults under high-concurrency readdir ([#1328](https://github.com/nfs-ganesha/nfs-ganesha/issues/1328)); also requires Ganesha on each node |
 
 **Why alternatives aren't viable:**
 - **Replicated volume**: Requires 2-3x storage, and files still need to exist somewhere first
