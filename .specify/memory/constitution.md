@@ -28,6 +28,12 @@ All infrastructure changes are made through Terraform and Nomad jobspecs. No man
 - No hardcoded credentials in jobspecs
 - Consul Connect service mesh for inter-service communication
 - Principle of least privilege for service accounts
+- **Per-service credentials**: Each service gets dedicated MinIO/database credentials, never shared
+
+### VI. Service Mesh Patterns
+- **Consul intentions required**: Explicitly allow service-to-service communication (e.g., traefik→overseerr, overseerr→minio)
+- **Virtual addresses**: Use `http://<service>-<task>.virtual.consul` for mesh routing
+- **Transparent proxy**: Default mode for Consul Connect sidecars
 
 ## Infrastructure Constraints
 
@@ -70,4 +76,4 @@ This constitution establishes immutable principles for cluster infrastructure. A
 2. Update to this constitution
 3. Update to AGENTS.md if operational procedures change
 
-**Version**: 1.0.0 | **Ratified**: 2026-01-20
+**Version**: 1.1.0 | **Ratified**: 2026-01-20 | **Last Amended**: 2026-01-21
