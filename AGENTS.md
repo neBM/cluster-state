@@ -156,6 +156,7 @@ Note: The `message` field is `match_only_text` type, so it cannot be used in agg
 - **CSI Volume Deletion**: `nomad volume delete` deletes the underlying data. Always backup first.
 - **SQLite on Network Storage**: Use ephemeral disk with litestream for SQLite databases. Network filesystems cause locking issues.
 - **SQLite WAL Mode**: Litestream requires WAL mode. Empty WAL files need a write to initialize the header.
+- **Consul Connect Sidecar Memory**: Default 128MB is insufficient for envoy proxy (~90-130MB baseline). Set `memory=256, memory_max=512` to prevent OOM kills that cascade across services.
 
 ## Debugging Tips
 
@@ -163,6 +164,39 @@ Note: The `message` field is `match_only_text` type, so it cannot be used in agg
 - Check logs: `nomad alloc logs <alloc> litestream`
 - "database disk image is malformed" during checkpoint = WAL/database mismatch
 - Fix: Stop allocation, restore clean database, remove `-wal` and `-shm` files, restart
+
+### Litestream Backup Corruption Recovery
+If litestream backup in MinIO is corrupted (decode errors on restore), recover from restic:
+
+```bash
+# 1. Stop the affected job
+nomad job stop <job-name>
+
+# 2. Wipe corrupted litestream backup from MinIO
+/usr/bin/ssh 192.168.1.5 "docker run --rm --network host \
+  -e MC_HOST_minio=http://<user>:<pass>@127.0.0.1:9000 \
+  minio/mc rm --recursive --force minio/<bucket>/"
+
+# 3. Find latest good restic snapshot
+source .env && RESTIC_PW=$(vault kv get -format=json nomad/default/restic-backup | jq -r '.data.data.RESTIC_PASSWORD')
+/usr/bin/ssh 192.168.1.5 "docker run --rm -v /mnt/csi/backups/restic:/repo \
+  -e RESTIC_REPOSITORY=/repo -e RESTIC_PASSWORD='$RESTIC_PW' \
+  restic/restic:0.18.1 snapshots --latest 5"
+
+# 4. Restore litestream LTX files from restic
+/usr/bin/ssh 192.168.1.5 "docker run --rm -v /mnt/csi/backups/restic:/repo \
+  -v /tmp/restore:/restore \
+  -e RESTIC_REPOSITORY=/repo -e RESTIC_PASSWORD='$RESTIC_PW' \
+  restic/restic:0.18.1 restore <snapshot-id> \
+  --include '/data/<minio-bucket>/' --target /restore"
+
+# 5. Move restored data to MinIO volume
+/usr/bin/ssh 192.168.1.5 "sudo mv /tmp/restore/data/<minio-bucket>/* \
+  /storage/v/glusterfs_minio_data/<minio-bucket>/"
+
+# 6. Restart the job - litestream will restore from the recovered backup
+nomad job run <job-name>
+```
 
 ### GlusterFS Architecture
 
@@ -228,6 +262,8 @@ If the above doesn't work (mount still shows `d?????????`), stop the affected al
 nomad alloc stop <alloc-id>
 # Nomad will automatically reschedule with fresh CSI mounts
 ```
+
+**Severe cases:** If kernel NFS client cache is deeply corrupted (e.g., after cluster instability or MinIO OOM cascade), the above steps may not work. In this case, a **full node reboot** is required to clear the kernel NFS client cache completely.
 
 ### GlusterFS Socket Limitations
 GlusterFS doesn't support Unix sockets. Services using sockets (Redis, Gitaly, Puma) must be configured to use:
