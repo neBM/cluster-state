@@ -222,9 +222,7 @@ All nodes ─── FUSE mount (localhost:/nomad-vol → /storage)
 
 ### GlusterFS + Btrfs Configuration
 
-The GlusterFS bricks run on btrfs subvolumes. To prevent NFS "fileid changed" errors caused by btrfs copy-on-write:
-
-**Required:** `nodatacow` attribute on brick directories:
+The GlusterFS bricks run on btrfs subvolumes with `nodatacow` attribute set:
 ```bash
 # Check current setting
 /usr/bin/ssh 192.168.1.6 "lsattr -d /data/glusterfs"
@@ -233,14 +231,51 @@ The GlusterFS bricks run on btrfs subvolumes. To prevent NFS "fileid changed" er
 # Should show 'C' flag: ---------------C------ /data/glusterfs
 ```
 
-**Why:** Btrfs COW causes inode changes that propagate through GlusterFS to NFS, causing stale file handles. `nodatacow` disables COW for data (metadata COW still occurs).
-
-**Trade-off:** nodatacow disables btrfs checksums for file data. GlusterFS has its own integrity mechanisms.
+**Note:** `nodatacow` was originally added to prevent btrfs COW inode changes, but this does NOT prevent the primary source of fileid changes (see below).
 
 **Do NOT use btrfs snapshots** on GlusterFS brick directories - with nodatacow, snapshots don't preserve point-in-time data (files are overwritten in-place).
 
+### GlusterFS DHT and NFS fileid Instability (KNOWN ISSUE)
+
+**Root Cause:** GlusterFS distributed volumes create **new GFIDs** when files are renamed across bricks. This is a fundamental behavior of the DHT (Distributed Hash Table) layer, not a bug.
+
+**Mechanism:**
+1. Application (e.g., MinIO during litestream backup) creates file in temp directory
+2. Application renames file to final location
+3. If source and destination hash to **different bricks**, GlusterFS DHT:
+   - Creates a NEW file on destination brick with a NEW GFID
+   - Copies data from source to destination
+   - Deletes source file
+4. GlusterFS FUSE uses low 64 bits of GFID as inode number
+5. NFS re-export reports new inode as fileid
+6. NFS client has old fileid cached → `NFS: server 127.0.0.1 error: fileid changed`
+
+**Evidence in logs:**
+```bash
+# GlusterFS shows different GFIDs for source and destination:
+sudo grep dht-rename /var/log/glusterfs/storage.log | tail -5
+# Output shows: renaming .../file (old-gfid) => .../file (different-gfid)
+```
+
+**Why mitigations don't help:**
+
+| Mitigation | Why It Doesn't Help |
+|------------|---------------------|
+| `nodatacow` on btrfs | Only prevents btrfs inode changes; DHT creates new GFIDs at GlusterFS layer |
+| `fsid=1` on NFS export | Stabilizes filesystem ID, but fileid still comes from underlying inode |
+| NFS v4.2 | Better filehandle stability, but can't fix unstable upstream inodes |
+| NFS-Ganesha with FSAL_GLUSTER | Requires running Ganesha on each node; democratic-csi expects kernel NFS |
+
+**Why alternatives aren't viable:**
+- **Replicated volume**: Requires 2-3x storage, and files still need to exist somewhere first
+- **Different storage backend**: GlusterFS needed for cross-node allocation scheduling
+- **Direct FUSE mounts**: democratic-csi uses NFS; changing requires significant rework
+
+**Current status:** This is a known limitation. Heavy rename workloads (MinIO multipart uploads, litestream backups) trigger fileid changes. When combined with other failures (e.g., OOM cascade), NFS client cache corruption can require node reboots to clear.
+
 ### GlusterFS Issues
 - Mount options configured in `modules/plugin-csi-glusterfs/`
+- DHT fileid instability is inherent to distributed volumes with NFS re-export
 
 ### NFS Stale File Handle Errors
 When services report "stale file handle" errors after NFS changes or node restarts:
@@ -263,7 +298,12 @@ nomad alloc stop <alloc-id>
 # Nomad will automatically reschedule with fresh CSI mounts
 ```
 
-**Severe cases:** If kernel NFS client cache is deeply corrupted (e.g., after cluster instability or MinIO OOM cascade), the above steps may not work. In this case, a **full node reboot** is required to clear the kernel NFS client cache completely.
+**Severe cases:** If kernel NFS client cache is deeply corrupted (e.g., after cluster instability, OOM cascade, or sustained fileid changes from heavy MinIO/litestream activity), the above steps may not work. A **full node reboot** is required to clear the kernel NFS client cache completely.
+
+**Reducing fileid change frequency:**
+- Minimize cross-brick rename operations where possible
+- Services with heavy temp-file-then-rename patterns (MinIO) will trigger more fileid changes
+- Consider placing high-churn data (like MinIO) on local storage if cross-node access isn't needed
 
 ### GlusterFS Socket Limitations
 GlusterFS doesn't support Unix sockets. Services using sockets (Redis, Gitaly, Puma) must be configured to use:
