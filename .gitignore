@@ -18,3 +18,11 @@ terraform.rc
 .env
 !.env.example
 tfplan
+
+# Kubernetes
+kubeconfig*
+*.kubeconfig
+k3s-config
+*.key
+*.crt
+*.secret.yaml

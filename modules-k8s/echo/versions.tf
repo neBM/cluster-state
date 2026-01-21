@@ -1,9 +1,5 @@
 terraform {
   required_providers {
-    nomad = {
-      source  = "hashicorp/nomad"
-      version = "~> 2.5"
-    }
     kubernetes = {
       source  = "hashicorp/kubernetes"
       version = "~> 2.35"
@@ -13,9 +9,4 @@ terraform {
       version = "~> 2.1"
     }
   }
-}
-
-provider "nomad" {
-  address = var.nomad_address
-  # Token is configured via NOMAD_TOKEN environment variable
 }
