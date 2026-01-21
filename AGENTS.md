@@ -10,8 +10,17 @@ Infrastructure-as-Code repository for a Nomad cluster. Services are deployed via
 - **Consul** - Service mesh (transparent proxy mode)
 - **Terraform** - Infrastructure provisioning
 - **GlusterFS** - Distributed storage (CSI volumes)
+- **NFS-Ganesha** - NFS server with FSAL_GLUSTER (stable fileids)
 - **Martinibar (NFS)** - Legacy storage (migrating away)
 - **MinIO** - Object storage (backups, litestream)
+
+## Documentation
+
+See the `docs/` directory for detailed documentation:
+- [docs/README.md](docs/README.md) - Documentation index
+- [docs/nfs-ganesha-migration.md](docs/nfs-ganesha-migration.md) - NFS-Ganesha setup and V7.2 bug workaround
+- [docs/glusterfs-architecture.md](docs/glusterfs-architecture.md) - GlusterFS architecture and DHT behavior
+- [docs/storage-troubleshooting.md](docs/storage-troubleshooting.md) - Storage troubleshooting guide
 
 ## Project Structure
 
@@ -205,20 +214,24 @@ Heracles (/data/glusterfs/brick1) ─┬─ GlusterFS "nomad-vol" (Distributed)
 Nyx (/data/glusterfs/brick1) ──────┘
                                    │
                                    ▼
-All nodes ─── FUSE mount (localhost:/nomad-vol → /storage)
+                    NFS-Ganesha V9.4 (FSAL_GLUSTER via libgfapi)
+                    ┌─────────────┬─────────────┬─────────────┐
+                    │   Hestia    │  Heracles   │    Nyx      │
+                    │   (V9.4)    │   (V9.4)    │   (V9.4)    │
+                    └─────────────┴─────────────┴─────────────┘
                                    │
-                                   ▼
-                          NFS re-export (127.0.0.1:/storage/v/*)
-                                   │
-                                   ▼
+                                   ▼ (127.0.0.1:/storage)
                           democratic-csi mounts into containers
 ```
 
 **Key points:**
 - Bricks are on Heracles and Nyx (btrfs filesystem)
 - Volume is **distributed** (data split across bricks), NOT replicated
-- Each node has its own FUSE mount and local NFS re-export
+- NFS-Ganesha with FSAL_GLUSTER provides stable fileids (no "fileid changed" errors)
+- Hestia runs V9.4 (built from source), Heracles/Nyx run V6.5 (Ubuntu package)
 - CSI plugin uses NFS to mount subdirectories into containers
+
+See [docs/glusterfs-architecture.md](docs/glusterfs-architecture.md) for details.
 
 ### GlusterFS + Btrfs Configuration
 
@@ -259,19 +272,18 @@ sudo grep dht-rename /var/log/glusterfs/storage.log | tail -5
 
 **Why mitigations don't help:**
 
-| Mitigation | Why It Doesn't Help |
+**Solution:** NFS-Ganesha with FSAL_GLUSTER talks directly to GlusterFS via libgfapi and maintains stable fileids. See [docs/nfs-ganesha-migration.md](docs/nfs-ganesha-migration.md).
+
+**Previous mitigations that didn't work:**
+
+| Mitigation | Why It Didn't Help |
 |------------|---------------------|
 | `nodatacow` on btrfs | Only prevents btrfs inode changes; DHT creates new GFIDs at GlusterFS layer |
 | `fsid=1` on NFS export | Stabilizes filesystem ID, but fileid still comes from underlying inode |
 | NFS v4.2 | Better filehandle stability, but can't fix unstable upstream inodes |
-| NFS-Ganesha with FSAL_GLUSTER | Segfaults under high-concurrency readdir ([#1328](https://github.com/nfs-ganesha/nfs-ganesha/issues/1328)); also requires Ganesha on each node |
+| Kernel NFS re-export | Uses GFID as fileid, which changes on cross-brick renames |
 
-**Why alternatives aren't viable:**
-- **Replicated volume**: Requires 2-3x storage, and files still need to exist somewhere first
-- **Different storage backend**: GlusterFS needed for cross-node allocation scheduling
-- **Direct FUSE mounts**: democratic-csi uses NFS; changing requires significant rework
-
-**Current status:** This is a known limitation. Heavy rename workloads (MinIO multipart uploads, litestream backups) trigger fileid changes. When combined with other failures (e.g., OOM cascade), NFS client cache corruption can require node reboots to clear.
+**Current status (January 2026):** Migrated to NFS-Ganesha with FSAL_GLUSTER. No fileid errors since migration.
 
 ### GlusterFS Issues
 - Mount options configured in `modules/plugin-csi-glusterfs/`
