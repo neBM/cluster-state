@@ -239,3 +239,10 @@ GlusterFS doesn't support Unix sockets. Services using sockets (Redis, Gitaly, P
 - Nomad UI: https://nomad.brmartin.co.uk:443
 - Kibana: https://kibana.brmartin.co.uk
 - Elasticsearch: https://es.brmartin.co.uk
+
+## Active Technologies
+- HCL (Terraform 1.x, Nomad jobspec) + Nomad, Consul Connect, Traefik, Litestream, MinIO (001-migrate-overseerr-nomad)
+- Ephemeral disk (SQLite via litestream), GlusterFS CSI (config files) (001-migrate-overseerr-nomad)
+
+## Recent Changes
+- 001-migrate-overseerr-nomad: Added HCL (Terraform 1.x, Nomad jobspec) + Nomad, Consul Connect, Traefik, Litestream, MinIO

@@ -161,3 +161,12 @@ module "nextcloud" {
     module.plugin_csi_glusterfs_nodes
   ]
 }
+
+module "overseerr" {
+  source = "./modules/overseerr"
+
+  depends_on = [
+    module.plugin_csi_glusterfs_controller,
+    module.plugin_csi_glusterfs_nodes
+  ]
+}
