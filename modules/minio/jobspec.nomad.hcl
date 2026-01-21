@@ -203,9 +203,9 @@ job "minio" {
       }
 
       resources {
-        cpu        = 50
-        memory     = 64
-        memory_max = 128
+        cpu        = 100
+        memory     = 128
+        memory_max = 256
       }
 
       meta = {
