@@ -108,7 +108,7 @@ job "nextcloud" {
 
       template {
         data        = <<-EOF
-          POSTGRES_HOST=martinibar.lan:5433
+          POSTGRES_HOST=192.168.1.10:5433
           POSTGRES_DB=nextcloud
           POSTGRES_USER=nextcloud
           POSTGRES_PASSWORD={{ with secret "nomad/data/default/nextcloud" }}{{ .Data.data.db_password }}{{ end }}

@@ -32,7 +32,7 @@ resource "nomad_csi_volume_registration" "gitea" {
   }
 
   context = {
-    "server" = "martinibar.lan",
+    "server" = "192.168.1.10",
     "share"  = "/volume1/csi/forgejo/gitea",
   }
 }
@@ -55,7 +55,7 @@ resource "nomad_csi_volume_registration" "git" {
   }
 
   context = {
-    "server" = "martinibar.lan",
+    "server" = "192.168.1.10",
     "share"  = "/volume1/csi/forgejo/git",
   }
 }
@@ -78,7 +78,7 @@ resource "nomad_csi_volume_registration" "runner_data" {
   }
 
   context = {
-    "server" = "martinibar.lan",
+    "server" = "192.168.1.10",
     "share"  = "/volume1/csi/forgejo-runner/data",
   }
 }
@@ -101,7 +101,7 @@ resource "nomad_csi_volume_registration" "actions_cache" {
   }
 
   context = {
-    "server" = "martinibar.lan",
+    "server" = "192.168.1.10",
     "share"  = "/volume1/csi/forgejo/actions-cache",
   }
 }

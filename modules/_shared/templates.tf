@@ -10,7 +10,7 @@ locals {
         name = "local"
         options = {
           type   = "nfs"
-          o      = "addr=martinibar.lan,nolock,soft,rw"
+          o      = "addr=192.168.1.10,nolock,soft,rw"
           device = null # Set in specific module
         }
       }
@@ -92,7 +92,7 @@ locals {
 
   # PostgreSQL connection string template
   postgres_connection = {
-    host       = "martinibar.lan"
+    host       = "192.168.1.10"
     port       = "5433"
     ssl_mode   = "disable"
     properties = "?sslmode=disable"

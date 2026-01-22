@@ -79,7 +79,7 @@ job "keycloak" {
       env = {
         KC_DB                             = "postgres"
         KC_DB_USERNAME                    = "keycloak"
-        KC_DB_URL_HOST                    = "martinibar.lan"
+        KC_DB_URL_HOST                    = "192.168.1.10"
         KC_DB_URL_PORT                    = "5433"
         KC_DB_URL_PROPERTIES              = "?sslmode=disable"
         KC_DB_URL_DATABASE                = "keycloak"

@@ -234,7 +234,7 @@ EOF
               name = "local"
               options {
                 type   = "nfs"
-                o      = "addr=martinibar.lan,nolock,soft,rw"
+                o      = "addr=192.168.1.10,nolock,soft,rw"
                 device = ":/volume1/docker"
               }
             }
@@ -249,7 +249,7 @@ EOF
               name = "local"
               options {
                 type   = "nfs"
-                o      = "addr=martinibar.lan,nolock,soft,rw"
+                o      = "addr=192.168.1.10,nolock,soft,rw"
                 device = ":/volume1/Share"
               }
             }
@@ -423,7 +423,7 @@ EOF
               name = "local"
               options {
                 type   = "nfs"
-                o      = "addr=martinibar.lan,nolock,soft,rw"
+                o      = "addr=192.168.1.10,nolock,soft,rw"
                 device = ":/volume1/docker"
               }
             }

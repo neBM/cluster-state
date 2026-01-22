@@ -155,7 +155,7 @@ job "matrix" {
               user: synapse_user
               password: "{{ with nomadVar "nomad/jobs/matrix/synapse/synapse" }}{{ .db_password }}{{ end }}"
               database: synapse
-              host: martinibar.lan
+              host: 192.168.1.10
               port: 5433
               cp_min: 5
               cp_max: 10
@@ -569,8 +569,9 @@ job "matrix" {
       }
 
       resources {
-        cpu    = 50
-        memory = 16
+        cpu        = 50
+        memory     = 32
+        memory_max = 64
       }
 
       meta = {
@@ -603,8 +604,9 @@ job "matrix" {
       }
 
       resources {
-        cpu    = 100
-        memory = 16
+        cpu        = 100
+        memory     = 32
+        memory_max = 64
       }
 
       template {
@@ -749,8 +751,9 @@ job "matrix" {
       }
 
       resources {
-        cpu    = 50
-        memory = 16
+        cpu        = 50
+        memory     = 32
+        memory_max = 64
       }
 
       service {
