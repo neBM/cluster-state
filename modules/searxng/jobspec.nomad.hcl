@@ -27,8 +27,9 @@ job "searxng" {
       }
 
       resources {
-        cpu    = 100
-        memory = 120
+        cpu        = 100
+        memory     = 120
+        memory_max = 256
       }
 
       volume_mount {

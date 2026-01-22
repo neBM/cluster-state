@@ -355,6 +355,7 @@ EOF
     ephemeral_disk {
       migrate = true
       size    = 200
+      sticky  = true
     }
 
     service {
