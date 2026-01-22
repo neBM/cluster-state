@@ -166,6 +166,7 @@ Note: The `message` field is `match_only_text` type, so it cannot be used in agg
 - **SQLite on Network Storage**: Use ephemeral disk with litestream for SQLite databases. Network filesystems cause locking issues.
 - **SQLite WAL Mode**: Litestream requires WAL mode. Empty WAL files need a write to initialize the header.
 - **Consul Connect Sidecar Memory**: Default 128MB is insufficient for envoy proxy (~90-130MB baseline). Set `memory=256, memory_max=512` to prevent OOM kills that cascade across services.
+- **Terraform lifecycle ignore_changes**: NEVER use `ignore_changes` in lifecycle blocks. It hides drift and creates confusing configs. Fix the root cause instead (e.g., remove unused fields, use `terraform state rm` to reset state).
 
 ## Debugging Tips
 
