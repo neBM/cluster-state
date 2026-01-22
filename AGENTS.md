@@ -10,7 +10,7 @@ Infrastructure-as-Code repository for a Nomad cluster. Services are deployed via
 - **Consul** - Service mesh (transparent proxy mode)
 - **Terraform** - Infrastructure provisioning
 - **GlusterFS** - Distributed storage (CSI volumes)
-- **NFS-Ganesha** - NFS server with FSAL_GLUSTER (stable fileids)
+- **NFS-Ganesha** - NFS server with FSAL_GLUSTER (stable fileids), built from source V9.4 on all nodes
 - **Martinibar (NFS)** - Legacy storage (migrating away)
 - **MinIO** - Object storage (backups, litestream)
 
@@ -229,7 +229,7 @@ Nyx (/data/glusterfs/brick1) ──────┘
 - Bricks are on Heracles and Nyx (btrfs filesystem)
 - Volume is **distributed** (data split across bricks), NOT replicated
 - NFS-Ganesha with FSAL_GLUSTER provides stable fileids (no "fileid changed" errors)
-- Hestia runs V9.4 (built from source), Heracles/Nyx run V6.5 (Ubuntu package)
+- All nodes run NFS-Ganesha V9.4 built from source (no Ubuntu packages/PPAs)
 - CSI plugin uses NFS to mount subdirectories into containers
 
 See [docs/glusterfs-architecture.md](docs/glusterfs-architecture.md) for details.

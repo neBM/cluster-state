@@ -117,15 +117,33 @@ LOG {
 
 ### Systemd Services
 
-All nodes use the same custom service file: `/etc/systemd/system/nfs-ganesha-local.service`
+All nodes use the custom service file: `/etc/systemd/system/nfs-ganesha-local.service`
 
 Enable with: `systemctl enable nfs-ganesha-local`
 
-Service file (same on all nodes):
+**Hestia** (depends on GlusterFS FUSE mount):
 ```ini
 [Unit]
 Description=NFS-Ganesha V9.4 file server (local build)
-After=network.target glusterfs.service
+After=network.target storage.mount
+Requires=storage.mount
+
+[Service]
+Type=forking
+ExecStart=/usr/local/bin/ganesha.nfsd -f /etc/ganesha/ganesha.conf -L /var/log/ganesha/ganesha.log -N NIV_EVENT
+PIDFile=/usr/local/var/run/ganesha/ganesha.pid
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target
+```
+
+**Heracles and Nyx** (use FSAL_GLUSTER directly via libgfapi):
+```ini
+[Unit]
+Description=NFS-Ganesha V9.4 file server (local build)
+After=network.target glusterd.service
+Requires=glusterd.service
 
 [Service]
 Type=forking
