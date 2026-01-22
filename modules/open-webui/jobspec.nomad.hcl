@@ -188,14 +188,26 @@ job "open-webui" {
     task "postgres" {
       driver = "docker"
 
+      vault {
+        env = false
+      }
+
       config {
         image = "pgvector/pgvector:pg18"
       }
 
-      env = {
-        POSTGRES_USER     = "postgres"
-        POSTGRES_PASSWORD = "postgres"
-        POSTGRES_DB       = "postgres"
+      # Create openwebui user/database directly - this is a dedicated postgres for Open WebUI
+      template {
+        data = <<-EOF
+          {{ with secret "nomad/data/default/open-webui" }}
+          POSTGRES_USER="openwebui"
+          POSTGRES_PASSWORD="{{.Data.data.POSTGRES_PASSWORD}}"
+          POSTGRES_DB="openwebui"
+          {{ end }}
+          EOF
+
+        destination = "secrets/postgres.env"
+        env         = true
       }
 
       volume_mount {
