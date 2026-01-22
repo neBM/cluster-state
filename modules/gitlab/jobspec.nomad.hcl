@@ -2,12 +2,6 @@ job "gitlab" {
 
   group "gitlab" {
 
-    # Pin to Hestia - primary GlusterFS node, reduces stale handle issues
-    constraint {
-      attribute = "${attr.unique.hostname}"
-      value     = "Hestia"
-    }
-
     network {
       mode = "bridge"
       port "http" {
@@ -229,17 +223,20 @@ EOF
       port     = "http"
     }
 
-    # Host volumes - direct GlusterFS FUSE mount, avoids NFS stale file handle issues
     volume "gitlab_config" {
-      type      = "host"
-      read_only = false
-      source    = "gitlab_config"
+      type            = "csi"
+      read_only       = false
+      source          = "glusterfs_gitlab_config"
+      attachment_mode = "file-system"
+      access_mode     = "single-node-writer"
     }
 
     volume "gitlab_data" {
-      type      = "host"
-      read_only = false
-      source    = "gitlab_data"
+      type            = "csi"
+      read_only       = false
+      source          = "glusterfs_gitlab_data"
+      attachment_mode = "file-system"
+      access_mode     = "single-node-writer"
     }
   }
 }
