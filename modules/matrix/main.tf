@@ -16,12 +16,9 @@ resource "nomad_csi_volume" "matrix_synapse_data" {
     prevent_destroy = true
   }
 
+  plugin_id = "glusterfs"
   volume_id = "glusterfs_matrix_synapse_data"
   name      = "glusterfs_matrix_synapse_data"
-  plugin_id = "glusterfs"
-
-  capacity_min = "1GiB"
-  capacity_max = "5GiB"
 
   capability {
     access_mode     = "single-node-writer"
@@ -36,12 +33,9 @@ resource "nomad_csi_volume" "matrix_media_store" {
     prevent_destroy = true
   }
 
+  plugin_id = "glusterfs"
   volume_id = "glusterfs_matrix_media_store"
   name      = "glusterfs_matrix_media_store"
-  plugin_id = "glusterfs"
-
-  capacity_min = "10GiB"
-  capacity_max = "50GiB"
 
   capability {
     access_mode     = "single-node-writer"
@@ -56,12 +50,9 @@ resource "nomad_csi_volume" "matrix_whatsapp_data" {
     prevent_destroy = true
   }
 
+  plugin_id = "glusterfs"
   volume_id = "glusterfs_matrix_whatsapp_data"
   name      = "glusterfs_matrix_whatsapp_data"
-  plugin_id = "glusterfs"
-
-  capacity_min = "1GiB"
-  capacity_max = "5GiB"
 
   capability {
     access_mode     = "single-node-writer"
@@ -76,12 +67,9 @@ resource "nomad_csi_volume" "matrix_config" {
     prevent_destroy = true
   }
 
+  plugin_id = "glusterfs"
   volume_id = "glusterfs_matrix_config"
   name      = "glusterfs_matrix_config"
-  plugin_id = "glusterfs"
-
-  capacity_min = "100MiB"
-  capacity_max = "1GiB"
 
   capability {
     access_mode     = "multi-node-reader-only"

@@ -18,11 +18,9 @@ resource "nomad_csi_volume" "glusterfs_appflowy_postgres" {
     prevent_destroy = true
   }
 
-  plugin_id    = "glusterfs"
-  name         = "glusterfs_appflowy_postgres"
-  volume_id    = "glusterfs_appflowy_postgres"
-  capacity_min = "1GiB"
-  capacity_max = "50GiB"
+  plugin_id = "glusterfs"
+  name      = "glusterfs_appflowy_postgres"
+  volume_id = "glusterfs_appflowy_postgres"
 
   capability {
     access_mode     = "multi-node-single-writer"

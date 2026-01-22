@@ -19,11 +19,9 @@ resource "nomad_csi_volume" "glusterfs_jellyfin_config" {
     prevent_destroy = true
   }
 
-  plugin_id    = "glusterfs"
-  name         = "glusterfs_jellyfin_config"
-  volume_id    = "glusterfs_jellyfin_config"
-  capacity_min = "1GiB"
-  capacity_max = "50GiB"
+  plugin_id = "glusterfs"
+  name      = "glusterfs_jellyfin_config"
+  volume_id = "glusterfs_jellyfin_config"
 
   capability {
     access_mode     = "single-node-writer"
@@ -38,11 +36,9 @@ resource "nomad_csi_volume" "glusterfs_plex_config" {
     prevent_destroy = true
   }
 
-  plugin_id    = "glusterfs"
-  name         = "glusterfs_plex_config"
-  volume_id    = "glusterfs_plex_config"
-  capacity_min = "1GiB"
-  capacity_max = "50GiB"
+  plugin_id = "glusterfs"
+  name      = "glusterfs_plex_config"
+  volume_id = "glusterfs_plex_config"
 
   capability {
     access_mode     = "single-node-writer"

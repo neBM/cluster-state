@@ -18,11 +18,9 @@ resource "nomad_csi_volume" "glusterfs_vaultwarden_data" {
     prevent_destroy = true
   }
 
-  plugin_id    = "glusterfs"
-  name         = "glusterfs_vaultwarden_data"
-  volume_id    = "glusterfs_vaultwarden_data"
-  capacity_min = "100MiB"
-  capacity_max = "10GiB"
+  plugin_id = "glusterfs"
+  name      = "glusterfs_vaultwarden_data"
+  volume_id = "glusterfs_vaultwarden_data"
 
   capability {
     access_mode     = "single-node-writer"

@@ -21,11 +21,9 @@ resource "nomad_csi_volume" "nextcloud_config" {
     prevent_destroy = true
   }
 
-  plugin_id    = "glusterfs"
-  volume_id    = "glusterfs_nextcloud_config"
-  name         = "glusterfs_nextcloud_config"
-  capacity_min = "100MiB"
-  capacity_max = "1GiB"
+  plugin_id = "glusterfs"
+  volume_id = "glusterfs_nextcloud_config"
+  name      = "glusterfs_nextcloud_config"
 
   capability {
     access_mode     = "single-node-writer"
@@ -41,11 +39,9 @@ resource "nomad_csi_volume" "nextcloud_custom_apps" {
     prevent_destroy = true
   }
 
-  plugin_id    = "glusterfs"
-  volume_id    = "glusterfs_nextcloud_custom_apps"
-  name         = "glusterfs_nextcloud_custom_apps"
-  capacity_min = "500MiB"
-  capacity_max = "5GiB"
+  plugin_id = "glusterfs"
+  volume_id = "glusterfs_nextcloud_custom_apps"
+  name      = "glusterfs_nextcloud_custom_apps"
 
   capability {
     access_mode     = "single-node-writer"
@@ -61,11 +57,9 @@ resource "nomad_csi_volume" "nextcloud_data" {
     prevent_destroy = true
   }
 
-  plugin_id    = "glusterfs"
-  volume_id    = "glusterfs_nextcloud_data"
-  name         = "glusterfs_nextcloud_data"
-  capacity_min = "100MiB"
-  capacity_max = "100GiB"
+  plugin_id = "glusterfs"
+  volume_id = "glusterfs_nextcloud_data"
+  name      = "glusterfs_nextcloud_data"
 
   capability {
     access_mode     = "single-node-writer"

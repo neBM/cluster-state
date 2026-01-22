@@ -18,11 +18,9 @@ resource "nomad_csi_volume" "glusterfs_searxng_config" {
     prevent_destroy = true
   }
 
-  plugin_id    = "glusterfs"
-  name         = "glusterfs_searxng_config"
-  volume_id    = "glusterfs_searxng_config"
-  capacity_min = "1GiB"
-  capacity_max = "10GiB"
+  plugin_id = "glusterfs"
+  name      = "glusterfs_searxng_config"
+  volume_id = "glusterfs_searxng_config"
 
   capability {
     access_mode     = "multi-node-single-writer"

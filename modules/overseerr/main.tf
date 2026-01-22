@@ -10,11 +10,9 @@ resource "nomad_csi_volume" "glusterfs_overseerr_config" {
     prevent_destroy = true
   }
 
-  plugin_id    = "glusterfs"
-  name         = "glusterfs_overseerr_config"
-  volume_id    = "glusterfs_overseerr_config"
-  capacity_min = "100MiB"
-  capacity_max = "1GiB"
+  plugin_id = "glusterfs"
+  name      = "glusterfs_overseerr_config"
+  volume_id = "glusterfs_overseerr_config"
 
   capability {
     access_mode     = "single-node-writer"

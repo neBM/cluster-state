@@ -18,11 +18,9 @@ resource "nomad_csi_volume" "glusterfs_minio_data" {
     prevent_destroy = true
   }
 
-  plugin_id    = "glusterfs"
-  name         = "glusterfs_minio_data"
-  volume_id    = "glusterfs_minio_data"
-  capacity_min = "1GiB"
-  capacity_max = "500GiB"
+  plugin_id = "glusterfs"
+  name      = "glusterfs_minio_data"
+  volume_id = "glusterfs_minio_data"
 
   capability {
     access_mode     = "multi-node-single-writer"

@@ -18,11 +18,9 @@ resource "nomad_csi_volume" "glusterfs_nginx_sites_code" {
     prevent_destroy = true
   }
 
-  plugin_id    = "glusterfs"
-  name         = "glusterfs_nginx_sites_code"
-  volume_id    = "glusterfs_nginx_sites_code"
-  capacity_min = "100MiB"
-  capacity_max = "1GiB"
+  plugin_id = "glusterfs"
+  name      = "glusterfs_nginx_sites_code"
+  volume_id = "glusterfs_nginx_sites_code"
 
   capability {
     access_mode     = "multi-node-reader-only"

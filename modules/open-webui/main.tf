@@ -19,11 +19,9 @@ resource "nomad_csi_volume" "glusterfs_ollama_data" {
     prevent_destroy = true
   }
 
-  plugin_id    = "glusterfs"
-  name         = "glusterfs_ollama_data"
-  volume_id    = "glusterfs_ollama_data"
-  capacity_min = "1GiB"
-  capacity_max = "500GiB"
+  plugin_id = "glusterfs"
+  name      = "glusterfs_ollama_data"
+  volume_id = "glusterfs_ollama_data"
 
   capability {
     access_mode     = "multi-node-single-writer"
@@ -38,11 +36,9 @@ resource "nomad_csi_volume" "glusterfs_ollama_postgres" {
     prevent_destroy = true
   }
 
-  plugin_id    = "glusterfs"
-  name         = "glusterfs_ollama_postgres"
-  volume_id    = "glusterfs_ollama_postgres"
-  capacity_min = "1GiB"
-  capacity_max = "50GiB"
+  plugin_id = "glusterfs"
+  name      = "glusterfs_ollama_postgres"
+  volume_id = "glusterfs_ollama_postgres"
 
   capability {
     access_mode     = "multi-node-single-writer"
