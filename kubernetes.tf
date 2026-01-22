@@ -82,3 +82,15 @@ module "k8s_overseerr" {
 
   depends_on = [module.k8s_vault_integration]
 }
+
+# Hubble UI - Cilium network flow visualization
+# Protected by OAuth via external Traefik middleware
+# Note: TLS secret must be copied to kube-system namespace manually:
+#   kubectl get secret -n traefik wildcard-brmartin-tls -o yaml | \
+#     sed 's/namespace: traefik/namespace: kube-system/' | kubectl apply -f -
+module "k8s_hubble_ui" {
+  count  = var.enable_k8s ? 1 : 0
+  source = "./modules-k8s/hubble-ui"
+
+  hostname = "hubble.brmartin.co.uk"
+}
