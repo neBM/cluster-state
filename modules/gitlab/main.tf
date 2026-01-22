@@ -10,11 +10,9 @@ resource "nomad_csi_volume" "glusterfs_gitlab_config" {
     prevent_destroy = true
   }
 
-  plugin_id    = "glusterfs"
-  name         = "glusterfs_gitlab_config"
-  volume_id    = "glusterfs_gitlab_config"
-  capacity_min = "1GiB"
-  capacity_max = "10GiB"
+  plugin_id = "glusterfs"
+  name      = "glusterfs_gitlab_config"
+  volume_id = "glusterfs_gitlab_config"
 
   capability {
     access_mode     = "single-node-writer"
@@ -29,11 +27,9 @@ resource "nomad_csi_volume" "glusterfs_gitlab_data" {
     prevent_destroy = true
   }
 
-  plugin_id    = "glusterfs"
-  name         = "glusterfs_gitlab_data"
-  volume_id    = "glusterfs_gitlab_data"
-  capacity_min = "10GiB"
-  capacity_max = "100GiB"
+  plugin_id = "glusterfs"
+  name      = "glusterfs_gitlab_data"
+  volume_id = "glusterfs_gitlab_data"
 
   capability {
     access_mode     = "single-node-writer"
