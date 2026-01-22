@@ -22,6 +22,8 @@ job "gitlab" {
     task "gitlab" {
       driver = "docker"
 
+      vault {}
+
       config {
         image      = "gitlab/gitlab-ce:18.8.2-ce.0"
         ports      = ["http", "https", "ssh"]
