@@ -25,9 +25,9 @@
 
 **Purpose**: Create the NFS provisioner module structure
 
-- [ ] T001 Create module directory structure at modules-k8s/nfs-provisioner/
-- [ ] T002 [P] Create versions.tf with Terraform and provider requirements in modules-k8s/nfs-provisioner/versions.tf
-- [ ] T003 [P] Create variables.tf with module inputs in modules-k8s/nfs-provisioner/variables.tf
+- [x] T001 Create module directory structure at modules-k8s/nfs-provisioner/
+- [x] T002 [P] Create versions.tf with Terraform and provider requirements in modules-k8s/nfs-provisioner/versions.tf
+- [x] T003 [P] Create variables.tf with module inputs in modules-k8s/nfs-provisioner/variables.tf
 
 ---
 
@@ -37,13 +37,13 @@
 
 **CRITICAL**: No user story validation can begin until this phase is complete
 
-- [ ] T004 Create ServiceAccount for provisioner in modules-k8s/nfs-provisioner/main.tf
-- [ ] T005 Create ClusterRole with PV/PVC permissions in modules-k8s/nfs-provisioner/main.tf
-- [ ] T006 Create ClusterRoleBinding linking ServiceAccount to ClusterRole in modules-k8s/nfs-provisioner/main.tf
-- [ ] T007 Create provisioner Deployment with NFS mount in modules-k8s/nfs-provisioner/main.tf
-- [ ] T008 Create StorageClass with pathPattern for naming convention in modules-k8s/nfs-provisioner/storage-class.tf
-- [ ] T009 Add nfs-provisioner module to kubernetes.tf
-- [ ] T010 Run terraform plan to validate configuration
+- [x] T004 Create ServiceAccount for provisioner in modules-k8s/nfs-provisioner/main.tf
+- [x] T005 Create ClusterRole with PV/PVC permissions in modules-k8s/nfs-provisioner/main.tf
+- [x] T006 Create ClusterRoleBinding linking ServiceAccount to ClusterRole in modules-k8s/nfs-provisioner/main.tf
+- [x] T007 Create provisioner Deployment with NFS mount in modules-k8s/nfs-provisioner/main.tf
+- [x] T008 Create StorageClass with pathPattern for naming convention in modules-k8s/nfs-provisioner/storage-class.tf
+- [x] T009 Add nfs-provisioner module to kubernetes.tf
+- [x] T010 Run terraform plan to validate configuration
 
 **Checkpoint**: Provisioner deployed - user story validation can now begin
 
@@ -57,16 +57,16 @@
 
 ### Implementation for User Story 1
 
-- [ ] T011 [US1] Run terraform apply to deploy nfs-provisioner
-- [ ] T012 [US1] Verify provisioner pod is running via kubectl get pods
-- [ ] T013 [US1] Verify StorageClass glusterfs-nfs exists via kubectl get storageclass
-- [ ] T014 [US1] Create test PVC with volume-name annotation using kubectl apply
-- [ ] T015 [US1] Verify PVC transitions to Bound state within 30 seconds
-- [ ] T016 [US1] Verify directory /storage/v/glusterfs_test_data created on node via SSH
-- [ ] T017 [US1] Create test pod that mounts the PVC
-- [ ] T018 [US1] Verify pod can write to and read from mounted volume
-- [ ] T019 [US1] Clean up test resources (pod and PVC)
-- [ ] T020 [US1] Verify directory retained after PVC deletion (Retain policy)
+- [x] T011 [US1] Run terraform apply to deploy nfs-provisioner
+- [x] T012 [US1] Verify provisioner pod is running via kubectl get pods
+- [x] T013 [US1] Verify StorageClass glusterfs-nfs exists via kubectl get storageclass
+- [x] T014 [US1] Create test PVC with volume-name annotation using kubectl apply
+- [x] T015 [US1] Verify PVC transitions to Bound state within 30 seconds
+- [x] T016 [US1] Verify directory /storage/v/glusterfs_test_data created on node via SSH
+- [x] T017 [US1] Create test pod that mounts the PVC
+- [x] T018 [US1] Verify pod can write to and read from mounted volume
+- [x] T019 [US1] Clean up test resources (pod and PVC)
+- [x] T020 [US1] Verify directory retained after PVC deletion (Retain policy)
 
 **Checkpoint**: User Story 1 complete - auto-provisioning works for new services
 
@@ -80,11 +80,11 @@
 
 ### Implementation for User Story 2
 
-- [ ] T021 [US2] Create example PVC resource in modules-k8s/nfs-provisioner/examples.tf for documentation
-- [ ] T022 [US2] Run terraform state list and verify provisioner resources visible
-- [ ] T023 [US2] Run terraform plan -destroy on nfs-provisioner module
-- [ ] T024 [US2] Verify plan shows PVC and related resources will be destroyed
-- [ ] T025 [US2] Document lifecycle behavior in quickstart.md (data retained on PVC delete)
+- [x] T021 [US2] Create example PVC resource in modules-k8s/nfs-provisioner/examples.tf for documentation
+- [x] T022 [US2] Run terraform state list and verify provisioner resources visible
+- [x] T023 [US2] Run terraform plan -destroy on nfs-provisioner module
+- [x] T024 [US2] Verify plan shows PVC and related resources will be destroyed
+- [x] T025 [US2] Document lifecycle behavior in quickstart.md (data retained on PVC delete)
 
 **Checkpoint**: User Story 2 complete - Terraform visibility confirmed
 
@@ -98,12 +98,12 @@
 
 ### Implementation for User Story 3
 
-- [ ] T026 [US3] Create PVC with annotation volume-name: myapp_config
-- [ ] T027 [US3] Create PVC with annotation volume-name: myapp_data
-- [ ] T028 [US3] Verify directories are /storage/v/glusterfs_myapp_config and /storage/v/glusterfs_myapp_data
-- [ ] T029 [US3] Verify directories appear in ls /storage/v/glusterfs_* glob
-- [ ] T030 [US3] Verify directories have correct permissions (0777, root:root)
-- [ ] T031 [US3] Clean up test PVCs
+- [x] T026 [US3] Create PVC with annotation volume-name: myapp_config
+- [x] T027 [US3] Create PVC with annotation volume-name: myapp_data
+- [x] T028 [US3] Verify directories are /storage/v/glusterfs_myapp_config and /storage/v/glusterfs_myapp_data
+- [x] T029 [US3] Verify directories appear in ls /storage/v/glusterfs_* glob
+- [x] T030 [US3] Verify directories have correct permissions (0777, root:root)
+- [x] T031 [US3] Clean up test PVCs
 
 **Checkpoint**: User Story 3 complete - naming convention validated
 
@@ -113,13 +113,13 @@
 
 **Purpose**: Documentation and operational readiness
 
-- [ ] T032 [P] Update AGENTS.md with PVC usage pattern for new services
-- [ ] T033 [P] Update AGENTS.md with hostPath vs PVC guidance
-- [ ] T034 [P] Update AGENTS.md with troubleshooting section for provisioner
-- [ ] T035 Add Active Technologies entry for NFS Subdir External Provisioner to AGENTS.md
-- [ ] T036 Verify all existing K8s services still running (no breaking changes - SC-003)
-- [ ] T037 Run quickstart.md validation steps end-to-end
-- [ ] T038 Commit all changes with descriptive message
+- [x] T032 [P] Update AGENTS.md with PVC usage pattern for new services
+- [x] T033 [P] Update AGENTS.md with hostPath vs PVC guidance
+- [x] T034 [P] Update AGENTS.md with troubleshooting section for provisioner
+- [x] T035 Add Active Technologies entry for NFS Subdir External Provisioner to AGENTS.md
+- [x] T036 Verify all existing K8s services still running (no breaking changes - SC-003)
+- [x] T037 Run quickstart.md validation steps end-to-end
+- [x] T038 Commit all changes with descriptive message
 
 ---
 

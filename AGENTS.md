@@ -195,6 +195,60 @@ Note: The `message` field is `match_only_text` type, so it cannot be used in agg
 - GlusterFS volumes: `glusterfs_<service>_<type>`
 - Martinibar volumes: `martinibar_prod_<service>_<type>`
 
+## Storage: PVC vs hostPath
+
+**For new services, use PVCs with the `glusterfs-nfs` StorageClass:**
+
+```hcl
+# In modules-k8s/<service>/main.tf
+resource "kubernetes_persistent_volume_claim" "data" {
+  metadata {
+    name      = "${var.app_name}-data"
+    namespace = var.namespace
+    annotations = {
+      # Controls directory name: /storage/v/glusterfs_<value>
+      "volume-name" = "${var.app_name}_data"
+    }
+  }
+  spec {
+    storage_class_name = "glusterfs-nfs"
+    access_modes       = ["ReadWriteMany"]
+    resources {
+      requests = {
+        storage = "1Gi"  # Advisory only - no quota enforcement
+      }
+    }
+  }
+}
+
+# Reference in deployment
+volume {
+  name = "data"
+  persistent_volume_claim {
+    claim_name = kubernetes_persistent_volume_claim.data.metadata[0].name
+  }
+}
+```
+
+**Existing services using hostPath continue to work:**
+```hcl
+volume {
+  name = "config"
+  host_path {
+    path = "/storage/v/glusterfs_myapp_config"
+    type = "Directory"
+  }
+}
+```
+
+**Key differences:**
+| Aspect | PVC (recommended) | hostPath (legacy) |
+|--------|-------------------|-------------------|
+| Directory creation | Automatic on PVC create | Manual SSH required |
+| Terraform visibility | PVC in state | No tracking |
+| Data on PVC delete | Retained (Retain policy) | N/A |
+| Migration effort | New services only | Existing unchanged |
+
 ## Critical Warnings
 
 - **CSI Volume Deletion**: `nomad volume delete` AND `terraform destroy` of `nomad_csi_volume` resources **delete the underlying data**. Always backup first or use `terraform state rm` to remove from state without destroying.
@@ -346,6 +400,35 @@ KUBECONFIG=~/.kube/k3s-config kubectl delete pod <pod-name> -n default
 
 **Severe cases:** If kernel NFS client cache is deeply corrupted (e.g., after cluster instability or sustained fileid changes), a **full node reboot** may be required to clear the kernel NFS client cache completely.
 
+### NFS Provisioner Issues
+
+**PVC stuck in Pending:**
+```bash
+# Check provisioner logs
+KUBECONFIG=~/.kube/k3s-config kubectl logs -l app=nfs-subdir-external-provisioner -n default
+
+# Common causes:
+# - NFS server unreachable (check NFS mount on provisioner node)
+# - Missing volume-name annotation (check PVC annotations)
+# - StorageClass not found (kubectl get storageclass glusterfs-nfs)
+```
+
+**Directory not created:**
+```bash
+# Check PVC events
+KUBECONFIG=~/.kube/k3s-config kubectl describe pvc <pvc-name>
+
+# Verify NFS mount on provisioner's node
+KUBECONFIG=~/.kube/k3s-config kubectl get pod -l app=nfs-subdir-external-provisioner -o wide
+/usr/bin/ssh <node-ip> "mount | grep storage"
+```
+
+**Verify provisioner is running:**
+```bash
+KUBECONFIG=~/.kube/k3s-config kubectl get pods -l app=nfs-subdir-external-provisioner
+KUBECONFIG=~/.kube/k3s-config kubectl get storageclass glusterfs-nfs
+```
+
 ### GlusterFS Socket Limitations
 GlusterFS doesn't support Unix sockets. Services using sockets (Redis, Gitaly, Puma) must be configured to use:
 - TCP connections instead of Unix sockets
@@ -393,11 +476,12 @@ GlusterFS doesn't support Unix sockets. Services using sockets (Redis, Gitaly, P
 
 ## Active Technologies
 - HCL (Terraform 1.x), YAML (K8s manifests via Terraform kubernetes provider)
-- Kubernetes (K3s), Cilium CNI, Traefik Ingress, External Secrets Operator
-- GlusterFS (hostPath mounts), MinIO (litestream backups), NFS-Ganesha
+- Kubernetes (K3s 1.34+), Cilium CNI, Traefik Ingress, External Secrets Operator
+- GlusterFS via NFS-Ganesha at `/storage/v/` on all nodes
+- NFS Subdir External Provisioner for dynamic PVC provisioning
+- MinIO (litestream backups)
 - Nomad for remaining services (elk, jayne-martin-counselling)
-- HCL (Terraform 1.12+), YAML (Kubernetes manifests) + NFS Subdir External Provisioner, Kubernetes 1.34+ (005-k8s-volume-provisioning)
-- GlusterFS via NFS-Ganesha at `/storage/v/` on all nodes (005-k8s-volume-provisioning)
 
 ## Recent Changes
+- 005-k8s-volume-provisioning: Added NFS Subdir External Provisioner for automatic PVC directory creation
 - 004-nomad-to-k8s-migration: Migrated most services from Nomad to Kubernetes (K3s)

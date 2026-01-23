@@ -62,6 +62,7 @@ kind: PersistentVolumeClaim
 metadata:
   name: test-volume
   annotations:
+    # Controls directory name: /storage/v/glusterfs_<value>
     volume-name: test_data
 spec:
   storageClassName: glusterfs-nfs
@@ -130,6 +131,44 @@ kubectl delete pvc test-volume
 # Manual cleanup (optional)
 /usr/bin/ssh 192.168.1.5 "sudo rm -rf /storage/v/glusterfs_test_data"
 ```
+
+## Volume Lifecycle Behavior
+
+### Retain Policy
+
+The StorageClass uses `reclaimPolicy: Retain`, which means:
+
+1. **PVC Deletion**: When you delete a PVC, the underlying directory on `/storage/v/` is **NOT deleted**
+2. **Data Persistence**: All files in the directory remain intact
+3. **Manual Cleanup**: You must manually delete the directory if you want to reclaim space
+
+This is intentional for safety - it prevents accidental data loss.
+
+### Lifecycle Examples
+
+```bash
+# Create PVC -> directory created automatically
+kubectl apply -f pvc.yaml
+# /storage/v/glusterfs_myapp_data exists
+
+# Delete PVC -> directory retained
+kubectl delete pvc myapp-data
+# /storage/v/glusterfs_myapp_data still exists with all data
+
+# Recreate PVC with same annotation -> uses existing directory
+kubectl apply -f pvc.yaml
+# Pod mounts /storage/v/glusterfs_myapp_data with existing data
+
+# Manual cleanup (when you truly want to delete data)
+/usr/bin/ssh 192.168.1.5 "sudo rm -rf /storage/v/glusterfs_myapp_data"
+```
+
+### Terraform Considerations
+
+- **terraform destroy** of a module with PVCs will delete the PVC resources from K8s
+- The underlying directories on `/storage/v/` are **NOT deleted** by Terraform
+- This is consistent with existing hostPath behavior
+- For true deletion, use SSH to remove directories after Terraform destroy
 
 ## Usage in Terraform Modules
 
