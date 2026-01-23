@@ -28,8 +28,21 @@ provider "kubectl" {
 }
 
 # =============================================================================
-# Kubernetes Modules (PoC)
+# Core Infrastructure
 # =============================================================================
+
+# NFS Subdir External Provisioner - Dynamic volume provisioning for GlusterFS/NFS
+# Creates directories automatically when PVCs are created
+# Directory naming: glusterfs_<service>_<type> via volume-name annotation
+module "k8s_nfs_provisioner" {
+  source = "./modules-k8s/nfs-provisioner"
+
+  namespace          = "default"
+  nfs_server         = "127.0.0.1"
+  nfs_path           = "/storage/v"
+  storage_class_name = "glusterfs-nfs"
+  reclaim_policy     = "Retain"
+}
 
 # Vault integration for External Secrets Operator
 module "k8s_vault_integration" {
