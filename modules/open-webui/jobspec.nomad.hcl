@@ -30,7 +30,8 @@ job "open-webui" {
       }
 
       env {
-        OLLAMA_BASE_URL             = "http://ollama-ollama.virtual.consul"
+        # Ollama now runs on K8s, accessible via NodePort
+        OLLAMA_BASE_URL             = "http://192.168.1.5:31434"
         ENABLE_OAUTH_SIGNUP         = "true"
         OAUTH_CLIENT_ID             = "open-webui"
         OPENID_PROVIDER_URL         = "https://sso.brmartin.co.uk/realms/prod/.well-known/openid-configuration"

@@ -4,6 +4,12 @@ variable "namespace" {
   default     = "default"
 }
 
+variable "hostname" {
+  description = "Hostname for overseerr"
+  type        = string
+  default     = "overseerr.brmartin.co.uk"
+}
+
 variable "image_tag" {
   description = "Container image tag for overseerr"
   type        = string
@@ -19,23 +25,17 @@ variable "litestream_image_tag" {
 variable "vpa_mode" {
   description = "VPA update mode: Auto, Off, or Initial"
   type        = string
-  default     = "Auto" # Full VPA for stateful PoC
-}
-
-variable "storage_size" {
-  description = "Size of the persistent volume for data"
-  type        = string
-  default     = "1Gi"
+  default     = "Off" # Recommendations only for production
 }
 
 variable "minio_endpoint" {
   description = "MinIO endpoint for litestream backups"
   type        = string
-  default     = "http://minio.default.svc.cluster.local:9000"
+  default     = "http://minio.service.consul:9000"
 }
 
 variable "litestream_bucket" {
   description = "S3 bucket name for litestream backups"
   type        = string
-  default     = "overseerr-k8s-litestream"
+  default     = "overseerr-litestream"
 }

@@ -1,0 +1,95 @@
+variable "namespace" {
+  description = "Kubernetes namespace"
+  type        = string
+  default     = "default"
+}
+
+variable "hostname" {
+  description = "Public hostname for AppFlowy"
+  type        = string
+  default     = "docs.brmartin.co.uk"
+}
+
+variable "gotrue_image" {
+  description = "Docker image for gotrue"
+  type        = string
+  default     = "appflowyinc/gotrue:latest"
+}
+
+variable "cloud_image" {
+  description = "Docker image for AppFlowy cloud"
+  type        = string
+  default     = "appflowyinc/appflowy_cloud:latest"
+}
+
+variable "worker_image" {
+  description = "Docker image for AppFlowy worker"
+  type        = string
+  default     = "appflowyinc/appflowy_worker:latest"
+}
+
+variable "web_image" {
+  description = "Docker image for AppFlowy web"
+  type        = string
+  default     = "appflowyinc/appflowy_web:latest"
+}
+
+variable "postgres_image" {
+  description = "Docker image for PostgreSQL with pgvector"
+  type        = string
+  default     = "pgvector/pgvector:pg16"
+}
+
+variable "redis_image" {
+  description = "Docker image for Redis"
+  type        = string
+  default     = "redis:latest"
+}
+
+variable "postgres_data_path" {
+  description = "Host path for PostgreSQL data (GlusterFS mount)"
+  type        = string
+  default     = "/storage/v/glusterfs_appflowy_postgres"
+}
+
+variable "minio_endpoint" {
+  description = "MinIO S3 endpoint URL"
+  type        = string
+  default     = "http://minio-api.default.svc.cluster.local:9000"
+}
+
+variable "minio_bucket" {
+  description = "MinIO bucket name for AppFlowy"
+  type        = string
+  default     = "appflowy"
+}
+
+variable "minio_access_key" {
+  description = "MinIO access key (S3 username)"
+  type        = string
+  default     = "appflowy"
+}
+
+variable "keycloak_url" {
+  description = "Keycloak realm URL for OIDC"
+  type        = string
+  default     = "https://sso.brmartin.co.uk/realms/prod"
+}
+
+variable "keycloak_client_id" {
+  description = "Keycloak client ID for AppFlowy"
+  type        = string
+  default     = "appflowy"
+}
+
+variable "smtp_host" {
+  description = "SMTP server host"
+  type        = string
+  default     = "mail.brmartin.co.uk"
+}
+
+variable "smtp_port" {
+  description = "SMTP server port"
+  type        = string
+  default     = "465"
+}

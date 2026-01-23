@@ -3,7 +3,7 @@ locals {
   labels = {
     app         = local.app_name
     managed-by  = "terraform"
-    environment = "poc"
+    environment = "prod"
   }
 }
 
@@ -20,7 +20,7 @@ resource "kubernetes_config_map" "litestream" {
       dbs = [{
         path = "/data/db/db.sqlite3"
         replicas = [{
-          name                     = "overseerr-k8s"
+          name                     = "overseerr"
           type                     = "s3"
           bucket                   = var.litestream_bucket
           path                     = "db"
@@ -36,24 +36,7 @@ resource "kubernetes_config_map" "litestream" {
   }
 }
 
-# PVC for overseerr config (not SQLite - that uses emptyDir with litestream)
-resource "kubernetes_persistent_volume_claim" "overseerr_config" {
-  metadata {
-    name      = "${local.app_name}-config"
-    namespace = var.namespace
-    labels    = local.labels
-  }
-
-  spec {
-    access_modes       = ["ReadWriteOnce"]
-    storage_class_name = "local-path"
-    resources {
-      requests = {
-        storage = var.storage_size
-      }
-    }
-  }
-}
+# Config is stored on GlusterFS via hostPath (not PVC)
 
 # StatefulSet with litestream sidecar
 resource "kubernetes_stateful_set" "overseerr" {
@@ -274,11 +257,12 @@ resource "kubernetes_stateful_set" "overseerr" {
           }
         }
 
-        # PVC for overseerr config files
+        # Config from GlusterFS via hostPath
         volume {
           name = "config"
-          persistent_volume_claim {
-            claim_name = kubernetes_persistent_volume_claim.overseerr_config.metadata[0].name
+          host_path {
+            path = "/storage/v/glusterfs_overseerr_config"
+            type = "Directory"
           }
         }
 
@@ -356,12 +340,12 @@ resource "kubernetes_ingress_v1" "overseerr" {
     ingress_class_name = "traefik"
 
     tls {
-      hosts       = ["overseerr-k8s.brmartin.co.uk"]
+      hosts       = [var.hostname]
       secret_name = "wildcard-brmartin-tls"
     }
 
     rule {
-      host = "overseerr-k8s.brmartin.co.uk"
+      host = var.hostname
       http {
         path {
           path      = "/"

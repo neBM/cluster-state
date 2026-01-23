@@ -3,7 +3,11 @@ terraform {
   backend "pg" {}
 }
 
-# CSI plugin should be deployed first as other jobs may depend on it
+# =============================================================================
+# Nomad CSI Plugins (required for media-centre)
+# =============================================================================
+
+# Martinibar CSI plugin (NFS) - for media-centre legacy volumes
 module "plugin_csi_controller" {
   source = "./modules/nomad-job"
 
@@ -16,7 +20,7 @@ module "plugin_csi_nodes" {
   jobspec_path = "./modules/plugin-csi/jobspec-nodes.nomad.hcl"
 }
 
-# GlusterFS CSI plugin (democratic-csi) for local storage
+# GlusterFS CSI plugin (democratic-csi) - for media-centre
 module "plugin_csi_glusterfs_controller" {
   source = "./modules/nomad-job"
 
@@ -29,19 +33,11 @@ module "plugin_csi_glusterfs_nodes" {
   jobspec_path = "./modules/plugin-csi-glusterfs/jobspec-nodes.nomad.hcl"
 }
 
-# media_centre now uses its own module with CSI volume registration
-# (defined below with GlusterFS dependencies)
+# =============================================================================
+# Nomad Services (NOT migrated to K8s)
+# =============================================================================
 
-module "plextraktsync" {
-  source = "./modules/nomad-job"
-
-  jobspec_path = "./modules/plextraktsync/jobspec.nomad.hcl"
-}
-
-module "matrix" {
-  source = "./modules/matrix"
-}
-
+# ELK Stack - Complex 3-node Elasticsearch cluster, excluded from migration
 module "elk" {
   source = "./modules/nomad-job"
 
@@ -53,65 +49,7 @@ module "elk" {
   }
 }
 
-module "renovate" {
-  source = "./modules/nomad-job"
-
-  jobspec_path = "./modules/renovate/jobspec.nomad.hcl"
-}
-
-module "keycloak" {
-  source = "./modules/nomad-job"
-
-  jobspec_path = "./modules/keycloak/jobspec.nomad.hcl"
-}
-
-module "jayne_martin_counselling" {
-  source = "./modules/nomad-job"
-
-  jobspec_path = "./modules/jayne-martin-counselling/jobspec.nomad.hcl"
-}
-
-# Modules with GlusterFS CSI volume dependencies
-module "ollama_core" {
-  source = "./modules/ollama-core"
-}
-
-module "open_webui" {
-  source = "./modules/open-webui"
-
-  depends_on = [
-    module.plugin_csi_glusterfs_controller,
-    module.plugin_csi_glusterfs_nodes
-  ]
-}
-
-module "searxng" {
-  source = "./modules/searxng"
-
-  depends_on = [
-    module.plugin_csi_glusterfs_controller,
-    module.plugin_csi_glusterfs_nodes
-  ]
-}
-
-module "minio" {
-  source = "./modules/minio"
-
-  depends_on = [
-    module.plugin_csi_glusterfs_controller,
-    module.plugin_csi_glusterfs_nodes
-  ]
-}
-
-module "appflowy" {
-  source = "./modules/appflowy"
-
-  depends_on = [
-    module.plugin_csi_glusterfs_controller,
-    module.plugin_csi_glusterfs_nodes
-  ]
-}
-
+# Media Centre - Plex, Sonarr, Radarr, etc. Excluded from migration
 module "media_centre" {
   source = "./modules/media-centre"
 
@@ -121,52 +59,9 @@ module "media_centre" {
   ]
 }
 
-module "gitlab" {
-  source = "./modules/gitlab"
-}
-
-module "gitlab_runner" {
+# Jayne Martin Counselling - Static website (consider migrating later)
+module "jayne_martin_counselling" {
   source = "./modules/nomad-job"
 
-  jobspec_path = "./modules/gitlab-runner/jobspec.nomad.hcl"
-}
-
-module "restic_backup" {
-  source = "./modules/restic-backup"
-}
-
-module "vaultwarden" {
-  source = "./modules/vaultwarden"
-
-  depends_on = [
-    module.plugin_csi_glusterfs_controller,
-    module.plugin_csi_glusterfs_nodes
-  ]
-}
-
-module "nginx_sites" {
-  source = "./modules/nginx-sites"
-
-  depends_on = [
-    module.plugin_csi_glusterfs_controller,
-    module.plugin_csi_glusterfs_nodes
-  ]
-}
-
-module "nextcloud" {
-  source = "./modules/nextcloud"
-
-  depends_on = [
-    module.plugin_csi_glusterfs_controller,
-    module.plugin_csi_glusterfs_nodes
-  ]
-}
-
-module "overseerr" {
-  source = "./modules/overseerr"
-
-  depends_on = [
-    module.plugin_csi_glusterfs_controller,
-    module.plugin_csi_glusterfs_nodes
-  ]
+  jobspec_path = "./modules/jayne-martin-counselling/jobspec.nomad.hcl"
 }

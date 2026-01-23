@@ -1,4 +1,4 @@
-# ExternalSecret to sync MinIO credentials from Vault
+# ExternalSecret to sync Keycloak DB password from Vault
 resource "kubectl_manifest" "external_secret" {
   yaml_body = yamlencode({
     apiVersion = "external-secrets.io/v1"
@@ -20,18 +20,11 @@ resource "kubectl_manifest" "external_secret" {
       }
       data = [
         {
-          secretKey = "MINIO_ACCESS_KEY"
+          secretKey = "KC_DB_PASSWORD"
           remoteRef = {
             # Path relative to ClusterSecretStore's vault.path (nomad)
-            key      = "default/overseerr"
-            property = "MINIO_ACCESS_KEY"
-          }
-        },
-        {
-          secretKey = "MINIO_SECRET_KEY"
-          remoteRef = {
-            key      = "default/overseerr"
-            property = "MINIO_SECRET_KEY"
+            key      = "default/keycloak"
+            property = "KC_DB_PASSWORD"
           }
         }
       ]

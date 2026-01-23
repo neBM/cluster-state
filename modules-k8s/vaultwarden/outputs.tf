@@ -1,6 +1,6 @@
 output "service_name" {
   description = "Name of the Kubernetes service"
-  value       = kubernetes_service.overseerr.metadata[0].name
+  value       = kubernetes_service.vaultwarden.metadata[0].name
 }
 
 output "hostname" {
@@ -9,6 +9,6 @@ output "hostname" {
 }
 
 output "namespace" {
-  description = "Namespace where overseerr is deployed"
+  description = "Namespace where vaultwarden is deployed"
   value       = var.namespace
 }

@@ -2,16 +2,18 @@
 
 ## Overview
 
-Infrastructure-as-Code repository for a Nomad cluster. Services are deployed via Terraform which submits Nomad jobspecs.
+Infrastructure-as-Code repository for a hybrid Nomad/Kubernetes cluster. Most services have been migrated to Kubernetes (K3s), with a few remaining on Nomad.
 
 ## Architecture
 
-- **Nomad** - Workload orchestration
-- **Consul** - Service mesh (transparent proxy mode)
-- **Terraform** - Infrastructure provisioning
-- **GlusterFS** - Distributed storage (CSI volumes)
+- **Kubernetes (K3s)** - Primary workload orchestration (most services)
+- **Nomad** - Secondary orchestration (elk, media-centre, jayne-martin-counselling)
+- **Cilium** - Kubernetes CNI with network policies
+- **Traefik** - Ingress controller (K8s IngressRoutes)
+- **External Secrets Operator** - Syncs secrets from Vault to K8s
+- **Terraform** - Infrastructure provisioning (both Nomad and K8s resources)
+- **GlusterFS** - Distributed storage (hostPath mounts in K8s)
 - **NFS-Ganesha** - NFS server with FSAL_GLUSTER (stable fileids), built from source V9.4 on all nodes
-- **Martinibar (NFS)** - Legacy storage (migrating away)
 - **MinIO** - Object storage (backups, litestream)
 
 ## Documentation
@@ -25,11 +27,16 @@ See the `docs/` directory for detailed documentation:
 ## Project Structure
 
 ```
-modules/           # Terraform modules, each containing jobspecs
+modules-k8s/       # Kubernetes modules (primary)
+  ├── <service>/
+  │   ├── main.tf              # K8s deployments, services, ingress
+  │   └── variables.tf         # Module variables
+modules/           # Nomad modules (legacy, few remaining)
   ├── <service>/
   │   ├── main.tf              # Terraform config, CSI volumes
   │   └── jobspec.nomad.hcl    # Nomad job definition
-main.tf            # Root terraform config
+kubernetes.tf      # K8s module definitions
+main.tf            # Nomad module definitions + CSI plugins
 ```
 
 ## Cluster Nodes
@@ -59,16 +66,44 @@ Environment variables (Nomad token, Vault token, etc.) must be loaded before run
 # set -a exports all variables, set +a stops exporting
 set -a && source .env && set +a
 
-# Plan and apply all changes
-terraform plan -var="nomad_address=https://nomad.brmartin.co.uk:443" -out=tfplan
+# Plan and apply all changes (includes both K8s and Nomad)
+TF_VAR_enable_k8s=true terraform plan -var="nomad_address=https://nomad.brmartin.co.uk:443" -out=tfplan
 terraform apply tfplan
 
-# Target a specific module (faster for single-service changes)
-terraform plan -target=module.gitlab -var="nomad_address=https://nomad.brmartin.co.uk:443" -out=tfplan
+# Target a specific K8s module
+TF_VAR_enable_k8s=true terraform plan -target='module.k8s_gitlab[0]' -var="nomad_address=https://nomad.brmartin.co.uk:443" -out=tfplan
+terraform apply tfplan
+
+# Target a specific Nomad module
+terraform plan -target=module.media_centre -var="nomad_address=https://nomad.brmartin.co.uk:443" -out=tfplan
 terraform apply tfplan
 ```
 
-### Nomad
+### Kubernetes
+
+```bash
+# Set KUBECONFIG for all kubectl commands
+export KUBECONFIG=~/.kube/k3s-config
+
+# Or prefix each command
+KUBECONFIG=~/.kube/k3s-config kubectl get pods
+
+# Common commands
+kubectl get pods -n default
+kubectl logs <pod-name> -n default
+kubectl logs <pod-name> -n default --previous  # Previous container logs
+kubectl describe pod <pod-name> -n default
+kubectl exec -it <pod-name> -n default -- /bin/sh
+kubectl delete pod <pod-name> -n default  # Force restart
+
+# Check all services
+kubectl get deployments,statefulsets,cronjobs -n default
+
+# Rollout restart (redeploy without config change)
+kubectl rollout restart deployment/<name> -n default
+```
+
+### Nomad (for remaining services)
 
 ```bash
 nomad job status <job>
@@ -162,7 +197,7 @@ Note: The `message` field is `match_only_text` type, so it cannot be used in agg
 
 ## Critical Warnings
 
-- **CSI Volume Deletion**: `nomad volume delete` deletes the underlying data. Always backup first.
+- **CSI Volume Deletion**: `nomad volume delete` AND `terraform destroy` of `nomad_csi_volume` resources **delete the underlying data**. Always backup first or use `terraform state rm` to remove from state without destroying.
 - **SQLite on Network Storage**: Use ephemeral disk with litestream for SQLite databases. Network filesystems cause locking issues.
 - **SQLite WAL Mode**: Litestream requires WAL mode. Empty WAL files need a write to initialize the header.
 - **Consul Connect Sidecar Memory**: Default 128MB is insufficient for envoy proxy (~90-130MB baseline). Set `memory=256, memory_max=512` to prevent OOM kills that cascade across services.
@@ -329,9 +364,40 @@ GlusterFS doesn't support Unix sockets. Services using sockets (Redis, Gitaly, P
 - Kibana: https://kibana.brmartin.co.uk
 - Elasticsearch: https://es.brmartin.co.uk
 
+## Migrated Services (K8s)
+
+| Service | Type | Notes |
+|---------|------|-------|
+| searxng | Deployment | Search engine |
+| nginx-sites | Deployment | Static sites (brmartin.co.uk, martinilink.co.uk) |
+| vaultwarden | Deployment | Password manager |
+| overseerr | StatefulSet | Media requests, litestream backup |
+| ollama | Deployment | LLM inference, GPU on Hestia |
+| minio | Deployment | Object storage |
+| keycloak | Deployment | SSO/OAuth |
+| appflowy | Multiple | 7 components (cloud, gotrue, worker, web, admin, postgres, redis) |
+| nextcloud | Deployment | File sync, with Collabora sidecar |
+| matrix | Multiple | 6 components (synapse, mas, whatsapp-bridge, nginx, element, cinny) |
+| gitlab | Deployment | Git hosting, SSH via NodePort 30022 |
+| renovate | CronJob | Dependency updates (hourly) |
+| restic-backup | CronJob | GlusterFS backup (daily 3am) |
+| gitlab-runner | Deployment | CI runners (amd64 + arm64) |
+| open-webui | Deployment | LLM chat UI, with valkey + postgres sidecars |
+| plextraktsync | CronJob | Plex/Trakt sync (every 2 hours) |
+
+## Remaining on Nomad
+
+| Service | Reason |
+|---------|--------|
+| elk | Complex 3-node Elasticsearch cluster |
+| media-centre | Plex, Sonarr, Radarr - large config, GPU requirements |
+| jayne-martin-counselling | Simple static site |
+
 ## Active Technologies
-- HCL (Terraform 1.x, Nomad jobspec) + Nomad, Consul Connect, Traefik, Litestream, MinIO (001-migrate-overseerr-nomad)
-- Ephemeral disk (SQLite via litestream), GlusterFS CSI (config files) (001-migrate-overseerr-nomad)
+- HCL (Terraform 1.x), YAML (K8s manifests via Terraform kubernetes provider)
+- Kubernetes (K3s), Cilium CNI, Traefik Ingress, External Secrets Operator
+- GlusterFS (hostPath mounts), MinIO (litestream backups), NFS-Ganesha
+- Nomad for remaining services (elk, media-centre)
 
 ## Recent Changes
-- 001-migrate-overseerr-nomad: Added HCL (Terraform 1.x, Nomad jobspec) + Nomad, Consul Connect, Traefik, Litestream, MinIO
+- 004-nomad-to-k8s-migration: Migrated most services from Nomad to Kubernetes (K3s)

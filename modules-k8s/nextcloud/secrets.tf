@@ -1,12 +1,13 @@
-# ExternalSecret to sync MinIO credentials from Vault
+# ExternalSecret to pull Nextcloud credentials from Vault
+# Vault path: nomad/default/nextcloud
+
 resource "kubectl_manifest" "external_secret" {
   yaml_body = yamlencode({
     apiVersion = "external-secrets.io/v1"
     kind       = "ExternalSecret"
     metadata = {
-      name      = "${local.app_name}-secrets"
+      name      = "nextcloud-secrets"
       namespace = var.namespace
-      labels    = local.labels
     }
     spec = {
       refreshInterval = "1h"
@@ -15,23 +16,22 @@ resource "kubectl_manifest" "external_secret" {
         kind = "ClusterSecretStore"
       }
       target = {
-        name           = "${local.app_name}-secrets"
+        name           = "nextcloud-secrets"
         creationPolicy = "Owner"
       }
       data = [
         {
-          secretKey = "MINIO_ACCESS_KEY"
+          secretKey = "db_password"
           remoteRef = {
-            # Path relative to ClusterSecretStore's vault.path (nomad)
-            key      = "default/overseerr"
-            property = "MINIO_ACCESS_KEY"
+            key      = "nomad/default/nextcloud"
+            property = "db_password"
           }
         },
         {
-          secretKey = "MINIO_SECRET_KEY"
+          secretKey = "collabora_password"
           remoteRef = {
-            key      = "default/overseerr"
-            property = "MINIO_SECRET_KEY"
+            key      = "nomad/default/nextcloud"
+            property = "collabora_password"
           }
         }
       ]
