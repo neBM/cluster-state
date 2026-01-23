@@ -215,16 +215,17 @@ Note: The `message` field is `match_only_text` type, so it cannot be used in agg
 If litestream backup in MinIO is corrupted (decode errors on restore), recover from restic:
 
 ```bash
-# 1. Stop the affected job
-nomad job stop <job-name>
+# 1. Stop the affected service (K8s)
+KUBECONFIG=~/.kube/k3s-config kubectl scale statefulset/<name> --replicas=0 -n default
+# Or for Nomad:
+# nomad job stop <job-name>
 
 # 2. Wipe corrupted litestream backup from MinIO
-/usr/bin/ssh 192.168.1.5 "docker run --rm --network host \
-  -e MC_HOST_minio=http://<user>:<pass>@127.0.0.1:9000 \
-  minio/mc rm --recursive --force minio/<bucket>/"
+/usr/bin/ssh 192.168.1.5 "sudo rm -rf /storage/v/glusterfs_minio_data/<bucket>/db/*"
 
 # 3. Find latest good restic snapshot
-source .env && RESTIC_PW=$(vault kv get -format=json nomad/default/restic-backup | jq -r '.data.data.RESTIC_PASSWORD')
+set -a && source .env && set +a
+RESTIC_PW=$(vault kv get -format=json nomad/default/restic-backup | jq -r '.data.data.RESTIC_PASSWORD')
 /usr/bin/ssh 192.168.1.5 "docker run --rm -v /mnt/csi/backups/restic:/repo \
   -e RESTIC_REPOSITORY=/repo -e RESTIC_PASSWORD='$RESTIC_PW' \
   restic/restic:0.18.1 snapshots --latest 5"
@@ -234,14 +235,17 @@ source .env && RESTIC_PW=$(vault kv get -format=json nomad/default/restic-backup
   -v /tmp/restore:/restore \
   -e RESTIC_REPOSITORY=/repo -e RESTIC_PASSWORD='$RESTIC_PW' \
   restic/restic:0.18.1 restore <snapshot-id> \
-  --include '/data/<minio-bucket>/' --target /restore"
+  --include '/data/glusterfs_minio_data/<bucket>/' --target /restore"
 
 # 5. Move restored data to MinIO volume
-/usr/bin/ssh 192.168.1.5 "sudo mv /tmp/restore/data/<minio-bucket>/* \
-  /storage/v/glusterfs_minio_data/<minio-bucket>/"
+/usr/bin/ssh 192.168.1.5 "sudo mv /tmp/restore/data/glusterfs_minio_data/<bucket>/db/* \
+  /storage/v/glusterfs_minio_data/<bucket>/db/"
 
-# 6. Restart the job - litestream will restore from the recovered backup
-nomad job run <job-name>
+# 6. Clean up and restart
+/usr/bin/ssh 192.168.1.5 "sudo rm -rf /tmp/restore"
+KUBECONFIG=~/.kube/k3s-config kubectl scale statefulset/<name> --replicas=1 -n default
+# Or for Nomad:
+# nomad job run <job-name>
 ```
 
 ### GlusterFS Architecture
@@ -323,7 +327,7 @@ sudo grep dht-rename /var/log/glusterfs/storage.log | tail -5
 **Current status (January 2026):** Migrated to NFS-Ganesha with FSAL_GLUSTER. No fileid errors since migration.
 
 ### GlusterFS Issues
-- Mount options configured in `modules/plugin-csi-glusterfs/`
+- K8s uses hostPath mounts to `/storage/v/` (NFS-mounted GlusterFS)
 - DHT fileid instability is inherent to distributed volumes with NFS re-export
 
 ### NFS Stale File Handle Errors
@@ -333,26 +337,14 @@ When services report "stale file handle" errors after NFS changes or node restar
 # 1. Drop kernel caches on the affected node
 /usr/bin/ssh 192.168.1.X "sudo sync && echo 3 | sudo tee /proc/sys/vm/drop_caches"
 
-# 2. Restart the CSI node plugin if needed
-nomad job eval -force-reschedule plugin-glusterfs-nodes
+# 2. Delete the affected pod (K8s will recreate with fresh mounts)
+KUBECONFIG=~/.kube/k3s-config kubectl delete pod <pod-name> -n default
 
-# 3. Reschedule the affected job
-nomad job eval -force-reschedule <job-name>
+# For Nomad services:
+# nomad alloc stop <alloc-id>
 ```
 
-If the above doesn't work (mount still shows `d?????????`), stop the affected allocation to force fresh mounts:
-```bash
-# Find and stop the allocation with stale mounts
-nomad alloc stop <alloc-id>
-# Nomad will automatically reschedule with fresh CSI mounts
-```
-
-**Severe cases:** If kernel NFS client cache is deeply corrupted (e.g., after cluster instability, OOM cascade, or sustained fileid changes from heavy MinIO/litestream activity), the above steps may not work. A **full node reboot** is required to clear the kernel NFS client cache completely.
-
-**Reducing fileid change frequency:**
-- Minimize cross-brick rename operations where possible
-- Services with heavy temp-file-then-rename patterns (MinIO) will trigger more fileid changes
-- Consider placing high-churn data (like MinIO) on local storage if cross-node access isn't needed
+**Severe cases:** If kernel NFS client cache is deeply corrupted (e.g., after cluster instability or sustained fileid changes), a **full node reboot** may be required to clear the kernel NFS client cache completely.
 
 ### GlusterFS Socket Limitations
 GlusterFS doesn't support Unix sockets. Services using sockets (Redis, Gitaly, Puma) must be configured to use:
@@ -361,9 +353,12 @@ GlusterFS doesn't support Unix sockets. Services using sockets (Redis, Gitaly, P
 
 ## Links
 
-- Nomad UI: https://nomad.brmartin.co.uk:443
+- GitLab: https://git.brmartin.co.uk
 - Kibana: https://kibana.brmartin.co.uk
 - Elasticsearch: https://es.brmartin.co.uk
+- MinIO Console: https://minio.brmartin.co.uk
+- Keycloak (SSO): https://sso.brmartin.co.uk
+- Nomad UI: https://nomad.brmartin.co.uk:443
 
 ## Migrated Services (K8s)
 
