@@ -49,16 +49,6 @@ module "elk" {
   }
 }
 
-# Media Centre - Plex, Sonarr, Radarr, etc. Excluded from migration
-module "media_centre" {
-  source = "./modules/media-centre"
-
-  depends_on = [
-    module.plugin_csi_glusterfs_controller,
-    module.plugin_csi_glusterfs_nodes
-  ]
-}
-
 # Jayne Martin Counselling - Static website (consider migrating later)
 module "jayne_martin_counselling" {
   source = "./modules/nomad-job"

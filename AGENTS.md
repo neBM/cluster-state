@@ -7,7 +7,7 @@ Infrastructure-as-Code repository for a hybrid Nomad/Kubernetes cluster. Most se
 ## Architecture
 
 - **Kubernetes (K3s)** - Primary workload orchestration (most services)
-- **Nomad** - Secondary orchestration (elk, media-centre, jayne-martin-counselling)
+- **Nomad** - Secondary orchestration (elk, jayne-martin-counselling)
 - **Cilium** - Kubernetes CNI with network policies
 - **Traefik** - Ingress controller (K8s IngressRoutes)
 - **External Secrets Operator** - Syncs secrets from Vault to K8s
@@ -206,9 +206,10 @@ Note: The `message` field is `match_only_text` type, so it cannot be used in agg
 ## Debugging Tips
 
 ### Litestream Issues
-- Check logs: `nomad alloc logs <alloc> litestream`
+- Check logs: `kubectl logs <pod> -c litestream` (K8s) or `nomad alloc logs <alloc> litestream` (Nomad)
 - "database disk image is malformed" during checkpoint = WAL/database mismatch
 - Fix: Stop allocation, restore clean database, remove `-wal` and `-shm` files, restart
+- **Version compatibility**: Litestream 0.5.x uses LTX format, 0.3.x uses generations format. These are NOT compatible. Ensure restore and replicate use the same version.
 
 ### Litestream Backup Corruption Recovery
 If litestream backup in MinIO is corrupted (decode errors on restore), recover from restic:
@@ -384,20 +385,22 @@ GlusterFS doesn't support Unix sockets. Services using sockets (Redis, Gitaly, P
 | gitlab-runner | Deployment | CI runners (amd64 + arm64) |
 | open-webui | Deployment | LLM chat UI, with valkey + postgres sidecars |
 | plextraktsync | CronJob | Plex/Trakt sync (every 2 hours) |
+| plex | StatefulSet | Media server, NVIDIA GPU, litestream 0.5 backup |
+| jellyfin | Deployment | Alternative media server |
+| tautulli | Deployment | Plex monitoring/statistics |
 
 ## Remaining on Nomad
 
 | Service | Reason |
 |---------|--------|
 | elk | Complex 3-node Elasticsearch cluster |
-| media-centre | Plex, Sonarr, Radarr - large config, GPU requirements |
 | jayne-martin-counselling | Simple static site |
 
 ## Active Technologies
 - HCL (Terraform 1.x), YAML (K8s manifests via Terraform kubernetes provider)
 - Kubernetes (K3s), Cilium CNI, Traefik Ingress, External Secrets Operator
 - GlusterFS (hostPath mounts), MinIO (litestream backups), NFS-Ganesha
-- Nomad for remaining services (elk, media-centre)
+- Nomad for remaining services (elk, jayne-martin-counselling)
 
 ## Recent Changes
 - 004-nomad-to-k8s-migration: Migrated most services from Nomad to Kubernetes (K3s)

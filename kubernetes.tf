@@ -269,3 +269,12 @@ module "k8s_plextraktsync" {
 
   namespace = "default"
 }
+
+# Media Centre - Plex, Jellyfin, Tautulli
+# Plex requires NVIDIA GPU on Hestia node
+module "k8s_media_centre" {
+  count  = var.enable_k8s ? 1 : 0
+  source = "./modules-k8s/media-centre"
+
+  namespace = "default"
+}
