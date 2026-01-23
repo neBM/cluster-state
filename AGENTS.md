@@ -67,15 +67,15 @@ Environment variables (Nomad token, Vault token, etc.) must be loaded before run
 set -a && source .env && set +a
 
 # Plan and apply all changes (includes both K8s and Nomad)
-TF_VAR_enable_k8s=true terraform plan -var="nomad_address=https://nomad.brmartin.co.uk:443" -out=tfplan
+terraform plan -var="nomad_address=https://nomad.brmartin.co.uk:443" -out=tfplan
 terraform apply tfplan
 
 # Target a specific K8s module
-TF_VAR_enable_k8s=true terraform plan -target='module.k8s_gitlab[0]' -var="nomad_address=https://nomad.brmartin.co.uk:443" -out=tfplan
+terraform plan -target='module.k8s_gitlab' -var="nomad_address=https://nomad.brmartin.co.uk:443" -out=tfplan
 terraform apply tfplan
 
 # Target a specific Nomad module
-terraform plan -target=module.media_centre -var="nomad_address=https://nomad.brmartin.co.uk:443" -out=tfplan
+terraform plan -target=module.elk -var="nomad_address=https://nomad.brmartin.co.uk:443" -out=tfplan
 terraform apply tfplan
 ```
 

@@ -1,16 +1,7 @@
-# Kubernetes Configuration for PoC Migration
+# Kubernetes Configuration
 #
 # This file configures the Kubernetes provider and K8s-based modules.
-# The K8s cluster must be installed separately (see specs/003-nomad-to-kubernetes/quickstart.md)
-#
-# To enable K8s modules, set the environment variable:
-#   export TF_VAR_enable_k8s=true
-
-variable "enable_k8s" {
-  description = "Enable Kubernetes modules (requires K3s cluster to be installed)"
-  type        = bool
-  default     = false
-}
+# The K8s cluster (K3s) must be installed separately.
 
 variable "k8s_config_path" {
   description = "Path to kubeconfig file"
@@ -24,16 +15,16 @@ variable "k8s_context" {
   default     = "default"
 }
 
-# Kubernetes provider - only active when K8s is enabled
+# Kubernetes provider
 provider "kubernetes" {
-  config_path    = var.enable_k8s ? pathexpand(var.k8s_config_path) : null
-  config_context = var.enable_k8s ? var.k8s_context : null
+  config_path    = pathexpand(var.k8s_config_path)
+  config_context = var.k8s_context
 }
 
 # kubectl provider for CRDs (VPA, ExternalSecret, CiliumNetworkPolicy)
 provider "kubectl" {
-  config_path    = var.enable_k8s ? pathexpand(var.k8s_config_path) : null
-  config_context = var.enable_k8s ? var.k8s_context : null
+  config_path    = pathexpand(var.k8s_config_path)
+  config_context = var.k8s_context
 }
 
 # =============================================================================
@@ -42,13 +33,11 @@ provider "kubectl" {
 
 # Vault integration for External Secrets Operator
 module "k8s_vault_integration" {
-  count  = var.enable_k8s ? 1 : 0
   source = "./k8s/core/vault-integration"
 }
 
 # Whoami - Stateless demo service
 module "k8s_whoami" {
-  count  = var.enable_k8s ? 1 : 0
   source = "./modules-k8s/whoami"
 
   namespace = "default"
@@ -57,7 +46,6 @@ module "k8s_whoami" {
 
 # Echo - Service mesh testing
 module "k8s_echo" {
-  count  = var.enable_k8s ? 1 : 0
   source = "./modules-k8s/echo"
 
   namespace       = "default"
@@ -71,7 +59,6 @@ module "k8s_echo" {
 # SearXNG - Metasearch engine
 # OAuth authentication handled by external Traefik middleware
 module "k8s_searxng" {
-  count  = var.enable_k8s ? 1 : 0
   source = "./modules-k8s/searxng"
 
   namespace = "default"
@@ -86,7 +73,6 @@ module "k8s_searxng" {
 #   kubectl get secret -n traefik wildcard-brmartin-tls -o yaml | \
 #     sed 's/namespace: traefik/namespace: kube-system/' | kubectl apply -f -
 module "k8s_hubble_ui" {
-  count  = var.enable_k8s ? 1 : 0
   source = "./modules-k8s/hubble-ui"
 
   hostname = "hubble.brmartin.co.uk"
@@ -95,7 +81,6 @@ module "k8s_hubble_ui" {
 # nginx-sites - Static sites (brmartin.co.uk, martinilink.co.uk)
 # Multi-container: nginx + php-fpm sidecar
 module "k8s_nginx_sites" {
-  count  = var.enable_k8s ? 1 : 0
   source = "./modules-k8s/nginx-sites"
 
   namespace = "default"
@@ -104,7 +89,6 @@ module "k8s_nginx_sites" {
 # Vaultwarden - Password manager
 # Uses external PostgreSQL on martinibar.lan, GlusterFS for attachments/config
 module "k8s_vaultwarden" {
-  count  = var.enable_k8s ? 1 : 0
   source = "./modules-k8s/vaultwarden"
 
   namespace = "default"
@@ -114,7 +98,6 @@ module "k8s_vaultwarden" {
 # Overseerr - Media request management
 # SQLite on emptyDir with litestream backup to MinIO, config on GlusterFS
 module "k8s_overseerr" {
-  count  = var.enable_k8s ? 1 : 0
   source = "./modules-k8s/overseerr"
 
   namespace = "default"
@@ -127,7 +110,6 @@ module "k8s_overseerr" {
 # Ollama - LLM inference server with GPU
 # Must run on Hestia (only GPU node)
 module "k8s_ollama" {
-  count  = var.enable_k8s ? 1 : 0
   source = "./modules-k8s/ollama"
 
   namespace = "default"
@@ -137,7 +119,6 @@ module "k8s_ollama" {
 # Must run on Hestia where GlusterFS NFS mounts are available
 # S3 API exposed via NodePort 30900 for Nomad services
 module "k8s_minio" {
-  count  = var.enable_k8s ? 1 : 0
   source = "./modules-k8s/minio"
 
   namespace        = "default"
@@ -148,7 +129,6 @@ module "k8s_minio" {
 # Keycloak - SSO provider
 # Uses external PostgreSQL on martinibar.lan
 module "k8s_keycloak" {
-  count  = var.enable_k8s ? 1 : 0
   source = "./modules-k8s/keycloak"
 
   namespace = "default"
@@ -162,7 +142,6 @@ module "k8s_keycloak" {
 # PostgreSQL uses hostPath on Hestia (GlusterFS mount)
 # MinIO used for S3 storage (already on K8s)
 module "k8s_appflowy" {
-  count  = var.enable_k8s ? 1 : 0
   source = "./modules-k8s/appflowy"
 
   namespace          = "default"
@@ -178,7 +157,6 @@ module "k8s_appflowy" {
 # Uses external PostgreSQL on martinibar.lan, GlusterFS for data
 # Includes Collabora for document editing
 module "k8s_nextcloud" {
-  count  = var.enable_k8s ? 1 : 0
   source = "./modules-k8s/nextcloud"
 
   namespace          = "default"
@@ -192,7 +170,6 @@ module "k8s_nextcloud" {
 # Components: synapse, mas, whatsapp-bridge, nginx (well-known), element, cinny
 # Uses external PostgreSQL on martinibar.lan, GlusterFS for data/media/config
 module "k8s_matrix" {
-  count  = var.enable_k8s ? 1 : 0
   source = "./modules-k8s/matrix"
 
   namespace        = "default"
@@ -208,7 +185,6 @@ module "k8s_matrix" {
 # Single Omnibus container with bundled services
 # Uses external PostgreSQL, GlusterFS for config/data, SSH via NodePort
 module "k8s_gitlab" {
-  count  = var.enable_k8s ? 1 : 0
   source = "./modules-k8s/gitlab"
 
   namespace         = "default"
@@ -226,7 +202,6 @@ module "k8s_gitlab" {
 # Renovate - Automated dependency updates
 # Runs hourly, autodiscovers all GitLab repositories
 module "k8s_renovate" {
-  count  = var.enable_k8s ? 1 : 0
   source = "./modules-k8s/renovate"
 
   namespace = "default"
@@ -236,7 +211,6 @@ module "k8s_renovate" {
 # Runs daily at 3am, backs up to local restic repository
 # Must run on Hestia where backup destination is mounted
 module "k8s_restic_backup" {
-  count  = var.enable_k8s ? 1 : 0
   source = "./modules-k8s/restic-backup"
 
   namespace = "default"
@@ -245,7 +219,6 @@ module "k8s_restic_backup" {
 # GitLab Runner - CI/CD job execution
 # Two deployments: amd64 (Hestia) and arm64 (Heracles/Nyx)
 module "k8s_gitlab_runner" {
-  count  = var.enable_k8s ? 1 : 0
   source = "./modules-k8s/gitlab-runner"
 
   namespace = "default"
@@ -254,7 +227,6 @@ module "k8s_gitlab_runner" {
 # Open WebUI - LLM chat interface
 # Includes valkey (cache) and postgres (pgvector) sidecars
 module "k8s_open_webui" {
-  count  = var.enable_k8s ? 1 : 0
   source = "./modules-k8s/open-webui"
 
   namespace = "default"
@@ -264,7 +236,6 @@ module "k8s_open_webui" {
 # PlexTraktSync - Sync Plex watch history with Trakt.tv
 # Runs every 2 hours
 module "k8s_plextraktsync" {
-  count  = var.enable_k8s ? 1 : 0
   source = "./modules-k8s/plextraktsync"
 
   namespace = "default"
@@ -273,7 +244,6 @@ module "k8s_plextraktsync" {
 # Media Centre - Plex, Jellyfin, Tautulli
 # Plex requires NVIDIA GPU on Hestia node
 module "k8s_media_centre" {
-  count  = var.enable_k8s ? 1 : 0
   source = "./modules-k8s/media-centre"
 
   namespace = "default"
