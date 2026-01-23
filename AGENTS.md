@@ -396,6 +396,8 @@ GlusterFS doesn't support Unix sockets. Services using sockets (Redis, Gitaly, P
 - Kubernetes (K3s), Cilium CNI, Traefik Ingress, External Secrets Operator
 - GlusterFS (hostPath mounts), MinIO (litestream backups), NFS-Ganesha
 - Nomad for remaining services (elk, jayne-martin-counselling)
+- HCL (Terraform 1.12+), YAML (Kubernetes manifests) + NFS Subdir External Provisioner, Kubernetes 1.34+ (005-k8s-volume-provisioning)
+- GlusterFS via NFS-Ganesha at `/storage/v/` on all nodes (005-k8s-volume-provisioning)
 
 ## Recent Changes
 - 004-nomad-to-k8s-migration: Migrated most services from Nomad to Kubernetes (K3s)
