@@ -2,16 +2,15 @@
 
 ## Overview
 
-Infrastructure-as-Code repository for a hybrid Nomad/Kubernetes cluster. Most services have been migrated to Kubernetes (K3s), with a few remaining on Nomad.
+Infrastructure-as-Code repository for a Kubernetes (K3s) cluster. All services have been fully migrated to Kubernetes. Nomad has been decommissioned.
 
 ## Architecture
 
-- **Kubernetes (K3s)** - Primary workload orchestration (most services)
-- **Nomad** - Secondary orchestration (jayne-martin-counselling only)
+- **Kubernetes (K3s)** - Primary workload orchestration (all services)
 - **Cilium** - Kubernetes CNI with network policies
 - **Traefik** - Ingress controller (K8s IngressRoutes)
 - **External Secrets Operator** - Syncs secrets from Vault to K8s
-- **Terraform** - Infrastructure provisioning (both Nomad and K8s resources)
+- **Terraform** - Infrastructure provisioning (K8s resources)
 - **GlusterFS** - Distributed storage (hostPath mounts in K8s)
 - **NFS-Ganesha** - NFS server with FSAL_GLUSTER (stable fileids), built from source V9.4 on all nodes
 - **MinIO** - Object storage (backups, litestream)
@@ -31,12 +30,10 @@ modules-k8s/       # Kubernetes modules (primary)
   ├── <service>/
   │   ├── main.tf              # K8s deployments, services, ingress
   │   └── variables.tf         # Module variables
-modules/           # Nomad modules (legacy, few remaining)
-  ├── <service>/
-  │   ├── main.tf              # Terraform config, CSI volumes
-  │   └── jobspec.nomad.hcl    # Nomad job definition
+modules/           # Nomad modules (legacy, decommissioned)
+  ├── nomad-job/               # Generic Nomad job wrapper (unused)
 kubernetes.tf      # K8s module definitions
-main.tf            # Nomad module definitions + CSI plugins
+main.tf            # Terraform config (Nomad modules removed)
 ```
 
 ## Cluster Nodes
@@ -467,12 +464,11 @@ GlusterFS doesn't support Unix sockets. Services using sockets (Redis, Gitaly, P
 | jellyfin | Deployment | Alternative media server |
 | tautulli | Deployment | Plex monitoring/statistics |
 | elk | StatefulSet+Deployment | Elasticsearch 9.x + Kibana 9.x, data on GlusterFS |
+| jayne-martin-counselling | Deployment | Static counselling website |
 
 ## Remaining on Nomad
 
-| Service | Reason |
-|---------|--------|
-| jayne-martin-counselling | Simple static site |
+*All services have been migrated to Kubernetes. Nomad has been decommissioned.*
 
 ## Active Technologies
 - HCL (Terraform 1.x), YAML (K8s manifests via Terraform kubernetes provider)
@@ -480,10 +476,10 @@ GlusterFS doesn't support Unix sockets. Services using sockets (Redis, Gitaly, P
 - GlusterFS via NFS-Ganesha at `/storage/v/` on all nodes
 - NFS Subdir External Provisioner for dynamic PVC provisioning
 - MinIO (litestream backups)
-- Nomad for remaining services (jayne-martin-counselling)
 - Elasticsearch 9.x, Kibana 9.x (K8s StatefulSet/Deployment)
 
 ## Recent Changes
+- 007-jayne-martin-k8s-migration: Migrated Jayne Martin Counselling to Kubernetes, decommissioned Nomad
 - 006-elk-k8s-migration: Migrated ELK stack from Nomad to Kubernetes
 - 005-k8s-volume-provisioning: Added NFS Subdir External Provisioner for automatic PVC directory creation
 - 004-nomad-to-k8s-migration: Migrated most services from Nomad to Kubernetes (K3s)

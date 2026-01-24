@@ -4,16 +4,12 @@ terraform {
 }
 
 # =============================================================================
-# Nomad Services (NOT migrated to K8s)
+# Nomad Services - ALL MIGRATED TO KUBERNETES
 # =============================================================================
 
-# ELK Stack - MIGRATED TO KUBERNETES (see modules-k8s/elk/)
-# The Nomad ELK job has been stopped and data migrated to K8s.
-# Original module removed 2026-01-24.
-
-# Jayne Martin Counselling - Static website (consider migrating later)
-module "jayne_martin_counselling" {
-  source = "./modules/nomad-job"
-
-  jobspec_path = "./modules/jayne-martin-counselling/jobspec.nomad.hcl"
-}
+# All services have been migrated to Kubernetes (K3s).
+# See kubernetes.tf for K8s module definitions.
+#
+# Migration history:
+# - 2026-01-24: ELK stack migrated (see modules-k8s/elk/)
+# - 2026-01-24: Jayne Martin Counselling migrated (see modules-k8s/jayne-martin-counselling/)
