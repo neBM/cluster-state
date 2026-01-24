@@ -63,6 +63,7 @@ resource "kubernetes_stateful_set" "overseerr" {
 
       spec {
         # Init container to restore from litestream backup
+        # CRITICAL: Overseerr MUST NOT start without a valid database - either pre-existing or restored
         init_container {
           name  = "litestream-restore"
           image = "litestream/litestream:${var.litestream_image_tag}"
@@ -80,13 +81,35 @@ resource "kubernetes_stateful_set" "overseerr" {
               exit 0
             fi
 
+            echo "No local database found - attempting restore from S3..."
+            echo "CRITICAL: Overseerr will NOT start if restore fails to prevent empty database creation"
+
             # Restore from S3 (MinIO)
-            echo "Restoring database from S3..."
             if litestream restore -config /etc/litestream.yml -o "$DB_FILE" "$DB_FILE"; then
               echo "Database restored successfully from S3"
             else
-              echo "WARNING: No backup available - Overseerr will start fresh"
+              echo "ERROR: Database restore failed!"
+              echo "FATAL: No database available. Overseerr cannot start."
+              echo "Please check MinIO connectivity and litestream backup status."
+              exit 1
             fi
+
+            # Verify database exists after restore
+            if [ ! -f "$DB_FILE" ]; then
+              echo "FATAL: Database file does not exist after restore attempt!"
+              exit 1
+            fi
+
+            # Verify database is not empty/corrupted (Overseerr DB is typically ~160KB+)
+            DB_SIZE=$(stat -c%s "$DB_FILE" 2>/dev/null || echo "0")
+            if [ "$DB_SIZE" -lt 50000 ]; then
+              echo "FATAL: Database is too small ($DB_SIZE bytes) - likely corrupted or empty!"
+              echo "Expected at least 50KB for a valid Overseerr database."
+              rm -f "$DB_FILE"
+              exit 1
+            fi
+
+            echo "Restore complete - Database: $${DB_SIZE} bytes"
           EOF
           ]
 
