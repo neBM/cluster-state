@@ -293,4 +293,8 @@ module "k8s_elk" {
   es_data_path     = "/storage/v/glusterfs_elasticsearch_data"
   es_image_tag     = "9.2.3"
   kibana_image_tag = "9.2.3"
+
+  # Increased from 1Gi - OOM during Fleet policy deployment
+  kibana_memory_request = "1Gi"
+  kibana_memory_limit   = "2Gi"
 }
