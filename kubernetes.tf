@@ -278,6 +278,19 @@ module "k8s_media_centre" {
 }
 
 # =============================================================================
+# Jayne Martin Counselling Migration (007-jayne-martin-k8s-migration)
+# =============================================================================
+
+# Jayne Martin Counselling - Static website
+# Previously running on Nomad, migrated to K8s for consistency
+module "k8s_jayne_martin_counselling" {
+  source = "./modules-k8s/jayne-martin-counselling"
+
+  namespace = "default"
+  vpa_mode  = "Off" # Recommendations only
+}
+
+# =============================================================================
 # ELK Stack Migration (006-elk-k8s-migration)
 # =============================================================================
 
