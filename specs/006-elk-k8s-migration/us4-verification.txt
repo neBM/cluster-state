@@ -1,0 +1,35 @@
+# US4: Cleanup Verification
+Date: 2026-01-24
+
+## K8s ELK Stability
+- ES Pod: elasticsearch-0 (1/1 Running, 19+ min uptime)
+- Kibana Pod: kibana-7fc5fb7d74-zg9j7 (1/1 Running, 11+ min uptime)
+- Cluster Health: GREEN
+- All 189 shards active
+
+## Terraform State Cleanup
+- Removed: module.elk.nomad_job.this from state
+- Output elk_job_info removed from outputs.tf
+
+## Nomad Module Cleanup
+- Deleted: modules/elk/jobspec.nomad.hcl
+- Deleted: modules/elk/ directory
+- Updated: main.tf - removed module.elk declaration
+
+## Original ES Data Archived
+- Source: /var/lib/elasticsearch on Hestia
+- Archived to: /var/lib/elasticsearch.archived-20260124
+- Size: ~13GB
+- Note: Delete after 7 days if no issues
+
+## AGENTS.md Updated
+- Removed elk from "Remaining on Nomad" section
+- Added elk to "Migrated Services (K8s)" section
+- Updated Nomad reference from (elk, jayne-martin-counselling) to (jayne-martin-counselling)
+- Added 006-elk-k8s-migration to "Recent Changes"
+
+## Consul Service Registered
+- Service: elk-node-http pointing to 192.168.1.5:30092 (K8s NodePort)
+- Note: Elastic Agent reconfiguration still required (descoped)
+
+## RESULT: US4 COMPLETE
