@@ -116,6 +116,7 @@ resource "kubernetes_stateful_set" "plex" {
 
         # Init container to restore databases from litestream
         # Using 0.5 for restore as it supports the older LTX format used in existing backups
+        # CRITICAL: Plex MUST NOT start without a valid database - either pre-existing or restored
         init_container {
           name  = "litestream-restore"
           image = "litestream/litestream:0.5"
@@ -134,7 +135,8 @@ resource "kubernetes_stateful_set" "plex" {
               exit 0
             fi
 
-            echo "Restoring databases from S3..."
+            echo "No local database found - attempting restore from S3..."
+            echo "CRITICAL: Plex will NOT start if restore fails to prevent empty database creation"
             
             # Create litestream config with credentials
             cat > /tmp/litestream.yml << LSEOF
@@ -161,20 +163,52 @@ resource "kubernetes_stateful_set" "plex" {
                     force-path-style: true
             LSEOF
 
+            RESTORE_FAILED=0
+
+            echo "Restoring library database..."
             if litestream restore -config /tmp/litestream.yml -o "$LIBRARY_DB" "$LIBRARY_DB"; then
-              echo "Library database restored"
+              echo "Library database restored successfully"
             else
-              echo "WARNING: Library restore failed (may not exist yet)"
+              echo "ERROR: Library database restore failed!"
+              RESTORE_FAILED=1
             fi
 
+            echo "Restoring blobs database..."
             if litestream restore -config /tmp/litestream.yml -o "$BLOBS_DB" "$BLOBS_DB"; then
-              echo "Blobs database restored"
+              echo "Blobs database restored successfully"
             else
-              echo "WARNING: Blobs restore failed (may not exist yet)"
+              echo "ERROR: Blobs database restore failed!"
+              RESTORE_FAILED=1
+            fi
+
+            # Final verification - BOTH databases must exist
+            if [ ! -f "$LIBRARY_DB" ]; then
+              echo "FATAL: Library database does not exist after restore attempt!"
+              echo "Plex cannot start without a valid database."
+              echo "Please check MinIO connectivity and litestream backup status."
+              exit 1
+            fi
+
+            if [ ! -f "$BLOBS_DB" ]; then
+              echo "FATAL: Blobs database does not exist after restore attempt!"
+              echo "Plex cannot start without a valid database."
+              echo "Please check MinIO connectivity and litestream backup status."
+              exit 1
+            fi
+
+            # Verify databases are not empty (minimum viable size check)
+            LIBRARY_SIZE=$(stat -c%s "$LIBRARY_DB" 2>/dev/null || echo "0")
+            BLOBS_SIZE=$(stat -c%s "$BLOBS_DB" 2>/dev/null || echo "0")
+            
+            if [ "$LIBRARY_SIZE" -lt 100000 ]; then
+              echo "FATAL: Library database is too small ($LIBRARY_SIZE bytes) - likely corrupted or empty!"
+              echo "Expected at least 100KB for a valid Plex database."
+              rm -f "$LIBRARY_DB" "$BLOBS_DB"
+              exit 1
             fi
 
             chown -R 990:997 "$DB_DIR" 2>/dev/null || true
-            echo "Restore complete"
+            echo "Restore complete - Library: $${LIBRARY_SIZE} bytes, Blobs: $${BLOBS_SIZE} bytes"
           EOF
           ]
 

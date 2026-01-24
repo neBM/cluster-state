@@ -27,7 +27,6 @@ fi
 echo "Starting backup of GlusterFS volumes..."
 
 restic backup /data \
-  --verbose \
   --tag glusterfs \
   --tag scheduled \
   --iexclude-file=/config/excludes.txt \
