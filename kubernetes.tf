@@ -49,6 +49,21 @@ module "k8s_vault_integration" {
   source = "./k8s/core/vault-integration"
 }
 
+# Goldilocks - Automatic VPA creation and recommendations
+# Creates VPAs for all Deployments/StatefulSets in labeled namespaces
+# VPAs start in "Off" mode (recommendations only, no auto-scaling)
+module "k8s_goldilocks" {
+  source = "./modules-k8s/goldilocks"
+
+  namespace          = "kube-system"
+  enabled_namespaces = ["default"]
+  default_vpa_mode   = "Off"
+  enable_dashboard   = true
+  dashboard_host     = "goldilocks.brmartin.co.uk"
+  # OAuth handled by external Traefik, no K8s middleware needed
+  dashboard_middlewares = []
+}
+
 # Whoami - Stateless demo service
 module "k8s_whoami" {
   source = "./modules-k8s/whoami"
@@ -260,4 +275,22 @@ module "k8s_media_centre" {
   source = "./modules-k8s/media-centre"
 
   namespace = "default"
+}
+
+# =============================================================================
+# ELK Stack Migration (006-elk-k8s-migration)
+# =============================================================================
+
+# ELK Stack - Elasticsearch and Kibana
+# Single-node Elasticsearch cluster on GlusterFS
+# Migrated from 3-node Nomad cluster
+module "k8s_elk" {
+  source = "./modules-k8s/elk"
+
+  namespace        = "default"
+  es_hostname      = "es.brmartin.co.uk"
+  kibana_hostname  = "kibana.brmartin.co.uk"
+  es_data_path     = "/storage/v/glusterfs_elasticsearch_data"
+  es_image_tag     = "9.2.3"
+  kibana_image_tag = "9.2.3"
 }

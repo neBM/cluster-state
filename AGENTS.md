@@ -7,7 +7,7 @@ Infrastructure-as-Code repository for a hybrid Nomad/Kubernetes cluster. Most se
 ## Architecture
 
 - **Kubernetes (K3s)** - Primary workload orchestration (most services)
-- **Nomad** - Secondary orchestration (elk, jayne-martin-counselling)
+- **Nomad** - Secondary orchestration (jayne-martin-counselling only)
 - **Cilium** - Kubernetes CNI with network policies
 - **Traefik** - Ingress controller (K8s IngressRoutes)
 - **External Secrets Operator** - Syncs secrets from Vault to K8s
@@ -75,7 +75,7 @@ terraform plan -target='module.k8s_gitlab' -var="nomad_address=https://nomad.brm
 terraform apply tfplan
 
 # Target a specific Nomad module
-terraform plan -target=module.elk -var="nomad_address=https://nomad.brmartin.co.uk:443" -out=tfplan
+terraform plan -target=module.jayne_martin_counselling -var="nomad_address=https://nomad.brmartin.co.uk:443" -out=tfplan
 terraform apply tfplan
 ```
 
@@ -466,12 +466,12 @@ GlusterFS doesn't support Unix sockets. Services using sockets (Redis, Gitaly, P
 | plex | StatefulSet | Media server, NVIDIA GPU, litestream 0.5 backup |
 | jellyfin | Deployment | Alternative media server |
 | tautulli | Deployment | Plex monitoring/statistics |
+| elk | StatefulSet+Deployment | Elasticsearch 9.x + Kibana 9.x, data on GlusterFS |
 
 ## Remaining on Nomad
 
 | Service | Reason |
 |---------|--------|
-| elk | Complex 3-node Elasticsearch cluster |
 | jayne-martin-counselling | Simple static site |
 
 ## Active Technologies
@@ -480,8 +480,10 @@ GlusterFS doesn't support Unix sockets. Services using sockets (Redis, Gitaly, P
 - GlusterFS via NFS-Ganesha at `/storage/v/` on all nodes
 - NFS Subdir External Provisioner for dynamic PVC provisioning
 - MinIO (litestream backups)
-- Nomad for remaining services (elk, jayne-martin-counselling)
+- Nomad for remaining services (jayne-martin-counselling)
+- Elasticsearch 9.x, Kibana 9.x (K8s StatefulSet/Deployment)
 
 ## Recent Changes
+- 006-elk-k8s-migration: Migrated ELK stack from Nomad to Kubernetes
 - 005-k8s-volume-provisioning: Added NFS Subdir External Provisioner for automatic PVC directory creation
 - 004-nomad-to-k8s-migration: Migrated most services from Nomad to Kubernetes (K3s)

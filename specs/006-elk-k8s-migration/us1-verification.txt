@@ -1,0 +1,66 @@
+# User Story 1: Cluster Reduction Verification
+# Date: 2026-01-24 17:42 UTC
+# Task: T029
+
+## Summary
+Successfully reduced 3-node Elasticsearch cluster to single-node (Hestia) by:
+1. Setting all index replicas to 0
+2. Excluding Heracles and Nyx from allocation
+3. Waiting for shard relocation to complete
+
+## Actions Taken
+1. SET all indices to 0 replicas: `PUT /_all/_settings {"index.number_of_replicas": 0}`
+2. SET cluster exclusion: `PUT /_cluster/settings {"cluster.routing.allocation.exclude._name": "Heracles,Nyx"}`
+3. INCREASED disk watermarks temporarily (Hestia was at 86%, needed 90% threshold)
+   - low: 85% -> 90%
+   - high: 90% -> 95%
+   - flood_stage: 95% -> 97%
+4. Re-applied replica settings to data stream indices: `.ds-metrics-*` and `.ds-.logs-*`
+
+## Issue Encountered
+- Disk watermark blocked shard relocation (Hestia at 86%, default low watermark 85%)
+- Solution: Temporarily raised disk watermarks to 90%/95%/97%
+
+## Verification Results
+
+### Cluster Health
+- Status: GREEN
+- Number of nodes: 3 (still connected, just no data)
+- Number of data nodes: 3
+- Active primary shards: 189
+- Active shards: 189 (all on Hestia, no replicas)
+- Relocating shards: 0
+- Unassigned shards: 0
+
+### Shard Distribution
+- Hestia: 189 shards (100%)
+- Heracles: 0 shards
+- Nyx: 0 shards
+
+### Document Count
+- Baseline: 29,400,535
+- Current: 29,410,045
+- Delta: +9,510 (expected increase from continued log ingestion during relocation)
+- Status: PASSED (no data loss)
+
+### Cluster Settings
+```json
+{
+  "persistent": {
+    "cluster.routing.allocation.exclude._name": "Heracles,Nyx",
+    "cluster.routing.allocation.disk.watermark.low": "90%",
+    "cluster.routing.allocation.disk.watermark.high": "95%",
+    "cluster.routing.allocation.disk.watermark.flood_stage": "97%"
+  }
+}
+```
+
+## Next Steps
+- User Story 2: Stop Nomad ELK job
+- User Story 2: rsync data from /var/lib/elasticsearch to /storage/v/glusterfs_elasticsearch_data
+- User Story 2: Apply K8s ELK module
+
+## Notes
+- Disk watermarks will be reset after K8s migration (new storage on GlusterFS)
+- All data is now on Hestia's local disk at /var/lib/elasticsearch
+- Heracles and Nyx ES nodes are running but have no data shards

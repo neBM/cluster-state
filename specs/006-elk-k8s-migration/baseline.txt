@@ -1,0 +1,27 @@
+# Elasticsearch Migration Baseline
+# Date: 2026-01-24 17:19:33 UTC
+# Task: T002
+
+## Document Count
+Baseline document count: 29400535
+
+## Cluster State
+- Status: green
+- Nodes: 3
+- Data nodes: 3
+- Primary shards: 189
+- Total shards: 378 (with replicas)
+
+## Node Information
+- Hestia (192.168.1.5): amd64, local disk 41.3GB avail, 87% used
+- Heracles (192.168.1.6): arm64, master node, 678.6GB avail
+- Nyx (192.168.1.7): arm64, 720.8GB avail
+
+## Storage
+- GlusterFS at /storage/v/: 1.4TB available (26% used)
+- ES data will be migrated to /storage/v/glusterfs_elasticsearch_data
+
+## Notes
+- Hestia local disk is 87% full - NOT suitable for local ES data storage
+- GlusterFS has ample space (1.4TB) for migration
+- All shards need to be relocated to single node before data migration

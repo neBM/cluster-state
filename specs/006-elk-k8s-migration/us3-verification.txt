@@ -1,0 +1,26 @@
+# US3: Service Verification
+Date: 2026-01-24
+
+## Elasticsearch Status
+NAME              READY   STATUS    RESTARTS   AGE
+elasticsearch-0   1/1     Running   0          13m
+
+## Kibana Status
+NAME                      READY   STATUS    RESTARTS   AGE
+kibana-7fc5fb7d74-zg9j7   1/1     Running   0          6m3s
+
+## External URL Verification
+ES URL (https://es.brmartin.co.uk): HTTP 200
+Kibana URL (https://kibana.brmartin.co.uk): HTTP 200
+
+## Log Ingestion Status
+Last log timestamp: 2026-01-24T17:43:34.267Z (before Nomad ELK job stopped)
+Log shipping: NOT CONFIGURED - Needs separate Filebeat/Elastic Agent deployment
+NOTE: Log shipping was tied to the Nomad ELK infrastructure and needs to be
+      separately configured for K8s. This is out of scope for the ES migration.
+
+## Kibana Connectivity to ES
+Kibana logs show: 'Successfully connected to Elasticsearch'
+Kibana status: All 176 plugins started successfully
+
+## RESULT: US3 PARTIAL - ES and Kibana working, log shipping needs reconfiguration

@@ -1,0 +1,68 @@
+# US2: ES Data Migration Verification
+Date: 2026-01-24
+
+## Nomad ELK Job Stopped
+- Job stopped successfully: nomad job stop elk
+
+## Data Migration
+- Source: /var/lib/elasticsearch on Hestia (Docker volume)
+- Destination: /storage/v/glusterfs_elasticsearch_data (GlusterFS)
+- Data size: ~13GB
+- rsync completed successfully
+
+## Voting Configuration Fix
+- elasticsearch-node unsafe-bootstrap executed to update voting config from 3-node to single-node
+
+## K8s ELK Module Applied
+- ConfigMap elasticsearch-config created with anonymous access for health checks
+- StatefulSet elasticsearch created and imported into Terraform state
+- Deployment kibana created and imported into Terraform state
+- Services, IngressRoutes created
+
+## ES Pod Status
+NAME              READY   STATUS    RESTARTS   AGE
+elasticsearch-0   1/1     Running   0          12m
+
+## Cluster Health
+{
+  "cluster_name" : "docker-cluster",
+  "status" : "green",
+  "timed_out" : false,
+  "number_of_nodes" : 1,
+  "number_of_data_nodes" : 1,
+  "active_primary_shards" : 189,
+  "active_shards" : 189,
+  "relocating_shards" : 0,
+  "initializing_shards" : 0,
+  "unassigned_shards" : 0,
+  "unassigned_primary_shards" : 0,
+  "delayed_unassigned_shards" : 0,
+  "number_of_pending_tasks" : 0,
+  "number_of_in_flight_fetch" : 0,
+  "task_max_waiting_in_queue_millis" : 0,
+  "active_shards_percent_as_number" : 100.0
+}
+
+## Document Count
+  "_all" : {
+    "primaries" : {
+      "docs" : {
+        "count" : 29410776,
+
+## Index Count
+Total indices: 90
+
+## Kibana Status
+NAME                      READY   STATUS    RESTARTS   AGE
+kibana-7fc5fb7d74-zg9j7   1/1     Running   0          5m
+
+## External URLs
+ES URL (https://es.brmartin.co.uk): HTTP 200
+Kibana URL (https://kibana.brmartin.co.uk): HTTP 200
+
+## Baseline Comparison
+Baseline doc count: ~29,400,535
+Current doc count: ~29,410,788
+Status: PASS - Document count matches (slight increase due to ongoing logging)
+
+## RESULT: US2 COMPLETE
