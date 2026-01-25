@@ -68,7 +68,7 @@ variable "redis_tag" {
   description = "Redis image tag"
   type        = string
   # renovate: datasource=docker depName=redis
-  default = "7-alpine"
+  default = "8-alpine"
 }
 
 # =============================================================================

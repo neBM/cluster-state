@@ -52,7 +52,7 @@ variable "redis_tag" {
   description = "Docker image tag for Redis"
   type        = string
   # renovate: datasource=docker depName=redis
-  default = "7-alpine"
+  default = "8-alpine"
 }
 
 variable "config_path" {
