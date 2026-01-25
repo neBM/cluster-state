@@ -28,13 +28,13 @@
       ]
     },
     {
-      "description": "Group all Nomad jobspec Docker image updates",
+      "description": "Group all K8s module Docker image updates",
       "matchFileNames": [
-        "modules/**/*.hcl"
+        "modules-k8s/**/*.tf"
       ],
-      "groupName": "nomad-images",
+      "groupName": "k8s-images",
       "labels": [
-        "nomad",
+        "kubernetes",
         "docker",
         "dependencies"
       ]
@@ -67,24 +67,24 @@
   "customManagers": [
     {
       "customType": "regex",
-      "description": "Update Docker images in Nomad HCL jobspecs",
+      "description": "Update Docker images in Terraform K8s modules",
       "datasourceTemplate": "docker",
-      "managerFilePatterns": [
-        "/\\.hcl$/"
+      "fileMatch": [
+        "modules-k8s/.*\\.tf$"
       ],
       "matchStrings": [
-        "\\s*image\\s*=\\s*\"(?<depName>.*?):(?<currentValue>.*?)\""
+        "\\s*image\\s*=\\s*\"(?<depName>[^:]+):(?<currentValue>[^\"]+)\""
       ]
     },
     {
       "customType": "regex",
-      "description": "Update Docker images in Terraform files with renovate comment",
+      "description": "Update Docker images in Terraform variables with renovate comment",
       "datasourceTemplate": "docker",
-      "managerFilePatterns": [
-        "/\\.tf$/"
+      "fileMatch": [
+        "\\.tf$"
       ],
       "matchStrings": [
-        "#\\s*renovate:\\s*image=(?<depName>[^\\s]+)\\s+\"[^\"]+\"\\s*=\\s*\"(?<currentValue>[^\"]+)\""
+        "#\\s*renovate:\\s*image=(?<depName>[^\\s]+)\\n\\s*default\\s*=\\s*\"(?<currentValue>[^\"]+)\""
       ]
     }
   ],

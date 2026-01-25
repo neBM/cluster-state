@@ -54,7 +54,7 @@ resource "kubernetes_cron_job_v1" "renovate" {
 
               env {
                 name  = "RENOVATE_ENDPOINT"
-                value = "http://gitlab.default.svc.cluster.local/api/v4"
+                value = "http://gitlab-workhorse.default.svc.cluster.local:8181/api/v4"
               }
 
               env {
