@@ -113,13 +113,13 @@ variable "es_tiebreaker_node" {
 variable "es_data_memory_request" {
   description = "Memory request for ES data nodes"
   type        = string
-  default     = "6Gi"
+  default     = "4Gi"
 }
 
 variable "es_data_memory_limit" {
   description = "Memory limit for ES data nodes"
   type        = string
-  default     = "6Gi"
+  default     = "4Gi"
 }
 
 variable "es_data_cpu_request" {
@@ -137,7 +137,7 @@ variable "es_data_cpu_limit" {
 variable "es_data_java_opts" {
   description = "JVM options for ES data nodes (heap should be ~50% of memory limit)"
   type        = string
-  default     = "-Xms3g -Xmx3g"
+  default     = "-Xms2g -Xmx2g"
 }
 
 variable "es_tiebreaker_memory_request" {
