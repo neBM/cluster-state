@@ -311,3 +311,21 @@ module "k8s_elk" {
   kibana_memory_request = "1Gi"
   kibana_memory_limit   = "2Gi"
 }
+
+# =============================================================================
+# Observability
+# =============================================================================
+
+# Elastic Agent - K8s log collection via Fleet
+# DaemonSet collects container logs from all nodes
+# Enrollment token stored in elastic-system/elastic-agent-enrollment secret
+module "k8s_elastic_agent" {
+  source = "./modules-k8s/elastic-agent"
+
+  namespace                    = "elastic-system"
+  fleet_url                    = "https://192.168.1.5:8220" # hestia.lan - use IP for K8s DNS compatibility
+  fleet_insecure               = true                       # Fleet Server uses self-signed cert
+  enrollment_token_secret_name = "elastic-agent-enrollment"
+  enrollment_token_secret_key  = "token"
+  elastic_agent_image          = "docker.elastic.co/elastic-agent/elastic-agent:9.2.4"
+}
