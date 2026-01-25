@@ -26,14 +26,12 @@ See the `docs/` directory for detailed documentation:
 ## Project Structure
 
 ```
-modules-k8s/       # Kubernetes modules (primary)
+modules-k8s/       # Kubernetes modules
   ├── <service>/
   │   ├── main.tf              # K8s deployments, services, ingress
   │   └── variables.tf         # Module variables
-modules/           # Nomad modules (legacy, decommissioned)
-  ├── nomad-job/               # Generic Nomad job wrapper (unused)
 kubernetes.tf      # K8s module definitions
-main.tf            # Terraform config (Nomad modules removed)
+main.tf            # Terraform config
 ```
 
 ## Cluster Nodes
@@ -56,23 +54,19 @@ main.tf            # Terraform config (Nomad modules removed)
 
 ### Terraform
 
-Environment variables (Nomad token, Vault token, etc.) must be loaded before running Terraform:
+Environment variables (Vault token, etc.) must be loaded before running Terraform:
 
 ```bash
 # REQUIRED before any terraform command
 # set -a exports all variables, set +a stops exporting
 set -a && source .env && set +a
 
-# Plan and apply all changes (includes both K8s and Nomad)
-terraform plan -var="nomad_address=https://nomad.brmartin.co.uk:443" -out=tfplan
+# Plan and apply all changes
+terraform plan -out=tfplan
 terraform apply tfplan
 
-# Target a specific K8s module
-terraform plan -target='module.k8s_gitlab' -var="nomad_address=https://nomad.brmartin.co.uk:443" -out=tfplan
-terraform apply tfplan
-
-# Target a specific Nomad module
-terraform plan -target=module.jayne_martin_counselling -var="nomad_address=https://nomad.brmartin.co.uk:443" -out=tfplan
+# Target a specific module
+terraform plan -target='module.k8s_gitlab' -out=tfplan
 terraform apply tfplan
 ```
 
@@ -98,19 +92,6 @@ kubectl get deployments,statefulsets,cronjobs -n default
 
 # Rollout restart (redeploy without config change)
 kubectl rollout restart deployment/<name> -n default
-```
-
-### Nomad (for remaining services)
-
-```bash
-nomad job status <job>
-nomad alloc logs <alloc> <task>
-nomad alloc logs -tail -n 50 <alloc> <task>
-nomad alloc exec -task <task> <alloc> <command>
-nomad volume status
-
-# Force reschedule a job (useful after fixing issues)
-nomad job eval -force-reschedule <job-name>
 ```
 
 ### SSH to Nodes
@@ -248,16 +229,14 @@ volume {
 
 ## Critical Warnings
 
-- **CSI Volume Deletion**: `nomad volume delete` AND `terraform destroy` of `nomad_csi_volume` resources **delete the underlying data**. Always backup first or use `terraform state rm` to remove from state without destroying.
 - **SQLite on Network Storage**: Use ephemeral disk with litestream for SQLite databases. Network filesystems cause locking issues.
 - **SQLite WAL Mode**: Litestream requires WAL mode. Empty WAL files need a write to initialize the header.
-- **Consul Connect Sidecar Memory**: Default 128MB is insufficient for envoy proxy (~90-130MB baseline). Set `memory=256, memory_max=512` to prevent OOM kills that cascade across services.
 - **Terraform lifecycle ignore_changes**: NEVER use `ignore_changes` in lifecycle blocks. It hides drift and creates confusing configs. Fix the root cause instead (e.g., remove unused fields, use `terraform state rm` to reset state).
 
 ## Debugging Tips
 
 ### Litestream Issues
-- Check logs: `kubectl logs <pod> -c litestream` (K8s) or `nomad alloc logs <alloc> litestream` (Nomad)
+- Check logs: `kubectl logs <pod> -c litestream`
 - "database disk image is malformed" during checkpoint = WAL/database mismatch
 - Fix: Stop allocation, restore clean database, remove `-wal` and `-shm` files, restart
 - **Version compatibility**: Litestream 0.5.x uses LTX format, 0.3.x uses generations format. These are NOT compatible. Ensure restore and replicate use the same version.
@@ -266,10 +245,8 @@ volume {
 If litestream backup in MinIO is corrupted (decode errors on restore), recover from restic:
 
 ```bash
-# 1. Stop the affected service (K8s)
+# 1. Stop the affected service
 KUBECONFIG=~/.kube/k3s-config kubectl scale statefulset/<name> --replicas=0 -n default
-# Or for Nomad:
-# nomad job stop <job-name>
 
 # 2. Wipe corrupted litestream backup from MinIO
 /usr/bin/ssh 192.168.1.5 "sudo rm -rf /storage/v/glusterfs_minio_data/<bucket>/db/*"
@@ -295,14 +272,12 @@ RESTIC_PW=$(vault kv get -format=json nomad/default/restic-backup | jq -r '.data
 # 6. Clean up and restart
 /usr/bin/ssh 192.168.1.5 "sudo rm -rf /tmp/restore"
 KUBECONFIG=~/.kube/k3s-config kubectl scale statefulset/<name> --replicas=1 -n default
-# Or for Nomad:
-# nomad job run <job-name>
 ```
 
 ### GlusterFS Architecture
 
 ```
-Heracles (/data/glusterfs/brick1) ─┬─ GlusterFS "nomad-vol" (Distributed)
+Heracles (/data/glusterfs/brick1) ─┬─ GlusterFS "storage-vol" (Distributed)
 Nyx (/data/glusterfs/brick1) ──────┘
                                    │
                                    ▼
@@ -390,9 +365,6 @@ When services report "stale file handle" errors after NFS changes or node restar
 
 # 2. Delete the affected pod (K8s will recreate with fresh mounts)
 KUBECONFIG=~/.kube/k3s-config kubectl delete pod <pod-name> -n default
-
-# For Nomad services:
-# nomad alloc stop <alloc-id>
 ```
 
 **Severe cases:** If kernel NFS client cache is deeply corrupted (e.g., after cluster instability or sustained fileid changes), a **full node reboot** may be required to clear the kernel NFS client cache completely.
@@ -438,9 +410,8 @@ GlusterFS doesn't support Unix sockets. Services using sockets (Redis, Gitaly, P
 - Elasticsearch: https://es.brmartin.co.uk
 - MinIO Console: https://minio.brmartin.co.uk
 - Keycloak (SSO): https://sso.brmartin.co.uk
-- Nomad UI: https://nomad.brmartin.co.uk:443
 
-## Migrated Services (K8s)
+## Services (K8s)
 
 | Service | Type | Notes |
 |---------|------|-------|
@@ -465,10 +436,6 @@ GlusterFS doesn't support Unix sockets. Services using sockets (Redis, Gitaly, P
 | tautulli | Deployment | Plex monitoring/statistics |
 | elk | StatefulSet+Deployment | Elasticsearch 9.x multi-node (2 data + 1 tiebreaker) + Kibana 9.x, data on local NVMe |
 | jayne-martin-counselling | Deployment | Static counselling website |
-
-## Remaining on Nomad
-
-*All services have been migrated to Kubernetes. Nomad has been decommissioned.*
 
 ## Active Technologies
 - HCL (Terraform 1.x), YAML (K8s manifests via Terraform kubernetes provider)
