@@ -7,7 +7,8 @@ variable "namespace" {
 variable "image_tag" {
   description = "MinIO container image tag"
   type        = string
-  default     = "latest"
+  # renovate: datasource=docker depName=quay.io/minio/minio
+  default = "latest"
 }
 
 variable "console_hostname" {

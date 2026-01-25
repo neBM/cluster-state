@@ -54,7 +54,7 @@ resource "kubernetes_deployment" "open_webui" {
       spec {
         container {
           name  = "open-webui"
-          image = var.image
+          image = "${var.image}:${var.image_tag}"
 
           port {
             container_port = 8080
@@ -228,7 +228,7 @@ resource "kubernetes_deployment" "valkey" {
       spec {
         container {
           name  = "valkey"
-          image = var.valkey_image
+          image = "${var.valkey_image}:${var.valkey_tag}"
 
           port {
             container_port = 6379
@@ -295,7 +295,7 @@ resource "kubernetes_deployment" "postgres" {
       spec {
         container {
           name  = "postgres"
-          image = var.postgres_image
+          image = "${var.postgres_image}:${var.postgres_tag}"
 
           port {
             container_port = 5432

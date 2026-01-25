@@ -5,9 +5,16 @@ variable "namespace" {
 }
 
 variable "image" {
-  description = "PlexTraktSync Docker image"
+  description = "PlexTraktSync Docker image name"
   type        = string
-  default     = "ghcr.io/taxel/plextraktsync:0.34.20"
+  default     = "ghcr.io/taxel/plextraktsync"
+}
+
+variable "image_tag" {
+  description = "PlexTraktSync Docker image tag"
+  type        = string
+  # renovate: datasource=docker depName=ghcr.io/taxel/plextraktsync
+  default = "0.34.20"
 }
 
 variable "config_path" {

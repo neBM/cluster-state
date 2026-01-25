@@ -62,7 +62,7 @@ resource "kubernetes_deployment" "nextcloud" {
         # Redis sidecar for caching and file locking
         container {
           name  = "redis"
-          image = var.redis_image
+          image = "${var.redis_image}:${var.redis_tag}"
           args  = ["--save", ""] # Disable persistence, ephemeral cache only
 
           port {
@@ -91,7 +91,7 @@ resource "kubernetes_deployment" "nextcloud" {
         # Main Nextcloud container
         container {
           name  = "nextcloud"
-          image = var.nextcloud_image
+          image = "${var.nextcloud_image}:${var.nextcloud_tag}"
 
           port {
             container_port = 80
@@ -199,7 +199,7 @@ resource "kubernetes_deployment" "nextcloud" {
         # Cron container for background jobs
         container {
           name    = "cron"
-          image   = var.nextcloud_image
+          image   = "${var.nextcloud_image}:${var.nextcloud_tag}"
           command = ["/cron.sh"]
 
           env {
@@ -307,7 +307,7 @@ resource "kubernetes_deployment" "collabora" {
       spec {
         container {
           name  = "collabora"
-          image = var.collabora_image
+          image = "${var.collabora_image}:${var.collabora_tag}"
 
           port {
             container_port = 9980

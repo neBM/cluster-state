@@ -142,7 +142,7 @@ resource "kubernetes_deployment" "goldilocks_controller" {
 
         container {
           name  = "goldilocks"
-          image = var.image
+          image = "${var.image}:${var.image_tag}"
 
           command = ["/goldilocks", "controller"]
 
@@ -211,7 +211,7 @@ resource "kubernetes_deployment" "goldilocks_dashboard" {
 
         container {
           name  = "goldilocks"
-          image = var.image
+          image = "${var.image}:${var.image_tag}"
 
           command = ["/goldilocks", "dashboard", "--port=8080"]
 

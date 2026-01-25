@@ -336,5 +336,5 @@ module "k8s_elastic_agent" {
   fleet_insecure               = true                       # Fleet Server uses self-signed cert
   enrollment_token_secret_name = "elastic-agent-enrollment"
   enrollment_token_secret_key  = "token"
-  elastic_agent_image          = "docker.elastic.co/elastic-agent/elastic-agent:9.2.4"
+  # Image defaults set in module variables with renovate comments
 }

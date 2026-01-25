@@ -7,13 +7,15 @@ variable "namespace" {
 variable "es_image_tag" {
   description = "Elasticsearch container image tag"
   type        = string
-  default     = "9.2.3"
+  # renovate: datasource=docker depName=docker.elastic.co/elasticsearch/elasticsearch
+  default = "9.2.3"
 }
 
 variable "kibana_image_tag" {
   description = "Kibana container image tag"
   type        = string
-  default     = "9.2.3"
+  # renovate: datasource=docker depName=docker.elastic.co/kibana/kibana
+  default = "9.2.3"
 }
 
 variable "es_hostname" {

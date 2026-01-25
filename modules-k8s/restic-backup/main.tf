@@ -141,7 +141,7 @@ resource "kubernetes_cron_job_v1" "restic_backup" {
 
             container {
               name    = "restic"
-              image   = var.image
+              image   = "${var.image}:${var.image_tag}"
               command = ["/bin/sh", "/config/backup.sh"]
 
               volume_mount {

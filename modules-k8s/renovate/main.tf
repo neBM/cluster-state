@@ -45,7 +45,7 @@ resource "kubernetes_cron_job_v1" "renovate" {
 
             container {
               name  = "renovate"
-              image = var.image
+              image = "${var.image}:${var.image_tag}"
 
               env {
                 name  = "RENOVATE_PLATFORM"

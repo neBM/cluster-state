@@ -5,21 +5,42 @@ variable "namespace" {
 }
 
 variable "plex_image" {
-  description = "Plex Docker image"
+  description = "Plex Docker image name"
   type        = string
-  default     = "plexinc/pms-docker:latest"
+  default     = "plexinc/pms-docker"
+}
+
+variable "plex_tag" {
+  description = "Plex Docker image tag"
+  type        = string
+  # renovate: datasource=docker depName=plexinc/pms-docker
+  default = "latest"
 }
 
 variable "jellyfin_image" {
-  description = "Jellyfin Docker image"
+  description = "Jellyfin Docker image name"
   type        = string
-  default     = "ghcr.io/jellyfin/jellyfin:10.10.6"
+  default     = "ghcr.io/jellyfin/jellyfin"
+}
+
+variable "jellyfin_tag" {
+  description = "Jellyfin Docker image tag"
+  type        = string
+  # renovate: datasource=docker depName=ghcr.io/jellyfin/jellyfin
+  default = "10.10.6"
 }
 
 variable "tautulli_image" {
-  description = "Tautulli Docker image"
+  description = "Tautulli Docker image name"
   type        = string
-  default     = "ghcr.io/tautulli/tautulli:v2.15.1"
+  default     = "ghcr.io/tautulli/tautulli"
+}
+
+variable "tautulli_tag" {
+  description = "Tautulli Docker image tag"
+  type        = string
+  # renovate: datasource=docker depName=ghcr.io/tautulli/tautulli
+  default = "v2.15.1"
 }
 
 variable "plex_config_path" {

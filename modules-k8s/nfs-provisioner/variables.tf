@@ -35,7 +35,14 @@ variable "path_pattern" {
 }
 
 variable "provisioner_image" {
-  description = "Container image for the NFS provisioner"
+  description = "Container image name for the NFS provisioner"
   type        = string
-  default     = "registry.k8s.io/sig-storage/nfs-subdir-external-provisioner:v4.0.2"
+  default     = "registry.k8s.io/sig-storage/nfs-subdir-external-provisioner"
+}
+
+variable "provisioner_tag" {
+  description = "Container image tag for the NFS provisioner"
+  type        = string
+  # renovate: datasource=docker depName=registry.k8s.io/sig-storage/nfs-subdir-external-provisioner
+  default = "v4.0.2"
 }

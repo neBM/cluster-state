@@ -441,7 +441,7 @@ resource "kubernetes_deployment" "redis" {
       spec {
         container {
           name  = "redis"
-          image = var.redis_image
+          image = "${var.redis_image}:${var.redis_tag}"
 
           port {
             name           = "redis"

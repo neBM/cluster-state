@@ -10,40 +10,86 @@ variable "hostname" {
   default     = "docs.brmartin.co.uk"
 }
 
+# =============================================================================
+# Container Images
+# =============================================================================
+
 variable "gotrue_image" {
-  description = "Docker image for gotrue"
+  description = "Docker image name for gotrue"
   type        = string
-  default     = "appflowyinc/gotrue:latest"
+  default     = "appflowyinc/gotrue"
+}
+
+variable "gotrue_tag" {
+  description = "Docker image tag for gotrue"
+  type        = string
+  # renovate: datasource=docker depName=appflowyinc/gotrue
+  default = "latest"
 }
 
 variable "cloud_image" {
-  description = "Docker image for AppFlowy cloud"
+  description = "Docker image name for AppFlowy cloud"
   type        = string
-  default     = "appflowyinc/appflowy_cloud:latest"
+  default     = "appflowyinc/appflowy_cloud"
+}
+
+variable "cloud_tag" {
+  description = "Docker image tag for AppFlowy cloud"
+  type        = string
+  # renovate: datasource=docker depName=appflowyinc/appflowy_cloud
+  default = "latest"
 }
 
 variable "worker_image" {
-  description = "Docker image for AppFlowy worker"
+  description = "Docker image name for AppFlowy worker"
   type        = string
-  default     = "appflowyinc/appflowy_worker:latest"
+  default     = "appflowyinc/appflowy_worker"
+}
+
+variable "worker_tag" {
+  description = "Docker image tag for AppFlowy worker"
+  type        = string
+  # renovate: datasource=docker depName=appflowyinc/appflowy_worker
+  default = "latest"
 }
 
 variable "web_image" {
-  description = "Docker image for AppFlowy web"
+  description = "Docker image name for AppFlowy web"
   type        = string
-  default     = "appflowyinc/appflowy_web:latest"
+  default     = "appflowyinc/appflowy_web"
+}
+
+variable "web_tag" {
+  description = "Docker image tag for AppFlowy web"
+  type        = string
+  # renovate: datasource=docker depName=appflowyinc/appflowy_web
+  default = "latest"
 }
 
 variable "postgres_image" {
-  description = "Docker image for PostgreSQL with pgvector"
+  description = "Docker image name for PostgreSQL with pgvector"
   type        = string
-  default     = "pgvector/pgvector:pg16"
+  default     = "pgvector/pgvector"
+}
+
+variable "postgres_tag" {
+  description = "Docker image tag for PostgreSQL with pgvector"
+  type        = string
+  # renovate: datasource=docker depName=pgvector/pgvector
+  default = "pg16"
 }
 
 variable "redis_image" {
-  description = "Docker image for Redis"
+  description = "Docker image name for Redis"
   type        = string
-  default     = "redis:latest"
+  default     = "redis"
+}
+
+variable "redis_tag" {
+  description = "Docker image tag for Redis"
+  type        = string
+  # renovate: datasource=docker depName=redis
+  default = "latest"
 }
 
 variable "postgres_data_path" {

@@ -7,5 +7,6 @@ variable "namespace" {
 variable "image_tag" {
   description = "Ollama image tag"
   type        = string
-  default     = "0.14.3"
+  # renovate: datasource=docker depName=ollama/ollama
+  default = "0.14.3"
 }

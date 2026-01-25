@@ -35,41 +35,86 @@ variable "well_known_hostname" {
   default     = "brmartin.co.uk"
 }
 
-# Images
+# =============================================================================
+# Container Images
+# =============================================================================
+
 variable "synapse_image" {
-  description = "Synapse Docker image"
+  description = "Synapse Docker image name"
   type        = string
-  default     = "ghcr.io/element-hq/synapse:v1.145.0"
+  default     = "ghcr.io/element-hq/synapse"
+}
+
+variable "synapse_tag" {
+  description = "Synapse Docker image tag"
+  type        = string
+  # renovate: datasource=docker depName=ghcr.io/element-hq/synapse
+  default = "v1.145.0"
 }
 
 variable "mas_image" {
-  description = "Matrix Authentication Service Docker image"
+  description = "Matrix Authentication Service Docker image name"
   type        = string
-  default     = "ghcr.io/element-hq/matrix-authentication-service:1.9.0"
+  default     = "ghcr.io/element-hq/matrix-authentication-service"
+}
+
+variable "mas_tag" {
+  description = "Matrix Authentication Service Docker image tag"
+  type        = string
+  # renovate: datasource=docker depName=ghcr.io/element-hq/matrix-authentication-service
+  default = "1.9.0"
 }
 
 variable "whatsapp_image" {
-  description = "WhatsApp bridge Docker image"
+  description = "WhatsApp bridge Docker image name"
   type        = string
-  default     = "dock.mau.dev/mautrix/whatsapp:v0.2601.0"
+  default     = "dock.mau.dev/mautrix/whatsapp"
+}
+
+variable "whatsapp_tag" {
+  description = "WhatsApp bridge Docker image tag"
+  type        = string
+  # renovate: datasource=docker depName=dock.mau.dev/mautrix/whatsapp
+  default = "v0.2601.0"
 }
 
 variable "element_image" {
-  description = "Element web Docker image"
+  description = "Element web Docker image name"
   type        = string
-  default     = "docker.io/vectorim/element-web:v1.12.8"
+  default     = "docker.io/vectorim/element-web"
+}
+
+variable "element_tag" {
+  description = "Element web Docker image tag"
+  type        = string
+  # renovate: datasource=docker depName=docker.io/vectorim/element-web
+  default = "v1.12.8"
 }
 
 variable "cinny_image" {
-  description = "Cinny Docker image"
+  description = "Cinny Docker image name"
   type        = string
-  default     = "ghcr.io/cinnyapp/cinny:v4.10.2"
+  default     = "ghcr.io/cinnyapp/cinny"
+}
+
+variable "cinny_tag" {
+  description = "Cinny Docker image tag"
+  type        = string
+  # renovate: datasource=docker depName=ghcr.io/cinnyapp/cinny
+  default = "v4.10.2"
 }
 
 variable "nginx_image" {
-  description = "Nginx Docker image"
+  description = "Nginx Docker image name"
   type        = string
-  default     = "docker.io/library/nginx:1.29.4-alpine"
+  default     = "docker.io/library/nginx"
+}
+
+variable "nginx_tag" {
+  description = "Nginx Docker image tag"
+  type        = string
+  # renovate: datasource=docker depName=docker.io/library/nginx
+  default = "1.29.4-alpine"
 }
 
 # Storage paths (GlusterFS NFS mounts on Hestia)

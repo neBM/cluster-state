@@ -50,7 +50,7 @@ resource "kubernetes_cron_job_v1" "plextraktsync" {
 
             container {
               name    = "plextraktsync"
-              image   = var.image
+              image   = "${var.image}:${var.image_tag}"
               command = ["plextraktsync", "sync"]
 
               volume_mount {

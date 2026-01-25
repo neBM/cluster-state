@@ -118,7 +118,7 @@ resource "kubernetes_deployment" "runner_amd64" {
 
         container {
           name  = "gitlab-runner"
-          image = var.image
+          image = "${var.image}:${var.image_tag}"
           args  = ["run", "--config", "/config/config.toml"]
 
           security_context {
@@ -236,7 +236,7 @@ resource "kubernetes_deployment" "runner_arm64" {
 
         container {
           name  = "gitlab-runner"
-          image = var.image
+          image = "${var.image}:${var.image_tag}"
           args  = ["run", "--config", "/config/config.toml"]
 
           security_context {

@@ -259,7 +259,7 @@ resource "kubernetes_stateful_set" "plex" {
         # Plex container
         container {
           name  = "plex"
-          image = var.plex_image
+          image = "${var.plex_image}:${var.plex_tag}"
 
           port {
             container_port = 32400
@@ -539,7 +539,7 @@ resource "kubernetes_deployment" "jellyfin" {
 
         container {
           name  = "jellyfin"
-          image = var.jellyfin_image
+          image = "${var.jellyfin_image}:${var.jellyfin_tag}"
 
           port {
             container_port = 8096
@@ -719,7 +719,7 @@ resource "kubernetes_deployment" "tautulli" {
       spec {
         container {
           name  = "tautulli"
-          image = var.tautulli_image
+          image = "${var.tautulli_image}:${var.tautulli_tag}"
 
           port {
             container_port = 8181

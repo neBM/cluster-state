@@ -114,7 +114,7 @@ resource "kubernetes_deployment" "provisioner" {
 
         container {
           name  = "nfs-provisioner"
-          image = var.provisioner_image
+          image = "${var.provisioner_image}:${var.provisioner_tag}"
 
           env {
             name  = "PROVISIONER_NAME"

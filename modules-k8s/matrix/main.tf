@@ -333,7 +333,7 @@ resource "kubernetes_deployment" "synapse" {
 
         container {
           name  = "synapse"
-          image = var.synapse_image
+          image = "${var.synapse_image}:${var.synapse_tag}"
 
           port {
             container_port = 8008
@@ -468,7 +468,7 @@ resource "kubernetes_deployment" "mas" {
 
         container {
           name  = "mas"
-          image = var.mas_image
+          image = "${var.mas_image}:${var.mas_tag}"
 
           port {
             container_port = 8081
@@ -578,7 +578,7 @@ resource "kubernetes_deployment" "whatsapp_bridge" {
 
         container {
           name  = "whatsapp-bridge"
-          image = var.whatsapp_image
+          image = "${var.whatsapp_image}:${var.whatsapp_tag}"
 
           port {
             container_port = 8082
@@ -721,7 +721,7 @@ resource "kubernetes_deployment" "nginx" {
       spec {
         container {
           name  = "nginx"
-          image = var.nginx_image
+          image = "${var.nginx_image}:${var.nginx_tag}"
 
           port {
             container_port = 8080
@@ -883,7 +883,7 @@ resource "kubernetes_deployment" "element" {
       spec {
         container {
           name  = "element"
-          image = var.element_image
+          image = "${var.element_image}:${var.element_tag}"
 
           port {
             container_port = 80
@@ -1017,7 +1017,7 @@ resource "kubernetes_deployment" "cinny" {
       spec {
         container {
           name  = "cinny"
-          image = var.cinny_image
+          image = "${var.cinny_image}:${var.cinny_tag}"
 
           port {
             container_port = 80

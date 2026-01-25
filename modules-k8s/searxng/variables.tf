@@ -7,7 +7,8 @@ variable "namespace" {
 variable "image_tag" {
   description = "SearXNG container image tag"
   type        = string
-  default     = "2025.11.1-0245327fc"
+  # renovate: datasource=docker depName=docker.io/searxng/searxng
+  default = "2025.11.1-0245327fc"
 }
 
 variable "hostname" {

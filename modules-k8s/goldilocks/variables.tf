@@ -5,9 +5,16 @@ variable "namespace" {
 }
 
 variable "image" {
-  description = "Goldilocks container image"
+  description = "Goldilocks container image name"
   type        = string
-  default     = "us-docker.pkg.dev/fairwinds-ops/oss/goldilocks:v4.13.0"
+  default     = "us-docker.pkg.dev/fairwinds-ops/oss/goldilocks"
+}
+
+variable "image_tag" {
+  description = "Goldilocks container image tag"
+  type        = string
+  # renovate: datasource=docker depName=us-docker.pkg.dev/fairwinds-ops/oss/goldilocks
+  default = "v4.13.0"
 }
 
 variable "enabled_namespaces" {

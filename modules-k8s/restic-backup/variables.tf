@@ -5,7 +5,14 @@ variable "namespace" {
 }
 
 variable "image" {
-  description = "Restic Docker image"
+  description = "Restic Docker image name"
   type        = string
-  default     = "restic/restic:0.18.1"
+  default     = "restic/restic"
+}
+
+variable "image_tag" {
+  description = "Restic Docker image tag"
+  type        = string
+  # renovate: datasource=docker depName=restic/restic
+  default = "0.18.1"
 }

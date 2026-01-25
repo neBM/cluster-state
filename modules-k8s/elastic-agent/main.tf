@@ -239,7 +239,7 @@ resource "kubernetes_daemon_set_v1" "elastic_agent" {
 
         container {
           name  = "elastic-agent"
-          image = var.elastic_agent_image
+          image = "${var.elastic_agent_image}:${var.elastic_agent_tag}"
 
           env {
             name  = "FLEET_ENROLL"

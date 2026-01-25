@@ -67,24 +67,13 @@
   "customManagers": [
     {
       "customType": "regex",
-      "description": "Update Docker images in Terraform K8s modules",
+      "description": "Update Docker image tags in Terraform variables",
       "datasourceTemplate": "docker",
       "fileMatch": [
-        "modules-k8s/.*\\.tf$"
+        ".*\\.tf$"
       ],
       "matchStrings": [
-        "\\s*image\\s*=\\s*\"(?<depName>[^:]+):(?<currentValue>[^\"]+)\""
-      ]
-    },
-    {
-      "customType": "regex",
-      "description": "Update Docker images in Terraform variables with renovate comment",
-      "datasourceTemplate": "docker",
-      "fileMatch": [
-        "\\.tf$"
-      ],
-      "matchStrings": [
-        "#\\s*renovate:\\s*image=(?<depName>[^\\s]+)\\n\\s*default\\s*=\\s*\"(?<currentValue>[^\"]+)\""
+        "#\\s*renovate:\\s*datasource=docker\\s+depName=(?<depName>[^\\s]+)\\n\\s*default\\s*=\\s*\"(?<currentValue>[^\"]+)\""
       ]
     }
   ],

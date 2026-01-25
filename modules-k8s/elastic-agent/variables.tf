@@ -5,9 +5,16 @@ variable "namespace" {
 }
 
 variable "elastic_agent_image" {
-  description = "Elastic Agent container image"
+  description = "Elastic Agent container image name"
   type        = string
-  default     = "docker.elastic.co/elastic-agent/elastic-agent:9.2.4"
+  default     = "docker.elastic.co/elastic-agent/elastic-agent"
+}
+
+variable "elastic_agent_tag" {
+  description = "Elastic Agent container image tag"
+  type        = string
+  # renovate: datasource=docker depName=docker.elastic.co/elastic-agent/elastic-agent
+  default = "9.2.4"
 }
 
 variable "fleet_url" {

@@ -24,7 +24,8 @@ variable "registry_hostname" {
 variable "gitlab_version" {
   description = "GitLab version tag for CNG images"
   type        = string
-  default     = "v18.8.2"
+  # renovate: datasource=docker depName=registry.gitlab.com/gitlab-org/build/cng/gitlab-webservice-ce
+  default = "v18.8.2"
 }
 
 variable "webservice_image" {
@@ -58,9 +59,16 @@ variable "registry_image" {
 }
 
 variable "redis_image" {
-  description = "Redis image"
+  description = "Redis image name"
   type        = string
-  default     = "redis:7-alpine"
+  default     = "redis"
+}
+
+variable "redis_tag" {
+  description = "Redis image tag"
+  type        = string
+  # renovate: datasource=docker depName=redis
+  default = "7-alpine"
 }
 
 # =============================================================================

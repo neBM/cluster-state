@@ -17,21 +17,42 @@ variable "collabora_hostname" {
 }
 
 variable "nextcloud_image" {
-  description = "Docker image for Nextcloud"
+  description = "Docker image name for Nextcloud"
   type        = string
-  default     = "nextcloud:32"
+  default     = "nextcloud"
+}
+
+variable "nextcloud_tag" {
+  description = "Docker image tag for Nextcloud"
+  type        = string
+  # renovate: datasource=docker depName=nextcloud
+  default = "32"
 }
 
 variable "collabora_image" {
-  description = "Docker image for Collabora"
+  description = "Docker image name for Collabora"
   type        = string
-  default     = "collabora/code:latest"
+  default     = "collabora/code"
+}
+
+variable "collabora_tag" {
+  description = "Docker image tag for Collabora"
+  type        = string
+  # renovate: datasource=docker depName=collabora/code
+  default = "latest"
 }
 
 variable "redis_image" {
-  description = "Docker image for Redis"
+  description = "Docker image name for Redis"
   type        = string
-  default     = "redis:7-alpine"
+  default     = "redis"
+}
+
+variable "redis_tag" {
+  description = "Docker image tag for Redis"
+  type        = string
+  # renovate: datasource=docker depName=redis
+  default = "7-alpine"
 }
 
 variable "config_path" {

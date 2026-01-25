@@ -7,7 +7,8 @@ variable "namespace" {
 variable "image_tag" {
   description = "Vaultwarden image tag"
   type        = string
-  default     = "latest"
+  # renovate: datasource=docker depName=vaultwarden/server
+  default = "latest"
 }
 
 variable "hostname" {

@@ -62,7 +62,7 @@ resource "kubernetes_deployment" "postgres" {
 
         container {
           name  = "postgres"
-          image = var.postgres_image
+          image = "${var.postgres_image}:${var.postgres_tag}"
 
           port {
             container_port = 5432
@@ -178,7 +178,7 @@ resource "kubernetes_deployment" "redis" {
       spec {
         container {
           name  = "redis"
-          image = var.redis_image
+          image = "${var.redis_image}:${var.redis_tag}"
 
           port {
             container_port = 6379
@@ -259,7 +259,7 @@ resource "kubernetes_deployment" "gotrue" {
       spec {
         container {
           name  = "gotrue"
-          image = var.gotrue_image
+          image = "${var.gotrue_image}:${var.gotrue_tag}"
 
           port {
             container_port = 9999
@@ -504,7 +504,7 @@ resource "kubernetes_deployment" "cloud" {
       spec {
         container {
           name  = "cloud"
-          image = var.cloud_image
+          image = "${var.cloud_image}:${var.cloud_tag}"
 
           port {
             container_port = 8000
@@ -736,7 +736,7 @@ resource "kubernetes_deployment" "worker" {
       spec {
         container {
           name  = "worker"
-          image = var.worker_image
+          image = "${var.worker_image}:${var.worker_tag}"
 
           port {
             container_port = 8000
@@ -884,7 +884,7 @@ resource "kubernetes_deployment" "admin_frontend" {
       spec {
         container {
           name  = "admin-frontend"
-          image = var.web_image
+          image = "${var.web_image}:${var.web_tag}"
 
           port {
             container_port = 8000
@@ -965,7 +965,7 @@ resource "kubernetes_deployment" "web" {
       spec {
         container {
           name  = "web"
-          image = var.web_image
+          image = "${var.web_image}:${var.web_tag}"
 
           port {
             container_port = 80
