@@ -18,6 +18,11 @@ resource "kubernetes_deployment" "ollama" {
   spec {
     replicas = 1
 
+    # GPU resources can't be shared - must terminate old pod before starting new
+    strategy {
+      type = "Recreate"
+    }
+
     selector {
       match_labels = {
         app = local.app_name
