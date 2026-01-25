@@ -28,6 +28,12 @@ locals {
   gitaly_labels     = merge(local.gitlab_labels, { component = "gitaly" })
   redis_labels      = merge(local.gitlab_labels, { component = "redis" })
   registry_labels   = merge(local.gitlab_labels, { component = "registry" })
+
+  # Elastic Agent log routing annotations
+  # Routes logs to logs-kubernetes.container_logs.gitlab-* index
+  elastic_log_annotations = {
+    "elastic.co/dataset" = "kubernetes.container_logs.gitlab"
+  }
 }
 
 # =============================================================================
@@ -428,7 +434,8 @@ resource "kubernetes_deployment" "redis" {
 
     template {
       metadata {
-        labels = local.redis_labels
+        labels      = local.redis_labels
+        annotations = local.elastic_log_annotations
       }
 
       spec {
@@ -516,7 +523,8 @@ resource "kubernetes_deployment" "gitaly" {
 
     template {
       metadata {
-        labels = local.gitaly_labels
+        labels      = local.gitaly_labels
+        annotations = local.elastic_log_annotations
       }
 
       spec {
@@ -675,7 +683,8 @@ resource "kubernetes_deployment" "webservice" {
 
     template {
       metadata {
-        labels = local.webservice_labels
+        labels      = local.webservice_labels
+        annotations = local.elastic_log_annotations
       }
 
       spec {
@@ -975,7 +984,8 @@ resource "kubernetes_deployment" "workhorse" {
 
     template {
       metadata {
-        labels = local.workhorse_labels
+        labels      = local.workhorse_labels
+        annotations = local.elastic_log_annotations
       }
 
       spec {
@@ -1137,7 +1147,8 @@ resource "kubernetes_deployment" "sidekiq" {
 
     template {
       metadata {
-        labels = local.sidekiq_labels
+        labels      = local.sidekiq_labels
+        annotations = local.elastic_log_annotations
       }
 
       spec {
@@ -1357,7 +1368,8 @@ resource "kubernetes_deployment" "registry" {
 
     template {
       metadata {
-        labels = local.registry_labels
+        labels      = local.registry_labels
+        annotations = local.elastic_log_annotations
       }
 
       spec {

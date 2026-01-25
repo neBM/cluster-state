@@ -21,6 +21,12 @@ locals {
     app       = "nextcloud"
     component = "collabora"
   }
+
+  # Elastic Agent log routing annotations
+  # Routes logs to logs-kubernetes.container_logs.nextcloud-* index
+  elastic_log_annotations = {
+    "elastic.co/dataset" = "kubernetes.container_logs.nextcloud"
+  }
 }
 
 # =============================================================================
@@ -46,7 +52,8 @@ resource "kubernetes_deployment" "nextcloud" {
 
     template {
       metadata {
-        labels = local.nextcloud_labels
+        labels      = local.nextcloud_labels
+        annotations = local.elastic_log_annotations
       }
 
       spec {
@@ -293,7 +300,8 @@ resource "kubernetes_deployment" "collabora" {
 
     template {
       metadata {
-        labels = local.collabora_labels
+        labels      = local.collabora_labels
+        annotations = local.elastic_log_annotations
       }
 
       spec {

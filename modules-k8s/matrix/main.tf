@@ -35,6 +35,12 @@ locals {
     app       = "matrix"
     component = "cinny"
   }
+
+  # Elastic Agent log routing annotations
+  # Routes logs to logs-kubernetes.container_logs.matrix-* index
+  elastic_log_annotations = {
+    "elastic.co/dataset" = "kubernetes.container_logs.matrix"
+  }
 }
 
 # =============================================================================
@@ -203,7 +209,8 @@ resource "kubernetes_deployment" "synapse" {
 
     template {
       metadata {
-        labels = local.synapse_labels
+        labels      = local.synapse_labels
+        annotations = local.elastic_log_annotations
       }
 
       spec {
@@ -452,7 +459,8 @@ resource "kubernetes_deployment" "mas" {
 
     template {
       metadata {
-        labels = local.mas_labels
+        labels      = local.mas_labels
+        annotations = local.elastic_log_annotations
       }
 
       spec {
@@ -561,7 +569,8 @@ resource "kubernetes_deployment" "whatsapp_bridge" {
 
     template {
       metadata {
-        labels = local.whatsapp_labels
+        labels      = local.whatsapp_labels
+        annotations = local.elastic_log_annotations
       }
 
       spec {
@@ -705,7 +714,8 @@ resource "kubernetes_deployment" "nginx" {
 
     template {
       metadata {
-        labels = local.nginx_labels
+        labels      = local.nginx_labels
+        annotations = local.elastic_log_annotations
       }
 
       spec {
@@ -866,7 +876,8 @@ resource "kubernetes_deployment" "element" {
 
     template {
       metadata {
-        labels = local.element_labels
+        labels      = local.element_labels
+        annotations = local.elastic_log_annotations
       }
 
       spec {
@@ -999,7 +1010,8 @@ resource "kubernetes_deployment" "cinny" {
 
     template {
       metadata {
-        labels = local.cinny_labels
+        labels      = local.cinny_labels
+        annotations = local.elastic_log_annotations
       }
 
       spec {

@@ -26,6 +26,12 @@ locals {
     component  = "tautulli"
     managed-by = "terraform"
   }
+
+  # Elastic Agent log routing annotations
+  # Routes logs to logs-kubernetes.container_logs.media-* index
+  elastic_log_annotations = {
+    "elastic.co/dataset" = "kubernetes.container_logs.media"
+  }
 }
 
 # =============================================================================
@@ -99,7 +105,8 @@ resource "kubernetes_stateful_set" "plex" {
 
     template {
       metadata {
-        labels = local.plex_labels
+        labels      = local.plex_labels
+        annotations = local.elastic_log_annotations
       }
 
       spec {
@@ -520,7 +527,8 @@ resource "kubernetes_deployment" "jellyfin" {
 
     template {
       metadata {
-        labels = local.jellyfin_labels
+        labels      = local.jellyfin_labels
+        annotations = local.elastic_log_annotations
       }
 
       spec {
@@ -704,7 +712,8 @@ resource "kubernetes_deployment" "tautulli" {
 
     template {
       metadata {
-        labels = local.tautulli_labels
+        labels      = local.tautulli_labels
+        annotations = local.elastic_log_annotations
       }
 
       spec {

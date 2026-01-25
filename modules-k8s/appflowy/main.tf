@@ -18,6 +18,12 @@ locals {
     app = "appflowy"
   }
 
+  # Elastic Agent log routing annotations
+  # Routes logs to logs-kubernetes.container_logs.appflowy-* index
+  elastic_log_annotations = {
+    "elastic.co/dataset" = "kubernetes.container_logs.appflowy"
+  }
+
   # K8s service DNS names (replacing Consul DNS)
   postgres_host = "appflowy-postgres.${var.namespace}.svc.cluster.local"
   redis_host    = "appflowy-redis.${var.namespace}.svc.cluster.local"
@@ -47,7 +53,8 @@ resource "kubernetes_deployment" "postgres" {
 
     template {
       metadata {
-        labels = merge(local.labels, { component = "postgres" })
+        labels      = merge(local.labels, { component = "postgres" })
+        annotations = local.elastic_log_annotations
       }
 
       spec {
@@ -164,7 +171,8 @@ resource "kubernetes_deployment" "redis" {
 
     template {
       metadata {
-        labels = merge(local.labels, { component = "redis" })
+        labels      = merge(local.labels, { component = "redis" })
+        annotations = local.elastic_log_annotations
       }
 
       spec {
@@ -244,7 +252,8 @@ resource "kubernetes_deployment" "gotrue" {
 
     template {
       metadata {
-        labels = merge(local.labels, { component = "gotrue" })
+        labels      = merge(local.labels, { component = "gotrue" })
+        annotations = local.elastic_log_annotations
       }
 
       spec {
@@ -488,7 +497,8 @@ resource "kubernetes_deployment" "cloud" {
 
     template {
       metadata {
-        labels = merge(local.labels, { component = "cloud" })
+        labels      = merge(local.labels, { component = "cloud" })
+        annotations = local.elastic_log_annotations
       }
 
       spec {
@@ -719,7 +729,8 @@ resource "kubernetes_deployment" "worker" {
 
     template {
       metadata {
-        labels = merge(local.labels, { component = "worker" })
+        labels      = merge(local.labels, { component = "worker" })
+        annotations = local.elastic_log_annotations
       }
 
       spec {
@@ -866,7 +877,8 @@ resource "kubernetes_deployment" "admin_frontend" {
 
     template {
       metadata {
-        labels = merge(local.labels, { component = "admin-frontend" })
+        labels      = merge(local.labels, { component = "admin-frontend" })
+        annotations = local.elastic_log_annotations
       }
 
       spec {
@@ -946,7 +958,8 @@ resource "kubernetes_deployment" "web" {
 
     template {
       metadata {
-        labels = merge(local.labels, { component = "web" })
+        labels      = merge(local.labels, { component = "web" })
+        annotations = local.elastic_log_annotations
       }
 
       spec {

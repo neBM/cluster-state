@@ -27,6 +27,12 @@ locals {
     app = local.kibana_app_name
   })
 
+  # Elastic Agent log routing annotations
+  # Routes logs to logs-kubernetes.container_logs.elk-* index
+  elastic_log_annotations = {
+    "elastic.co/dataset" = "kubernetes.container_logs.elk"
+  }
+
   # Discovery seed hosts for multi-node cluster
   es_discovery_seed_hosts = join(",", [
     "${local.es_app_name}-data-headless",
@@ -169,7 +175,8 @@ resource "kubernetes_stateful_set" "elasticsearch_data" {
 
     template {
       metadata {
-        labels = local.es_data_labels
+        labels      = local.es_data_labels
+        annotations = local.elastic_log_annotations
       }
 
       spec {
@@ -415,7 +422,8 @@ resource "kubernetes_stateful_set" "elasticsearch_tiebreaker" {
 
     template {
       metadata {
-        labels = local.es_tiebreaker_labels
+        labels      = local.es_tiebreaker_labels
+        annotations = local.elastic_log_annotations
       }
 
       spec {
@@ -788,7 +796,8 @@ resource "kubernetes_deployment" "kibana" {
 
     template {
       metadata {
-        labels = local.kibana_labels
+        labels      = local.kibana_labels
+        annotations = local.elastic_log_annotations
       }
 
       spec {
