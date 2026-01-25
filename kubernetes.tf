@@ -49,6 +49,15 @@ module "k8s_vault_integration" {
   source = "./k8s/core/vault-integration"
 }
 
+# CI Service Account for GitLab CI/CD pipelines
+# Provides limited RBAC permissions for Terraform to manage K8s resources
+module "k8s_ci_service_account" {
+  source = "./modules-k8s/ci-service-account"
+
+  namespace            = "default"
+  service_account_name = "terraform-ci"
+}
+
 # Goldilocks - Automatic VPA creation and recommendations
 # Creates VPAs for all Deployments/StatefulSets in labeled namespaces
 # VPAs start in "Off" mode (recommendations only, no auto-scaling)

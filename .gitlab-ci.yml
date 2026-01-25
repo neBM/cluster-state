@@ -18,9 +18,29 @@ variables:
     - curl -fsSL https://apt.releases.hashicorp.com/gpg | gpg --dearmor -o /usr/share/keyrings/hashicorp-archive-keyring.gpg
     - echo "deb [signed-by=/usr/share/keyrings/hashicorp-archive-keyring.gpg] https://apt.releases.hashicorp.com bookworm main" > /etc/apt/sources.list.d/hashicorp.list
     - apt-get update && apt-get install -y terraform
-    # Setup kubeconfig from CI variable
+    # Setup kubeconfig using ServiceAccount token (limited RBAC)
+    # Required CI variables: K8S_HOST, K8S_TOKEN, K8S_CA_CERT
     - mkdir -p ~/.kube
-    - echo "$KUBECONFIG_CONTENT" > ~/.kube/config
+    - |
+      cat > ~/.kube/config << EOF
+      apiVersion: v1
+      kind: Config
+      clusters:
+      - name: k3s
+        cluster:
+          server: ${K8S_HOST}
+          certificate-authority-data: ${K8S_CA_CERT}
+      contexts:
+      - name: default
+        context:
+          cluster: k3s
+          user: terraform-ci
+      current-context: default
+      users:
+      - name: terraform-ci
+        user:
+          token: ${K8S_TOKEN}
+      EOF
     - chmod 600 ~/.kube/config
 
 validate:
