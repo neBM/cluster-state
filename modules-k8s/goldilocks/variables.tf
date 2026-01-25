@@ -14,7 +14,7 @@ variable "image_tag" {
   description = "Goldilocks container image tag"
   type        = string
   # renovate: datasource=docker depName=us-docker.pkg.dev/fairwinds-ops/oss/goldilocks
-  default = "v4.13.0"
+  default = "v4.14.9"
 }
 
 variable "enabled_namespaces" {

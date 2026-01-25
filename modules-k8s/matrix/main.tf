@@ -218,7 +218,7 @@ resource "kubernetes_deployment" "synapse" {
 
         init_container {
           name    = "config-processor"
-          image   = "busybox:1.36"
+          image   = "busybox:1.37"
           command = ["/bin/sh", "-c"]
           args = [<<-EOF
             # Copy config files and substitute secrets

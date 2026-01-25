@@ -89,7 +89,7 @@ resource "kubernetes_deployment" "runner_amd64" {
         # Init container to generate config from template + secret
         init_container {
           name    = "config-generator"
-          image   = "busybox:1.36"
+          image   = "busybox:1.37"
           command = ["/bin/sh", "-c"]
           args = [
             "sed -e \"s/RUNNER_NAME_PLACEHOLDER/k8s-amd64/\" -e \"s/RUNNER_TOKEN_PLACEHOLDER/$RUNNER_TOKEN/\" /template/config.toml.template > /config/config.toml"
@@ -207,7 +207,7 @@ resource "kubernetes_deployment" "runner_arm64" {
         # Init container to generate config from template + secret
         init_container {
           name    = "config-generator"
-          image   = "busybox:1.36"
+          image   = "busybox:1.37"
           command = ["/bin/sh", "-c"]
           args = [
             "sed -e \"s/RUNNER_NAME_PLACEHOLDER/k8s-arm64/\" -e \"s/RUNNER_TOKEN_PLACEHOLDER/$RUNNER_TOKEN/\" /template/config.toml.template > /config/config.toml"

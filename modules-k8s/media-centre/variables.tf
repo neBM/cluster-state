@@ -27,7 +27,7 @@ variable "jellyfin_tag" {
   description = "Jellyfin Docker image tag"
   type        = string
   # renovate: datasource=docker depName=ghcr.io/jellyfin/jellyfin
-  default = "10.10.6"
+  default = "10.11.6"
 }
 
 variable "tautulli_image" {
@@ -40,7 +40,7 @@ variable "tautulli_tag" {
   description = "Tautulli Docker image tag"
   type        = string
   # renovate: datasource=docker depName=ghcr.io/tautulli/tautulli
-  default = "v2.15.1"
+  default = "v2.16.0"
 }
 
 variable "plex_config_path" {

@@ -210,7 +210,7 @@ resource "kubernetes_stateful_set" "elasticsearch_data" {
         # Init container to set vm.max_map_count
         init_container {
           name    = "sysctl"
-          image   = "busybox:1.36"
+          image   = "busybox:1.37"
           command = ["sh", "-c", "sysctl -w vm.max_map_count=262144"]
 
           security_context {
@@ -445,7 +445,7 @@ resource "kubernetes_stateful_set" "elasticsearch_tiebreaker" {
         # Init container to set vm.max_map_count
         init_container {
           name    = "sysctl"
-          image   = "busybox:1.36"
+          image   = "busybox:1.37"
           command = ["sh", "-c", "sysctl -w vm.max_map_count=262144"]
 
           security_context {
