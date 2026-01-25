@@ -1,8 +1,12 @@
 # Cluster Documentation
 
-This directory contains documentation for the Nomad cluster infrastructure.
+This directory contains documentation for the K8s (K3s) cluster infrastructure.
 
 ## Documents
+
+### Observability
+
+- **[elasticsearch-pipelines.md](elasticsearch-pipelines.md)** - Elasticsearch ingest pipelines for K8s log processing, including sampling, noise reduction, and service-specific enrichment.
 
 ### Storage
 
@@ -18,32 +22,40 @@ This directory contains documentation for the Nomad cluster infrastructure.
 
 | Component | Purpose | Config Location |
 |-----------|---------|-----------------|
-| GlusterFS | Distributed storage | `gluster volume info nomad-vol` |
+| K3s | Kubernetes distribution | `~/.kube/k3s-config` |
+| GlusterFS | Distributed storage | `gluster volume info storage-vol` |
 | NFS-Ganesha | NFS server (FSAL_GLUSTER) | `/etc/ganesha/ganesha.conf` |
-| democratic-csi | CSI plugin for Nomad | `modules/plugin-csi-glusterfs/` |
+| Elasticsearch | Log storage & search | `modules-k8s/elk/` |
+| Elastic Agent | Log collection | DaemonSet in K8s |
 
 ### Node IPs
 
 | Node | IP | Roles |
 |------|-----|-------|
-| Hestia | 192.168.1.5 | Nomad client, NFS-Ganesha V9.4 |
-| Heracles | 192.168.1.6 | Nomad client, glusterd, NFS-Ganesha V9.4 |
-| Nyx | 192.168.1.7 | Nomad client, glusterd, NFS-Ganesha V9.4 |
+| Hestia | 192.168.1.5 | K3s server, NVIDIA GPU, NFS-Ganesha V9.4 |
+| Heracles | 192.168.1.6 | K3s agent, glusterd, NFS-Ganesha V9.4 |
+| Nyx | 192.168.1.7 | K3s agent, glusterd, NFS-Ganesha V9.4 |
 
 ### Common Commands
 
 ```bash
+# K8s commands
+export KUBECONFIG=~/.kube/k3s-config
+kubectl get pods -n default
+kubectl logs <pod-name> -n default
+
 # Check storage health
-gluster volume status nomad-vol
+gluster volume status storage-vol
 ss -tlnp | grep 2049
-nomad job status plugin-glusterfs-nodes
 
 # Check for errors
 dmesg | grep -i fileid
 tail /var/log/ganesha/ganesha.log
 
-# Restart CSI after storage changes
-nomad job eval -force-reschedule plugin-glusterfs-nodes
+# Terraform
+set -a && source .env && set +a
+terraform plan -out=tfplan
+terraform apply tfplan
 ```
 
 ## History
