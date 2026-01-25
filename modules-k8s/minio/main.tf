@@ -67,14 +67,21 @@ resource "kubernetes_deployment" "minio" {
             value = "https://${var.console_hostname}"
           }
 
+          # Disable API rate limiting - default 'auto' causes 429s during
+          # litestream compaction which needs to GET thousands of LTX files
+          env {
+            name  = "MINIO_API_REQUESTS_MAX"
+            value = "0"
+          }
+
           resources {
             requests = {
-              cpu    = "200m"
-              memory = "512Mi"
+              cpu    = "500m"
+              memory = "1Gi"
             }
             limits = {
-              cpu    = "1000m"
-              memory = "1Gi"
+              cpu    = "4000m"
+              memory = "4Gi"
             }
           }
 

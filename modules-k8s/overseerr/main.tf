@@ -17,6 +17,7 @@ resource "kubernetes_config_map" "litestream" {
 
   data = {
     "litestream.yml" = yamlencode({
+
       dbs = [{
         path = "/data/db/db.sqlite3"
         replicas = [{

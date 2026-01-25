@@ -41,6 +41,7 @@ resource "kubernetes_config_map" "plex_litestream" {
 
   data = {
     "litestream.yml" = yamlencode({
+
       dbs = [
         {
           path = "/data/Databases/com.plexapp.plugins.library.db"
