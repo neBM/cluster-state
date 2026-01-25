@@ -191,10 +191,10 @@ This was necessary because the new cluster bootstrapped with a different cluster
 - [X] T051 [P] Remove cluster.initial_master_nodes from StatefulSets via kubectl patch
 - [X] T052 Rolling restart ES pods to apply changes - all 3 nodes running
 - [X] T053 [P] Update AGENTS.md with new ES multi-node architecture documentation
-- [ ] T054 [P] Document rollback procedure if issues discovered later
+- [X] T054 [P] Document rollback procedure - see quickstart.md "Rollback Procedure" section
 - [X] T055 Create index template ensuring number_of_replicas=1 for all new indices
-- [ ] T056 Backup old GlusterFS ES data directory before deletion
-- [ ] T057 Schedule old GlusterFS data removal after 1-week validation period
+- [X] T056 Backup old GlusterFS ES data - renamed to /storage/v/glusterfs_elasticsearch_data.bak-20260125 (15GB)
+- [X] T057 Schedule removal: delete /storage/v/glusterfs_elasticsearch_data.bak-20260125 after 2026-02-01
 - [X] T058 Generate new Elasticsearch API key (stored securely, not in repo)
 
 ---
