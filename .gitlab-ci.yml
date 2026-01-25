@@ -20,9 +20,10 @@ variables:
     - apt-get update && apt-get install -y terraform
     # Setup kubeconfig using ServiceAccount token (limited RBAC)
     # Required CI variables: K8S_HOST, K8S_TOKEN, K8S_CA_CERT
+    # Write to ~/.kube/k3s-config to match provider config_path
     - mkdir -p ~/.kube
     - |
-      cat > ~/.kube/config << EOF
+      cat > ~/.kube/k3s-config << EOF
       apiVersion: v1
       kind: Config
       clusters:
@@ -41,7 +42,7 @@ variables:
         user:
           token: ${K8S_TOKEN}
       EOF
-    - chmod 600 ~/.kube/config
+    - chmod 600 ~/.kube/k3s-config
 
 validate:
   extends: .terraform-base
