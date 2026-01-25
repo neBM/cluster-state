@@ -1,0 +1,70 @@
+# Elasticsearch Data Node Configuration
+# Applied to: elasticsearch-data-0 (Hestia), elasticsearch-data-1 (Heracles)
+# 
+# This is the target elasticsearch.yml configuration for data nodes.
+# Terraform will template this into a ConfigMap.
+
+cluster.name: "docker-cluster"
+
+# Node identification (templated per-pod)
+# node.name will be set via environment variable: $(POD_NAME)
+
+# Node roles for data nodes
+node.roles:
+  - master
+  - data
+  - data_content
+  - data_hot
+  - ingest
+
+# Network configuration
+network.host: 0.0.0.0
+http.port: 9200
+transport.port: 9300
+
+# Data path (mounted PVC)
+path.data: /usr/share/elasticsearch/data
+
+# Memory locking for performance
+bootstrap.memory_lock: true
+
+# Cluster discovery (Kubernetes DNS)
+discovery.seed_hosts:
+  - elasticsearch-data-headless
+  - elasticsearch-tiebreaker-headless
+
+# Initial master nodes (only used during first bootstrap, remove after)
+# Note: Should be removed via config change after cluster forms
+cluster.initial_master_nodes:
+  - elasticsearch-data-0
+  - elasticsearch-data-1
+  - elasticsearch-tiebreaker-0
+
+# X-Pack configuration
+xpack:
+  # Machine learning enabled on data nodes (Hestia has GPU capability)
+  ml.enabled: true
+  
+  security:
+    enabled: true
+    enrollment.enabled: false
+    
+    # Anonymous access for monitoring
+    authc:
+      anonymous:
+        username: anonymous_user
+        roles: remote_monitoring_collector
+        authz_exception: false
+    
+    # Transport layer TLS (node-to-node communication)
+    transport.ssl:
+      enabled: true
+      verification_mode: certificate
+      key: /usr/share/elasticsearch/config/certs/tls.key
+      certificate: /usr/share/elasticsearch/config/certs/tls.crt
+      certificate_authorities: /usr/share/elasticsearch/config/certs/ca.crt
+    
+    # HTTP layer TLS (client connections)
+    http.ssl:
+      enabled: true
+      keystore.path: /usr/share/elasticsearch/config/certs/http.p12

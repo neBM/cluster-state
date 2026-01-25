@@ -1,0 +1,61 @@
+# Elasticsearch Tiebreaker Node Configuration
+# Applied to: elasticsearch-tiebreaker-0 (Nyx)
+# 
+# This is the target elasticsearch.yml configuration for the voting-only tiebreaker.
+# Terraform will template this into a ConfigMap.
+
+cluster.name: "docker-cluster"
+
+# Node identification (templated per-pod)
+# node.name will be set via environment variable: $(POD_NAME)
+
+# Node roles for tiebreaker (voting-only master)
+# Per Elastic docs: "This extra node should be a dedicated voting-only 
+# master-eligible node, meaning it has no other roles"
+node.roles:
+  - master
+  - voting_only
+
+# Network configuration
+network.host: 0.0.0.0
+http.port: 9200
+transport.port: 9300
+
+# No path.data - tiebreaker stores no index data
+# Only cluster state metadata (small, in-memory)
+
+# Memory locking not needed for small heap
+bootstrap.memory_lock: false
+
+# Cluster discovery (Kubernetes DNS)
+discovery.seed_hosts:
+  - elasticsearch-data-headless
+  - elasticsearch-tiebreaker-headless
+
+# Initial master nodes (only used during first bootstrap, remove after)
+cluster.initial_master_nodes:
+  - elasticsearch-data-0
+  - elasticsearch-data-1
+  - elasticsearch-tiebreaker-0
+
+# X-Pack configuration
+xpack:
+  # Machine learning disabled on tiebreaker (no data processing)
+  ml.enabled: false
+  
+  security:
+    enabled: true
+    enrollment.enabled: false
+    
+    # Transport layer TLS (node-to-node communication)
+    transport.ssl:
+      enabled: true
+      verification_mode: certificate
+      key: /usr/share/elasticsearch/config/certs/tls.key
+      certificate: /usr/share/elasticsearch/config/certs/tls.crt
+      certificate_authorities: /usr/share/elasticsearch/config/certs/ca.crt
+    
+    # HTTP layer TLS (for health checks, cluster state queries)
+    http.ssl:
+      enabled: true
+      keystore.path: /usr/share/elasticsearch/config/certs/http.p12

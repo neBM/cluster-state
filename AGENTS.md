@@ -463,7 +463,7 @@ GlusterFS doesn't support Unix sockets. Services using sockets (Redis, Gitaly, P
 | plex | StatefulSet | Media server, NVIDIA GPU, litestream 0.5 backup |
 | jellyfin | Deployment | Alternative media server |
 | tautulli | Deployment | Plex monitoring/statistics |
-| elk | StatefulSet+Deployment | Elasticsearch 9.x + Kibana 9.x, data on GlusterFS |
+| elk | StatefulSet+Deployment | Elasticsearch 9.x multi-node (2 data + 1 tiebreaker) + Kibana 9.x, data on local NVMe |
 | jayne-martin-counselling | Deployment | Static counselling website |
 
 ## Remaining on Nomad
@@ -476,11 +476,14 @@ GlusterFS doesn't support Unix sockets. Services using sockets (Redis, Gitaly, P
 - GlusterFS via NFS-Ganesha at `/storage/v/` on all nodes
 - NFS Subdir External Provisioner for dynamic PVC provisioning
 - MinIO (litestream backups)
-- Elasticsearch 9.x, Kibana 9.x (K8s StatefulSet/Deployment)
+- Elasticsearch 9.x multi-node cluster (2 data nodes + 1 voting-only tiebreaker)
+- Kibana 9.x (K8s Deployment)
 - GitLab CNG container images (registry.gitlab.com/gitlab-org/build/cng)
 - External PostgreSQL (192.168.1.10:5433) for GitLab
+- local-path-retain StorageClass for ES data nodes (50GB each on local NVMe)
 
 ## Recent Changes
+- 009-es-multi-node-cluster: Migrated Elasticsearch from single-node on GlusterFS to 3-node cluster (2 data + 1 tiebreaker) on local NVMe storage
 - 008-gitlab-multi-container: Migrated GitLab from Omnibus to CNG multi-container architecture (webservice, workhorse, sidekiq, gitaly, redis, registry)
 - 007-jayne-martin-k8s-migration: Migrated Jayne Martin Counselling to Kubernetes, decommissioned Nomad
 - 006-elk-k8s-migration: Migrated ELK stack from Nomad to Kubernetes

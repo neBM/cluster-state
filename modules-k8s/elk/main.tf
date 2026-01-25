@@ -11,36 +11,120 @@ locals {
     app = local.es_app_name
   })
 
+  # Labels for ES data nodes
+  es_data_labels = merge(local.common_labels, {
+    app  = local.es_app_name
+    role = "data"
+  })
+
+  # Labels for ES tiebreaker node
+  es_tiebreaker_labels = merge(local.common_labels, {
+    app  = local.es_app_name
+    role = "tiebreaker"
+  })
+
   kibana_labels = merge(local.common_labels, {
     app = local.kibana_app_name
   })
+
+  # Discovery seed hosts for multi-node cluster
+  es_discovery_seed_hosts = join(",", [
+    "${local.es_app_name}-data-headless",
+    "${local.es_app_name}-tiebreaker-headless"
+  ])
+
+  # Initial master nodes - only used during initial cluster bootstrap
+  # Commented out after cluster is formed to prevent issues during node restarts
+  # es_initial_master_nodes = join(",", [
+  #   "${local.es_app_name}-data-0",
+  #   "${local.es_app_name}-data-1",
+  #   "${local.es_app_name}-tiebreaker-0"
+  # ])
 }
 
 # =============================================================================
 # Elasticsearch Configuration
 # =============================================================================
 
-# ConfigMap for Elasticsearch configuration
-resource "kubernetes_config_map" "elasticsearch" {
+# StorageClass with Retain policy for ES data persistence
+resource "kubernetes_storage_class" "local_path_retain" {
   metadata {
-    name      = "${local.es_app_name}-config"
+    name = "local-path-retain"
+    labels = {
+      managed-by = "terraform"
+    }
+  }
+
+  storage_provisioner    = "rancher.io/local-path"
+  reclaim_policy         = "Retain"
+  volume_binding_mode    = "WaitForFirstConsumer"
+  allow_volume_expansion = false
+}
+
+# ConfigMap for Elasticsearch data nodes
+resource "kubernetes_config_map" "elasticsearch_data" {
+  metadata {
+    name      = "${local.es_app_name}-data-config"
     namespace = var.namespace
-    labels    = local.es_labels
+    labels    = local.es_data_labels
   }
 
   data = {
     "elasticsearch.yml" = <<-EOF
       cluster.name: "docker-cluster"
-      node.name: "elk-node"
-      discovery.type: single-node
-
+      
       network.host: 0.0.0.0
       http.port: 9200
-
+      transport.port: 9300
+      
       path.data: /usr/share/elasticsearch/data
+      
+      # Memory lock disabled - requires IPC_LOCK capability in container
+      # Performance impact is minimal with local NVMe storage
+      bootstrap.memory_lock: false
+      
+      xpack:
+        ml.enabled: true
+        security:
+          enabled: true
+          enrollment.enabled: false
+          authc:
+            anonymous:
+              username: anonymous_user
+              roles: remote_monitoring_collector
+              authz_exception: false
+          transport.ssl:
+            enabled: true
+            verification_mode: certificate
+            keystore.path: /usr/share/elasticsearch/config/certs/elastic-certificates.p12
+            truststore.path: /usr/share/elasticsearch/config/certs/elastic-certificates.p12
+          http.ssl:
+            enabled: true
+            keystore.path: /usr/share/elasticsearch/config/certs/http.p12
+    EOF
+  }
+}
 
-      bootstrap.memory_lock: true
+# ConfigMap for Elasticsearch tiebreaker node
+resource "kubernetes_config_map" "elasticsearch_tiebreaker" {
+  metadata {
+    name      = "${local.es_app_name}-tiebreaker-config"
+    namespace = var.namespace
+    labels    = local.es_tiebreaker_labels
+  }
 
+  data = {
+    "elasticsearch.yml" = <<-EOF
+      cluster.name: "docker-cluster"
+      
+      network.host: 0.0.0.0
+      http.port: 9200
+      transport.port: 9300
+      
+      # No path.data - tiebreaker stores no data
+      
+      bootstrap.memory_lock: false
+      
       xpack:
         ml.enabled: false
         security:
@@ -63,30 +147,59 @@ resource "kubernetes_config_map" "elasticsearch" {
   }
 }
 
-# StatefulSet for Elasticsearch (single replica)
-resource "kubernetes_stateful_set" "elasticsearch" {
+# StatefulSet for Elasticsearch data nodes (2 replicas)
+resource "kubernetes_stateful_set" "elasticsearch_data" {
   metadata {
-    name      = local.es_app_name
+    name      = "${local.es_app_name}-data"
     namespace = var.namespace
-    labels    = local.es_labels
+    labels    = local.es_data_labels
   }
 
   spec {
-    service_name = "${local.es_app_name}-headless"
-    replicas     = 1
+    service_name          = "${local.es_app_name}-data-headless"
+    replicas              = 2
+    pod_management_policy = "Parallel"
 
     selector {
       match_labels = {
-        app = local.es_app_name
+        app  = local.es_app_name
+        role = "data"
       }
     }
 
     template {
       metadata {
-        labels = local.es_labels
+        labels = local.es_data_labels
       }
 
       spec {
+        # Node affinity to place data nodes on specific hosts
+        affinity {
+          node_affinity {
+            required_during_scheduling_ignored_during_execution {
+              node_selector_term {
+                match_expressions {
+                  key      = "kubernetes.io/hostname"
+                  operator = "In"
+                  values   = var.es_data_nodes
+                }
+              }
+            }
+          }
+          # Anti-affinity to spread data nodes across different hosts
+          pod_anti_affinity {
+            required_during_scheduling_ignored_during_execution {
+              label_selector {
+                match_labels = {
+                  app  = local.es_app_name
+                  role = "data"
+                }
+              }
+              topology_key = "kubernetes.io/hostname"
+            }
+          }
+        }
+
         # Init container to set vm.max_map_count
         init_container {
           name    = "sysctl"
@@ -112,30 +225,44 @@ resource "kubernetes_stateful_set" "elasticsearch" {
             name           = "transport"
           }
 
+          # Pod name used for node.name
           env {
-            name  = "discovery.type"
-            value = "single-node"
+            name = "POD_NAME"
+            value_from {
+              field_ref {
+                field_path = "metadata.name"
+              }
+            }
           }
 
           env {
+            name  = "node.name"
+            value = "$(POD_NAME)"
+          }
+
+          # Node roles: master + data roles
+          env {
+            name  = "node.roles"
+            value = "master,data,data_content,data_hot,ingest"
+          }
+
+          # Discovery configuration
+          env {
+            name  = "discovery.seed_hosts"
+            value = local.es_discovery_seed_hosts
+          }
+
+          # Note: cluster.initial_master_nodes removed after cluster bootstrap
+          # Only needed for initial cluster formation, harmful if present during node restarts
+
+          env {
             name  = "ES_JAVA_OPTS"
-            value = var.es_java_opts
+            value = var.es_data_java_opts
           }
 
           env {
             name  = "xpack.security.enabled"
             value = "true"
-          }
-
-          env {
-            name  = "bootstrap.memory_lock"
-            value = "true"
-          }
-
-          # PKCS12 keystore password (default for ES-generated certs)
-          env {
-            name  = "ELASTIC_PASSWORD"
-            value = "" # Not used for API access, certs handle auth
           }
 
           volume_mount {
@@ -165,16 +292,16 @@ resource "kubernetes_stateful_set" "elasticsearch" {
 
           resources {
             requests = {
-              cpu    = var.es_cpu_request
-              memory = var.es_memory_request
+              cpu    = var.es_data_cpu_request
+              memory = var.es_data_memory_request
             }
             limits = {
-              cpu    = var.es_cpu_limit
-              memory = var.es_memory_limit
+              cpu    = var.es_data_cpu_limit
+              memory = var.es_data_memory_limit
             }
           }
 
-          # Readiness probe - wait for yellow status (acceptable for single-node)
+          # Readiness probe - wait for yellow status (acceptable during startup)
           readiness_probe {
             http_get {
               path   = "/_cluster/health?wait_for_status=yellow&timeout=1s"
@@ -214,20 +341,11 @@ resource "kubernetes_stateful_set" "elasticsearch" {
           }
         }
 
-        # Data volume from GlusterFS via hostPath
-        volume {
-          name = "data"
-          host_path {
-            path = var.es_data_path
-            type = "Directory"
-          }
-        }
-
         # Config volume from ConfigMap
         volume {
           name = "config"
           config_map {
-            name = kubernetes_config_map.elasticsearch.metadata[0].name
+            name = kubernetes_config_map.elasticsearch_data.metadata[0].name
           }
         }
 
@@ -257,20 +375,251 @@ resource "kubernetes_stateful_set" "elasticsearch" {
         }
       }
     }
+
+    # VolumeClaimTemplate for local-path storage
+    volume_claim_template {
+      metadata {
+        name = "data"
+      }
+      spec {
+        access_modes       = ["ReadWriteOnce"]
+        storage_class_name = kubernetes_storage_class.local_path_retain.metadata[0].name
+        resources {
+          requests = {
+            storage = var.es_data_storage_size
+          }
+        }
+      }
+    }
   }
 }
 
-# Headless Service for StatefulSet DNS
-resource "kubernetes_service" "elasticsearch_headless" {
+# StatefulSet for Elasticsearch tiebreaker (voting-only master)
+resource "kubernetes_stateful_set" "elasticsearch_tiebreaker" {
   metadata {
-    name      = "${local.es_app_name}-headless"
+    name      = "${local.es_app_name}-tiebreaker"
     namespace = var.namespace
-    labels    = local.es_labels
+    labels    = local.es_tiebreaker_labels
+  }
+
+  spec {
+    service_name = "${local.es_app_name}-tiebreaker-headless"
+    replicas     = 1
+
+    selector {
+      match_labels = {
+        app  = local.es_app_name
+        role = "tiebreaker"
+      }
+    }
+
+    template {
+      metadata {
+        labels = local.es_tiebreaker_labels
+      }
+
+      spec {
+        # Node affinity to place tiebreaker on specific host
+        affinity {
+          node_affinity {
+            required_during_scheduling_ignored_during_execution {
+              node_selector_term {
+                match_expressions {
+                  key      = "kubernetes.io/hostname"
+                  operator = "In"
+                  values   = [var.es_tiebreaker_node]
+                }
+              }
+            }
+          }
+        }
+
+        # Init container to set vm.max_map_count
+        init_container {
+          name    = "sysctl"
+          image   = "busybox:1.36"
+          command = ["sh", "-c", "sysctl -w vm.max_map_count=262144"]
+
+          security_context {
+            privileged = true
+          }
+        }
+
+        container {
+          name  = local.es_app_name
+          image = "docker.elastic.co/elasticsearch/elasticsearch:${var.es_image_tag}"
+
+          port {
+            container_port = 9200
+            name           = "http"
+          }
+
+          port {
+            container_port = 9300
+            name           = "transport"
+          }
+
+          # Pod name used for node.name
+          env {
+            name = "POD_NAME"
+            value_from {
+              field_ref {
+                field_path = "metadata.name"
+              }
+            }
+          }
+
+          env {
+            name  = "node.name"
+            value = "$(POD_NAME)"
+          }
+
+          # Node roles: voting-only master (no data)
+          env {
+            name  = "node.roles"
+            value = "master,voting_only"
+          }
+
+          # Discovery configuration
+          env {
+            name  = "discovery.seed_hosts"
+            value = local.es_discovery_seed_hosts
+          }
+
+          # Note: cluster.initial_master_nodes removed after cluster bootstrap
+          # Only needed for initial cluster formation, harmful if present during node restarts
+
+          env {
+            name  = "ES_JAVA_OPTS"
+            value = var.es_tiebreaker_java_opts
+          }
+
+          env {
+            name  = "xpack.security.enabled"
+            value = "true"
+          }
+
+          volume_mount {
+            name       = "config"
+            mount_path = "/usr/share/elasticsearch/config/elasticsearch.yml"
+            sub_path   = "elasticsearch.yml"
+          }
+
+          volume_mount {
+            name       = "certs"
+            mount_path = "/usr/share/elasticsearch/config/certs"
+            read_only  = true
+          }
+
+          # Mount the keystore file for PKCS12 passwords
+          volume_mount {
+            name       = "keystore"
+            mount_path = "/usr/share/elasticsearch/config/elasticsearch.keystore"
+            sub_path   = "elasticsearch.keystore"
+            read_only  = true
+          }
+
+          resources {
+            requests = {
+              cpu    = var.es_tiebreaker_cpu_request
+              memory = var.es_tiebreaker_memory_request
+            }
+            limits = {
+              cpu    = var.es_tiebreaker_cpu_limit
+              memory = var.es_tiebreaker_memory_limit
+            }
+          }
+
+          # Readiness probe - wait for yellow status
+          readiness_probe {
+            http_get {
+              path   = "/_cluster/health?wait_for_status=yellow&timeout=1s"
+              port   = 9200
+              scheme = "HTTPS"
+            }
+            initial_delay_seconds = 30
+            period_seconds        = 10
+            timeout_seconds       = 5
+            failure_threshold     = 3
+          }
+
+          # Liveness probe - basic health check
+          liveness_probe {
+            http_get {
+              path   = "/_cluster/health"
+              port   = 9200
+              scheme = "HTTPS"
+            }
+            initial_delay_seconds = 60
+            period_seconds        = 20
+            timeout_seconds       = 10
+            failure_threshold     = 5
+          }
+
+          # Startup probe - tiebreaker is slow to start on ARM with minimal heap
+          startup_probe {
+            http_get {
+              path   = "/_cluster/health"
+              port   = 9200
+              scheme = "HTTPS"
+            }
+            initial_delay_seconds = 30
+            period_seconds        = 10
+            timeout_seconds       = 5
+            failure_threshold     = 30 # 5 minutes total for slow ARM startup
+          }
+        }
+
+        # Config volume from ConfigMap
+        volume {
+          name = "config"
+          config_map {
+            name = kubernetes_config_map.elasticsearch_tiebreaker.metadata[0].name
+          }
+        }
+
+        # Certs volume from Secret (created manually before deploy)
+        volume {
+          name = "certs"
+          secret {
+            secret_name = "elasticsearch-certs"
+          }
+        }
+
+        # Keystore volume from Secret (contains PKCS12 passwords)
+        volume {
+          name = "keystore"
+          secret {
+            secret_name = "elasticsearch-certs"
+            items {
+              key  = "elasticsearch.keystore"
+              path = "elasticsearch.keystore"
+            }
+          }
+        }
+
+        # Run as elasticsearch user (uid 1000)
+        security_context {
+          fs_group = 1000
+        }
+      }
+    }
+    # No VolumeClaimTemplate - tiebreaker has no persistent storage
+  }
+}
+
+# Headless Service for data node discovery
+resource "kubernetes_service" "elasticsearch_data_headless" {
+  metadata {
+    name      = "${local.es_app_name}-data-headless"
+    namespace = var.namespace
+    labels    = local.es_data_labels
   }
 
   spec {
     selector = {
-      app = local.es_app_name
+      app  = local.es_app_name
+      role = "data"
     }
 
     port {
@@ -285,11 +634,43 @@ resource "kubernetes_service" "elasticsearch_headless" {
       name        = "transport"
     }
 
-    cluster_ip = "None"
+    cluster_ip                  = "None"
+    publish_not_ready_addresses = true
   }
 }
 
-# ClusterIP Service for Elasticsearch HTTP API
+# Headless Service for tiebreaker discovery
+resource "kubernetes_service" "elasticsearch_tiebreaker_headless" {
+  metadata {
+    name      = "${local.es_app_name}-tiebreaker-headless"
+    namespace = var.namespace
+    labels    = local.es_tiebreaker_labels
+  }
+
+  spec {
+    selector = {
+      app  = local.es_app_name
+      role = "tiebreaker"
+    }
+
+    port {
+      port        = 9200
+      target_port = 9200
+      name        = "http"
+    }
+
+    port {
+      port        = 9300
+      target_port = 9300
+      name        = "transport"
+    }
+
+    cluster_ip                  = "None"
+    publish_not_ready_addresses = true
+  }
+}
+
+# ClusterIP Service for Elasticsearch HTTP API (targets data nodes only)
 resource "kubernetes_service" "elasticsearch" {
   metadata {
     name      = local.es_app_name
@@ -299,7 +680,8 @@ resource "kubernetes_service" "elasticsearch" {
 
   spec {
     selector = {
-      app = local.es_app_name
+      app  = local.es_app_name
+      role = "data"
     }
 
     port {
@@ -312,7 +694,7 @@ resource "kubernetes_service" "elasticsearch" {
   }
 }
 
-# NodePort Service for Elasticsearch - for Elastic Agent/Fleet Server connectivity
+# NodePort Service for Elasticsearch - for Elastic Agent/Fleet Server connectivity (targets data nodes only)
 resource "kubernetes_service" "elasticsearch_nodeport" {
   metadata {
     name      = "${local.es_app_name}-nodeport"
@@ -322,7 +704,8 @@ resource "kubernetes_service" "elasticsearch_nodeport" {
 
   spec {
     selector = {
-      app = local.es_app_name
+      app  = local.es_app_name
+      role = "data"
     }
 
     port {
@@ -513,7 +896,7 @@ resource "kubernetes_deployment" "kibana" {
   depends_on = [
     kubectl_manifest.kibana_credentials_external_secret,
     kubectl_manifest.kibana_encryption_keys_external_secret,
-    kubernetes_stateful_set.elasticsearch
+    kubernetes_stateful_set.elasticsearch_data
   ]
 }
 
