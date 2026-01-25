@@ -1,0 +1,249 @@
+# GitLab Multi-Container Service Contracts
+# Feature: 008-gitlab-multi-container
+# Date: 2026-01-24
+
+# =============================================================================
+# Kubernetes Services
+# =============================================================================
+
+services:
+  # ---------------------------------------------------------------------------
+  # Workhorse - Main entry point (receives traffic from Traefik)
+  # ---------------------------------------------------------------------------
+  gitlab-workhorse:
+    type: ClusterIP
+    ports:
+      - name: http
+        port: 8181
+        targetPort: 8181
+        protocol: TCP
+    selector:
+      app: gitlab
+      component: workhorse
+    healthCheck:
+      path: /-/readiness
+      port: 8181
+
+  # ---------------------------------------------------------------------------
+  # Webservice - Rails application (internal only)
+  # ---------------------------------------------------------------------------
+  gitlab-webservice:
+    type: ClusterIP
+    ports:
+      - name: http
+        port: 8080
+        targetPort: 8080
+        protocol: TCP
+      - name: metrics
+        port: 8082
+        targetPort: 8082
+        protocol: TCP
+    selector:
+      app: gitlab
+      component: webservice
+    healthCheck:
+      path: /-/readiness
+      port: 8080
+
+  # ---------------------------------------------------------------------------
+  # Gitaly - Git RPC service (internal only)
+  # ---------------------------------------------------------------------------
+  gitlab-gitaly:
+    type: ClusterIP
+    ports:
+      - name: grpc
+        port: 8075
+        targetPort: 8075
+        protocol: TCP
+      - name: metrics
+        port: 9236
+        targetPort: 9236
+        protocol: TCP
+    selector:
+      app: gitlab
+      component: gitaly
+    healthCheck:
+      grpc: true
+      port: 8075
+
+  # ---------------------------------------------------------------------------
+  # Redis - Cache and message queue (internal only)
+  # ---------------------------------------------------------------------------
+  gitlab-redis:
+    type: ClusterIP
+    ports:
+      - name: redis
+        port: 6379
+        targetPort: 6379
+        protocol: TCP
+    selector:
+      app: gitlab
+      component: redis
+    healthCheck:
+      command: ["redis-cli", "ping"]
+
+  # ---------------------------------------------------------------------------
+  # Registry - Container registry (receives traffic from Traefik)
+  # ---------------------------------------------------------------------------
+  gitlab-registry:
+    type: ClusterIP
+    ports:
+      - name: http
+        port: 5000
+        targetPort: 5000
+        protocol: TCP
+    selector:
+      app: gitlab
+      component: registry
+    healthCheck:
+      path: /v2/
+      port: 5000
+
+# =============================================================================
+# Traefik IngressRoutes
+# =============================================================================
+
+ingressRoutes:
+  # ---------------------------------------------------------------------------
+  # GitLab Web UI and API
+  # ---------------------------------------------------------------------------
+  gitlab:
+    entryPoints:
+      - websecure
+    match: "Host(`git.brmartin.co.uk`)"
+    services:
+      - name: gitlab-workhorse
+        port: 8181
+    tls:
+      secretName: wildcard-brmartin-tls
+
+  # ---------------------------------------------------------------------------
+  # Container Registry
+  # ---------------------------------------------------------------------------
+  gitlab-registry:
+    entryPoints:
+      - websecure
+    match: "Host(`registry.brmartin.co.uk`)"
+    services:
+      - name: gitlab-registry
+        port: 5000
+    tls:
+      secretName: wildcard-brmartin-tls
+
+# =============================================================================
+# Inter-Component Communication
+# =============================================================================
+
+communication:
+  # Workhorse → Webservice
+  workhorse-to-webservice:
+    source: workhorse
+    destination: webservice
+    protocol: HTTP
+    port: 8080
+    endpoints:
+      - "/*"  # All requests proxied
+
+  # Workhorse → Redis
+  workhorse-to-redis:
+    source: workhorse
+    destination: redis
+    protocol: Redis
+    port: 6379
+    purpose: "Keywatcher for real-time features"
+
+  # Webservice → Gitaly
+  webservice-to-gitaly:
+    source: webservice
+    destination: gitaly
+    protocol: gRPC
+    port: 8075
+    endpoints:
+      - "/gitaly.*"
+
+  # Webservice → Redis
+  webservice-to-redis:
+    source: webservice
+    destination: redis
+    protocol: Redis
+    port: 6379
+    purpose: "Caching, session storage, Sidekiq queues"
+
+  # Webservice → PostgreSQL (external)
+  webservice-to-postgres:
+    source: webservice
+    destination: external
+    protocol: PostgreSQL
+    host: 192.168.1.10
+    port: 5433
+
+  # Sidekiq → Gitaly
+  sidekiq-to-gitaly:
+    source: sidekiq
+    destination: gitaly
+    protocol: gRPC
+    port: 8075
+
+  # Sidekiq → Redis
+  sidekiq-to-redis:
+    source: sidekiq
+    destination: redis
+    protocol: Redis
+    port: 6379
+    purpose: "Job queue"
+
+  # Sidekiq → PostgreSQL (external)
+  sidekiq-to-postgres:
+    source: sidekiq
+    destination: external
+    protocol: PostgreSQL
+    host: 192.168.1.10
+    port: 5433
+
+  # Gitaly → Webservice (callbacks)
+  gitaly-to-webservice:
+    source: gitaly
+    destination: webservice
+    protocol: HTTP
+    port: 8080
+    endpoints:
+      - "/api/v4/internal/*"
+
+  # Registry → Webservice (auth)
+  registry-to-webservice:
+    source: registry
+    destination: webservice
+    protocol: HTTP
+    port: 8080
+    endpoints:
+      - "/jwt/auth"
+
+# =============================================================================
+# Health Check Endpoints
+# =============================================================================
+
+healthEndpoints:
+  webservice:
+    readiness: "/-/readiness"
+    liveness: "/-/liveness"
+    metrics: "/metrics"
+    port: 8080
+
+  workhorse:
+    readiness: "/-/readiness"
+    liveness: "/-/liveness"
+    port: 8181
+
+  gitaly:
+    readiness: "grpc.health.v1.Health/Check"
+    metrics: "/metrics"
+    grpcPort: 8075
+    metricsPort: 9236
+
+  redis:
+    readiness: "PING"
+    port: 6379
+
+  registry:
+    readiness: "/v2/"
+    port: 5000

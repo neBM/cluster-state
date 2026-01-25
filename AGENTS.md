@@ -454,7 +454,7 @@ GlusterFS doesn't support Unix sockets. Services using sockets (Redis, Gitaly, P
 | appflowy | Multiple | 7 components (cloud, gotrue, worker, web, admin, postgres, redis) |
 | nextcloud | Deployment | File sync, with Collabora sidecar |
 | matrix | Multiple | 6 components (synapse, mas, whatsapp-bridge, nginx, element, cinny) |
-| gitlab | Deployment | Git hosting, SSH via NodePort 30022 |
+| gitlab | Multiple | CNG multi-container (webservice, workhorse, sidekiq, gitaly, redis, registry), SSH via NodePort 30022, external PostgreSQL |
 | renovate | CronJob | Dependency updates (hourly) |
 | restic-backup | CronJob | GlusterFS backup (daily 3am) |
 | gitlab-runner | Deployment | CI runners (amd64 + arm64) |
@@ -477,8 +477,11 @@ GlusterFS doesn't support Unix sockets. Services using sockets (Redis, Gitaly, P
 - NFS Subdir External Provisioner for dynamic PVC provisioning
 - MinIO (litestream backups)
 - Elasticsearch 9.x, Kibana 9.x (K8s StatefulSet/Deployment)
+- GitLab CNG container images (registry.gitlab.com/gitlab-org/build/cng)
+- External PostgreSQL (192.168.1.10:5433) for GitLab
 
 ## Recent Changes
+- 008-gitlab-multi-container: Migrated GitLab from Omnibus to CNG multi-container architecture (webservice, workhorse, sidekiq, gitaly, redis, registry)
 - 007-jayne-martin-k8s-migration: Migrated Jayne Martin Counselling to Kubernetes, decommissioned Nomad
 - 006-elk-k8s-migration: Migrated ELK stack from Nomad to Kubernetes
 - 005-k8s-volume-provisioning: Added NFS Subdir External Provisioner for automatic PVC directory creation
