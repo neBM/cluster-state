@@ -879,3 +879,134 @@ resource "kubectl_manifest" "external_secret" {
     }
   })
 }
+
+# =============================================================================
+# Litestream LTX Cleanup CronJob
+# =============================================================================
+# TEMPORARY WORKAROUND for litestream 0.5.x LTX file buildup issue
+# GitHub Issues: #976, #994 - https://github.com/benbjohnson/litestream/issues/976
+# Remove this resource when litestream fixes the issue (expected in v0.5.7+)
+#
+# This CronJob cleans up old .ltx files from the local shadow directory
+# that litestream 0.5.x fails to delete, preventing disk exhaustion.
+
+resource "kubernetes_cron_job_v1" "litestream_ltx_cleanup" {
+  metadata {
+    name      = "litestream-ltx-cleanup"
+    namespace = var.namespace
+    labels = {
+      app        = "media-centre"
+      component  = "litestream-cleanup"
+      managed-by = "terraform"
+      temporary  = "true" # Mark as temporary workaround
+    }
+    annotations = {
+      "description"  = "Temporary workaround for litestream 0.5.x LTX buildup - remove when fixed upstream"
+      "github-issue" = "https://github.com/benbjohnson/litestream/issues/976"
+    }
+  }
+
+  spec {
+    schedule                      = "0 */6 * * *" # Every 6 hours
+    concurrency_policy            = "Forbid"
+    successful_jobs_history_limit = 3
+    failed_jobs_history_limit     = 3
+
+    job_template {
+      metadata {
+        labels = {
+          app        = "media-centre"
+          component  = "litestream-cleanup"
+          managed-by = "terraform"
+        }
+      }
+
+      spec {
+        ttl_seconds_after_finished = 3600 # Clean up job after 1 hour
+        backoff_limit              = 1
+
+        template {
+          metadata {
+            labels = {
+              app        = "media-centre"
+              component  = "litestream-cleanup"
+              managed-by = "terraform"
+            }
+          }
+
+          spec {
+            restart_policy = "Never"
+
+            # Must run on Hestia where the local-path PVC is located
+            node_selector = {
+              "kubernetes.io/hostname" = "hestia"
+            }
+
+            container {
+              name  = "cleanup"
+              image = "${var.busybox_image}:${var.busybox_tag}"
+
+              command = ["/bin/sh", "-c"]
+              args = [<<-EOF
+                echo "=== Litestream LTX Cleanup - $(date) ==="
+                echo "Target: $LTX_BASE_PATH"
+                
+                # Process each known litestream shadow directory
+                # Plex has two databases: library.db and blobs.db
+                for db_name in ".com.plexapp.plugins.library.db-litestream" ".com.plexapp.plugins.library.blobs.db-litestream"; do
+                  db_dir="$LTX_BASE_PATH/Databases/$db_name/ltx/0"
+                  if [ -d "$db_dir" ]; then
+                    echo "Processing: $db_dir"
+                    before=$(find "$db_dir" -name '*.ltx' -type f | wc -l)
+                    
+                    # Delete LTX files older than 60 minutes
+                    find "$db_dir" -name '*.ltx' -type f -mmin +60 -delete || true
+                    
+                    after=$(find "$db_dir" -name '*.ltx' -type f | wc -l)
+                    deleted=$((before - after))
+                    echo "  Before: $before, After: $after, Deleted: $deleted"
+                  else
+                    echo "Directory not found: $db_dir"
+                  fi
+                done
+                
+                echo "=== Cleanup complete ==="
+              EOF
+              ]
+
+              env {
+                name  = "LTX_BASE_PATH"
+                value = "/plex-data"
+              }
+
+              volume_mount {
+                name       = "plex-data"
+                mount_path = "/plex-data"
+              }
+
+              resources {
+                requests = {
+                  cpu    = "10m"
+                  memory = "16Mi"
+                }
+                limits = {
+                  cpu    = "100m"
+                  memory = "64Mi"
+                }
+              }
+            }
+
+            volume {
+              name = "plex-data"
+              host_path {
+                # Path to Plex's local-path PVC on Hestia
+                path = "/var/lib/rancher/k3s/storage/pvc-2fd10269-54e8-47b3-9454-0185744046aa_default_plex-data-plex-0"
+                type = "Directory"
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

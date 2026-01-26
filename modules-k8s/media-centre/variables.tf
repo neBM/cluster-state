@@ -60,3 +60,17 @@ variable "tautulli_config_path" {
   type        = string
   default     = "/mnt/docker/downloads/config/tautulli"
 }
+
+# Busybox for utility jobs (litestream cleanup)
+variable "busybox_image" {
+  description = "Busybox Docker image name"
+  type        = string
+  default     = "busybox"
+}
+
+variable "busybox_tag" {
+  description = "Busybox Docker image tag"
+  type        = string
+  # renovate: datasource=docker depName=busybox
+  default = "1.37"
+}
