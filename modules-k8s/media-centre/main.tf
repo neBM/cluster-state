@@ -385,12 +385,12 @@ resource "kubernetes_stateful_set" "plex" {
           resources {
             requests = {
               cpu    = "50m"
-              memory = "128Mi"
+              memory = "256Mi"
             }
             limits = {
-              # Increased from 512Mi - litestream 0.5.x uses more memory
-              # during compaction with many LTX files
-              memory = "1Gi"
+              # Increased from 512Mi - litestream 0.5.x uses excessive memory
+              # during L1 compaction with large databases (129MB Plex library.db)
+              memory = "2Gi"
             }
           }
         }
