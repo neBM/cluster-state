@@ -49,7 +49,7 @@ Infrastructure as Code for my home lab K3s cluster. Terraform manages Kubernetes
 │   ├── ollama/
 │   ├── elk/
 │   └── ...
-├── specs/                  # Historical specs & migrations
+├── specs/                  # SpecKit specifications
 ├── .gitlab-ci.yml          # CI/CD pipeline
 ├── renovate.json           # Automated dependency updates
 └── .pre-commit-config.yaml # Code quality hooks
@@ -108,4 +108,4 @@ CI uses a limited-RBAC service account (`terraform-ci`) for cluster access.
 
 ## History
 
-This repo originally managed a Nomad cluster. Migration to K3s was completed in January 2026. Historical specs are preserved in `specs/`.
+This repo originally managed a Nomad cluster. Migration to K3s was completed in January 2026.
