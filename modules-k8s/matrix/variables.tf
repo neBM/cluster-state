@@ -49,7 +49,7 @@ variable "synapse_tag" {
   description = "Synapse Docker image tag"
   type        = string
   # renovate: datasource=docker depName=ghcr.io/element-hq/synapse
-  default = "v1.145.0"
+  default = "v1.146.0"
 }
 
 variable "mas_image" {
@@ -62,7 +62,7 @@ variable "mas_tag" {
   description = "Matrix Authentication Service Docker image tag"
   type        = string
   # renovate: datasource=docker depName=ghcr.io/element-hq/matrix-authentication-service
-  default = "1.9.0"
+  default = "1.10.0"
 }
 
 variable "whatsapp_image" {
@@ -88,7 +88,7 @@ variable "element_tag" {
   description = "Element web Docker image tag"
   type        = string
   # renovate: datasource=docker depName=docker.io/vectorim/element-web
-  default = "v1.12.8"
+  default = "v1.12.9"
 }
 
 variable "cinny_image" {
