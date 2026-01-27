@@ -122,8 +122,8 @@ resource "kubernetes_deployment" "keycloak" {
 
           resources {
             requests = {
-              cpu    = "100m"
-              memory = "256Mi"
+              cpu    = "50m"
+              memory = "768Mi"
             }
             limits = {
               cpu    = "1000m"
@@ -165,6 +165,11 @@ resource "kubernetes_service" "keycloak" {
     name      = local.app_name
     namespace = var.namespace
     labels    = local.labels
+    annotations = {
+      "prometheus.io/scrape" = "true"
+      "prometheus.io/port"   = "8080"
+      "prometheus.io/path"   = "/metrics"
+    }
   }
 
   spec {

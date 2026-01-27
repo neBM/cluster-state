@@ -76,7 +76,7 @@ resource "kubernetes_deployment" "minio" {
 
           resources {
             requests = {
-              cpu    = "500m"
+              cpu    = "300m"
               memory = "1Gi"
             }
             limits = {
@@ -129,6 +129,11 @@ resource "kubernetes_service" "minio_api" {
     name      = "${local.app_name}-api"
     namespace = var.namespace
     labels    = local.labels
+    annotations = {
+      "prometheus.io/scrape" = "true"
+      "prometheus.io/port"   = "9000"
+      "prometheus.io/path"   = "/minio/v2/metrics/cluster"
+    }
   }
 
   spec {

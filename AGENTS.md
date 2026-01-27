@@ -403,6 +403,59 @@ GlusterFS doesn't support Unix sockets. Services using sockets (Redis, Gitaly, P
 - TCP connections instead of Unix sockets
 - `/run/` (tmpfs) for socket files if sockets are required
 
+## Observability Stack
+
+### Prometheus (Metrics Collection)
+- **URL**: https://prometheus.brmartin.co.uk
+- **Purpose**: Collects and stores metrics from Kubernetes nodes, pods, and services
+- **Storage**: 10GB on GlusterFS with 30-day retention
+- **Scraping**: Auto-discovers targets via Kubernetes API and `prometheus.io/*` annotations
+
+**Common queries**:
+```promql
+# CPU usage by node
+100 - (avg(rate(node_cpu_seconds_total{mode="idle"}[5m])) by (instance) * 100)
+
+# Memory usage by node
+100 * (1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes))
+
+# Pod restarts
+increase(kube_pod_container_status_restarts_total[1h])
+```
+
+### Grafana (Visualization)
+- **URL**: https://grafana.brmartin.co.uk
+- **Auth**: Keycloak SSO (prod realm)
+- **Data Source**: Prometheus (auto-configured)
+- **Storage**: 1GB on GlusterFS for dashboards and SQLite DB
+
+**Useful dashboards** (import by ID):
+- Kubernetes Cluster Overview: 6417
+- Kubernetes Pods: 6336
+- Node Exporter Full: 1860
+- Traefik: 4475
+
+### Meshery (Service Mesh Management)
+- **URL**: https://meshery.brmartin.co.uk
+- **Purpose**: Manages and visualizes Cilium service mesh
+- **Features**: Service topology, performance testing, configuration management
+
+### Adding Prometheus Metrics to Services
+
+To expose metrics from your service to Prometheus, add these annotations to your Kubernetes Service:
+
+```hcl
+resource "kubernetes_service" "myapp" {
+  metadata {
+    annotations = {
+      "prometheus.io/scrape" = "true"
+      "prometheus.io/port"   = "8080"      # Port where metrics are exposed
+      "prometheus.io/path"   = "/metrics"  # Path to metrics endpoint (default: /metrics)
+    }
+  }
+}
+```
+
 ## Links
 
 - GitLab: https://git.brmartin.co.uk
@@ -410,6 +463,9 @@ GlusterFS doesn't support Unix sockets. Services using sockets (Redis, Gitaly, P
 - Elasticsearch: https://es.brmartin.co.uk
 - MinIO Console: https://minio.brmartin.co.uk
 - Keycloak (SSO): https://sso.brmartin.co.uk
+- Prometheus: https://prometheus.brmartin.co.uk
+- Grafana: https://grafana.brmartin.co.uk
+- Meshery: https://meshery.brmartin.co.uk
 
 ## Services (K8s)
 

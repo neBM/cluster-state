@@ -159,8 +159,8 @@ resource "kubernetes_deployment" "nextcloud" {
 
           resources {
             requests = {
-              cpu    = "500m"
-              memory = "512Mi"
+              cpu    = "25m"
+              memory = "256Mi"
             }
             limits = {
               memory = "1024Mi"
@@ -340,8 +340,8 @@ resource "kubernetes_deployment" "collabora" {
 
           resources {
             requests = {
-              cpu    = "200m"
-              memory = "256Mi"
+              cpu    = "50m"
+              memory = "768Mi"
             }
             limits = {
               memory = "1024Mi"

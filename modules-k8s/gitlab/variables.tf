@@ -145,7 +145,7 @@ variable "webservice_memory_limit" {
 variable "webservice_cpu_request" {
   description = "Webservice CPU request"
   type        = string
-  default     = "500m"
+  default     = "75m"
 }
 
 # Workhorse
@@ -171,26 +171,26 @@ variable "workhorse_cpu_request" {
 variable "sidekiq_memory_request" {
   description = "Sidekiq memory request"
   type        = string
-  default     = "512Mi"
+  default     = "1536Mi"
 }
 
 variable "sidekiq_memory_limit" {
   description = "Sidekiq memory limit"
   type        = string
-  default     = "1Gi"
+  default     = "2Gi"
 }
 
 variable "sidekiq_cpu_request" {
   description = "Sidekiq CPU request"
   type        = string
-  default     = "200m"
+  default     = "150m"
 }
 
 # Gitaly
 variable "gitaly_memory_request" {
   description = "Gitaly memory request"
   type        = string
-  default     = "256Mi"
+  default     = "512Mi"
 }
 
 variable "gitaly_memory_limit" {
@@ -202,7 +202,7 @@ variable "gitaly_memory_limit" {
 variable "gitaly_cpu_request" {
   description = "Gitaly CPU request"
   type        = string
-  default     = "200m"
+  default     = "50m"
 }
 
 # Registry

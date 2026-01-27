@@ -81,7 +81,7 @@ variable "kibana_memory_limit" {
 variable "kibana_cpu_request" {
   description = "CPU request for Kibana"
   type        = string
-  default     = "250m"
+  default     = "100m"
 }
 
 variable "kibana_cpu_limit" {
@@ -127,7 +127,7 @@ variable "es_data_memory_limit" {
 variable "es_data_cpu_request" {
   description = "CPU request for ES data nodes"
   type        = string
-  default     = "500m"
+  default     = "400m"
 }
 
 variable "es_data_cpu_limit" {
