@@ -338,3 +338,57 @@ module "k8s_elastic_agent" {
   enrollment_token_secret_key  = "token"
   # Image defaults set in module variables with renovate comments
 }
+
+# Prometheus - Metrics collection and monitoring
+# Scrapes metrics from K8s nodes, pods, and services
+# Data stored on GlusterFS, accessible via prometheus.brmartin.co.uk
+module "k8s_prometheus" {
+  source = "./modules-k8s/prometheus"
+
+  namespace              = "default"
+  ingress_hostname       = "prometheus.brmartin.co.uk"
+  storage_size           = "10Gi"
+  retention_days         = 30
+  scrape_interval        = "15s"
+  node_affinity_hostname = "hestia"
+}
+
+# Node Exporter - Host metrics collection
+# DaemonSet runs on all nodes to collect system metrics
+module "k8s_node_exporter" {
+  source = "./modules-k8s/node-exporter"
+
+  namespace = "default"
+}
+
+# kube-state-metrics - Kubernetes object metrics
+# Exports metrics about K8s objects (deployments, pods, etc.)
+module "k8s_kube_state_metrics" {
+  source = "./modules-k8s/kube-state-metrics"
+
+  namespace = "default"
+}
+
+# Grafana - Visualization and dashboards
+# OAuth via Keycloak, Prometheus datasource auto-configured
+module "k8s_grafana" {
+  source = "./modules-k8s/grafana"
+
+  namespace          = "default"
+  ingress_hostname   = "grafana.brmartin.co.uk"
+  prometheus_url     = "http://prometheus.default.svc.cluster.local:9090"
+  keycloak_url       = "https://sso.brmartin.co.uk"
+  keycloak_realm     = "prod"
+  keycloak_client_id = "grafana"
+}
+
+# Meshery - Service mesh management for Cilium
+# Provides visualization and management of Cilium service mesh
+module "k8s_meshery" {
+  source = "./modules-k8s/meshery"
+
+  namespace        = "default"
+  ingress_hostname = "meshery.brmartin.co.uk"
+  replicas         = 0 # Disabled — OOMKills at 1Gi, revisit later
+}
+

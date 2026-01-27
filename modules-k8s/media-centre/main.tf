@@ -576,7 +576,7 @@ resource "kubernetes_deployment" "jellyfin" {
 
           resources {
             requests = {
-              cpu    = "200m"
+              cpu    = "50m"
               memory = "512Mi"
             }
             limits = {

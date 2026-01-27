@@ -1,0 +1,1 @@
+../../.specify/specs/010-observability-stack/plan.md
