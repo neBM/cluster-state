@@ -895,10 +895,10 @@ resource "kubernetes_deployment" "admin_frontend" {
             value = "https://${var.hostname}"
           }
 
-          # Admin frontend uses internal gotrue URL (not public /gotrue path)
+          # Admin frontend is browser-based, so needs public GoTrue URL
           env {
             name  = "APPFLOWY_GOTRUE_BASE_URL"
-            value = "http://${local.gotrue_host}:9999"
+            value = "https://${var.hostname}/gotrue"
           }
 
           env {
