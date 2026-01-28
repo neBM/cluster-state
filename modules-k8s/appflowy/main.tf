@@ -310,6 +310,12 @@ resource "kubernetes_deployment" "gotrue" {
             value = "604800"
           }
 
+          # Required for GoTrue admin API access
+          env {
+            name  = "GOTRUE_JWT_ADMIN_GROUP_NAME"
+            value = "supabase_admin"
+          }
+
           env {
             name  = "GOTRUE_MAILER_AUTOCONFIRM"
             value = "false"
