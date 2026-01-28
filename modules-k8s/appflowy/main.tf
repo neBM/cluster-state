@@ -1095,13 +1095,24 @@ resource "kubectl_manifest" "ingressroute" {
             }
           ]
         },
-        # Admin frontend - /admin/*
+        # Admin frontend - /admin/* (strips prefix, redirects to /console internally)
         {
           match = "Host(`${var.hostname}`) && PathPrefix(`/admin`)"
           kind  = "Rule"
           middlewares = [
             { name = "admin-strip-prefix", namespace = var.namespace }
           ]
+          services = [
+            {
+              name = kubernetes_service.admin_frontend.metadata[0].name
+              port = 8000
+            }
+          ]
+        },
+        # Admin frontend static assets - /console/* (app's internal basePath)
+        {
+          match = "Host(`${var.hostname}`) && PathPrefix(`/console`)"
+          kind  = "Rule"
           services = [
             {
               name = kubernetes_service.admin_frontend.metadata[0].name
