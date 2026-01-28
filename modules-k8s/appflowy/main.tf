@@ -1095,6 +1095,17 @@ resource "kubectl_manifest" "ingressroute" {
             }
           ]
         },
+        # Admin frontend - /admin/*
+        {
+          match = "Host(`${var.hostname}`) && PathPrefix(`/admin`)"
+          kind  = "Rule"
+          services = [
+            {
+              name = kubernetes_service.admin_frontend.metadata[0].name
+              port = 8000
+            }
+          ]
+        },
         # Web frontend - catch-all with CSP headers
         {
           match    = "Host(`${var.hostname}`)"
