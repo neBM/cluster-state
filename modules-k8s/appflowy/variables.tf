@@ -66,6 +66,19 @@ variable "web_tag" {
   default = "latest"
 }
 
+variable "admin_frontend_image" {
+  description = "Docker image name for AppFlowy admin frontend"
+  type        = string
+  default     = "appflowyinc/admin_frontend"
+}
+
+variable "admin_frontend_tag" {
+  description = "Docker image tag for AppFlowy admin frontend"
+  type        = string
+  # renovate: datasource=docker depName=appflowyinc/admin_frontend
+  default = "latest"
+}
+
 variable "postgres_image" {
   description = "Docker image name for PostgreSQL with pgvector"
   type        = string

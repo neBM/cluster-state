@@ -884,10 +884,10 @@ resource "kubernetes_deployment" "admin_frontend" {
       spec {
         container {
           name  = "admin-frontend"
-          image = "${var.web_image}:${var.web_tag}"
+          image = "${var.admin_frontend_image}:${var.admin_frontend_tag}"
 
           port {
-            container_port = 8000
+            container_port = 3000
           }
 
           env {
@@ -933,7 +933,7 @@ resource "kubernetes_service" "admin_frontend" {
 
     port {
       port        = 8000
-      target_port = 8000
+      target_port = 3000
     }
   }
 }
@@ -1099,6 +1099,9 @@ resource "kubectl_manifest" "ingressroute" {
         {
           match = "Host(`${var.hostname}`) && PathPrefix(`/admin`)"
           kind  = "Rule"
+          middlewares = [
+            { name = "admin-strip-prefix", namespace = var.namespace }
+          ]
           services = [
             {
               name = kubernetes_service.admin_frontend.metadata[0].name
@@ -1160,6 +1163,23 @@ resource "kubectl_manifest" "gotrue_strip_prefix" {
     spec = {
       stripPrefix = {
         prefixes = ["/gotrue"]
+      }
+    }
+  })
+}
+
+# Traefik middleware for stripping /admin prefix
+resource "kubectl_manifest" "admin_strip_prefix" {
+  yaml_body = yamlencode({
+    apiVersion = "traefik.io/v1alpha1"
+    kind       = "Middleware"
+    metadata = {
+      name      = "admin-strip-prefix"
+      namespace = var.namespace
+    }
+    spec = {
+      stripPrefix = {
+        prefixes = ["/admin"]
       }
     }
   })
