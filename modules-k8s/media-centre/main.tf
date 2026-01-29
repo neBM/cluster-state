@@ -1,14 +1,14 @@
 # Media Centre - Plex, Jellyfin, Tautulli
 #
 # Components:
-# - Plex: Media server with NVIDIA GPU transcoding, litestream backup
+# - Plex: Media server with NVIDIA GPU transcoding, periodic sqlite backup
 # - Jellyfin: Alternative media server
 # - Tautulli: Plex monitoring/statistics
 #
 # Requirements:
 # - NVIDIA GPU on Hestia node (for Plex transcoding)
 # - NFS access to Synology NAS (192.168.1.10) for media files
-# - MinIO for litestream backups
+# - MinIO for database backups
 
 locals {
   plex_labels = {
@@ -32,61 +32,15 @@ locals {
   elastic_log_annotations = {
     "elastic.co/dataset" = "kubernetes.container_logs.media"
   }
+
+  # Backup configuration
+  plex_backup_bucket   = "plex-backup"
+  plex_backup_endpoint = "http://minio-api.default.svc.cluster.local:9000"
 }
 
 # =============================================================================
 # Plex Media Server
 # =============================================================================
-
-resource "kubernetes_config_map" "plex_litestream" {
-  metadata {
-    name      = "plex-litestream-config"
-    namespace = var.namespace
-    labels    = local.plex_labels
-  }
-
-  data = {
-    "litestream.yml" = yamlencode({
-
-      dbs = [
-        {
-          path = "/data/Databases/com.plexapp.plugins.library.db"
-          replicas = [
-            {
-              name                     = "library"
-              type                     = "s3"
-              bucket                   = "plex-litestream"
-              path                     = "library"
-              endpoint                 = "http://minio-api.default.svc.cluster.local:9000"
-              force-path-style         = true
-              sync-interval            = "5m"
-              snapshot-interval        = "1h"
-              retention                = "168h"
-              retention-check-interval = "1h"
-            }
-          ]
-        },
-        {
-          path = "/data/Databases/com.plexapp.plugins.library.blobs.db"
-          replicas = [
-            {
-              name                     = "blobs"
-              type                     = "s3"
-              bucket                   = "plex-litestream"
-              path                     = "blobs"
-              endpoint                 = "http://minio-api.default.svc.cluster.local:9000"
-              force-path-style         = true
-              sync-interval            = "5m"
-              snapshot-interval        = "1h"
-              retention                = "168h"
-              retention-check-interval = "1h"
-            }
-          ]
-        }
-      ]
-    })
-  }
-}
 
 resource "kubernetes_stateful_set" "plex" {
   metadata {
@@ -122,12 +76,11 @@ resource "kubernetes_stateful_set" "plex" {
           fs_group = 997 # video group for GPU access
         }
 
-        # Init container to restore databases from litestream
-        # Using 0.5 for restore as it supports the older LTX format used in existing backups
-        # CRITICAL: Plex MUST NOT start without a valid database - either pre-existing or restored
+        # Init container to restore databases from MinIO snapshots
+        # CRITICAL: Plex MUST NOT start without a valid database
         init_container {
-          name  = "litestream-restore"
-          image = "litestream/litestream:0.5"
+          name  = "db-restore"
+          image = "alpine:3.21"
 
           command = ["/bin/sh", "-c"]
           args = [<<-EOF
@@ -140,41 +93,57 @@ resource "kubernetes_stateful_set" "plex" {
             # Skip if databases already exist
             if [ -f "$LIBRARY_DB" ]; then
               echo "Databases already exist, skipping restore"
+              # Clean up any litestream shadow directories from previous setup
+              rm -rf "$DB_DIR/.com.plexapp.plugins.library.db-litestream" 2>/dev/null || true
+              rm -rf "$DB_DIR/.com.plexapp.plugins.library.blobs.db-litestream" 2>/dev/null || true
               exit 0
             fi
 
-            echo "No local database found - attempting restore from S3..."
-            echo "CRITICAL: Plex will NOT start if restore fails to prevent empty database creation"
-            
-            # Create litestream config with credentials
-            cat > /tmp/litestream.yml << LSEOF
-            dbs:
-              - path: $LIBRARY_DB
-                replicas:
-                  - name: library
-                    type: s3
-                    bucket: plex-litestream
-                    path: library
-                    endpoint: http://minio-api.default.svc.cluster.local:9000
-                    access-key-id: $MINIO_ACCESS_KEY
-                    secret-access-key: $MINIO_SECRET_KEY
-                    force-path-style: true
-              - path: $BLOBS_DB
-                replicas:
-                  - name: blobs
-                    type: s3
-                    bucket: plex-litestream
-                    path: blobs
-                    endpoint: http://minio-api.default.svc.cluster.local:9000
-                    access-key-id: $MINIO_ACCESS_KEY
-                    secret-access-key: $MINIO_SECRET_KEY
-                    force-path-style: true
-            LSEOF
+            echo "No local database found - attempting restore from MinIO..."
+            echo "CRITICAL: Plex will NOT start if restore fails"
+
+            # Install curl for S3 API access
+            apk add --no-cache curl
+
+            # Function to download latest backup from MinIO
+            download_latest() {
+              local prefix=$1
+              local output=$2
+              
+              echo "Finding latest backup for $prefix..."
+              
+              # List objects and find the most recent one (use sed - alpine grep lacks -P)
+              LATEST=$(curl -sf \
+                --aws-sigv4 "aws:amz:us-east-1:s3" \
+                --user "$MINIO_ACCESS_KEY:$MINIO_SECRET_KEY" \
+                "$MINIO_ENDPOINT/$BACKUP_BUCKET?prefix=$prefix&list-type=2" \
+                2>/dev/null | sed -n 's/.*<Key>\([^<]*\)<\/Key>.*/\1/p' | sort -r | head -1)
+              
+              if [ -z "$LATEST" ]; then
+                echo "ERROR: No backup found for $prefix"
+                return 1
+              fi
+              
+              echo "Downloading: $LATEST"
+              curl -sf \
+                --aws-sigv4 "aws:amz:us-east-1:s3" \
+                --user "$MINIO_ACCESS_KEY:$MINIO_SECRET_KEY" \
+                "$MINIO_ENDPOINT/$BACKUP_BUCKET/$LATEST" \
+                -o "$output"
+              
+              if [ ! -f "$output" ]; then
+                echo "ERROR: Download failed for $output"
+                return 1
+              fi
+              
+              echo "Downloaded: $(stat -c%s "$output") bytes"
+              return 0
+            }
 
             RESTORE_FAILED=0
 
             echo "Restoring library database..."
-            if litestream restore -config /tmp/litestream.yml -o "$LIBRARY_DB" "$LIBRARY_DB"; then
+            if download_latest "library/" "$LIBRARY_DB"; then
               echo "Library database restored successfully"
             else
               echo "ERROR: Library database restore failed!"
@@ -182,7 +151,7 @@ resource "kubernetes_stateful_set" "plex" {
             fi
 
             echo "Restoring blobs database..."
-            if litestream restore -config /tmp/litestream.yml -o "$BLOBS_DB" "$BLOBS_DB"; then
+            if download_latest "blobs/" "$BLOBS_DB"; then
               echo "Blobs database restored successfully"
             else
               echo "ERROR: Blobs database restore failed!"
@@ -193,14 +162,13 @@ resource "kubernetes_stateful_set" "plex" {
             if [ ! -f "$LIBRARY_DB" ]; then
               echo "FATAL: Library database does not exist after restore attempt!"
               echo "Plex cannot start without a valid database."
-              echo "Please check MinIO connectivity and litestream backup status."
+              echo "Please check MinIO connectivity and backup status."
               exit 1
             fi
 
             if [ ! -f "$BLOBS_DB" ]; then
               echo "FATAL: Blobs database does not exist after restore attempt!"
               echo "Plex cannot start without a valid database."
-              echo "Please check MinIO connectivity and litestream backup status."
               exit 1
             fi
 
@@ -209,11 +177,14 @@ resource "kubernetes_stateful_set" "plex" {
             BLOBS_SIZE=$(stat -c%s "$BLOBS_DB" 2>/dev/null || echo "0")
             
             if [ "$LIBRARY_SIZE" -lt 100000 ]; then
-              echo "FATAL: Library database is too small ($LIBRARY_SIZE bytes) - likely corrupted or empty!"
+              echo "FATAL: Library database is too small ($LIBRARY_SIZE bytes) - likely corrupted!"
               echo "Expected at least 100KB for a valid Plex database."
               rm -f "$LIBRARY_DB" "$BLOBS_DB"
               exit 1
             fi
+
+            # Skip integrity checks due to Plex custom FTS tokenizer issues
+            # Size check above is sufficient - backups created with sqlite3 .backup are reliable
 
             chown -R 990:997 "$DB_DIR" 2>/dev/null || true
             echo "Restore complete - Library: $${LIBRARY_SIZE} bytes, Blobs: $${BLOBS_SIZE} bytes"
@@ -238,6 +209,16 @@ resource "kubernetes_stateful_set" "plex" {
                 key  = "MINIO_SECRET_KEY"
               }
             }
+          }
+
+          env {
+            name  = "MINIO_ENDPOINT"
+            value = local.plex_backup_endpoint
+          }
+
+          env {
+            name  = "BACKUP_BUCKET"
+            value = local.plex_backup_bucket
           }
 
           volume_mount {
@@ -324,11 +305,11 @@ resource "kubernetes_stateful_set" "plex" {
 
           resources {
             requests = {
-              cpu    = "100m"  # goldilocks: 49m, GPU handles transcoding
+              cpu    = "100m"
               memory = "1Gi"
             }
             limits = {
-              cpu              = "4"  # allow burst for metadata scans
+              cpu              = "4"
               memory           = "4Gi"
               "nvidia.com/gpu" = "1"
             }
@@ -341,63 +322,11 @@ resource "kubernetes_stateful_set" "plex" {
             }
             initial_delay_seconds = 60
             period_seconds        = 30
-            # Plex returns 401 for unauthenticated but that confirms it's running
-            failure_threshold = 5
+            failure_threshold     = 5
           }
         }
 
-        # Litestream sidecar for continuous replication
-        # Using 0.5 for LTX format compatibility with existing backups
-        container {
-          name  = "litestream"
-          image = "litestream/litestream:0.5"
-          args  = ["replicate", "-config", "/etc/litestream/litestream.yml"]
-
-          env {
-            name = "LITESTREAM_ACCESS_KEY_ID"
-            value_from {
-              secret_key_ref {
-                name = "media-centre-secrets"
-                key  = "MINIO_ACCESS_KEY"
-              }
-            }
-          }
-
-          env {
-            name = "LITESTREAM_SECRET_ACCESS_KEY"
-            value_from {
-              secret_key_ref {
-                name = "media-centre-secrets"
-                key  = "MINIO_SECRET_KEY"
-              }
-            }
-          }
-
-          volume_mount {
-            name       = "plex-data"
-            mount_path = "/data"
-          }
-
-          volume_mount {
-            name       = "litestream-config"
-            mount_path = "/etc/litestream"
-          }
-
-          resources {
-            requests = {
-              cpu    = "500m"  # goldilocks: 1554m, high due to replication bursts
-              memory = "256Mi"
-            }
-            limits = {
-              cpu    = "2"  # allow burst for sync
-              # Increased from 512Mi - litestream 0.5.x uses excessive memory
-              # during L1 compaction with large databases (129MB Plex library.db)
-              memory = "2Gi"
-            }
-          }
-        }
-
-        # Volumes
+        # Volumes - removed litestream-config volume
         volume {
           name = "plex-config"
           host_path {
@@ -411,13 +340,6 @@ resource "kubernetes_stateful_set" "plex" {
           empty_dir {
             medium     = "Memory"
             size_limit = "4Gi"
-          }
-        }
-
-        volume {
-          name = "litestream-config"
-          config_map {
-            name = kubernetes_config_map.plex_litestream.metadata[0].name
           }
         }
 
@@ -440,7 +362,7 @@ resource "kubernetes_stateful_set" "plex" {
       }
     }
 
-    # Persistent volume for Plex databases (ephemeral in Nomad, but stateful here)
+    # Persistent volume for Plex databases
     volume_claim_template {
       metadata {
         name = "plex-data"
@@ -506,6 +428,237 @@ resource "kubectl_manifest" "plex_ingressroute" {
       }
     }
   })
+}
+
+# =============================================================================
+# Plex Database Backup CronJob
+# =============================================================================
+# Periodic sqlite3 .backup to MinIO - corruption-safe even during writes
+# Keeps last 48 backups (24 hours at 30-min intervals)
+
+resource "kubernetes_cron_job_v1" "plex_db_backup" {
+  metadata {
+    name      = "plex-db-backup"
+    namespace = var.namespace
+    labels = {
+      app        = "media-centre"
+      component  = "plex-backup"
+      managed-by = "terraform"
+    }
+  }
+
+  spec {
+    schedule                      = "*/30 * * * *" # Every 30 minutes
+    concurrency_policy            = "Forbid"
+    successful_jobs_history_limit = 3
+    failed_jobs_history_limit     = 3
+
+    job_template {
+      metadata {
+        labels = {
+          app        = "media-centre"
+          component  = "plex-backup"
+          managed-by = "terraform"
+        }
+      }
+
+      spec {
+        ttl_seconds_after_finished = 3600
+        backoff_limit              = 2
+
+        template {
+          metadata {
+            labels = {
+              app        = "media-centre"
+              component  = "plex-backup"
+              managed-by = "terraform"
+            }
+          }
+
+          spec {
+            restart_policy = "Never"
+
+            # Must run on Hestia where the PVC is located
+            node_selector = {
+              "kubernetes.io/hostname" = "hestia"
+            }
+
+            container {
+              name  = "backup"
+              image = "alpine:3.21"
+
+              command = ["/bin/sh", "-c"]
+              args = [<<-EOF
+                set -e
+                echo "=== Plex Database Backup - $(date -Iseconds) ==="
+                
+                # Install required tools
+                apk add --no-cache sqlite curl
+                
+                DB_DIR="/plex-data/Databases"
+                LIBRARY_DB="$DB_DIR/com.plexapp.plugins.library.db"
+                BLOBS_DB="$DB_DIR/com.plexapp.plugins.library.blobs.db"
+                TIMESTAMP=$(date +%Y%m%d-%H%M%S)
+                
+                # Verify source databases exist
+                if [ ! -f "$LIBRARY_DB" ]; then
+                  echo "ERROR: Library database not found at $LIBRARY_DB"
+                  exit 1
+                fi
+                
+                if [ ! -f "$BLOBS_DB" ]; then
+                  echo "ERROR: Blobs database not found at $BLOBS_DB"
+                  exit 1
+                fi
+                
+                # Function to backup a database
+                backup_db() {
+                  local src=$1
+                  local name=$2
+                  local backup_file="/tmp/$${name}-$${TIMESTAMP}.db"
+                  local s3_key="$name/$${name}-$${TIMESTAMP}.db"
+                  
+                  echo "Backing up $name..."
+                  
+                  # sqlite3 .backup is atomic and safe during writes
+                  # It acquires a read lock and copies consistently
+                  if ! sqlite3 "$src" ".backup '$backup_file'"; then
+                    echo "ERROR: sqlite3 backup failed for $name"
+                    return 1
+                  fi
+                  
+                  # sqlite3 .backup is atomic and reliable - just verify file size
+                  # Skip integrity checks due to Plex custom FTS tokenizer issues
+                  local size=$(stat -c%s "$backup_file")
+                  if [ "$size" -lt 10000 ]; then
+                    echo "ERROR: Backup too small ($size bytes) for $name"
+                    rm -f "$backup_file"
+                    return 1
+                  fi
+                  echo "Backup created: $size bytes"
+                  
+                  # Upload to MinIO using S3 API with AWS SigV4
+                  echo "Uploading to MinIO: $s3_key"
+                  if ! curl -sf -X PUT \
+                    --aws-sigv4 "aws:amz:us-east-1:s3" \
+                    --user "$MINIO_ACCESS_KEY:$MINIO_SECRET_KEY" \
+                    -H "Content-Type: application/octet-stream" \
+                    --data-binary "@$backup_file" \
+                    "$MINIO_ENDPOINT/$BACKUP_BUCKET/$s3_key"; then
+                    echo "ERROR: Upload failed for $name"
+                    rm -f "$backup_file"
+                    return 1
+                  fi
+                  
+                  rm -f "$backup_file"
+                  echo "$name backup complete: $s3_key"
+                  return 0
+                }
+                
+                # Function to cleanup old backups (keep last N)
+                cleanup_old_backups() {
+                  local prefix=$1
+                  local keep=$2
+                  
+                  echo "Cleaning up old backups for $prefix (keeping last $keep)..."
+                  
+                  # List all objects with prefix (use sed - busybox grep lacks -P)
+                  OBJECTS=$(curl -sf \
+                    --aws-sigv4 "aws:amz:us-east-1:s3" \
+                    --user "$MINIO_ACCESS_KEY:$MINIO_SECRET_KEY" \
+                    "$MINIO_ENDPOINT/$BACKUP_BUCKET?prefix=$prefix&list-type=2" \
+                    2>/dev/null | sed -n 's/.*<Key>\([^<]*\)<\/Key>.*/\1/p' | sort -r)
+                  
+                  # Skip the first N (newest), delete the rest
+                  echo "$OBJECTS" | tail -n +$((keep + 1)) | while read key; do
+                    if [ -n "$key" ]; then
+                      echo "Deleting old backup: $key"
+                      curl -sf -X DELETE \
+                        --aws-sigv4 "aws:amz:us-east-1:s3" \
+                        --user "$MINIO_ACCESS_KEY:$MINIO_SECRET_KEY" \
+                        "$MINIO_ENDPOINT/$BACKUP_BUCKET/$key" || true
+                    fi
+                  done
+                }
+                
+                # Perform backups
+                FAILED=0
+                
+                backup_db "$LIBRARY_DB" "library" || FAILED=1
+                backup_db "$BLOBS_DB" "blobs" || FAILED=1
+                
+                if [ "$FAILED" -eq 1 ]; then
+                  echo "ERROR: One or more backups failed!"
+                  exit 1
+                fi
+                
+                # Cleanup old backups (keep last 48 = 24 hours at 30-min intervals)
+                cleanup_old_backups "library/" 48
+                cleanup_old_backups "blobs/" 48
+                
+                echo "=== Backup complete ==="
+              EOF
+              ]
+
+              env {
+                name = "MINIO_ACCESS_KEY"
+                value_from {
+                  secret_key_ref {
+                    name = "media-centre-secrets"
+                    key  = "MINIO_ACCESS_KEY"
+                  }
+                }
+              }
+
+              env {
+                name = "MINIO_SECRET_KEY"
+                value_from {
+                  secret_key_ref {
+                    name = "media-centre-secrets"
+                    key  = "MINIO_SECRET_KEY"
+                  }
+                }
+              }
+
+              env {
+                name  = "MINIO_ENDPOINT"
+                value = local.plex_backup_endpoint
+              }
+
+              env {
+                name  = "BACKUP_BUCKET"
+                value = local.plex_backup_bucket
+              }
+
+              volume_mount {
+                name       = "plex-data"
+                mount_path = "/plex-data"
+                read_only  = true
+              }
+
+              resources {
+                requests = {
+                  cpu    = "100m"
+                  memory = "128Mi"
+                }
+                limits = {
+                  cpu    = "500m"
+                  memory = "512Mi"
+                }
+              }
+            }
+
+            volume {
+              name = "plex-data"
+              persistent_volume_claim {
+                claim_name = "plex-data-plex-0"
+              }
+            }
+          }
+        }
+      }
+    }
+  }
 }
 
 # =============================================================================
@@ -882,135 +1035,4 @@ resource "kubectl_manifest" "external_secret" {
       ]
     }
   })
-}
-
-# =============================================================================
-# Litestream LTX Cleanup CronJob
-# =============================================================================
-# TEMPORARY WORKAROUND for litestream 0.5.x LTX file buildup issue
-# GitHub Issues: #976, #994 - https://github.com/benbjohnson/litestream/issues/976
-# Remove this resource when litestream fixes the issue (expected in v0.5.7+)
-#
-# This CronJob cleans up old .ltx files from the local shadow directory
-# that litestream 0.5.x fails to delete, preventing disk exhaustion.
-
-resource "kubernetes_cron_job_v1" "litestream_ltx_cleanup" {
-  metadata {
-    name      = "litestream-ltx-cleanup"
-    namespace = var.namespace
-    labels = {
-      app        = "media-centre"
-      component  = "litestream-cleanup"
-      managed-by = "terraform"
-      temporary  = "true" # Mark as temporary workaround
-    }
-    annotations = {
-      "description"  = "Temporary workaround for litestream 0.5.x LTX buildup - remove when fixed upstream"
-      "github-issue" = "https://github.com/benbjohnson/litestream/issues/976"
-    }
-  }
-
-  spec {
-    schedule                      = "0 */6 * * *" # Every 6 hours
-    concurrency_policy            = "Forbid"
-    successful_jobs_history_limit = 3
-    failed_jobs_history_limit     = 3
-
-    job_template {
-      metadata {
-        labels = {
-          app        = "media-centre"
-          component  = "litestream-cleanup"
-          managed-by = "terraform"
-        }
-      }
-
-      spec {
-        ttl_seconds_after_finished = 3600 # Clean up job after 1 hour
-        backoff_limit              = 1
-
-        template {
-          metadata {
-            labels = {
-              app        = "media-centre"
-              component  = "litestream-cleanup"
-              managed-by = "terraform"
-            }
-          }
-
-          spec {
-            restart_policy = "Never"
-
-            # Must run on Hestia where the local-path PVC is located
-            node_selector = {
-              "kubernetes.io/hostname" = "hestia"
-            }
-
-            container {
-              name  = "cleanup"
-              image = "${var.busybox_image}:${var.busybox_tag}"
-
-              command = ["/bin/sh", "-c"]
-              args = [<<-EOF
-                echo "=== Litestream LTX Cleanup - $(date) ==="
-                echo "Target: $LTX_BASE_PATH"
-                
-                # Process each known litestream shadow directory
-                # Plex has two databases: library.db and blobs.db
-                for db_name in ".com.plexapp.plugins.library.db-litestream" ".com.plexapp.plugins.library.blobs.db-litestream"; do
-                  db_dir="$LTX_BASE_PATH/Databases/$db_name/ltx/0"
-                  if [ -d "$db_dir" ]; then
-                    echo "Processing: $db_dir"
-                    before=$(find "$db_dir" -name '*.ltx' -type f | wc -l)
-                    
-                    # Delete LTX files older than 60 minutes
-                    find "$db_dir" -name '*.ltx' -type f -mmin +60 -delete || true
-                    
-                    after=$(find "$db_dir" -name '*.ltx' -type f | wc -l)
-                    deleted=$((before - after))
-                    echo "  Before: $before, After: $after, Deleted: $deleted"
-                  else
-                    echo "Directory not found: $db_dir"
-                  fi
-                done
-                
-                echo "=== Cleanup complete ==="
-              EOF
-              ]
-
-              env {
-                name  = "LTX_BASE_PATH"
-                value = "/plex-data"
-              }
-
-              volume_mount {
-                name       = "plex-data"
-                mount_path = "/plex-data"
-              }
-
-              resources {
-                requests = {
-                  cpu    = "10m"
-                  memory = "16Mi"
-                }
-                limits = {
-                  cpu    = "100m"
-                  memory = "64Mi"
-                }
-              }
-            }
-
-            volume {
-              name = "plex-data"
-              host_path {
-                # Path to Plex's local-path PVC on Hestia
-                path = "/var/lib/rancher/k3s/storage/pvc-2fd10269-54e8-47b3-9454-0185744046aa_default_plex-data-plex-0"
-                type = "Directory"
-              }
-            }
-          }
-        }
-      }
-    }
-  }
 }
