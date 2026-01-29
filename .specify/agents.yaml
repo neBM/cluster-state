@@ -1,0 +1,33 @@
+# Multi-Agent Configuration for SpecKit
+# Onyx orchestrates, OpenCode executes with the appropriate model
+
+agents:
+  scout:
+    model: anthropic/claude-haiku-4-5
+    role: "Quick exploration, file scanning, gathering context, initial research"
+    cost: low
+    
+  researcher:
+    model: anthropic/claude-sonnet-4-5
+    role: "Deep research, documentation reading, comparing approaches, due diligence"
+    cost: medium
+    
+  architect:
+    model: anthropic/claude-opus-4-5
+    role: "Design decisions, specifications, critical thinking, complex planning"
+    cost: high
+    
+  builder:
+    model: anthropic/claude-sonnet-4-5
+    role: "Implementation, testing, code changes, following the plan"
+    cost: medium
+
+# Default routing for SpecKit phases
+routing:
+  explore: scout
+  research: researcher
+  speckit.specify: architect
+  speckit.clarify: researcher
+  speckit.plan: architect
+  speckit.tasks: architect
+  speckit.implement: builder

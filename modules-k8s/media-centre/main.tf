@@ -324,7 +324,7 @@ resource "kubernetes_stateful_set" "plex" {
 
           resources {
             requests = {
-              cpu    = "500m"
+              cpu    = "1500m"  # goldilocks recommends 1554m
               memory = "1Gi"
             }
             limits = {
