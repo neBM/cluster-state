@@ -93,9 +93,6 @@ resource "kubernetes_stateful_set" "plex" {
             # Skip if databases already exist
             if [ -f "$LIBRARY_DB" ]; then
               echo "Databases already exist, skipping restore"
-              # Clean up any litestream shadow directories from previous setup
-              rm -rf "$DB_DIR/.com.plexapp.plugins.library.db-litestream" 2>/dev/null || true
-              rm -rf "$DB_DIR/.com.plexapp.plugins.library.blobs.db-litestream" 2>/dev/null || true
               exit 0
             fi
 
