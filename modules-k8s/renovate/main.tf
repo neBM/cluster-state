@@ -99,7 +99,7 @@ resource "kubernetes_cron_job_v1" "renovate" {
 
               resources {
                 requests = {
-                  cpu    = "500m"
+                  cpu    = "1000m"  # goldilocks: 1311m
                   memory = "512Mi"
                 }
                 limits = {
