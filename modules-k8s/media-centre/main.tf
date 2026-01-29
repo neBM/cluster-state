@@ -324,7 +324,7 @@ resource "kubernetes_stateful_set" "plex" {
 
           resources {
             requests = {
-              cpu    = "1000m"  # goldilocks: 1554m, but hestia lacks capacity
+              cpu    = "100m"  # goldilocks: 49m, GPU handles transcoding
               memory = "1Gi"
             }
             limits = {
@@ -385,10 +385,11 @@ resource "kubernetes_stateful_set" "plex" {
 
           resources {
             requests = {
-              cpu    = "50m"
+              cpu    = "500m"  # goldilocks: 1554m, high due to replication bursts
               memory = "256Mi"
             }
             limits = {
+              cpu    = "2"  # allow burst for sync
               # Increased from 512Mi - litestream 0.5.x uses excessive memory
               # during L1 compaction with large databases (129MB Plex library.db)
               memory = "2Gi"
