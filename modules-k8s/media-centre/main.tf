@@ -324,10 +324,11 @@ resource "kubernetes_stateful_set" "plex" {
 
           resources {
             requests = {
-              cpu    = "1500m"  # goldilocks recommends 1554m
+              cpu    = "1000m"  # goldilocks: 1554m, but hestia lacks capacity
               memory = "1Gi"
             }
             limits = {
+              cpu              = "4"  # allow burst for metadata scans
               memory           = "4Gi"
               "nvidia.com/gpu" = "1"
             }
