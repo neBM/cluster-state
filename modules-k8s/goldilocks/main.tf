@@ -154,11 +154,14 @@ resource "kubernetes_deployment" "goldilocks_controller" {
 
           resources {
             requests = {
-              cpu    = "25m"
+              cpu    = "50m"
               memory = "64Mi"
             }
             limits = {
-              cpu    = "100m"
+              # 1 full core - goldilocks reconciles 50+ VPAs in bursts
+              # Tight limits cause throttling which extends burst duration
+              # and keeps apiserver/etcd busy longer, causing RCU stalls
+              cpu    = "1000m"
               memory = "128Mi"
             }
           }
