@@ -74,21 +74,6 @@ module "k8s_goldilocks" {
 }
 
 # Whoami - Stateless demo service
-module "k8s_whoami" {
-  source = "./modules-k8s/whoami"
-
-  namespace = "default"
-  vpa_mode  = "Off" # Recommendations only
-}
-
-# Echo - Service mesh testing
-module "k8s_echo" {
-  source = "./modules-k8s/echo"
-
-  namespace       = "default"
-  allowed_sources = ["whoami"]
-}
-
 # =============================================================================
 # Production Migrations (004-nomad-to-k8s-migration)
 # =============================================================================
