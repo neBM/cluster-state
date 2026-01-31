@@ -35,9 +35,9 @@ shutdown_timeout = 0
     
     # Resource defaults for build containers
     cpu_request = "100m"
-    memory_request = "256Mi"
+    memory_request = "512Mi"
     cpu_limit = "2"
-    memory_limit = "2Gi"
+    memory_limit = "6Gi"
     
     # Helper container resources
     helper_cpu_request = "50m"

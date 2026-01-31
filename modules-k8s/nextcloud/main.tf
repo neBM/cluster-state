@@ -282,8 +282,10 @@ resource "kubernetes_service" "nextcloud" {
 
 # =============================================================================
 # Collabora Deployment (document editor)
+# DISABLED 2026-01-31: Using ~2GB memory for rarely-used feature
 # =============================================================================
 
+/*
 resource "kubernetes_deployment" "collabora" {
   metadata {
     name      = "collabora"
@@ -391,6 +393,7 @@ resource "kubernetes_service" "collabora" {
     }
   }
 }
+*/
 
 # =============================================================================
 # IngressRoute for path-based routing with WebDAV redirect middleware
@@ -431,6 +434,8 @@ resource "kubectl_manifest" "ingressroute" {
 }
 
 # Collabora IngressRoute (separate hostname)
+# DISABLED 2026-01-31: Collabora removed
+/*
 resource "kubectl_manifest" "collabora_ingressroute" {
   yaml_body = yamlencode({
     apiVersion = "traefik.io/v1alpha1"
@@ -460,6 +465,7 @@ resource "kubectl_manifest" "collabora_ingressroute" {
     }
   })
 }
+*/
 
 # WebDAV redirect middleware for CalDAV/CardDAV clients
 resource "kubectl_manifest" "webdav_redirect" {
