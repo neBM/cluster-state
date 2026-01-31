@@ -145,13 +145,13 @@ variable "es_data_java_opts" {
 variable "es_tiebreaker_memory_request" {
   description = "Memory request for ES tiebreaker node"
   type        = string
-  default     = "1Gi"
+  default     = "512Mi"
 }
 
 variable "es_tiebreaker_memory_limit" {
   description = "Memory limit for ES tiebreaker node"
   type        = string
-  default     = "1.5Gi"
+  default     = "768Mi"
 }
 
 variable "es_tiebreaker_cpu_request" {
@@ -169,7 +169,7 @@ variable "es_tiebreaker_cpu_limit" {
 variable "es_tiebreaker_java_opts" {
   description = "JVM options for ES tiebreaker node"
   type        = string
-  default     = "-Xms512m -Xmx512m"
+  default     = "-Xms256m -Xmx256m"
 }
 
 variable "es_data_storage_size" {
