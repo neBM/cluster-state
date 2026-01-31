@@ -18,11 +18,6 @@ output "cloud_service" {
   value       = kubernetes_service.cloud.metadata[0].name
 }
 
-output "postgres_service" {
-  description = "PostgreSQL service name"
-  value       = kubernetes_service.postgres.metadata[0].name
-}
-
 output "redis_service" {
   description = "Redis service name"
   value       = kubernetes_service.redis.metadata[0].name

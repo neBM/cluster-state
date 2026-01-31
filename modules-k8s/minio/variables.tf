@@ -16,9 +16,3 @@ variable "console_hostname" {
   type        = string
   default     = "minio.brmartin.co.uk"
 }
-
-variable "data_path" {
-  description = "Host path to MinIO data directory (GlusterFS mount)"
-  type        = string
-  default     = "/storage/v/glusterfs_minio_data"
-}

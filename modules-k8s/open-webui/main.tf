@@ -3,8 +3,8 @@
 # Components:
 # - open-webui: Main web application (port 8080)
 # - valkey: Redis-compatible cache (port 6379)
-# - postgres: pgvector database for RAG (port 5432)
 #
+# External PostgreSQL on martinibar (192.168.1.10:5433)
 # Connects to Ollama via NodePort 31434 on Hestia
 # OAuth via Keycloak
 
@@ -16,11 +16,6 @@ locals {
   valkey_labels = {
     app        = "open-webui"
     component  = "valkey"
-    managed-by = "terraform"
-  }
-  postgres_labels = {
-    app        = "open-webui"
-    component  = "postgres"
     managed-by = "terraform"
   }
 }
@@ -197,8 +192,7 @@ resource "kubernetes_deployment" "open_webui" {
 
   depends_on = [
     kubectl_manifest.external_secret,
-    kubernetes_deployment.valkey,
-    kubernetes_deployment.postgres
+    kubernetes_deployment.valkey
   ]
 }
 
@@ -262,108 +256,6 @@ resource "kubernetes_service" "valkey" {
     port {
       port        = 6379
       target_port = 6379
-    }
-  }
-}
-
-# =============================================================================
-# PostgreSQL (pgvector) Deployment
-# =============================================================================
-
-resource "kubernetes_deployment" "postgres" {
-  metadata {
-    name      = "open-webui-postgres"
-    namespace = var.namespace
-    labels    = local.postgres_labels
-  }
-
-  spec {
-    replicas = 1
-    strategy {
-      type = "Recreate"
-    }
-
-    selector {
-      match_labels = local.postgres_labels
-    }
-
-    template {
-      metadata {
-        labels = local.postgres_labels
-      }
-
-      spec {
-        container {
-          name  = "postgres"
-          image = "${var.postgres_image}:${var.postgres_tag}"
-
-          port {
-            container_port = 5432
-          }
-
-          env {
-            name  = "POSTGRES_USER"
-            value = "openwebui"
-          }
-
-          env {
-            name  = "POSTGRES_DB"
-            value = "openwebui"
-          }
-
-          env {
-            name = "POSTGRES_PASSWORD"
-            value_from {
-              secret_key_ref {
-                name = "open-webui-secrets"
-                key  = "POSTGRES_PASSWORD"
-              }
-            }
-          }
-
-          volume_mount {
-            name       = "data"
-            mount_path = "/var/lib/postgresql"
-          }
-
-          resources {
-            requests = {
-              cpu    = "100m"
-              memory = "128Mi"
-            }
-            limits = {
-              memory = "512Mi"
-            }
-          }
-        }
-
-        volume {
-          name = "data"
-          host_path {
-            path = var.postgres_path
-            type = "Directory"
-          }
-        }
-      }
-    }
-  }
-
-  depends_on = [kubectl_manifest.external_secret]
-}
-
-resource "kubernetes_service" "postgres" {
-  metadata {
-    name      = "open-webui-postgres"
-    namespace = var.namespace
-    labels    = local.postgres_labels
-  }
-
-  spec {
-    selector = local.postgres_labels
-
-    port {
-      port        = 5432
-      target_port = 5432
     }
   }
 }

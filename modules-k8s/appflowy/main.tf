@@ -6,10 +6,9 @@
 # - admin-frontend: Admin UI (port 8000)
 # - worker: Background worker (port 8000)
 # - web: Public web UI (port 80)
-# - postgres: pgvector database (port 5432)
 # - redis: Cache (port 6379)
 #
-# PostgreSQL data stored on hostPath (GlusterFS mount on Hestia)
+# External PostgreSQL on martinibar (192.168.1.10:5433) with pgvector
 # MinIO used for S3 storage (already migrated to K8s)
 # Keycloak used for OIDC (already migrated to K8s)
 
@@ -24,131 +23,12 @@ locals {
     "elastic.co/dataset" = "kubernetes.container_logs.appflowy"
   }
 
-  # K8s service DNS names (replacing Consul DNS)
-  postgres_host = "appflowy-postgres.${var.namespace}.svc.cluster.local"
-  redis_host    = "appflowy-redis.${var.namespace}.svc.cluster.local"
-  gotrue_host   = "appflowy-gotrue.${var.namespace}.svc.cluster.local"
-}
-
-# =============================================================================
-# PostgreSQL (pgvector)
-# =============================================================================
-
-resource "kubernetes_deployment" "postgres" {
-  metadata {
-    name      = "appflowy-postgres"
-    namespace = var.namespace
-    labels    = merge(local.labels, { component = "postgres" })
-  }
-
-  spec {
-    replicas = 1
-    strategy {
-      type = "Recreate" # Required for hostPath
-    }
-
-    selector {
-      match_labels = merge(local.labels, { component = "postgres" })
-    }
-
-    template {
-      metadata {
-        labels      = merge(local.labels, { component = "postgres" })
-        annotations = local.elastic_log_annotations
-      }
-
-      spec {
-        # GlusterFS NFS mounts (/storage/v/) are available on all nodes
-
-        container {
-          name  = "postgres"
-          image = "${var.postgres_image}:${var.postgres_tag}"
-
-          port {
-            container_port = 5432
-          }
-
-          env {
-            name  = "POSTGRES_USER"
-            value = "appflowy"
-          }
-
-          env {
-            name  = "POSTGRES_DB"
-            value = "appflowy"
-          }
-
-          env {
-            name = "POSTGRES_PASSWORD"
-            value_from {
-              secret_key_ref {
-                name = "appflowy-secrets"
-                key  = "PGPASSWORD"
-              }
-            }
-          }
-
-          volume_mount {
-            name       = "postgres-data"
-            mount_path = "/var/lib/postgresql/data"
-          }
-
-          resources {
-            requests = {
-              cpu    = "100m"
-              memory = "128Mi"
-            }
-            limits = {
-              memory = "512Mi"
-            }
-          }
-
-          liveness_probe {
-            exec {
-              command = ["pg_isready", "-U", "appflowy"]
-            }
-            initial_delay_seconds = 30
-            period_seconds        = 10
-          }
-
-          readiness_probe {
-            exec {
-              command = ["pg_isready", "-U", "appflowy"]
-            }
-            initial_delay_seconds = 5
-            period_seconds        = 5
-          }
-        }
-
-        volume {
-          name = "postgres-data"
-          host_path {
-            path = var.postgres_data_path
-            type = "DirectoryOrCreate"
-          }
-        }
-      }
-    }
-  }
-
-  depends_on = [kubectl_manifest.external_secret]
-}
-
-resource "kubernetes_service" "postgres" {
-  metadata {
-    name      = "appflowy-postgres"
-    namespace = var.namespace
-    labels    = merge(local.labels, { component = "postgres" })
-  }
-
-  spec {
-    selector = merge(local.labels, { component = "postgres" })
-
-    port {
-      port        = 5432
-      target_port = 5432
-    }
-  }
+  # External PostgreSQL on martinibar
+  postgres_host = "${var.db_host}:${var.db_port}"
+  
+  # K8s service DNS names
+  redis_host  = "appflowy-redis.${var.namespace}.svc.cluster.local"
+  gotrue_host = "appflowy-gotrue.${var.namespace}.svc.cluster.local"
 }
 
 # =============================================================================
@@ -460,10 +340,7 @@ resource "kubernetes_deployment" "gotrue" {
     }
   }
 
-  depends_on = [
-    kubernetes_deployment.postgres,
-    kubectl_manifest.external_secret
-  ]
+  depends_on = [kubectl_manifest.external_secret]
 }
 
 resource "kubernetes_service" "gotrue" {
@@ -691,7 +568,6 @@ resource "kubernetes_deployment" "cloud" {
   }
 
   depends_on = [
-    kubernetes_deployment.postgres,
     kubernetes_deployment.redis,
     kubernetes_deployment.gotrue,
     kubectl_manifest.external_secret
@@ -840,7 +716,6 @@ resource "kubernetes_deployment" "worker" {
   }
 
   depends_on = [
-    kubernetes_deployment.postgres,
     kubernetes_deployment.redis,
     kubectl_manifest.external_secret
   ]

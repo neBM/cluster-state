@@ -79,17 +79,17 @@ variable "admin_frontend_tag" {
   default = "latest"
 }
 
-variable "postgres_image" {
-  description = "Docker image name for PostgreSQL with pgvector"
+# External PostgreSQL on martinibar (with pgvector)
+variable "db_host" {
+  description = "PostgreSQL database host"
   type        = string
-  default     = "pgvector/pgvector"
+  default     = "192.168.1.10"
 }
 
-variable "postgres_tag" {
-  description = "Docker image tag for PostgreSQL with pgvector"
+variable "db_port" {
+  description = "PostgreSQL database port"
   type        = string
-  # renovate: datasource=docker depName=pgvector/pgvector
-  default = "pg16"
+  default     = "5433"
 }
 
 variable "redis_image" {
@@ -103,12 +103,6 @@ variable "redis_tag" {
   type        = string
   # renovate: datasource=docker depName=redis
   default = "latest"
-}
-
-variable "postgres_data_path" {
-  description = "Host path for PostgreSQL data (GlusterFS mount)"
-  type        = string
-  default     = "/storage/v/glusterfs_appflowy_postgres"
 }
 
 variable "minio_endpoint" {

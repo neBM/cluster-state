@@ -7,6 +7,29 @@ locals {
   }
 }
 
+# PVC for MinIO data - local storage on hestia
+resource "kubernetes_persistent_volume_claim" "minio_data" {
+  metadata {
+    name      = "${local.app_name}-data"
+    namespace = var.namespace
+    labels    = local.labels
+  }
+
+  spec {
+    access_modes       = ["ReadWriteOnce"]
+    storage_class_name = "local-path-retain"
+
+    resources {
+      requests = {
+        storage = "50Gi"
+      }
+    }
+  }
+
+  # Wait for first consumer (deployment) to bind
+  wait_until_bound = false
+}
+
 # Deployment for MinIO
 resource "kubernetes_deployment" "minio" {
   metadata {
@@ -34,6 +57,11 @@ resource "kubernetes_deployment" "minio" {
       }
 
       spec {
+        # Pin to hestia for stable local storage
+        node_selector = {
+          "kubernetes.io/hostname" = "hestia"
+        }
+
         # Main MinIO container
         container {
           name  = local.app_name
@@ -90,7 +118,7 @@ resource "kubernetes_deployment" "minio" {
               path = "/minio/health/live"
               port = 9000
             }
-            initial_delay_seconds = 10
+            initial_delay_seconds = 120  # Allow time for migration
             period_seconds        = 30
             timeout_seconds       = 5
           }
@@ -100,22 +128,19 @@ resource "kubernetes_deployment" "minio" {
               path = "/minio/health/ready"
               port = 9000
             }
-            initial_delay_seconds = 5
+            initial_delay_seconds = 60
             period_seconds        = 10
             timeout_seconds       = 5
           }
         }
 
-        # Data volume from GlusterFS via hostPath
+        # PVC-backed volume (local storage on hestia)
         volume {
           name = "data"
-          host_path {
-            path = var.data_path
-            type = "Directory"
+          persistent_volume_claim {
+            claim_name = kubernetes_persistent_volume_claim.minio_data.metadata[0].name
           }
         }
-
-        # GlusterFS NFS mounts (/storage/v/) are available on all nodes
       }
     }
   }

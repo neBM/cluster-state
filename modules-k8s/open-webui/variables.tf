@@ -36,27 +36,11 @@ variable "valkey_tag" {
   default = "9.0.0-alpine3.22"
 }
 
-variable "postgres_image" {
-  description = "pgvector PostgreSQL Docker image name"
-  type        = string
-  default     = "pgvector/pgvector"
-}
-
-variable "postgres_tag" {
-  description = "pgvector PostgreSQL Docker image tag"
-  type        = string
-  # renovate: datasource=docker depName=pgvector/pgvector
-  default = "pg18"
-}
+# External PostgreSQL on martinibar (192.168.1.10:5433)
+# DATABASE_URL is stored in open-webui-secrets
 
 variable "data_path" {
   description = "Host path for Open WebUI data"
   type        = string
   default     = "/storage/v/glusterfs_ollama_data"
-}
-
-variable "postgres_path" {
-  description = "Host path for PostgreSQL data"
-  type        = string
-  default     = "/storage/v/glusterfs_ollama_postgres"
 }

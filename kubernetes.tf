@@ -145,7 +145,6 @@ module "k8s_minio" {
 
   namespace        = "default"
   console_hostname = "minio.brmartin.co.uk"
-  data_path        = "/storage/v/glusterfs_minio_data"
 }
 
 # Keycloak - SSO provider
@@ -166,9 +165,9 @@ module "k8s_keycloak" {
 module "k8s_appflowy" {
   source = "./modules-k8s/appflowy"
 
-  namespace          = "default"
-  hostname           = "docs.brmartin.co.uk"
-  postgres_data_path = "/storage/v/glusterfs_appflowy_postgres"
+  namespace = "default"
+  hostname  = "docs.brmartin.co.uk"
+  # External PostgreSQL on martinibar (192.168.1.10:5433)
   # MinIO is now on K8s
   minio_endpoint = "http://minio-api.default.svc.cluster.local:9000"
   # Keycloak is now on K8s
@@ -324,18 +323,23 @@ module "k8s_elastic_agent" {
   # Image defaults set in module variables with renovate comments
 }
 
-# Prometheus - Metrics collection and monitoring
-# Scrapes metrics from K8s nodes, pods, and services
-# Data stored on GlusterFS, accessible via prometheus.brmartin.co.uk
-module "k8s_prometheus" {
-  source = "./modules-k8s/prometheus"
+# VictoriaMetrics - Metrics collection and monitoring
+# Drop-in Prometheus replacement with better efficiency
+# Data stored in emptyDir, backed up to MinIO via vmbackup
+module "k8s_victoriametrics" {
+  source = "./modules-k8s/victoriametrics"
 
-  namespace              = "default"
-  ingress_hostname       = "prometheus.brmartin.co.uk"
-  storage_size           = "10Gi"
-  retention_days         = 30
-  scrape_interval        = "15s"
-  node_affinity_hostname = "hestia"
+  namespace        = "default"
+  ingress_hostname = "victoriametrics.brmartin.co.uk"
+  retention_period = "30d"
+  scrape_interval  = "15s"
+  backup_interval  = "1h"
+
+  # MinIO backup credentials
+  minio_endpoint   = "http://minio-api.default.svc.cluster.local:9000"
+  minio_bucket     = "victoriametrics"
+  minio_access_key = "victoriametrics"
+  minio_secret_key = "g8Qq1TUAEuReUjtAorEdwJqa"
 }
 
 # Node Exporter - Host metrics collection
@@ -361,7 +365,7 @@ module "k8s_grafana" {
 
   namespace          = "default"
   ingress_hostname   = "grafana.brmartin.co.uk"
-  prometheus_url     = "http://prometheus.default.svc.cluster.local:9090"
+  prometheus_url     = "http://victoriametrics.default.svc.cluster.local:8428"
   keycloak_url       = "https://sso.brmartin.co.uk"
   keycloak_realm     = "prod"
   keycloak_client_id = "grafana"

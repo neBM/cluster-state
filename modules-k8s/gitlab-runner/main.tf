@@ -1,10 +1,10 @@
-# GitLab Runner - CI/CD job execution
+# GitLab Runner - CI/CD job execution (Kubernetes Executor)
 #
 # Two deployments: amd64 (Hestia) and arm64 (Heracles/Nyx)
-# Requires privileged mode and Docker socket access
-# Connects to GitLab at git.brmartin.co.uk
+# Uses Kubernetes executor - spawns pods for each CI job
+# No Docker daemon required on nodes
 #
-# Uses init container to generate config.toml from template + secrets
+# For container builds, use Podman in CI jobs
 
 locals {
   labels = {
@@ -12,8 +12,10 @@ locals {
     managed-by = "terraform"
   }
 
+  # Kubernetes executor config template
+  # ARCH_PLACEHOLDER is replaced per-deployment
   config_template = <<-EOF
-concurrent = 1
+concurrent = 4
 check_interval = 30
 shutdown_timeout = 0
 
@@ -24,39 +26,158 @@ shutdown_timeout = 0
   name = "RUNNER_NAME_PLACEHOLDER"
   url = "https://git.brmartin.co.uk"
   token = "RUNNER_TOKEN_PLACEHOLDER"
-  executor = "docker"
+  executor = "kubernetes"
   
-  [runners.docker]
-    tls_verify = false
+  [runners.kubernetes]
+    namespace = "${var.job_namespace}"
     image = "alpine:latest"
-    privileged = true
-    disable_entrypoint_overwrite = false
-    oom_kill_disable = false
-    disable_cache = false
-    volumes = ["/cache", "/var/run/docker.sock:/var/run/docker.sock"]
-    shm_size = 0
-    network_mtu = 0
+    privileged = ${var.privileged_jobs}
+    
+    # Resource defaults for build containers
+    cpu_request = "100m"
+    memory_request = "256Mi"
+    cpu_limit = "2"
+    memory_limit = "2Gi"
+    
+    # Helper container resources
+    helper_cpu_request = "50m"
+    helper_memory_request = "128Mi"
+    helper_cpu_limit = "500m"
+    helper_memory_limit = "256Mi"
+    
+    # Poll settings
+    poll_interval = 3
+    poll_timeout = 180
+    
+    # Cleanup
+    cleanup_grace_period_seconds = 30
+    
+  # Node selector for arch-specific builds (must be after all kubernetes settings)
+  [runners.kubernetes.node_selector]
+    "kubernetes.io/arch" = "ARCH_PLACEHOLDER"
 EOF
 }
 
 # =============================================================================
-# ConfigMap for config template
+# RBAC - ServiceAccount, Role, RoleBinding
 # =============================================================================
 
-resource "kubernetes_config_map" "config_template" {
+resource "kubernetes_service_account" "runner" {
   metadata {
-    name      = "gitlab-runner-config-template"
+    name      = "gitlab-runner"
+    namespace = var.namespace
+    labels    = local.labels
+  }
+}
+
+# Role for the runner to manage job pods
+resource "kubernetes_role" "runner" {
+  metadata {
+    name      = "gitlab-runner"
+    namespace = var.job_namespace
+    labels    = local.labels
+  }
+
+  # Pods - create and manage job pods
+  rule {
+    api_groups = [""]
+    resources  = ["pods"]
+    verbs      = ["create", "delete", "get", "list", "watch"]
+  }
+
+  # Pod exec/attach - for running commands in job containers
+  rule {
+    api_groups = [""]
+    resources  = ["pods/exec", "pods/attach"]
+    verbs      = ["create", "delete", "get", "patch"]
+  }
+
+  # Pod logs - for streaming job output
+  rule {
+    api_groups = [""]
+    resources  = ["pods/log"]
+    verbs      = ["get", "list"]
+  }
+
+  # Secrets - for job variables
+  rule {
+    api_groups = [""]
+    resources  = ["secrets"]
+    verbs      = ["create", "delete", "get", "update"]
+  }
+
+  # Services - for CI services
+  rule {
+    api_groups = [""]
+    resources  = ["services"]
+    verbs      = ["create", "get"]
+  }
+
+  # ServiceAccounts - for job pods
+  rule {
+    api_groups = [""]
+    resources  = ["serviceaccounts"]
+    verbs      = ["get"]
+  }
+
+  # Events - for pod warnings
+  rule {
+    api_groups = [""]
+    resources  = ["events"]
+    verbs      = ["list", "watch"]
+  }
+}
+
+resource "kubernetes_role_binding" "runner" {
+  metadata {
+    name      = "gitlab-runner"
+    namespace = var.job_namespace
+    labels    = local.labels
+  }
+
+  role_ref {
+    api_group = "rbac.authorization.k8s.io"
+    kind      = "Role"
+    name      = kubernetes_role.runner.metadata[0].name
+  }
+
+  subject {
+    kind      = "ServiceAccount"
+    name      = kubernetes_service_account.runner.metadata[0].name
+    namespace = var.namespace
+  }
+}
+
+# =============================================================================
+# ConfigMaps for arch-specific config templates
+# =============================================================================
+
+resource "kubernetes_config_map" "config_template_amd64" {
+  metadata {
+    name      = "gitlab-runner-config-template-amd64"
     namespace = var.namespace
     labels    = local.labels
   }
 
   data = {
-    "config.toml.template" = local.config_template
+    "config.toml.template" = replace(local.config_template, "ARCH_PLACEHOLDER", "amd64")
+  }
+}
+
+resource "kubernetes_config_map" "config_template_arm64" {
+  metadata {
+    name      = "gitlab-runner-config-template-arm64"
+    namespace = var.namespace
+    labels    = local.labels
+  }
+
+  data = {
+    "config.toml.template" = replace(local.config_template, "ARCH_PLACEHOLDER", "arm64")
   }
 }
 
 # =============================================================================
-# AMD64 Runner (runs on Hestia)
+# AMD64 Runner (runs on Hestia, spawns amd64 job pods)
 # =============================================================================
 
 resource "kubernetes_deployment" "runner_amd64" {
@@ -82,6 +203,8 @@ resource "kubernetes_deployment" "runner_amd64" {
       }
 
       spec {
+        service_account_name = kubernetes_service_account.runner.metadata[0].name
+
         node_selector = {
           "kubernetes.io/arch" = "amd64"
         }
@@ -121,15 +244,6 @@ resource "kubernetes_deployment" "runner_amd64" {
           image = "${var.image}:${var.image_tag}"
           args  = ["run", "--config", "/config/config.toml"]
 
-          security_context {
-            privileged = true
-          }
-
-          volume_mount {
-            name       = "docker-sock"
-            mount_path = "/var/run/docker.sock"
-          }
-
           volume_mount {
             name       = "config"
             mount_path = "/config"
@@ -138,27 +252,19 @@ resource "kubernetes_deployment" "runner_amd64" {
           resources {
             requests = {
               cpu    = "100m"
-              memory = "256Mi"
+              memory = "128Mi"
             }
             limits = {
-              cpu    = "1000m"
-              memory = "512Mi"
+              cpu    = "500m"
+              memory = "256Mi"
             }
-          }
-        }
-
-        volume {
-          name = "docker-sock"
-          host_path {
-            path = "/var/run/docker.sock"
-            type = "Socket"
           }
         }
 
         volume {
           name = "config-template"
           config_map {
-            name = kubernetes_config_map.config_template.metadata[0].name
+            name = kubernetes_config_map.config_template_amd64.metadata[0].name
           }
         }
 
@@ -170,11 +276,11 @@ resource "kubernetes_deployment" "runner_amd64" {
     }
   }
 
-  depends_on = [kubectl_manifest.external_secret]
+  
 }
 
 # =============================================================================
-# ARM64 Runner (runs on Heracles/Nyx)
+# ARM64 Runner (runs on Heracles/Nyx, spawns arm64 job pods)
 # =============================================================================
 
 resource "kubernetes_deployment" "runner_arm64" {
@@ -200,6 +306,8 @@ resource "kubernetes_deployment" "runner_arm64" {
       }
 
       spec {
+        service_account_name = kubernetes_service_account.runner.metadata[0].name
+
         node_selector = {
           "kubernetes.io/arch" = "arm64"
         }
@@ -239,15 +347,6 @@ resource "kubernetes_deployment" "runner_arm64" {
           image = "${var.image}:${var.image_tag}"
           args  = ["run", "--config", "/config/config.toml"]
 
-          security_context {
-            privileged = true
-          }
-
-          volume_mount {
-            name       = "docker-sock"
-            mount_path = "/var/run/docker.sock"
-          }
-
           volume_mount {
             name       = "config"
             mount_path = "/config"
@@ -256,27 +355,19 @@ resource "kubernetes_deployment" "runner_arm64" {
           resources {
             requests = {
               cpu    = "100m"
-              memory = "256Mi"
+              memory = "128Mi"
             }
             limits = {
-              cpu    = "1000m"
-              memory = "512Mi"
+              cpu    = "500m"
+              memory = "256Mi"
             }
-          }
-        }
-
-        volume {
-          name = "docker-sock"
-          host_path {
-            path = "/var/run/docker.sock"
-            type = "Socket"
           }
         }
 
         volume {
           name = "config-template"
           config_map {
-            name = kubernetes_config_map.config_template.metadata[0].name
+            name = kubernetes_config_map.config_template_arm64.metadata[0].name
           }
         }
 
@@ -288,47 +379,17 @@ resource "kubernetes_deployment" "runner_arm64" {
     }
   }
 
-  depends_on = [kubectl_manifest.external_secret]
+  
 }
 
 # =============================================================================
-# External Secret for runner tokens
+# Secret for runner tokens
 # =============================================================================
-
-resource "kubectl_manifest" "external_secret" {
-  yaml_body = yamlencode({
-    apiVersion = "external-secrets.io/v1"
-    kind       = "ExternalSecret"
-    metadata = {
-      name      = "gitlab-runner-secrets"
-      namespace = var.namespace
-      labels    = local.labels
-    }
-    spec = {
-      refreshInterval = "1h"
-      secretStoreRef = {
-        name = "vault-backend"
-        kind = "ClusterSecretStore"
-      }
-      target = {
-        name = "gitlab-runner-secrets"
-      }
-      data = [
-        {
-          secretKey = "runner_token_amd64"
-          remoteRef = {
-            key      = "nomad/default/gitlab-runner"
-            property = "runner_token_amd64"
-          }
-        },
-        {
-          secretKey = "runner_token_arm64"
-          remoteRef = {
-            key      = "nomad/default/gitlab-runner"
-            property = "runner_token_arm64"
-          }
-        }
-      ]
-    }
-  })
-}
+# Note: gitlab-runner-secrets is managed manually (Vault removed 2026-01)
+# The secret must exist with keys: runner_token_amd64, runner_token_arm64
+#
+# To create/update:
+#   kubectl create secret generic gitlab-runner-secrets \
+#     --from-literal=runner_token_amd64=glrt-xxx \
+#     --from-literal=runner_token_arm64=glrt-yyy \
+#     --dry-run=client -o yaml | kubectl apply -f -
