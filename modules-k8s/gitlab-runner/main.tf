@@ -52,7 +52,8 @@ shutdown_timeout = 0
     # Cleanup
     cleanup_grace_period_seconds = 30
     
-    # Allow jobs to specify pull policies
+    # Pull policy: if-not-present by default, jobs can override
+    pull_policy = ["if-not-present"]
     allowed_pull_policies = ["always", "if-not-present", "never"]
     
   # Node selector for arch-specific builds (must be after all kubernetes settings)
