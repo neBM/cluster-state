@@ -52,6 +52,9 @@ shutdown_timeout = 0
     # Cleanup
     cleanup_grace_period_seconds = 30
     
+    # Allow jobs to specify pull policies
+    allowed_pull_policies = ["always", "if-not-present", "never"]
+    
   # Node selector for arch-specific builds (must be after all kubernetes settings)
   [runners.kubernetes.node_selector]
     "kubernetes.io/arch" = "ARCH_PLACEHOLDER"
