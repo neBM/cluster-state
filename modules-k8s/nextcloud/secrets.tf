@@ -26,13 +26,6 @@ resource "kubectl_manifest" "external_secret" {
             key      = "nomad/default/nextcloud"
             property = "db_password"
           }
-        },
-        {
-          secretKey = "collabora_password"
-          remoteRef = {
-            key      = "nomad/default/nextcloud"
-            property = "collabora_password"
-          }
         }
       ]
     }

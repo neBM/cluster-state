@@ -1,9 +1,8 @@
-# Nextcloud - File storage and collaboration platform
+# Nextcloud - File storage platform
 #
 # Components:
 # - nextcloud: Main app with redis sidecar (port 80)
 # - cron: Background jobs container (shares volumes with nextcloud)
-# - collabora: Document editor (port 9980)
 #
 # Storage:
 # - config: /storage/v/glusterfs_nextcloud_config
@@ -17,13 +16,8 @@ locals {
     app       = "nextcloud"
     component = "nextcloud"
   }
-  collabora_labels = {
-    app       = "nextcloud"
-    component = "collabora"
-  }
 
   # Elastic Agent log routing annotations
-  # Routes logs to logs-kubernetes.container_logs.nextcloud-* index
   elastic_log_annotations = {
     "elastic.co/dataset" = "kubernetes.container_logs.nextcloud"
   }
@@ -281,121 +275,6 @@ resource "kubernetes_service" "nextcloud" {
 }
 
 # =============================================================================
-# Collabora Deployment (document editor)
-# DISABLED 2026-01-31: Using ~2GB memory for rarely-used feature
-# =============================================================================
-
-/*
-resource "kubernetes_deployment" "collabora" {
-  metadata {
-    name      = "collabora"
-    namespace = var.namespace
-    labels    = local.collabora_labels
-  }
-
-  spec {
-    replicas = 1
-
-    selector {
-      match_labels = local.collabora_labels
-    }
-
-    template {
-      metadata {
-        labels      = local.collabora_labels
-        annotations = local.elastic_log_annotations
-      }
-
-      spec {
-        container {
-          name  = "collabora"
-          image = "${var.collabora_image}:${var.collabora_tag}"
-
-          port {
-            container_port = 9980
-          }
-
-          env {
-            name  = "aliasgroup1"
-            value = "https://${var.hostname}:443"
-          }
-
-          env {
-            name  = "username"
-            value = "admin"
-          }
-
-          env {
-            name = "password"
-            value_from {
-              secret_key_ref {
-                name = "nextcloud-secrets"
-                key  = "collabora_password"
-              }
-            }
-          }
-
-          env {
-            name  = "extra_params"
-            value = "--o:ssl.enable=false --o:ssl.termination=true"
-          }
-
-          resources {
-            requests = {
-              cpu    = "50m"
-              memory = "768Mi"
-            }
-            limits = {
-              memory = "1024Mi"
-            }
-          }
-
-          liveness_probe {
-            http_get {
-              path = "/"
-              port = 9980
-            }
-            initial_delay_seconds = 30
-            period_seconds        = 30
-            timeout_seconds       = 5
-          }
-
-          readiness_probe {
-            http_get {
-              path = "/"
-              port = 9980
-            }
-            initial_delay_seconds = 10
-            period_seconds        = 10
-            timeout_seconds       = 5
-          }
-        }
-      }
-    }
-  }
-
-  depends_on = [kubectl_manifest.external_secret]
-}
-
-resource "kubernetes_service" "collabora" {
-  metadata {
-    name      = "collabora"
-    namespace = var.namespace
-    labels    = local.collabora_labels
-  }
-
-  spec {
-    selector = local.collabora_labels
-
-    port {
-      port        = 9980
-      target_port = 9980
-    }
-  }
-}
-*/
-
-# =============================================================================
 # IngressRoute for path-based routing with WebDAV redirect middleware
 # =============================================================================
 
@@ -411,7 +290,6 @@ resource "kubectl_manifest" "ingressroute" {
     spec = {
       entryPoints = ["websecure"]
       routes = [
-        # Nextcloud main route with WebDAV redirect
         {
           match = "Host(`${var.hostname}`)"
           kind  = "Rule"
@@ -432,40 +310,6 @@ resource "kubectl_manifest" "ingressroute" {
     }
   })
 }
-
-# Collabora IngressRoute (separate hostname)
-# DISABLED 2026-01-31: Collabora removed
-/*
-resource "kubectl_manifest" "collabora_ingressroute" {
-  yaml_body = yamlencode({
-    apiVersion = "traefik.io/v1alpha1"
-    kind       = "IngressRoute"
-    metadata = {
-      name      = "collabora"
-      namespace = var.namespace
-      labels    = { app = "nextcloud", component = "collabora" }
-    }
-    spec = {
-      entryPoints = ["websecure"]
-      routes = [
-        {
-          match = "Host(`${var.collabora_hostname}`)"
-          kind  = "Rule"
-          services = [
-            {
-              name = kubernetes_service.collabora.metadata[0].name
-              port = 9980
-            }
-          ]
-        }
-      ]
-      tls = {
-        secretName = "wildcard-brmartin-tls"
-      }
-    }
-  })
-}
-*/
 
 # WebDAV redirect middleware for CalDAV/CardDAV clients
 resource "kubectl_manifest" "webdav_redirect" {

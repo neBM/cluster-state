@@ -15,7 +15,7 @@ locals {
   # Kubernetes executor config template
   # ARCH_PLACEHOLDER is replaced per-deployment
   config_template = <<-EOF
-concurrent = 4
+concurrent = 1
 check_interval = 30
 shutdown_timeout = 0
 

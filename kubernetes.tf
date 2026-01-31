@@ -174,17 +174,15 @@ module "k8s_appflowy" {
   keycloak_url = "https://sso.brmartin.co.uk/realms/prod"
 }
 
-# Nextcloud - File storage and collaboration
+# Nextcloud - File storage
 # Uses external PostgreSQL on martinibar.lan, GlusterFS for data
-# Includes Collabora for document editing
 module "k8s_nextcloud" {
   source = "./modules-k8s/nextcloud"
 
-  namespace          = "default"
-  hostname           = "cloud.brmartin.co.uk"
-  collabora_hostname = "collabora.brmartin.co.uk"
-  db_host            = "192.168.1.10" # martinibar.lan
-  db_port            = "5433"
+  namespace = "default"
+  hostname  = "cloud.brmartin.co.uk"
+  db_host   = "192.168.1.10" # martinibar.lan
+  db_port   = "5433"
 }
 
 # Matrix - Federated communication platform

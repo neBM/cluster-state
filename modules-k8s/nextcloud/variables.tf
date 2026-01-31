@@ -10,12 +10,6 @@ variable "hostname" {
   default     = "cloud.brmartin.co.uk"
 }
 
-variable "collabora_hostname" {
-  description = "Public hostname for Collabora"
-  type        = string
-  default     = "collabora.brmartin.co.uk"
-}
-
 variable "nextcloud_image" {
   description = "Docker image name for Nextcloud"
   type        = string
@@ -27,19 +21,6 @@ variable "nextcloud_tag" {
   type        = string
   # renovate: datasource=docker depName=nextcloud
   default = "32"
-}
-
-variable "collabora_image" {
-  description = "Docker image name for Collabora"
-  type        = string
-  default     = "collabora/code"
-}
-
-variable "collabora_tag" {
-  description = "Docker image tag for Collabora"
-  type        = string
-  # renovate: datasource=docker depName=collabora/code
-  default = "latest"
 }
 
 variable "redis_image" {
