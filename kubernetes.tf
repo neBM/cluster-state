@@ -335,11 +335,10 @@ module "k8s_victoriametrics" {
   scrape_interval  = "15s"
   backup_interval  = "1h"
 
-  # MinIO backup credentials
-  minio_endpoint   = "http://minio-api.default.svc.cluster.local:9000"
-  minio_bucket     = "victoriametrics"
-  minio_access_key = "victoriametrics"
-  minio_secret_key = "g8Qq1TUAEuReUjtAorEdwJqa"
+  # MinIO backup config (secret 'victoriametrics-minio' must exist with AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY)
+  minio_endpoint    = "http://minio-api.default.svc.cluster.local:9000"
+  minio_bucket      = "victoriametrics"
+  minio_secret_name = "victoriametrics-minio"
 }
 
 # Node Exporter - Host metrics collection

@@ -83,16 +83,10 @@ variable "minio_bucket" {
   default     = "victoriametrics"
 }
 
-variable "minio_access_key" {
+variable "minio_secret_name" {
   type        = string
-  description = "MinIO access key"
-  sensitive   = true
-}
-
-variable "minio_secret_key" {
-  type        = string
-  description = "MinIO secret key"
-  sensitive   = true
+  description = "Name of existing K8s secret with AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY"
+  default     = "victoriametrics-minio"
 }
 
 variable "backup_interval" {

@@ -207,25 +207,6 @@ resource "kubernetes_config_map" "scrape_config" {
 }
 
 # =============================================================================
-# MinIO Credentials Secret
-# =============================================================================
-
-resource "kubernetes_secret" "minio_credentials" {
-  metadata {
-    name      = "${local.app_name}-minio"
-    namespace = local.namespace
-    labels    = local.labels
-  }
-
-  data = {
-    AWS_ACCESS_KEY_ID     = var.minio_access_key
-    AWS_SECRET_ACCESS_KEY = var.minio_secret_key
-  }
-
-  type = "Opaque"
-}
-
-# =============================================================================
 # Backup Script ConfigMap
 # =============================================================================
 
@@ -351,7 +332,7 @@ resource "kubernetes_deployment" "victoriametrics" {
 
           env_from {
             secret_ref {
-              name = kubernetes_secret.minio_credentials.metadata[0].name
+              name = var.minio_secret_name
             }
           }
 
@@ -439,7 +420,7 @@ resource "kubernetes_deployment" "victoriametrics" {
 
           env_from {
             secret_ref {
-              name = kubernetes_secret.minio_credentials.metadata[0].name
+              name = var.minio_secret_name
             }
           }
 
@@ -495,7 +476,6 @@ resource "kubernetes_deployment" "victoriametrics" {
   depends_on = [
     kubernetes_config_map.scrape_config,
     kubernetes_config_map.backup_script,
-    kubernetes_secret.minio_credentials
   ]
 }
 
