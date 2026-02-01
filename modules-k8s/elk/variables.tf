@@ -30,12 +30,6 @@ variable "kibana_hostname" {
   default     = "kibana.brmartin.co.uk"
 }
 
-variable "es_data_path" {
-  description = "Host path to Elasticsearch data directory (GlusterFS mount)"
-  type        = string
-  default     = "/storage/v/glusterfs_elasticsearch_data"
-}
-
 variable "es_memory_request" {
   description = "Memory request for Elasticsearch"
   type        = string

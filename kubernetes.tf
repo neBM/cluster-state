@@ -294,7 +294,6 @@ module "k8s_elk" {
   namespace        = "default"
   es_hostname      = "es.brmartin.co.uk"
   kibana_hostname  = "kibana.brmartin.co.uk"
-  es_data_path     = "/storage/v/glusterfs_elasticsearch_data"
   es_image_tag     = "9.2.3"
   kibana_image_tag = "9.2.3"
 
