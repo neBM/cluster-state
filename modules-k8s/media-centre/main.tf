@@ -334,10 +334,7 @@ resource "kubernetes_stateful_set" "plex" {
 
         volume {
           name = "transcode"
-          empty_dir {
-            medium     = "Memory"
-            size_limit = "4Gi"
-          }
+          empty_dir {}
         }
 
         # NFS mounts to Synology NAS
