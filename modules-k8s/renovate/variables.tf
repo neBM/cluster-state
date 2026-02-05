@@ -14,5 +14,5 @@ variable "image_tag" {
   description = "Renovate Docker image tag"
   type        = string
   # renovate: datasource=docker depName=ghcr.io/renovatebot/renovate
-  default = "42"
+  default = "43"
 }
