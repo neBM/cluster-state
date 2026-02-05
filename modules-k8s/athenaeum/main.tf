@@ -135,6 +135,65 @@ resource "kubernetes_deployment" "backend" {
           name = "gitlab-registry"
         }
 
+        # Init container to run database migrations before app starts
+        init_container {
+          name  = "migrations"
+          image = var.backend_image
+
+          command = ["/app/.venv/bin/alembic", "upgrade", "head"]
+
+          # Alembic env.py imports app.config which needs these env vars
+          env {
+            name = "DATABASE_URL"
+            value_from {
+              secret_key_ref {
+                name = data.kubernetes_secret.athenaeum.metadata[0].name
+                key  = "DATABASE_URL"
+              }
+            }
+          }
+
+          env {
+            name = "KEYCLOAK_URL"
+            value_from {
+              secret_key_ref {
+                name = data.kubernetes_secret.athenaeum.metadata[0].name
+                key  = "KEYCLOAK_URL"
+              }
+            }
+          }
+
+          env {
+            name = "KEYCLOAK_REALM"
+            value_from {
+              secret_key_ref {
+                name = data.kubernetes_secret.athenaeum.metadata[0].name
+                key  = "KEYCLOAK_REALM"
+              }
+            }
+          }
+
+          env {
+            name = "KEYCLOAK_CLIENT_ID"
+            value_from {
+              secret_key_ref {
+                name = data.kubernetes_secret.athenaeum.metadata[0].name
+                key  = "KEYCLOAK_CLIENT_ID"
+              }
+            }
+          }
+
+          env {
+            name = "KEYCLOAK_CLIENT_SECRET"
+            value_from {
+              secret_key_ref {
+                name = data.kubernetes_secret.athenaeum.metadata[0].name
+                key  = "KEYCLOAK_CLIENT_SECRET"
+              }
+            }
+          }
+        }
+
         container {
           name  = "backend"
           image = var.backend_image
