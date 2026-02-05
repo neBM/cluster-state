@@ -749,7 +749,7 @@ resource "kubernetes_deployment" "webservice" {
           }
 
           env {
-            name  = "PUMA_WORKERS"
+            name  = "WORKER_PROCESSES"
             value = "1"
           }
 
