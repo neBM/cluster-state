@@ -750,7 +750,7 @@ resource "kubernetes_deployment" "webservice" {
 
           env {
             name  = "PUMA_WORKERS"
-            value = "0"
+            value = "1"
           }
 
           env {
