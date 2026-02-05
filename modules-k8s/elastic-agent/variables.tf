@@ -14,7 +14,7 @@ variable "elastic_agent_tag" {
   description = "Elastic Agent container image tag"
   type        = string
   # renovate: datasource=docker depName=docker.elastic.co/elastic-agent/elastic-agent
-  default = "9.2.4"
+  default = "9.3.0"
 }
 
 variable "fleet_url" {

@@ -80,7 +80,7 @@ resource "kubernetes_stateful_set" "plex" {
         # CRITICAL: Plex MUST NOT start without a valid database
         init_container {
           name  = "db-restore"
-          image = "alpine:3.21"
+          image = "alpine:3.23"
 
           command = ["/bin/sh", "-c"]
           args = [<<-EOF
@@ -479,7 +479,7 @@ resource "kubernetes_cron_job_v1" "plex_db_backup" {
 
             container {
               name  = "backup"
-              image = "alpine:3.21"
+              image = "alpine:3.23"
 
               command = ["/bin/sh", "-c"]
               args = [<<-EOF
