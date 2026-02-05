@@ -25,7 +25,7 @@ variable "gitlab_version" {
   description = "GitLab version tag for CNG images"
   type        = string
   # renovate: datasource=docker depName=registry.gitlab.com/gitlab-org/build/cng/gitlab-webservice-ce
-  default = "v18.8.2"
+  default = "v18.8.3"
 }
 
 variable "webservice_image" {

@@ -114,7 +114,7 @@ variable "nginx_tag" {
   description = "Nginx Docker image tag"
   type        = string
   # renovate: datasource=docker depName=docker.io/library/nginx
-  default = "1.29.4-alpine"
+  default = "1.29.5-alpine"
 }
 
 # Storage paths (GlusterFS NFS mounts on Hestia)
