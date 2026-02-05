@@ -41,7 +41,7 @@ variable "keycloak_realm" {
 }
 
 variable "keycloak_client_id" {
-  description = "Keycloak client ID for frontend"
+  description = "Keycloak client ID for frontend (public client)"
   type        = string
-  default     = "athenaeum"
+  default     = "athenaeum-ui"
 }
