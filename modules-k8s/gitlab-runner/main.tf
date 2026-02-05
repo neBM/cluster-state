@@ -27,6 +27,7 @@ shutdown_timeout = 0
   url = "https://git.brmartin.co.uk"
   token = "RUNNER_TOKEN_PLACEHOLDER"
   executor = "kubernetes"
+  tag_list = ["TAG_PLACEHOLDER"]
   
   [runners.kubernetes]
     namespace = "${var.job_namespace}"
@@ -164,7 +165,10 @@ resource "kubernetes_config_map" "config_template_amd64" {
   }
 
   data = {
-    "config.toml.template" = replace(local.config_template, "ARCH_PLACEHOLDER", "amd64")
+    "config.toml.template" = replace(
+      replace(local.config_template, "ARCH_PLACEHOLDER", "amd64"),
+      "TAG_PLACEHOLDER", "amd64"
+    )
   }
 }
 
@@ -176,7 +180,10 @@ resource "kubernetes_config_map" "config_template_arm64" {
   }
 
   data = {
-    "config.toml.template" = replace(local.config_template, "ARCH_PLACEHOLDER", "arm64")
+    "config.toml.template" = replace(
+      replace(local.config_template, "ARCH_PLACEHOLDER", "arm64"),
+      "TAG_PLACEHOLDER", "arm64"
+    )
   }
 }
 
@@ -280,7 +287,7 @@ resource "kubernetes_deployment" "runner_amd64" {
     }
   }
 
-  
+
 }
 
 # =============================================================================
@@ -383,7 +390,7 @@ resource "kubernetes_deployment" "runner_arm64" {
     }
   }
 
-  
+
 }
 
 # =============================================================================
