@@ -335,7 +335,7 @@ resource "kubernetes_deployment" "frontend" {
           image = var.frontend_image
 
           port {
-            container_port = 80
+            container_port = 3000
             name           = "http"
           }
 
@@ -389,7 +389,7 @@ resource "kubernetes_deployment" "frontend" {
           liveness_probe {
             http_get {
               path = "/"
-              port = 80
+              port = 3000
             }
             initial_delay_seconds = 10
             period_seconds        = 30
@@ -399,7 +399,7 @@ resource "kubernetes_deployment" "frontend" {
           readiness_probe {
             http_get {
               path = "/"
-              port = 80
+              port = 3000
             }
             initial_delay_seconds = 5
             period_seconds        = 10
@@ -423,7 +423,7 @@ resource "kubernetes_service" "frontend" {
 
     port {
       port        = 80
-      target_port = 80
+      target_port = 3000
       protocol    = "TCP"
       name        = "http"
     }
