@@ -306,6 +306,31 @@ resource "kubernetes_service" "backend" {
 # Frontend - Vue 3 SPA (nginx)
 # =============================================================================
 
+# Frontend runtime configuration (injected at page load)
+resource "kubernetes_config_map" "frontend_config" {
+  metadata {
+    name      = "athenaeum-frontend-config"
+    namespace = var.namespace
+    labels    = local.frontend_labels
+  }
+
+  data = {
+    "config.js" = <<-EOT
+      // Runtime configuration for Athenaeum frontend
+      // This file is injected by Kubernetes and loaded before the app starts
+      window.APP_CONFIG = {
+        apiUrl: 'https://${var.domain}',
+        wsUrl: 'wss://${var.domain}',
+        keycloak: {
+          url: '${var.keycloak_url}',
+          realm: '${var.keycloak_realm}',
+          clientId: '${var.keycloak_client_id}'
+        }
+      };
+    EOT
+  }
+}
+
 resource "kubernetes_deployment" "frontend" {
   metadata {
     name      = "athenaeum-frontend"
@@ -339,40 +364,12 @@ resource "kubernetes_deployment" "frontend" {
             name           = "http"
           }
 
-          # Environment variables from athenaeum-secrets
-          env {
-            name  = "VUE_APP_API_URL"
-            value = "http://athenaeum-backend:8000"
-          }
-
-          env {
-            name = "VUE_APP_KEYCLOAK_URL"
-            value_from {
-              secret_key_ref {
-                name = data.kubernetes_secret.athenaeum.metadata[0].name
-                key  = "KEYCLOAK_URL"
-              }
-            }
-          }
-
-          env {
-            name = "VUE_APP_KEYCLOAK_REALM"
-            value_from {
-              secret_key_ref {
-                name = data.kubernetes_secret.athenaeum.metadata[0].name
-                key  = "KEYCLOAK_REALM"
-              }
-            }
-          }
-
-          env {
-            name = "VUE_APP_KEYCLOAK_CLIENT_ID"
-            value_from {
-              secret_key_ref {
-                name = data.kubernetes_secret.athenaeum.metadata[0].name
-                key  = "KEYCLOAK_WEB_CLIENT_ID"
-              }
-            }
+          # Mount runtime config from ConfigMap
+          volume_mount {
+            name       = "frontend-config"
+            mount_path = "/usr/share/nginx/html/config.js"
+            sub_path   = "config.js"
+            read_only  = true
           }
 
           resources {
@@ -404,6 +401,14 @@ resource "kubernetes_deployment" "frontend" {
             initial_delay_seconds = 5
             period_seconds        = 10
             timeout_seconds       = 5
+          }
+        }
+
+        # Volume for runtime configuration
+        volume {
+          name = "frontend-config"
+          config_map {
+            name = kubernetes_config_map.frontend_config.metadata[0].name
           }
         }
       }

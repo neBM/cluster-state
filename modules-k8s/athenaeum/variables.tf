@@ -27,3 +27,21 @@ variable "redis_image" {
   type        = string
   default     = "redis:7-alpine"
 }
+
+variable "keycloak_url" {
+  description = "Keycloak server URL"
+  type        = string
+  default     = "https://sso.brmartin.co.uk"
+}
+
+variable "keycloak_realm" {
+  description = "Keycloak realm name"
+  type        = string
+  default     = "prod"
+}
+
+variable "keycloak_client_id" {
+  description = "Keycloak client ID for frontend"
+  type        = string
+  default     = "athenaeum"
+}
