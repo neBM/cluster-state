@@ -104,7 +104,7 @@ resource "kubernetes_deployment" "minio" {
 
           resources {
             requests = {
-              cpu    = "400m"  # goldilocks: 379m
+              cpu    = "400m" # goldilocks: 379m
               memory = "1Gi"
             }
             limits = {
@@ -118,7 +118,7 @@ resource "kubernetes_deployment" "minio" {
               path = "/minio/health/live"
               port = 9000
             }
-            initial_delay_seconds = 120  # Allow time for migration
+            initial_delay_seconds = 120 # Allow time for migration
             period_seconds        = 30
             timeout_seconds       = 5
           }

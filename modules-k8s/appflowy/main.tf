@@ -25,7 +25,7 @@ locals {
 
   # External PostgreSQL on martinibar
   postgres_host = "${var.db_host}:${var.db_port}"
-  
+
   # K8s service DNS names
   redis_host  = "appflowy-redis.${var.namespace}.svc.cluster.local"
   gotrue_host = "appflowy-gotrue.${var.namespace}.svc.cluster.local"

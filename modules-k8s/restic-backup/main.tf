@@ -170,7 +170,7 @@ resource "kubernetes_cron_job_v1" "restic_backup" {
 
               resources {
                 requests = {
-                  cpu    = "500m"  # goldilocks: 476m
+                  cpu    = "500m" # goldilocks: 476m
                   memory = "256Mi"
                 }
                 limits = {

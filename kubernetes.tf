@@ -174,6 +174,15 @@ module "k8s_appflowy" {
   keycloak_url = "https://sso.brmartin.co.uk/realms/prod"
 }
 
+# Athenaeum - FastAPI + Vue 3 Wiki Application
+# Multi-component app: backend (FastAPI), frontend (Vue 3), redis
+# Uses external PostgreSQL on martinibar, Keycloak for auth, MinIO for attachments
+module "k8s_athenaeum" {
+  source = "./modules-k8s/athenaeum"
+
+  namespace = "default"
+}
+
 # Nextcloud - File storage
 # Uses external PostgreSQL on martinibar.lan, GlusterFS for data
 module "k8s_nextcloud" {
