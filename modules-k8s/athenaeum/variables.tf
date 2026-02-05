@@ -7,7 +7,7 @@ variable "namespace" {
 variable "backend_image" {
   description = "Athenaeum backend container image"
   type        = string
-  default     = "registry.brmartin.co.uk/ben/athenaeum/backend:1bb038fd"
+  default     = "registry.brmartin.co.uk/ben/athenaeum/backend:8b1bbc5d"
 }
 
 variable "frontend_image" {
