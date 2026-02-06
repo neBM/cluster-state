@@ -11,6 +11,7 @@
 locals {
   app_labels = {
     app        = "open-webui"
+    component  = "app"
     managed-by = "terraform"
   }
   valkey_labels = {
