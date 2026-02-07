@@ -59,6 +59,18 @@ shutdown_timeout = 0
   # Node selector for arch-specific builds (must be after all kubernetes settings)
   [runners.kubernetes.node_selector]
     "kubernetes.io/arch" = "ARCH_PLACEHOLDER"
+
+  # Shared cache via MinIO (S3-compatible)
+  [runners.cache]
+    Type = "s3"
+    Shared = true
+    [runners.cache.s3]
+      ServerAddress = "${var.cache_s3_endpoint}"
+      BucketName = "${var.cache_s3_bucket}"
+      Insecure = true
+      AuthenticationType = "access-key"
+      AccessKey = "MINIO_ACCESS_KEY_PLACEHOLDER"
+      SecretKey = "MINIO_SECRET_KEY_PLACEHOLDER"
 EOF
 }
 
@@ -219,7 +231,7 @@ resource "kubernetes_deployment" "runner_amd64" {
           image   = "busybox:1.37"
           command = ["/bin/sh", "-c"]
           args = [
-            "sed -e \"s/RUNNER_NAME_PLACEHOLDER/k8s-amd64/\" -e \"s/RUNNER_TOKEN_PLACEHOLDER/$RUNNER_TOKEN/\" /template/config.toml.template > /config/config.toml"
+            "sed -e \"s/RUNNER_NAME_PLACEHOLDER/k8s-amd64/\" -e \"s/RUNNER_TOKEN_PLACEHOLDER/$RUNNER_TOKEN/\" -e \"s/MINIO_ACCESS_KEY_PLACEHOLDER/$MINIO_ACCESS_KEY/\" -e \"s/MINIO_SECRET_KEY_PLACEHOLDER/$MINIO_SECRET_KEY/\" /template/config.toml.template > /config/config.toml"
           ]
 
           env {
@@ -228,6 +240,26 @@ resource "kubernetes_deployment" "runner_amd64" {
               secret_key_ref {
                 name = "gitlab-runner-secrets"
                 key  = "runner_token_amd64"
+              }
+            }
+          }
+
+          env {
+            name = "MINIO_ACCESS_KEY"
+            value_from {
+              secret_key_ref {
+                name = var.cache_s3_secret_name
+                key  = "accesskey"
+              }
+            }
+          }
+
+          env {
+            name = "MINIO_SECRET_KEY"
+            value_from {
+              secret_key_ref {
+                name = var.cache_s3_secret_name
+                key  = "secretkey"
               }
             }
           }
@@ -322,7 +354,7 @@ resource "kubernetes_deployment" "runner_arm64" {
           image   = "busybox:1.37"
           command = ["/bin/sh", "-c"]
           args = [
-            "sed -e \"s/RUNNER_NAME_PLACEHOLDER/k8s-arm64/\" -e \"s/RUNNER_TOKEN_PLACEHOLDER/$RUNNER_TOKEN/\" /template/config.toml.template > /config/config.toml"
+            "sed -e \"s/RUNNER_NAME_PLACEHOLDER/k8s-arm64/\" -e \"s/RUNNER_TOKEN_PLACEHOLDER/$RUNNER_TOKEN/\" -e \"s/MINIO_ACCESS_KEY_PLACEHOLDER/$MINIO_ACCESS_KEY/\" -e \"s/MINIO_SECRET_KEY_PLACEHOLDER/$MINIO_SECRET_KEY/\" /template/config.toml.template > /config/config.toml"
           ]
 
           env {
@@ -331,6 +363,26 @@ resource "kubernetes_deployment" "runner_arm64" {
               secret_key_ref {
                 name = "gitlab-runner-secrets"
                 key  = "runner_token_arm64"
+              }
+            }
+          }
+
+          env {
+            name = "MINIO_ACCESS_KEY"
+            value_from {
+              secret_key_ref {
+                name = var.cache_s3_secret_name
+                key  = "accesskey"
+              }
+            }
+          }
+
+          env {
+            name = "MINIO_SECRET_KEY"
+            value_from {
+              secret_key_ref {
+                name = var.cache_s3_secret_name
+                key  = "secretkey"
               }
             }
           }

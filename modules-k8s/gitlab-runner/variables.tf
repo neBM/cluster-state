@@ -28,3 +28,21 @@ variable "privileged_jobs" {
   type        = bool
   default     = true
 }
+
+variable "cache_s3_endpoint" {
+  description = "MinIO/S3 endpoint for runner shared cache (host:port, no scheme)"
+  type        = string
+  default     = "minio-api.default.svc.cluster.local:9000"
+}
+
+variable "cache_s3_bucket" {
+  description = "S3 bucket name for runner shared cache"
+  type        = string
+  default     = "gitlab-runner-cache"
+}
+
+variable "cache_s3_secret_name" {
+  description = "Kubernetes secret containing accesskey and secretkey for cache"
+  type        = string
+  default     = "gitlab-runner-cache-s3"
+}
