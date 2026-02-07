@@ -538,12 +538,25 @@ resource "kubernetes_ingress_v1" "athenaeum" {
       }
     }
 
-    # Backend API (under /api)
+    # Backend API (under /api) and MCP endpoint (under /mcp)
     rule {
       host = var.domain
       http {
         path {
           path      = "/api"
+          path_type = "Prefix"
+          backend {
+            service {
+              name = kubernetes_service.backend.metadata[0].name
+              port {
+                number = 8000
+              }
+            }
+          }
+        }
+
+        path {
+          path      = "/mcp"
           path_type = "Prefix"
           backend {
             service {
