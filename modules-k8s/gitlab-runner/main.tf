@@ -15,7 +15,7 @@ locals {
   # Kubernetes executor config template
   # ARCH_PLACEHOLDER is replaced per-deployment
   config_template = <<-EOF
-concurrent = 1
+concurrent = CONCURRENT_PLACEHOLDER
 check_interval = 30
 shutdown_timeout = 0
 
@@ -176,7 +176,10 @@ resource "kubernetes_config_map" "config_template_amd64" {
   }
 
   data = {
-    "config.toml.template" = replace(local.config_template, "ARCH_PLACEHOLDER", "amd64")
+    "config.toml.template" = replace(
+      replace(local.config_template, "ARCH_PLACEHOLDER", "amd64"),
+      "CONCURRENT_PLACEHOLDER", tostring(var.amd64_concurrent)
+    )
   }
 }
 
@@ -188,7 +191,10 @@ resource "kubernetes_config_map" "config_template_arm64" {
   }
 
   data = {
-    "config.toml.template" = replace(local.config_template, "ARCH_PLACEHOLDER", "arm64")
+    "config.toml.template" = replace(
+      replace(local.config_template, "ARCH_PLACEHOLDER", "arm64"),
+      "CONCURRENT_PLACEHOLDER", tostring(var.arm64_concurrent)
+    )
   }
 }
 

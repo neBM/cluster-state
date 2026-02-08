@@ -46,3 +46,15 @@ variable "cache_s3_secret_name" {
   type        = string
   default     = "gitlab-runner-cache-s3"
 }
+
+variable "amd64_concurrent" {
+  description = "Max concurrent jobs for the amd64 runner (1 node: Hestia)"
+  type        = number
+  default     = 1
+}
+
+variable "arm64_concurrent" {
+  description = "Max concurrent jobs for the arm64 runner (2 nodes: Heracles, Nyx)"
+  type        = number
+  default     = 2
+}
