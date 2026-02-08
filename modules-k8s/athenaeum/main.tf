@@ -304,14 +304,24 @@ resource "kubernetes_deployment" "backend" {
             }
           }
 
+          env {
+            name  = "OLLAMA_URL"
+            value = var.ollama_url
+          }
+
+          env {
+            name  = "OLLAMA_MODEL"
+            value = var.ollama_model
+          }
+
           resources {
             requests = {
-              cpu    = "100m"
-              memory = "256Mi"
+              cpu    = "200m"
+              memory = "512Mi"
             }
             limits = {
               cpu    = "1000m"
-              memory = "512Mi"
+              memory = "1Gi"
             }
           }
 

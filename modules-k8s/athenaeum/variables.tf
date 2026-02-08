@@ -45,3 +45,15 @@ variable "keycloak_client_id" {
   type        = string
   default     = "athenaeum-ui"
 }
+
+variable "ollama_url" {
+  description = "Ollama LLM service URL for fact extraction and response assembly"
+  type        = string
+  default     = "http://ollama.default.svc.cluster.local:11434"
+}
+
+variable "ollama_model" {
+  description = "Ollama model name for fact extraction"
+  type        = string
+  default     = "qwen2.5:3b"
+}
