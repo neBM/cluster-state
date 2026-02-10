@@ -1016,7 +1016,7 @@ resource "kubernetes_deployment" "workhorse" {
 
           env {
             name  = "GITLAB_WORKHORSE_EXTRA_ARGS"
-            value = "-authBackend http://gitlab-webservice:8080 -cableBackend http://gitlab-webservice:8080"
+            value = "-authBackend http://gitlab-webservice:8080 -cableBackend http://gitlab-webservice:8080 -apiCiLongPollingDuration 50s"
           }
 
           volume_mount {

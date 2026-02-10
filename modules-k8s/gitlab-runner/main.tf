@@ -27,6 +27,14 @@ shutdown_timeout = 0
   url = "https://git.brmartin.co.uk"
   token = "RUNNER_TOKEN_PLACEHOLDER"
   executor = "kubernetes"
+  # Node-local cache env vars — tools find their caches automatically, no .gitlab-ci.yml changes needed
+  environment = [
+    "MAVEN_USER_HOME=/ci-cache/m2",
+    "GRADLE_USER_HOME=/ci-cache/gradle",
+    "UV_CACHE_DIR=/ci-cache/uv",
+    "PIP_CACHE_DIR=/ci-cache/pip",
+    "npm_config_cache=/ci-cache/npm"
+  ]
   
   [runners.kubernetes]
     namespace = "${var.job_namespace}"
@@ -59,6 +67,15 @@ shutdown_timeout = 0
   # Node selector for arch-specific builds (must be after all kubernetes settings)
   [runners.kubernetes.node_selector]
     "kubernetes.io/arch" = "ARCH_PLACEHOLDER"
+
+  # Persistent node-local cache for build tool dependencies (Maven, Gradle, pip, uv, npm)
+  # Avoids zip/upload/download cycle of S3 cache for large, read-heavy dependency trees.
+  # Env vars above point each tool at /ci-cache/<tool> — works automatically in all jobs.
+  [[runners.kubernetes.volumes.host_path]]
+    name = "ci-cache"
+    mount_path = "/ci-cache"
+    host_path = "/var/lib/ci-cache"
+    read_only = false
 
   # Shared cache via MinIO (S3-compatible)
   [runners.cache]
