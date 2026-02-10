@@ -5,19 +5,15 @@ stages:
 
 variables:
   TF_IN_AUTOMATION: "true"
+  ACT_IMAGE: ${CI_REGISTRY}/ben/act:latest
 
 .terraform-base:
-  image: debian:bookworm-slim
+  image: ${ACT_IMAGE}
   cache:
     key: terraform-plugins
     paths:
       - .terraform/providers
   before_script:
-    - apt-get update && apt-get install -y curl unzip gnupg
-    # Install Terraform from HashiCorp repos
-    - curl -fsSL https://apt.releases.hashicorp.com/gpg | gpg --dearmor -o /usr/share/keyrings/hashicorp-archive-keyring.gpg
-    - echo "deb [signed-by=/usr/share/keyrings/hashicorp-archive-keyring.gpg] https://apt.releases.hashicorp.com bookworm main" > /etc/apt/sources.list.d/hashicorp.list
-    - apt-get update && apt-get install -y terraform
     # Setup kubeconfig using ServiceAccount token (limited RBAC)
     # Required CI variables: K8S_HOST, K8S_TOKEN, K8S_CA_CERT
     # Write to ~/.kube/k3s-config to match provider config_path
