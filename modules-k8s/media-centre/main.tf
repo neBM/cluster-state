@@ -717,12 +717,6 @@ resource "kubernetes_deployment" "jellyfin" {
             mount_path = "/media"
           }
 
-          # GPU access for hardware transcoding
-          volume_mount {
-            name       = "dri"
-            mount_path = "/dev/dri"
-          }
-
           resources {
             requests = {
               cpu    = "50m"
