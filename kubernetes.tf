@@ -249,7 +249,8 @@ module "k8s_restic_backup" {
 module "k8s_gitlab_runner" {
   source = "./modules-k8s/gitlab-runner"
 
-  namespace = "default"
+  namespace         = "default"
+  registry_hostname = "registry.brmartin.co.uk"
 }
 
 # Open WebUI - LLM chat interface

@@ -1490,6 +1490,29 @@ resource "kubernetes_service" "registry" {
   }
 }
 
+# Internal registry service for in-cluster push/pull (bypasses Traefik)
+# CoreDNS rewrites registry.brmartin.co.uk to this service.
+# CI_REGISTRY includes :443, so buildah connects to port 443.
+# insecure=true in registries.conf makes buildah use plain HTTP on :443,
+# which this service accepts and forwards to the registry pod on 5000.
+resource "kubernetes_service" "registry_internal" {
+  metadata {
+    name      = "gitlab-registry-internal"
+    namespace = var.namespace
+    labels    = local.registry_labels
+  }
+
+  spec {
+    selector = local.registry_labels
+
+    port {
+      name        = "http"
+      port        = 443
+      target_port = 5000
+    }
+  }
+}
+
 # =============================================================================
 # SSH Service - NodePort for external access
 # =============================================================================

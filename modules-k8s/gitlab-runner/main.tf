@@ -77,6 +77,14 @@ shutdown_timeout = 0
     host_path = "/var/lib/ci-cache"
     read_only = false
 
+  # In-cluster registry bypass: mount registries.conf marking the registry as insecure
+  # so buildah uses plain HTTP on :443 when CoreDNS resolves the hostname to the internal service.
+  [[runners.kubernetes.volumes.config_map]]
+    name = "gitlab-runner-registries-conf"
+    mount_path = "/etc/containers/registries.conf"
+    sub_path = "registries.conf"
+    read_only = true
+
   # Shared cache via MinIO (S3-compatible)
   [runners.cache]
     Type = "s3"
@@ -178,6 +186,32 @@ resource "kubernetes_role_binding" "runner" {
     kind      = "ServiceAccount"
     name      = kubernetes_service_account.runner.metadata[0].name
     namespace = var.namespace
+  }
+}
+
+# =============================================================================
+# ConfigMap for container registries.conf (in-cluster registry bypass)
+# =============================================================================
+
+resource "kubernetes_config_map" "registries_conf" {
+  count = var.registry_hostname != "" ? 1 : 0
+
+  metadata {
+    name      = "gitlab-runner-registries-conf"
+    namespace = var.job_namespace
+    labels    = local.labels
+  }
+
+  data = {
+    "registries.conf" = <<-EOF
+# In-cluster registry bypass: CoreDNS rewrites ${var.registry_hostname} to the
+# internal registry service (port 443 → 5000). The insecure flag makes buildah
+# use plain HTTP on :443 instead of TLS, connecting directly to the registry
+# pod without Traefik or TLS overhead.
+[[registry]]
+location = "${var.registry_hostname}"
+insecure = true
+EOF
   }
 }
 

@@ -47,6 +47,12 @@ variable "cache_s3_secret_name" {
   default     = "gitlab-runner-cache-s3"
 }
 
+variable "registry_hostname" {
+  description = "External hostname of the container registry (for in-cluster insecure bypass)"
+  type        = string
+  default     = ""
+}
+
 variable "amd64_concurrent" {
   description = "Max concurrent jobs for the amd64 runner (1 node: Hestia)"
   type        = number
