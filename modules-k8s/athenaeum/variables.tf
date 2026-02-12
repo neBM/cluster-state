@@ -55,5 +55,5 @@ variable "ollama_url" {
 variable "ollama_model" {
   description = "Ollama model name for fact extraction"
   type        = string
-  default     = "qwen2.5:3b"
+  default     = "gemma3:4b"
 }
