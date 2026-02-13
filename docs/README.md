@@ -16,6 +16,8 @@ This directory contains documentation for the K8s (K3s) cluster infrastructure.
 
 - **[storage-troubleshooting.md](storage-troubleshooting.md)** - Troubleshooting guide for common storage issues including stale handles, mount failures, and recovery procedures.
 
+- **[litestream-recovery.md](litestream-recovery.md)** - Runbook for recovering from corrupted litestream backups in MinIO using restic snapshots.
+
 ## Quick Reference
 
 ### Key Components

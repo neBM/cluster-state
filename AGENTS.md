@@ -22,6 +22,7 @@ See the `docs/` directory for detailed documentation:
 - [docs/nfs-ganesha-migration.md](docs/nfs-ganesha-migration.md) - NFS-Ganesha setup and V7.2 bug workaround
 - [docs/glusterfs-architecture.md](docs/glusterfs-architecture.md) - GlusterFS architecture and DHT behavior
 - [docs/storage-troubleshooting.md](docs/storage-troubleshooting.md) - Storage troubleshooting guide
+- [docs/litestream-recovery.md](docs/litestream-recovery.md) - Litestream backup corruption recovery runbook
 
 ## Project Structure
 
@@ -242,37 +243,7 @@ volume {
 - **Version compatibility**: Litestream 0.5.x uses LTX format, 0.3.x uses generations format. These are NOT compatible. Ensure restore and replicate use the same version.
 
 ### Litestream Backup Corruption Recovery
-If litestream backup in MinIO is corrupted (decode errors on restore), recover from restic:
-
-```bash
-# 1. Stop the affected service
-KUBECONFIG=~/.kube/k3s-config kubectl scale statefulset/<name> --replicas=0 -n default
-
-# 2. Wipe corrupted litestream backup from MinIO
-/usr/bin/ssh 192.168.1.5 "sudo rm -rf /storage/v/glusterfs_minio_data/<bucket>/db/*"
-
-# 3. Find latest good restic snapshot
-set -a && source .env && set +a
-RESTIC_PW=$(vault kv get -format=json nomad/default/restic-backup | jq -r '.data.data.RESTIC_PASSWORD')
-/usr/bin/ssh 192.168.1.5 "docker run --rm -v /mnt/csi/backups/restic:/repo \
-  -e RESTIC_REPOSITORY=/repo -e RESTIC_PASSWORD='$RESTIC_PW' \
-  restic/restic:0.18.1 snapshots --latest 5"
-
-# 4. Restore litestream LTX files from restic
-/usr/bin/ssh 192.168.1.5 "docker run --rm -v /mnt/csi/backups/restic:/repo \
-  -v /tmp/restore:/restore \
-  -e RESTIC_REPOSITORY=/repo -e RESTIC_PASSWORD='$RESTIC_PW' \
-  restic/restic:0.18.1 restore <snapshot-id> \
-  --include '/data/glusterfs_minio_data/<bucket>/' --target /restore"
-
-# 5. Move restored data to MinIO volume
-/usr/bin/ssh 192.168.1.5 "sudo mv /tmp/restore/data/glusterfs_minio_data/<bucket>/db/* \
-  /storage/v/glusterfs_minio_data/<bucket>/db/"
-
-# 6. Clean up and restart
-/usr/bin/ssh 192.168.1.5 "sudo rm -rf /tmp/restore"
-KUBECONFIG=~/.kube/k3s-config kubectl scale statefulset/<name> --replicas=1 -n default
-```
+If litestream backup in MinIO is corrupted (decode errors on restore), recover from restic. See [docs/litestream-recovery.md](docs/litestream-recovery.md) for the full runbook.
 
 ### GlusterFS Architecture
 
@@ -288,7 +259,7 @@ Nyx (/data/glusterfs/brick1) ──────┘
                     └─────────────┴─────────────┴─────────────┘
                                    │
                                    ▼ (127.0.0.1:/storage)
-                          democratic-csi mounts into containers
+                    nfs-subdir-external-provisioner mounts into containers
 ```
 
 **Key points:**
@@ -296,7 +267,7 @@ Nyx (/data/glusterfs/brick1) ──────┘
 - Volume is **distributed** (data split across bricks), NOT replicated
 - NFS-Ganesha with FSAL_GLUSTER provides stable fileids (no "fileid changed" errors)
 - All nodes run NFS-Ganesha V9.4 built from source (no Ubuntu packages/PPAs)
-- CSI plugin uses NFS to mount subdirectories into containers
+- nfs-subdir-external-provisioner uses NFS to mount subdirectories into containers
 
 See [docs/glusterfs-architecture.md](docs/glusterfs-architecture.md) for details.
 
@@ -352,10 +323,6 @@ sudo grep dht-rename /var/log/glusterfs/storage.log | tail -5
 
 **Current status (January 2026):** Migrated to NFS-Ganesha with FSAL_GLUSTER. No fileid errors since migration.
 
-### GlusterFS Issues
-- K8s uses hostPath mounts to `/storage/v/` (NFS-mounted GlusterFS)
-- DHT fileid instability is inherent to distributed volumes with NFS re-export
-
 ### NFS Stale File Handle Errors
 When services report "stale file handle" errors after NFS changes or node restarts:
 
@@ -396,6 +363,23 @@ KUBECONFIG=~/.kube/k3s-config kubectl get pod -l app=nfs-subdir-external-provisi
 ```bash
 KUBECONFIG=~/.kube/k3s-config kubectl get pods -l app=nfs-subdir-external-provisioner
 KUBECONFIG=~/.kube/k3s-config kubectl get storageclass glusterfs-nfs
+```
+
+### NVIDIA GPU / Device Plugin
+Hestia has an NVIDIA GTX 1070 with time-slicing configured (2 virtual GPUs). Ollama and Plex both request GPU resources.
+
+**GPU not visible to K8s (0 capacity):**
+The NVIDIA device plugin can silently stop advertising GPUs while its pod remains Running/Ready. Symptoms: pods requesting `nvidia.com/gpu` stuck in Pending with `Insufficient nvidia.com/gpu`.
+
+```bash
+# Verify GPU works at host level
+/usr/bin/ssh 192.168.1.5 "nvidia-smi"
+
+# Check K8s GPU capacity (should show 2)
+KUBECONFIG=~/.kube/k3s-config kubectl describe node hestia | grep nvidia.com/gpu
+
+# Fix: restart the device plugin pod
+KUBECONFIG=~/.kube/k3s-config kubectl delete pod -n kube-system -l app=nvidia-device-plugin-daemonset
 ```
 
 ### GlusterFS Socket Limitations
@@ -456,6 +440,50 @@ resource "kubernetes_service" "myapp" {
 }
 ```
 
+## CI/CD
+
+### ACT Toolchain Image
+
+The `ben/act` project in GitLab provides a multiarch CI toolchain image (`registry.brmartin.co.uk/ben/act:latest`) with:
+- Terraform, Node.js 20, Python 3, uv, Java 21, Maven, Gradle, Android SDK
+- Used by Athenaeum and cluster-state pipelines as the base CI image
+
+### In-Cluster Registry Bypass
+
+CI jobs push/pull images to the GitLab registry without going through Traefik:
+
+1. **CoreDNS rewrite** (manual, in `coredns-custom` ConfigMap in `kube-system`): rewrites `registry.brmartin.co.uk` to the `gitlab-registry-internal` K8s service
+2. **Internal service** (`modules-k8s/gitlab/main.tf`): listens on port 443 (plain HTTP), forwards to registry pod on 5000. Port 443 because GitLab's `CI_REGISTRY` variable includes `:443`
+3. **registries.conf** (`modules-k8s/gitlab-runner/main.tf`): ConfigMap mounted into CI job pods at `/etc/containers/registries.conf`, marks the registry as `insecure` so buildah uses HTTP instead of TLS
+
+### Cluster-State Pipeline
+
+This repo has its own `.gitlab-ci.yml` with three stages:
+- **validate**: `terraform fmt -check` + `terraform validate` (runs on MRs and main)
+- **plan**: `terraform plan` (main only, requires PG backend connection)
+- **apply**: `terraform apply` (main only, manual trigger)
+
+**State lock gotcha**: Terraform uses a PostgreSQL backend. Concurrent or stuck pipelines can hold the state lock. Fix with:
+```bash
+set -a && source .env && set +a
+terraform force-unlock -force <lock-id>
+```
+
+### GitLab CLI
+
+`glab` is installed and authenticated. Prefer it over the REST API with `PRIVATE-TOKEN` — the token may not have visibility into all projects.
+
+```bash
+# List all projects
+glab api projects --paginate | jq '.[].path_with_namespace'
+
+# Retry a failed job
+glab api --method POST projects/<id>/jobs/<job-id>/retry
+
+# Get pipeline status
+glab api "projects/<id>/pipelines?ref=main&status=success&per_page=1"
+```
+
 ## Links
 
 - GitLab: https://git.brmartin.co.uk
@@ -479,7 +507,7 @@ resource "kubernetes_service" "myapp" {
 | minio | Deployment | Object storage |
 | keycloak | Deployment | SSO/OAuth |
 | appflowy | Multiple | 7 components (cloud, gotrue, worker, web, admin, postgres, redis) |
-| nextcloud | Deployment | File sync, with Collabora sidecar |
+| nextcloud | Deployment | File sync |
 | matrix | Multiple | 6 components (synapse, mas, whatsapp-bridge, nginx, element, cinny) |
 | gitlab | Multiple | CNG multi-container (webservice, workhorse, sidekiq, gitaly, redis, registry), SSH via NodePort 30022, external PostgreSQL |
 | renovate | CronJob | Dependency updates (hourly) |
@@ -491,6 +519,7 @@ resource "kubernetes_service" "myapp" {
 | jellyfin | Deployment | Alternative media server |
 | tautulli | Deployment | Plex monitoring/statistics |
 | elk | StatefulSet+Deployment | Elasticsearch 9.x multi-node (2 data + 1 tiebreaker) + Kibana 9.x, data on local NVMe |
+| athenaeum | Multiple | Knowledge wiki (backend, frontend, redis), Keycloak SSO, Ollama for fact extraction |
 | jayne-martin-counselling | Deployment | Static counselling website |
 
 ## Active Technologies
@@ -506,6 +535,7 @@ resource "kubernetes_service" "myapp" {
 - local-path-retain StorageClass for ES data nodes (50GB each on local NVMe)
 
 ## Recent Changes
+- 010-observability-stack: Added Prometheus, Grafana, and Meshery for cluster observability
 - 009-es-multi-node-cluster: Migrated Elasticsearch from single-node on GlusterFS to 3-node cluster (2 data + 1 tiebreaker) on local NVMe storage
 - 008-gitlab-multi-container: Migrated GitLab from Omnibus to CNG multi-container architecture (webservice, workhorse, sidekiq, gitaly, redis, registry)
 - 007-jayne-martin-k8s-migration: Migrated Jayne Martin Counselling to Kubernetes, decommissioned Nomad
