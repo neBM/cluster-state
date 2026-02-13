@@ -22,6 +22,29 @@ locals {
 }
 
 # =============================================================================
+# Persistent Volume Claims (glusterfs-nfs)
+# =============================================================================
+
+resource "kubernetes_persistent_volume_claim" "data" {
+  metadata {
+    name      = "open-webui-data"
+    namespace = var.namespace
+    annotations = {
+      "volume-name" = "ollama_data"
+    }
+  }
+  spec {
+    storage_class_name = "glusterfs-nfs"
+    access_modes       = ["ReadWriteMany"]
+    resources {
+      requests = {
+        storage = "10Gi"
+      }
+    }
+  }
+}
+
+# =============================================================================
 # Open WebUI Deployment
 # =============================================================================
 
@@ -182,9 +205,8 @@ resource "kubernetes_deployment" "open_webui" {
 
         volume {
           name = "data"
-          host_path {
-            path = var.data_path
-            type = "Directory"
+          persistent_volume_claim {
+            claim_name = kubernetes_persistent_volume_claim.data.metadata[0].name
           }
         }
       }
@@ -193,7 +215,8 @@ resource "kubernetes_deployment" "open_webui" {
 
   depends_on = [
     kubectl_manifest.external_secret,
-    kubernetes_deployment.valkey
+    kubernetes_deployment.valkey,
+    kubernetes_persistent_volume_claim.data,
   ]
 }
 

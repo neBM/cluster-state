@@ -37,7 +37,28 @@ resource "kubernetes_config_map" "litestream" {
   }
 }
 
-# Config is stored on GlusterFS via hostPath (not PVC)
+# =============================================================================
+# Persistent Volume Claims (glusterfs-nfs)
+# =============================================================================
+
+resource "kubernetes_persistent_volume_claim" "config" {
+  metadata {
+    name      = "overseerr-config"
+    namespace = var.namespace
+    annotations = {
+      "volume-name" = "overseerr_config"
+    }
+  }
+  spec {
+    storage_class_name = "glusterfs-nfs"
+    access_modes       = ["ReadWriteMany"]
+    resources {
+      requests = {
+        storage = "1Gi"
+      }
+    }
+  }
+}
 
 # StatefulSet with litestream sidecar
 resource "kubernetes_stateful_set" "overseerr" {
@@ -281,12 +302,11 @@ resource "kubernetes_stateful_set" "overseerr" {
           }
         }
 
-        # Config from GlusterFS via hostPath
+        # Config from GlusterFS via PVC
         volume {
           name = "config"
-          host_path {
-            path = "/storage/v/glusterfs_overseerr_config"
-            type = "Directory"
+          persistent_volume_claim {
+            claim_name = kubernetes_persistent_volume_claim.config.metadata[0].name
           }
         }
 

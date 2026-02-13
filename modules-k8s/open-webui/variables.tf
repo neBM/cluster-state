@@ -38,9 +38,3 @@ variable "valkey_tag" {
 
 # External PostgreSQL on martinibar (192.168.1.10:5433)
 # DATABASE_URL is stored in open-webui-secrets
-
-variable "data_path" {
-  description = "Host path for Open WebUI data"
-  type        = string
-  default     = "/storage/v/glusterfs_ollama_data"
-}

@@ -187,6 +187,86 @@ resource "kubernetes_config_map" "synapse_config" {
 }
 
 # =============================================================================
+# Persistent Volume Claims (glusterfs-nfs)
+# =============================================================================
+
+resource "kubernetes_persistent_volume_claim" "synapse_data" {
+  metadata {
+    name      = "matrix-synapse-data"
+    namespace = var.namespace
+    annotations = {
+      "volume-name" = "matrix_synapse_data"
+    }
+  }
+  spec {
+    storage_class_name = "glusterfs-nfs"
+    access_modes       = ["ReadWriteMany"]
+    resources {
+      requests = {
+        storage = "5Gi"
+      }
+    }
+  }
+}
+
+resource "kubernetes_persistent_volume_claim" "media_store" {
+  metadata {
+    name      = "matrix-media-store"
+    namespace = var.namespace
+    annotations = {
+      "volume-name" = "matrix_media_store"
+    }
+  }
+  spec {
+    storage_class_name = "glusterfs-nfs"
+    access_modes       = ["ReadWriteMany"]
+    resources {
+      requests = {
+        storage = "20Gi"
+      }
+    }
+  }
+}
+
+resource "kubernetes_persistent_volume_claim" "mas_config" {
+  metadata {
+    name      = "matrix-config"
+    namespace = var.namespace
+    annotations = {
+      "volume-name" = "matrix_config"
+    }
+  }
+  spec {
+    storage_class_name = "glusterfs-nfs"
+    access_modes       = ["ReadWriteMany"]
+    resources {
+      requests = {
+        storage = "1Gi"
+      }
+    }
+  }
+}
+
+resource "kubernetes_persistent_volume_claim" "whatsapp_data" {
+  metadata {
+    name      = "matrix-whatsapp-data"
+    namespace = var.namespace
+    annotations = {
+      "volume-name" = "matrix_whatsapp_data"
+    }
+  }
+  spec {
+    storage_class_name = "glusterfs-nfs"
+    access_modes       = ["ReadWriteMany"]
+    resources {
+      requests = {
+        storage = "1Gi"
+      }
+    }
+  }
+}
+
+# =============================================================================
 # Synapse Deployment
 # =============================================================================
 
@@ -214,7 +294,7 @@ resource "kubernetes_deployment" "synapse" {
       }
 
       spec {
-        # GlusterFS NFS mounts (/storage/v/) are available on all nodes
+        # PVCs provisioned via glusterfs-nfs StorageClass (NFS-backed, available on all nodes)
 
         init_container {
           name    = "config-processor"
@@ -404,23 +484,25 @@ resource "kubernetes_deployment" "synapse" {
         }
         volume {
           name = "data"
-          host_path {
-            path = var.synapse_data_path
-            type = "Directory"
+          persistent_volume_claim {
+            claim_name = kubernetes_persistent_volume_claim.synapse_data.metadata[0].name
           }
         }
         volume {
           name = "media-store"
-          host_path {
-            path = var.media_store_path
-            type = "Directory"
+          persistent_volume_claim {
+            claim_name = kubernetes_persistent_volume_claim.media_store.metadata[0].name
           }
         }
       }
     }
   }
 
-  depends_on = [kubectl_manifest.external_secret]
+  depends_on = [
+    kubectl_manifest.external_secret,
+    kubernetes_persistent_volume_claim.synapse_data,
+    kubernetes_persistent_volume_claim.media_store,
+  ]
 }
 
 resource "kubernetes_service" "synapse" {
@@ -464,7 +546,7 @@ resource "kubernetes_deployment" "mas" {
       }
 
       spec {
-        # GlusterFS NFS mounts (/storage/v/) are available on all nodes
+        # PVCs provisioned via glusterfs-nfs StorageClass (NFS-backed, available on all nodes)
 
         container {
           name  = "mas"
@@ -518,16 +600,18 @@ resource "kubernetes_deployment" "mas" {
 
         volume {
           name = "config"
-          host_path {
-            path = var.mas_config_path
-            type = "Directory"
+          persistent_volume_claim {
+            claim_name = kubernetes_persistent_volume_claim.mas_config.metadata[0].name
           }
         }
       }
     }
   }
 
-  depends_on = [kubectl_manifest.external_secret]
+  depends_on = [
+    kubectl_manifest.external_secret,
+    kubernetes_persistent_volume_claim.mas_config,
+  ]
 }
 
 resource "kubernetes_service" "mas" {
@@ -574,7 +658,7 @@ resource "kubernetes_deployment" "whatsapp_bridge" {
       }
 
       spec {
-        # GlusterFS NFS mounts (/storage/v/) are available on all nodes
+        # PVCs provisioned via glusterfs-nfs StorageClass (NFS-backed, available on all nodes)
 
         container {
           name  = "whatsapp-bridge"
@@ -602,9 +686,8 @@ resource "kubernetes_deployment" "whatsapp_bridge" {
 
         volume {
           name = "data"
-          host_path {
-            path = var.whatsapp_data_path
-            type = "Directory"
+          persistent_volume_claim {
+            claim_name = kubernetes_persistent_volume_claim.whatsapp_data.metadata[0].name
           }
         }
       }

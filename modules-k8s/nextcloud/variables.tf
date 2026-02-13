@@ -36,23 +36,6 @@ variable "redis_tag" {
   default = "8-alpine"
 }
 
-variable "config_path" {
-  description = "Host path for Nextcloud config (GlusterFS mount)"
-  type        = string
-  default     = "/storage/v/glusterfs_nextcloud_config"
-}
-
-variable "custom_apps_path" {
-  description = "Host path for Nextcloud custom apps (GlusterFS mount)"
-  type        = string
-  default     = "/storage/v/glusterfs_nextcloud_custom_apps"
-}
-
-variable "data_path" {
-  description = "Host path for Nextcloud data (GlusterFS mount)"
-  type        = string
-  default     = "/storage/v/glusterfs_nextcloud_data"
-}
 
 variable "db_host" {
   description = "PostgreSQL host"

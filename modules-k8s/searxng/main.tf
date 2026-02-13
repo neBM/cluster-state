@@ -7,6 +7,29 @@ locals {
   }
 }
 
+# =============================================================================
+# Persistent Volume Claims (glusterfs-nfs)
+# =============================================================================
+
+resource "kubernetes_persistent_volume_claim" "config" {
+  metadata {
+    name      = "searxng-config"
+    namespace = var.namespace
+    annotations = {
+      "volume-name" = "searxng_config"
+    }
+  }
+  spec {
+    storage_class_name = "glusterfs-nfs"
+    access_modes       = ["ReadWriteMany"]
+    resources {
+      requests = {
+        storage = "1Gi"
+      }
+    }
+  }
+}
+
 resource "kubernetes_deployment" "searxng" {
   metadata {
     name      = local.app_name
@@ -92,9 +115,8 @@ resource "kubernetes_deployment" "searxng" {
 
         volume {
           name = "config"
-          host_path {
-            path = "/storage/v/glusterfs_searxng_config"
-            type = "Directory"
+          persistent_volume_claim {
+            claim_name = kubernetes_persistent_volume_claim.config.metadata[0].name
           }
         }
 

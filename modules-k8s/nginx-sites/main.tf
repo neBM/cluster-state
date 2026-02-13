@@ -90,6 +90,29 @@ locals {
   EOF
 }
 
+# =============================================================================
+# Persistent Volume Claims (glusterfs-nfs)
+# =============================================================================
+
+resource "kubernetes_persistent_volume_claim" "code" {
+  metadata {
+    name      = "nginx-sites-code"
+    namespace = var.namespace
+    annotations = {
+      "volume-name" = "nginx_sites_code"
+    }
+  }
+  spec {
+    storage_class_name = "glusterfs-nfs"
+    access_modes       = ["ReadWriteMany"]
+    resources {
+      requests = {
+        storage = "1Gi"
+      }
+    }
+  }
+}
+
 resource "kubernetes_config_map" "nginx_config" {
   metadata {
     name      = "${local.app_name}-config"
@@ -234,9 +257,8 @@ resource "kubernetes_deployment" "nginx_sites" {
 
         volume {
           name = "code"
-          host_path {
-            path = "/storage/v/glusterfs_nginx_sites_code"
-            type = "Directory"
+          persistent_volume_claim {
+            claim_name = kubernetes_persistent_volume_claim.code.metadata[0].name
           }
         }
 

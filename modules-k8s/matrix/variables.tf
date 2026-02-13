@@ -117,31 +117,6 @@ variable "nginx_tag" {
   default = "1.29.5-alpine"
 }
 
-# Storage paths (GlusterFS NFS mounts on Hestia)
-variable "synapse_data_path" {
-  description = "Path to Synapse data volume"
-  type        = string
-  default     = "/storage/v/glusterfs_matrix_synapse_data"
-}
-
-variable "media_store_path" {
-  description = "Path to Synapse media store volume"
-  type        = string
-  default     = "/storage/v/glusterfs_matrix_media_store"
-}
-
-variable "whatsapp_data_path" {
-  description = "Path to WhatsApp bridge data volume"
-  type        = string
-  default     = "/storage/v/glusterfs_matrix_whatsapp_data"
-}
-
-variable "mas_config_path" {
-  description = "Path to MAS config volume"
-  type        = string
-  default     = "/storage/v/glusterfs_matrix_config"
-}
-
 # Database configuration
 variable "db_host" {
   description = "PostgreSQL host"

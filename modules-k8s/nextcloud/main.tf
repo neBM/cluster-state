@@ -4,12 +4,12 @@
 # - nextcloud: Main app with redis sidecar (port 80)
 # - cron: Background jobs container (shares volumes with nextcloud)
 #
-# Storage:
-# - config: /storage/v/glusterfs_nextcloud_config
-# - custom_apps: /storage/v/glusterfs_nextcloud_custom_apps
-# - data: /storage/v/glusterfs_nextcloud_data
+# Storage (PVCs via glusterfs-nfs StorageClass):
+# - config: nextcloud_config -> /storage/v/glusterfs_nextcloud_config
+# - custom_apps: nextcloud_custom_apps -> /storage/v/glusterfs_nextcloud_custom_apps
+# - data: nextcloud_data -> /storage/v/glusterfs_nextcloud_data
 #
-# External PostgreSQL on martinibar.lan:5433
+# External PostgreSQL on 192.168.1.10:5433
 
 locals {
   nextcloud_labels = {
@@ -20,6 +20,67 @@ locals {
   # Elastic Agent log routing annotations
   elastic_log_annotations = {
     "elastic.co/dataset" = "kubernetes.container_logs.nextcloud"
+  }
+}
+
+# =============================================================================
+# Persistent Volume Claims (glusterfs-nfs)
+# =============================================================================
+
+resource "kubernetes_persistent_volume_claim" "config" {
+  metadata {
+    name      = "nextcloud-config"
+    namespace = var.namespace
+    annotations = {
+      "volume-name" = "nextcloud_config"
+    }
+  }
+  spec {
+    storage_class_name = "glusterfs-nfs"
+    access_modes       = ["ReadWriteMany"]
+    resources {
+      requests = {
+        storage = "1Gi"
+      }
+    }
+  }
+}
+
+resource "kubernetes_persistent_volume_claim" "custom_apps" {
+  metadata {
+    name      = "nextcloud-custom-apps"
+    namespace = var.namespace
+    annotations = {
+      "volume-name" = "nextcloud_custom_apps"
+    }
+  }
+  spec {
+    storage_class_name = "glusterfs-nfs"
+    access_modes       = ["ReadWriteMany"]
+    resources {
+      requests = {
+        storage = "5Gi"
+      }
+    }
+  }
+}
+
+resource "kubernetes_persistent_volume_claim" "data" {
+  metadata {
+    name      = "nextcloud-data"
+    namespace = var.namespace
+    annotations = {
+      "volume-name" = "nextcloud_data"
+    }
+  }
+  spec {
+    storage_class_name = "glusterfs-nfs"
+    access_modes       = ["ReadWriteMany"]
+    resources {
+      requests = {
+        storage = "50Gi"
+      }
+    }
   }
 }
 
@@ -37,7 +98,7 @@ resource "kubernetes_deployment" "nextcloud" {
   spec {
     replicas = 1
     strategy {
-      type = "Recreate" # Required for hostPath with single-writer volumes
+      type = "Recreate" # Required for RWX volumes with single-writer semantics
     }
 
     selector {
@@ -51,7 +112,7 @@ resource "kubernetes_deployment" "nextcloud" {
       }
 
       spec {
-        # GlusterFS NFS mounts (/storage/v/) are available on all nodes
+        # PVCs provisioned via glusterfs-nfs StorageClass (NFS-backed, available on all nodes)
 
         # Redis sidecar for caching and file locking
         container {
@@ -229,32 +290,34 @@ resource "kubernetes_deployment" "nextcloud" {
 
         volume {
           name = "config"
-          host_path {
-            path = var.config_path
-            type = "Directory"
+          persistent_volume_claim {
+            claim_name = kubernetes_persistent_volume_claim.config.metadata[0].name
           }
         }
 
         volume {
           name = "custom-apps"
-          host_path {
-            path = var.custom_apps_path
-            type = "Directory"
+          persistent_volume_claim {
+            claim_name = kubernetes_persistent_volume_claim.custom_apps.metadata[0].name
           }
         }
 
         volume {
           name = "data"
-          host_path {
-            path = var.data_path
-            type = "Directory"
+          persistent_volume_claim {
+            claim_name = kubernetes_persistent_volume_claim.data.metadata[0].name
           }
         }
       }
     }
   }
 
-  depends_on = [kubectl_manifest.external_secret]
+  depends_on = [
+    kubectl_manifest.external_secret,
+    kubernetes_persistent_volume_claim.config,
+    kubernetes_persistent_volume_claim.custom_apps,
+    kubernetes_persistent_volume_claim.data,
+  ]
 }
 
 resource "kubernetes_service" "nextcloud" {

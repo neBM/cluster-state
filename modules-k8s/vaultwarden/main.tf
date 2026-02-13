@@ -54,6 +54,29 @@ resource "kubectl_manifest" "external_secret" {
   })
 }
 
+# =============================================================================
+# Persistent Volume Claims (glusterfs-nfs)
+# =============================================================================
+
+resource "kubernetes_persistent_volume_claim" "data" {
+  metadata {
+    name      = "vaultwarden-data"
+    namespace = var.namespace
+    annotations = {
+      "volume-name" = "vaultwarden_data"
+    }
+  }
+  spec {
+    storage_class_name = "glusterfs-nfs"
+    access_modes       = ["ReadWriteMany"]
+    resources {
+      requests = {
+        storage = "5Gi"
+      }
+    }
+  }
+}
+
 resource "kubernetes_deployment" "vaultwarden" {
   metadata {
     name      = local.app_name
@@ -194,9 +217,8 @@ resource "kubernetes_deployment" "vaultwarden" {
 
         volume {
           name = "data"
-          host_path {
-            path = "/storage/v/glusterfs_vaultwarden_data"
-            type = "Directory"
+          persistent_volume_claim {
+            claim_name = kubernetes_persistent_volume_claim.data.metadata[0].name
           }
         }
 
@@ -218,7 +240,10 @@ resource "kubernetes_deployment" "vaultwarden" {
     }
   }
 
-  depends_on = [kubectl_manifest.external_secret]
+  depends_on = [
+    kubectl_manifest.external_secret,
+    kubernetes_persistent_volume_claim.data,
+  ]
 }
 
 resource "kubernetes_service" "vaultwarden" {

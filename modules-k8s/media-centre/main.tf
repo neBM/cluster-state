@@ -39,6 +39,48 @@ locals {
 }
 
 # =============================================================================
+# Persistent Volume Claims (glusterfs-nfs)
+# =============================================================================
+
+resource "kubernetes_persistent_volume_claim" "plex_config" {
+  metadata {
+    name      = "plex-config"
+    namespace = var.namespace
+    annotations = {
+      "volume-name" = "plex_config"
+    }
+  }
+  spec {
+    storage_class_name = "glusterfs-nfs"
+    access_modes       = ["ReadWriteMany"]
+    resources {
+      requests = {
+        storage = "10Gi"
+      }
+    }
+  }
+}
+
+resource "kubernetes_persistent_volume_claim" "jellyfin_config" {
+  metadata {
+    name      = "jellyfin-config"
+    namespace = var.namespace
+    annotations = {
+      "volume-name" = "jellyfin_config"
+    }
+  }
+  spec {
+    storage_class_name = "glusterfs-nfs"
+    access_modes       = ["ReadWriteMany"]
+    resources {
+      requests = {
+        storage = "5Gi"
+      }
+    }
+  }
+}
+
+# =============================================================================
 # Plex Media Server
 # =============================================================================
 
@@ -323,12 +365,11 @@ resource "kubernetes_stateful_set" "plex" {
           }
         }
 
-        # Volumes - removed litestream-config volume
+        # Volumes
         volume {
           name = "plex-config"
-          host_path {
-            path = var.plex_config_path
-            type = "Directory"
+          persistent_volume_claim {
+            claim_name = kubernetes_persistent_volume_claim.plex_config.metadata[0].name
           }
         }
 
@@ -373,7 +414,10 @@ resource "kubernetes_stateful_set" "plex" {
     }
   }
 
-  depends_on = [kubectl_manifest.external_secret]
+  depends_on = [
+    kubectl_manifest.external_secret,
+    kubernetes_persistent_volume_claim.plex_config,
+  ]
 }
 
 resource "kubernetes_service" "plex" {
@@ -752,9 +796,8 @@ resource "kubernetes_deployment" "jellyfin" {
 
         volume {
           name = "jellyfin-config"
-          host_path {
-            path = var.jellyfin_config_path
-            type = "Directory"
+          persistent_volume_claim {
+            claim_name = kubernetes_persistent_volume_claim.jellyfin_config.metadata[0].name
           }
         }
 

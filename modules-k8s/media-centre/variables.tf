@@ -43,18 +43,6 @@ variable "tautulli_tag" {
   default = "v2.16.0"
 }
 
-variable "plex_config_path" {
-  description = "Host path for Plex config"
-  type        = string
-  default     = "/storage/v/glusterfs_plex_config"
-}
-
-variable "jellyfin_config_path" {
-  description = "Host path for Jellyfin config"
-  type        = string
-  default     = "/storage/v/glusterfs_jellyfin_config"
-}
-
 variable "tautulli_config_path" {
   description = "Host path for Tautulli config"
   type        = string
