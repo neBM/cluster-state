@@ -20,7 +20,7 @@ variable "image_tag" {
   description = "Open WebUI Docker image tag"
   type        = string
   # renovate: datasource=docker depName=ghcr.io/open-webui/open-webui
-  default = "0.7.2"
+  default = "v0.8.0"
 }
 
 variable "valkey_image" {

@@ -8,5 +8,5 @@ variable "image_tag" {
   description = "Ollama image tag"
   type        = string
   # renovate: datasource=docker depName=ollama/ollama
-  default = "0.15.4"
+  default = "0.16.1"
 }

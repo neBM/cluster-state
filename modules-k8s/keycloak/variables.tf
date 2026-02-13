@@ -8,7 +8,7 @@ variable "image_tag" {
   description = "Keycloak container image tag"
   type        = string
   # renovate: datasource=docker depName=quay.io/keycloak/keycloak
-  default = "26.5.2"
+  default = "26.5.3"
 }
 
 variable "hostname" {
