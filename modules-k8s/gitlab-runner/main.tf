@@ -33,7 +33,8 @@ shutdown_timeout = 0
     "GRADLE_USER_HOME=/ci-cache/gradle",
     "UV_CACHE_DIR=/ci-cache/uv",
     "PIP_CACHE_DIR=/ci-cache/pip",
-    "npm_config_cache=/ci-cache/npm"
+    "npm_config_cache=/ci-cache/npm",
+    "STORAGE_DRIVER=overlay"
   ]
   
   [runners.kubernetes]
@@ -75,6 +76,15 @@ shutdown_timeout = 0
     name = "ci-cache"
     mount_path = "/ci-cache"
     host_path = "/var/lib/ci-cache"
+    read_only = false
+
+  # Persistent container storage for buildah/podman (base images, layers).
+  # Caches pulled images and intermediate layers locally on each node,
+  # avoiding re-pulls from registry on every job.
+  [[runners.kubernetes.volumes.host_path]]
+    name = "containers-storage"
+    mount_path = "/var/lib/containers"
+    host_path = "/var/lib/ci-containers"
     read_only = false
 
   # In-cluster registry bypass: mount registries.conf marking the registry as insecure
