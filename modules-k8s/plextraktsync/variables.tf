@@ -14,7 +14,7 @@ variable "image_tag" {
   description = "PlexTraktSync Docker image tag"
   type        = string
   # renovate: datasource=docker depName=ghcr.io/taxel/plextraktsync
-  default = "0.34.21"
+  default = "0.35.0"
 }
 
 variable "config_path" {
