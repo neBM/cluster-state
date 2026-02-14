@@ -577,6 +577,19 @@ resource "kubernetes_ingress_v1" "athenaeum" {
             }
           }
         }
+
+        path {
+          path      = "/socket.io"
+          path_type = "Prefix"
+          backend {
+            service {
+              name = kubernetes_service.backend.metadata[0].name
+              port {
+                number = 8000
+              }
+            }
+          }
+        }
       }
     }
   }
