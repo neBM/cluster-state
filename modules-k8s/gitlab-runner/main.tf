@@ -35,6 +35,7 @@ shutdown_timeout = 0
     "PIP_CACHE_DIR=/ci-cache/pip",
     "npm_config_cache=/ci-cache/npm",
     "STORAGE_DRIVER=overlay",
+    "DOCKER_HOST=tcp://kubedock:2475",
     "TESTCONTAINERS_RYUK_DISABLED=true",
     "TESTCONTAINERS_CHECKS_DISABLE=true"
   ]
