@@ -68,6 +68,14 @@ shutdown_timeout = 0
     pull_policy = ["if-not-present"]
     allowed_pull_policies = ["always", "if-not-present", "never"]
     
+  # Kubedock: minimal Docker API that orchestrates containers as K8s pods.
+  # Injected into every job pod so testcontainers "just works" without any
+  # per-project CI config. DOCKER_HOST env var above points to this service.
+  [[runners.kubernetes.services]]
+    name = "joyrex2001/kubedock:0.17.0"
+    alias = "kubedock"
+    command = ["server", "--port-forward"]
+
   # Node selector for arch-specific builds (must be after all kubernetes settings)
   [runners.kubernetes.node_selector]
     "kubernetes.io/arch" = "ARCH_PLACEHOLDER"
