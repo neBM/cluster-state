@@ -34,7 +34,9 @@ shutdown_timeout = 0
     "UV_CACHE_DIR=/ci-cache/uv",
     "PIP_CACHE_DIR=/ci-cache/pip",
     "npm_config_cache=/ci-cache/npm",
-    "STORAGE_DRIVER=overlay"
+    "STORAGE_DRIVER=overlay",
+    "TESTCONTAINERS_RYUK_DISABLED=true",
+    "TESTCONTAINERS_CHECKS_DISABLE=true"
   ]
   
   [runners.kubernetes]
@@ -157,11 +159,18 @@ resource "kubernetes_role" "runner" {
     verbs      = ["create", "delete", "get", "update"]
   }
 
-  # Services - for CI services
+  # Services - for CI services and Kubedock testcontainer networking
   rule {
     api_groups = [""]
     resources  = ["services"]
-    verbs      = ["create", "get"]
+    verbs      = ["create", "delete", "get", "list"]
+  }
+
+  # ConfigMaps - for Kubedock (single-file volume mounts in testcontainers)
+  rule {
+    api_groups = [""]
+    resources  = ["configmaps"]
+    verbs      = ["create", "delete", "get", "list"]
   }
 
   # ServiceAccounts - for job pods
