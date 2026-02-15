@@ -148,10 +148,10 @@ resource "kubernetes_role" "runner" {
     verbs      = ["create", "delete", "get", "list", "watch"]
   }
 
-  # Pod exec/attach - for running commands in job containers
+  # Pod exec/attach/portforward - for running commands in job containers and Kubedock port-forwarding
   rule {
     api_groups = [""]
-    resources  = ["pods/exec", "pods/attach"]
+    resources  = ["pods/exec", "pods/attach", "pods/portforward"]
     verbs      = ["create", "delete", "get", "patch"]
   }
 
