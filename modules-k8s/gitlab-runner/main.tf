@@ -42,6 +42,7 @@ shutdown_timeout = 0
   
   [runners.kubernetes]
     namespace = "${var.job_namespace}"
+    service_account = "gitlab-runner"
     image = "alpine:latest"
     privileged = ${var.privileged_jobs}
     
@@ -72,7 +73,7 @@ shutdown_timeout = 0
   # Injected into every job pod so testcontainers "just works" without any
   # per-project CI config. DOCKER_HOST env var above points to this service.
   [[runners.kubernetes.services]]
-    name = "joyrex2001/kubedock:0.17.0"
+    name = "joyrex2001/kubedock:0.20.3"
     alias = "kubedock"
     command = ["server", "--port-forward"]
 
