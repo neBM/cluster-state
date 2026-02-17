@@ -75,7 +75,7 @@ variable "whatsapp_tag" {
   description = "WhatsApp bridge Docker image tag"
   type        = string
   # renovate: datasource=docker depName=dock.mau.dev/mautrix/whatsapp
-  default = "v0.2601.0"
+  default = "v0.2602.0"
 }
 
 variable "element_image" {
@@ -101,7 +101,7 @@ variable "cinny_tag" {
   description = "Cinny Docker image tag"
   type        = string
   # renovate: datasource=docker depName=ghcr.io/cinnyapp/cinny
-  default = "v4.10.2"
+  default = "v4.10.3"
 }
 
 variable "nginx_image" {
