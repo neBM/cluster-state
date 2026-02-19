@@ -7,27 +7,27 @@ locals {
   }
 }
 
-# PVC for MinIO data - local storage on hestia
+# PVC for MinIO data - GlusterFS via NFS provisioner
 resource "kubernetes_persistent_volume_claim" "minio_data" {
   metadata {
     name      = "${local.app_name}-data"
     namespace = var.namespace
     labels    = local.labels
-  }
-
-  spec {
-    access_modes       = ["ReadWriteOnce"]
-    storage_class_name = "local-path-retain"
-
-    resources {
-      requests = {
-        storage = "50Gi"
-      }
+    annotations = {
+      "volume-name" = "minio_data"
     }
   }
 
-  # Wait for first consumer (deployment) to bind
-  wait_until_bound = false
+  spec {
+    access_modes       = ["ReadWriteMany"]
+    storage_class_name = "glusterfs-nfs"
+
+    resources {
+      requests = {
+        storage = "200Gi"
+      }
+    }
+  }
 }
 
 # Deployment for MinIO
@@ -57,11 +57,6 @@ resource "kubernetes_deployment" "minio" {
       }
 
       spec {
-        # Pin to hestia for stable local storage
-        node_selector = {
-          "kubernetes.io/hostname" = "hestia"
-        }
-
         # Main MinIO container
         container {
           name  = local.app_name
@@ -134,7 +129,7 @@ resource "kubernetes_deployment" "minio" {
           }
         }
 
-        # PVC-backed volume (local storage on hestia)
+        # PVC-backed volume (GlusterFS via NFS)
         volume {
           name = "data"
           persistent_volume_claim {

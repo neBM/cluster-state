@@ -515,7 +515,7 @@ glab api "projects/<id>/pipelines?ref=main&status=success&per_page=1"
 | gitlab-runner | Deployment | CI runners (amd64 + arm64) |
 | open-webui | Deployment | LLM chat UI, with valkey + postgres sidecars |
 | plextraktsync | CronJob | Plex/Trakt sync (every 2 hours) |
-| plex | StatefulSet | Media server, NVIDIA GPU, litestream 0.5 backup |
+| plex | StatefulSet | Media server, NVIDIA GPU, sqlite3 .backup CronJob to MinIO |
 | jellyfin | Deployment | Alternative media server |
 | tautulli | Deployment | Plex monitoring/statistics |
 | elk | StatefulSet+Deployment | Elasticsearch 9.x multi-node (2 data + 1 tiebreaker) + Kibana 9.x, data on local NVMe |
