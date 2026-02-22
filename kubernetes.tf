@@ -183,6 +183,16 @@ module "k8s_athenaeum" {
   namespace = "default"
 }
 
+# Lauren's Dissertation - TikTok Shop UK vs Amazon.co.uk profitability study
+# Single FastAPI/uvicorn service with Playwright scrapers
+# SQLite database and archive on GlusterFS PVCs
+# Data seeded from local data/ on first apply
+module "k8s_laurens_dissertation" {
+  source = "./modules-k8s/laurens-dissertation"
+
+  namespace = "default"
+}
+
 # Nextcloud - File storage
 # Uses external PostgreSQL on martinibar.lan, GlusterFS for data
 module "k8s_nextcloud" {
