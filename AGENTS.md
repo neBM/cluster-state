@@ -233,6 +233,7 @@ volume {
 - **SQLite on Network Storage**: Use ephemeral disk with litestream for SQLite databases. Network filesystems cause locking issues.
 - **SQLite WAL Mode**: Litestream requires WAL mode. Empty WAL files need a write to initialize the header.
 - **Terraform lifecycle ignore_changes**: NEVER use `ignore_changes` in lifecycle blocks. It hides drift and creates confusing configs. Fix the root cause instead (e.g., remove unused fields, use `terraform state rm` to reset state).
+- **Traefik `allowEncodedSlash`**: Both Traefik instances have `encodedCharacters.allowEncodedSlash: true` set on the `websecure` entrypoint. This is required for GitLab's API (project slugs use `%2F` as a namespace separator). The setting is safe here because all routing is host-based — no path-based ACLs exist that `%2F` could bypass. If you ever add a Traefik rule using `Path`/`PathPrefix` to enforce access control, re-evaluate this. The K8s Traefik flag is on the Deployment directly (not in Helm values) and will be lost on a Helm upgrade.
 
 ## Debugging Tips
 
@@ -535,6 +536,7 @@ glab api "projects/<id>/pipelines?ref=main&status=success&per_page=1"
 - local-path-retain StorageClass for ES data nodes (50GB each on local NVMe)
 
 ## Recent Changes
+- 011-traefik-encoded-slash: Enabled `allowEncodedSlash` on both Traefik instances so GitLab API slugs (`namespace%2Fproject`) work correctly with `glab`
 - 010-observability-stack: Added Prometheus, Grafana, and Meshery for cluster observability
 - 009-es-multi-node-cluster: Migrated Elasticsearch from single-node on GlusterFS to 3-node cluster (2 data + 1 tiebreaker) on local NVMe storage
 - 008-gitlab-multi-container: Migrated GitLab from Omnibus to CNG multi-container architecture (webservice, workhorse, sidekiq, gitaly, redis, registry)
