@@ -804,7 +804,6 @@ resource "kubernetes_deployment" "jellyfin" {
         volume {
           name = "cache"
           empty_dir {
-            medium     = "Memory"
             size_limit = "4Gi"
           }
         }
