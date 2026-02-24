@@ -314,6 +314,11 @@ resource "kubernetes_deployment" "backend" {
             value = var.ollama_model
           }
 
+          env {
+            name  = "CORS_ORIGINS"
+            value = "https://${var.domain}"
+          }
+
           resources {
             requests = {
               cpu    = "200m"
