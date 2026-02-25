@@ -401,7 +401,7 @@ module "k8s_meshery" {
 module "k8s_iris" {
   source = "./modules-k8s/iris"
 
-  media_nfs_server = "martinibar.lan"
-  media_nfs_path   = "/storage/media" # update to match the actual NFS export path
+  media_nfs_server = "192.168.1.10"
+  media_nfs_path   = "/volume1/docker"
 }
 
