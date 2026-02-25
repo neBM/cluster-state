@@ -319,6 +319,25 @@ resource "kubernetes_deployment" "web" {
             container_port = 8080
           }
 
+          # OIDC configuration for the SPA — injected into config.js at
+          # container startup by docker-entrypoint.sh via envsubst.
+          env {
+            name  = "IRIS_OIDC_AUTHORITY"
+            value = var.keycloak_issuer_url
+          }
+          env {
+            name  = "IRIS_OIDC_CLIENT_ID"
+            value = var.keycloak_audience
+          }
+          env {
+            name  = "IRIS_OIDC_REDIRECT_URI"
+            value = "https://${var.hostname}/callback"
+          }
+          env {
+            name  = "IRIS_OIDC_SILENT_REDIRECT_URI"
+            value = "https://${var.hostname}/silent-renew.html"
+          }
+
           liveness_probe {
             http_get {
               path = "/"
