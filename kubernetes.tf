@@ -397,3 +397,11 @@ module "k8s_meshery" {
   replicas         = 0 # Disabled — OOMKills at 1Gi, revisit later
 }
 
+# Iris - Self-hosted media server (Movies & TV)
+module "k8s_iris" {
+  source = "./modules-k8s/iris"
+
+  media_nfs_server = "martinibar.lan"
+  media_nfs_path   = "/storage/media" # update to match the actual NFS export path
+}
+
