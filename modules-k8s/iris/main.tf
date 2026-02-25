@@ -130,6 +130,10 @@ resource "kubernetes_deployment" "api" {
       }
 
       spec {
+        image_pull_secrets {
+          name = "gitlab-registry"
+        }
+
         container {
           name  = "api"
           image = var.api_image
@@ -302,6 +306,10 @@ resource "kubernetes_deployment" "web" {
       }
 
       spec {
+        image_pull_secrets {
+          name = "gitlab-registry"
+        }
+
         container {
           name  = "web"
           image = var.web_image
