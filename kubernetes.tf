@@ -237,14 +237,6 @@ module "k8s_gitlab" {
 # CronJobs (Phase 11)
 # =============================================================================
 
-# Renovate - Automated dependency updates
-# Runs hourly, autodiscovers all GitLab repositories
-module "k8s_renovate" {
-  source = "./modules-k8s/renovate"
-
-  namespace = "default"
-}
-
 # Restic Backup - Daily backup of GlusterFS volumes
 # Runs daily at 3am, backs up to local restic repository
 # Must run on Hestia where backup destination is mounted
