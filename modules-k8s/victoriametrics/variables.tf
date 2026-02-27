@@ -19,7 +19,7 @@ variable "image_tag" {
 variable "cpu_request" {
   type        = string
   description = "CPU request"
-  default     = "100m"
+  default     = "200m"
 }
 
 variable "cpu_limit" {
@@ -31,7 +31,7 @@ variable "cpu_limit" {
 variable "memory_request" {
   type        = string
   description = "Memory request"
-  default     = "256Mi"
+  default     = "900Mi"
 }
 
 variable "memory_limit" {
@@ -94,3 +94,4 @@ variable "backup_interval" {
   description = "Backup interval for vmbackup (e.g., 1h, 30m)"
   default     = "1h"
 }
+

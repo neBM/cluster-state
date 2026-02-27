@@ -322,11 +322,11 @@ resource "kubernetes_deployment" "backend" {
           resources {
             requests = {
               cpu    = "200m"
-              memory = "512Mi"
+              memory = "1125Mi"
             }
             limits = {
               cpu    = "1000m"
-              memory = "1Gi"
+              memory = "1500Mi"
             }
           }
 

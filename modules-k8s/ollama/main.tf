@@ -65,7 +65,7 @@ resource "kubernetes_deployment" "ollama" {
           resources {
             requests = {
               cpu              = "100m"
-              memory           = "256Mi"
+              memory           = "2000Mi"
               "nvidia.com/gpu" = "1"
             }
             limits = {

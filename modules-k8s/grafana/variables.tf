@@ -61,7 +61,7 @@ variable "cpu_limit" {
 variable "memory_request" {
   type        = string
   description = "Memory request"
-  default     = "256Mi"
+  default     = "325Mi"
 }
 
 variable "memory_limit" {

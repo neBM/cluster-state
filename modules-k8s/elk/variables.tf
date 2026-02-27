@@ -63,13 +63,13 @@ variable "es_java_opts" {
 variable "kibana_memory_request" {
   description = "Memory request for Kibana"
   type        = string
-  default     = "512Mi"
+  default     = "1300Mi"
 }
 
 variable "kibana_memory_limit" {
   description = "Memory limit for Kibana"
   type        = string
-  default     = "1Gi"
+  default     = "1500Mi"
 }
 
 variable "kibana_cpu_request" {
@@ -109,13 +109,13 @@ variable "es_tiebreaker_node" {
 variable "es_data_memory_request" {
   description = "Memory request for ES data nodes"
   type        = string
-  default     = "4Gi"
+  default     = "4300Mi"
 }
 
 variable "es_data_memory_limit" {
   description = "Memory limit for ES data nodes"
   type        = string
-  default     = "4Gi"
+  default     = "5Gi"
 }
 
 variable "es_data_cpu_request" {
@@ -139,13 +139,13 @@ variable "es_data_java_opts" {
 variable "es_tiebreaker_memory_request" {
   description = "Memory request for ES tiebreaker node"
   type        = string
-  default     = "512Mi"
+  default     = "900Mi"
 }
 
 variable "es_tiebreaker_memory_limit" {
   description = "Memory limit for ES tiebreaker node"
   type        = string
-  default     = "768Mi"
+  default     = "1Gi"
 }
 
 variable "es_tiebreaker_cpu_request" {

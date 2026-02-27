@@ -215,7 +215,7 @@ resource "kubernetes_stateful_set" "overseerr" {
           resources {
             requests = {
               cpu    = "100m"
-              memory = "256Mi"
+              memory = "350Mi"
             }
             limits = {
               cpu    = "500m"

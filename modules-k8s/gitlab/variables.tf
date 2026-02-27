@@ -133,7 +133,7 @@ variable "ssh_port" {
 variable "webservice_memory_request" {
   description = "Webservice memory request"
   type        = string
-  default     = "1.5Gi"
+  default     = "2100Mi"
 }
 
 variable "webservice_memory_limit" {
@@ -171,7 +171,7 @@ variable "workhorse_cpu_request" {
 variable "sidekiq_memory_request" {
   description = "Sidekiq memory request"
   type        = string
-  default     = "1536Mi"
+  default     = "1600Mi"
 }
 
 variable "sidekiq_memory_limit" {
@@ -190,7 +190,7 @@ variable "sidekiq_cpu_request" {
 variable "gitaly_memory_request" {
   description = "Gitaly memory request"
   type        = string
-  default     = "512Mi"
+  default     = "300Mi"
 }
 
 variable "gitaly_memory_limit" {
