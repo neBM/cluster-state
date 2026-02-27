@@ -348,6 +348,7 @@ module "k8s_victoriametrics" {
   minio_endpoint    = "http://minio-api.default.svc.cluster.local:9000"
   minio_bucket      = "victoriametrics"
   minio_secret_name = "victoriametrics-minio"
+
 }
 
 # Node Exporter - Host metrics collection
