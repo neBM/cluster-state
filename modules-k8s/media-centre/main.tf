@@ -81,6 +81,96 @@ resource "kubernetes_persistent_volume_claim" "jellyfin_config" {
 }
 
 # =============================================================================
+# Synology NAS NFS PersistentVolumes (soft mount)
+#
+# Inline nfs{} volumes in pod specs use kernel-default 'hard' mounts.
+# A hard mount blocks kernel NFS threads indefinitely when the NAS is
+# unreachable, which starves the node network stack and causes crashes.
+#
+# PVs with mount_options = ["soft"] cause the kernel to return EIO to the
+# application after retrans retransmissions instead of hanging forever.
+# The app (plex/jellyfin) will fail to read the file — the node stays up.
+# =============================================================================
+
+resource "kubernetes_persistent_volume" "synology_docker" {
+  metadata {
+    name = "media-synology-docker"
+  }
+  spec {
+    capacity = {
+      storage = "10Ti"
+    }
+    access_modes                     = ["ReadWriteMany"]
+    persistent_volume_reclaim_policy = "Retain"
+    # "synology-nfs-static" is a static-only class (no provisioner).
+    # Must match the PVC storage_class_name for Kubernetes to bind them.
+    storage_class_name = "synology-nfs-static"
+    mount_options      = ["soft"]
+    persistent_volume_source {
+      nfs {
+        server = "192.168.1.10"
+        path   = "/volume1/docker"
+      }
+    }
+  }
+}
+
+resource "kubernetes_persistent_volume_claim" "synology_docker" {
+  metadata {
+    name      = "media-synology-docker"
+    namespace = var.namespace
+  }
+  spec {
+    access_modes       = ["ReadWriteMany"]
+    storage_class_name = "synology-nfs-static"
+    volume_name        = kubernetes_persistent_volume.synology_docker.metadata[0].name
+    resources {
+      requests = {
+        storage = "10Ti"
+      }
+    }
+  }
+}
+
+resource "kubernetes_persistent_volume" "synology_share" {
+  metadata {
+    name = "media-synology-share"
+  }
+  spec {
+    capacity = {
+      storage = "10Ti"
+    }
+    access_modes                     = ["ReadWriteMany"]
+    persistent_volume_reclaim_policy = "Retain"
+    storage_class_name               = "synology-nfs-static"
+    mount_options                    = ["soft"]
+    persistent_volume_source {
+      nfs {
+        server = "192.168.1.10"
+        path   = "/volume1/Share"
+      }
+    }
+  }
+}
+
+resource "kubernetes_persistent_volume_claim" "synology_share" {
+  metadata {
+    name      = "media-synology-share"
+    namespace = var.namespace
+  }
+  spec {
+    access_modes       = ["ReadWriteMany"]
+    storage_class_name = "synology-nfs-static"
+    volume_name        = kubernetes_persistent_volume.synology_share.metadata[0].name
+    resources {
+      requests = {
+        storage = "10Ti"
+      }
+    }
+  }
+}
+
+# =============================================================================
 # Plex Media Server
 # =============================================================================
 
@@ -345,7 +435,7 @@ resource "kubernetes_stateful_set" "plex" {
           resources {
             requests = {
               cpu    = "100m"
-              memory = "1Gi"
+              memory = "700Mi"
             }
             limits = {
               cpu              = "4"
@@ -378,20 +468,18 @@ resource "kubernetes_stateful_set" "plex" {
           empty_dir {}
         }
 
-        # NFS mounts to Synology NAS
+        # Synology NAS volumes — via PVs with soft mount option
         volume {
           name = "media-docker"
-          nfs {
-            server = "192.168.1.10"
-            path   = "/volume1/docker"
+          persistent_volume_claim {
+            claim_name = kubernetes_persistent_volume_claim.synology_docker.metadata[0].name
           }
         }
 
         volume {
           name = "media-share"
-          nfs {
-            server = "192.168.1.10"
-            path   = "/volume1/Share"
+          persistent_volume_claim {
+            claim_name = kubernetes_persistent_volume_claim.synology_share.metadata[0].name
           }
         }
       }
@@ -764,7 +852,7 @@ resource "kubernetes_deployment" "jellyfin" {
           resources {
             requests = {
               cpu    = "50m"
-              memory = "512Mi"
+              memory = "700Mi"
             }
             limits = {
               memory = "2Gi"
@@ -810,9 +898,8 @@ resource "kubernetes_deployment" "jellyfin" {
 
         volume {
           name = "media"
-          nfs {
-            server = "192.168.1.10"
-            path   = "/volume1/docker"
+          persistent_volume_claim {
+            claim_name = kubernetes_persistent_volume_claim.synology_docker.metadata[0].name
           }
         }
 

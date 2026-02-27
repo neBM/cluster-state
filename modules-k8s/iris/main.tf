@@ -47,6 +47,54 @@ resource "kubernetes_persistent_volume_claim" "image_cache" {
 }
 
 # =============================================================================
+# Synology NAS NFS PersistentVolume for media library (soft, read-only)
+#
+# Inline nfs{} volumes use kernel-default 'hard' mounts. If the NAS becomes
+# unreachable, hard-mounted NFS kernel threads block indefinitely, starving
+# the node's network stack. 'soft' returns EIO to the application instead.
+# =============================================================================
+
+resource "kubernetes_persistent_volume" "synology_media" {
+  metadata {
+    name = "iris-synology-media"
+  }
+  spec {
+    capacity = {
+      storage = "10Ti"
+    }
+    access_modes                     = ["ReadOnlyMany"]
+    persistent_volume_reclaim_policy = "Retain"
+    storage_class_name               = "synology-nfs-static"
+    mount_options                    = ["soft", "ro"]
+    persistent_volume_source {
+      nfs {
+        server    = var.media_nfs_server
+        path      = var.media_nfs_path
+        read_only = true
+      }
+    }
+  }
+}
+
+resource "kubernetes_persistent_volume_claim" "synology_media" {
+  metadata {
+    name      = "iris-synology-media"
+    namespace = var.namespace
+    labels    = local.labels
+  }
+  spec {
+    access_modes       = ["ReadOnlyMany"]
+    storage_class_name = "synology-nfs-static"
+    volume_name        = kubernetes_persistent_volume.synology_media.metadata[0].name
+    resources {
+      requests = {
+        storage = "10Ti"
+      }
+    }
+  }
+}
+
+# =============================================================================
 # Valkey  (in-cluster Redis-compatible cache, no auth)
 # =============================================================================
 
@@ -248,13 +296,12 @@ resource "kubernetes_deployment" "api" {
           empty_dir {}
         }
 
-        # Media library mounted read-only from NFS
+        # Media library — via PV with soft mount option (read-only)
         volume {
           name = "media"
-          nfs {
-            server    = var.media_nfs_server
-            path      = var.media_nfs_path
-            read_only = true
+          persistent_volume_claim {
+            claim_name = kubernetes_persistent_volume_claim.synology_media.metadata[0].name
+            read_only  = true
           }
         }
       }
