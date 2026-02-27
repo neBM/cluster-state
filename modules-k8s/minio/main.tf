@@ -100,11 +100,11 @@ resource "kubernetes_deployment" "minio" {
           resources {
             requests = {
               cpu    = "400m" # goldilocks: 379m
-              memory = "1Gi"
+              memory = "325Mi"
             }
             limits = {
               cpu    = "4000m"
-              memory = "4Gi"
+              memory = "1Gi"
             }
           }
 
@@ -146,14 +146,10 @@ resource "kubernetes_deployment" "minio" {
 # Service for S3 API - NodePort so Nomad services can reach it
 resource "kubernetes_service" "minio_api" {
   metadata {
-    name      = "${local.app_name}-api"
-    namespace = var.namespace
-    labels    = local.labels
-    annotations = {
-      "prometheus.io/scrape" = "true"
-      "prometheus.io/port"   = "9000"
-      "prometheus.io/path"   = "/minio/v2/metrics/cluster"
-    }
+    name        = "${local.app_name}-api"
+    namespace   = var.namespace
+    labels      = local.labels
+    annotations = {}
   }
 
   spec {

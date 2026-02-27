@@ -45,6 +45,11 @@ resource "kubernetes_deployment" "keycloak" {
             name           = "http"
           }
 
+          port {
+            container_port = 9000
+            name           = "management"
+          }
+
           # Database configuration
           env {
             name  = "KC_DB"
@@ -114,6 +119,12 @@ resource "kubernetes_deployment" "keycloak" {
             value = "true"
           }
 
+          # Metrics endpoint (on management port 9000)
+          env {
+            name  = "KC_METRICS_ENABLED"
+            value = "true"
+          }
+
           # Java heap settings
           env {
             name  = "JAVA_OPTS_KC_HEAP"
@@ -167,7 +178,7 @@ resource "kubernetes_service" "keycloak" {
     labels    = local.labels
     annotations = {
       "prometheus.io/scrape" = "true"
-      "prometheus.io/port"   = "8080"
+      "prometheus.io/port"   = "9000"
       "prometheus.io/path"   = "/metrics"
     }
   }
@@ -182,6 +193,13 @@ resource "kubernetes_service" "keycloak" {
       target_port = 8080
       protocol    = "TCP"
       name        = "http"
+    }
+
+    port {
+      port        = 9000
+      target_port = 9000
+      protocol    = "TCP"
+      name        = "management"
     }
 
     type = "ClusterIP"

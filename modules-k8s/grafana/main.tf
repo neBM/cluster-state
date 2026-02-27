@@ -24,6 +24,7 @@ resource "kubernetes_config_map" "datasources" {
         {
           name      = "Prometheus"
           type      = "prometheus"
+          uid       = "prometheus"
           access    = "proxy"
           url       = var.prometheus_url
           isDefault = true
@@ -57,6 +58,626 @@ resource "kubernetes_config_map" "dashboards" {
           options = {
             path = "/var/lib/grafana/dashboards"
           }
+        }
+      ]
+    })
+  }
+}
+
+# ConfigMap for alert rule provisioning
+resource "kubernetes_config_map" "alerting" {
+  metadata {
+    name      = "${local.app_name}-alerting"
+    namespace = local.namespace
+    labels    = local.labels
+  }
+
+  data = {
+    "infrastructure-alerts.yaml" = yamlencode({
+      apiVersion = 1
+      groups = [
+        {
+          orgId    = 1
+          name     = "node-health"
+          folder   = "Infrastructure Alerts"
+          interval = "1m"
+          rules = [
+            {
+              # Per-node query so $labels.instance is populated.
+              # noDataState=OK: empty result means all nodes are up (not an error).
+              # Truly-gone nodes (stale series) are caught by Prometheus Target Down.
+              uid          = "efbh005jfadxce"
+              title        = "Node Down"
+              condition    = "C"
+              for          = "2m"
+              noDataState  = "OK"
+              execErrState = "Alerting"
+              annotations = {
+                summary     = "Node {{ $labels.instance }} is down"
+                description = "node-exporter on {{ $labels.instance }} is reporting up=0."
+              }
+              labels = {
+                severity = "critical"
+              }
+              data = [
+                {
+                  refId         = "A"
+                  datasourceUid = "prometheus"
+                  relativeTimeRange = {
+                    from = 600
+                    to   = 0
+                  }
+                  model = {
+                    datasource = {
+                      type = "prometheus"
+                      uid  = "prometheus"
+                    }
+                    expr          = "up{job=\"kubernetes-service-endpoints\",app_kubernetes_io_name=\"node-exporter\"} == 0"
+                    instant       = true
+                    intervalMs    = 1000
+                    maxDataPoints = 43200
+                    refId         = "A"
+                  }
+                },
+                {
+                  refId         = "B"
+                  datasourceUid = "__expr__"
+                  relativeTimeRange = {
+                    from = 0
+                    to   = 0
+                  }
+                  model = {
+                    datasource = {
+                      type = "__expr__"
+                      uid  = "__expr__"
+                    }
+                    expression = "A"
+                    reducer    = "last"
+                    refId      = "B"
+                    type       = "reduce"
+                    settings = {
+                      mode = "dropNN"
+                    }
+                  }
+                },
+                {
+                  refId         = "C"
+                  datasourceUid = "__expr__"
+                  relativeTimeRange = {
+                    from = 0
+                    to   = 0
+                  }
+                  model = {
+                    datasource = {
+                      type = "__expr__"
+                      uid  = "__expr__"
+                    }
+                    conditions = [
+                      {
+                        evaluator = {
+                          params = [1]
+                          type   = "lt"
+                        }
+                      }
+                    ]
+                    expression = "B"
+                    refId      = "C"
+                    type       = "threshold"
+                  }
+                }
+              ]
+            },
+            {
+              uid          = "bfbh005szwdmof"
+              title        = "High Memory Usage"
+              condition    = "C"
+              for          = "5m"
+              noDataState  = "OK"
+              execErrState = "OK"
+              annotations = {
+                summary     = "High memory usage on {{ $labels.instance }}"
+                description = "Memory usage on {{ $labels.instance }} has exceeded 90% for more than 5 minutes."
+              }
+              labels = {
+                severity = "warning"
+              }
+              data = [
+                {
+                  refId         = "A"
+                  datasourceUid = "prometheus"
+                  relativeTimeRange = {
+                    from = 600
+                    to   = 0
+                  }
+                  model = {
+                    datasource = {
+                      type = "prometheus"
+                      uid  = "prometheus"
+                    }
+                    expr          = "(1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) * 100"
+                    instant       = true
+                    intervalMs    = 1000
+                    maxDataPoints = 43200
+                    refId         = "A"
+                  }
+                },
+                {
+                  refId         = "B"
+                  datasourceUid = "__expr__"
+                  relativeTimeRange = {
+                    from = 0
+                    to   = 0
+                  }
+                  model = {
+                    datasource = {
+                      type = "__expr__"
+                      uid  = "__expr__"
+                    }
+                    expression = "A"
+                    reducer    = "last"
+                    refId      = "B"
+                    type       = "reduce"
+                    settings = {
+                      mode = "dropNN"
+                    }
+                  }
+                },
+                {
+                  refId         = "C"
+                  datasourceUid = "__expr__"
+                  relativeTimeRange = {
+                    from = 0
+                    to   = 0
+                  }
+                  model = {
+                    datasource = {
+                      type = "__expr__"
+                      uid  = "__expr__"
+                    }
+                    conditions = [
+                      {
+                        evaluator = {
+                          params = [90]
+                          type   = "gt"
+                        }
+                      }
+                    ]
+                    expression = "B"
+                    refId      = "C"
+                    type       = "threshold"
+                  }
+                }
+              ]
+            },
+            {
+              uid          = "efbh005w6rpj4c"
+              title        = "High CPU Usage"
+              condition    = "C"
+              for          = "10m"
+              noDataState  = "OK"
+              execErrState = "OK"
+              annotations = {
+                summary     = "High CPU usage on {{ $labels.instance }}"
+                description = "CPU usage on {{ $labels.instance }} has exceeded 85% for more than 10 minutes."
+              }
+              labels = {
+                severity = "warning"
+              }
+              data = [
+                {
+                  refId         = "A"
+                  datasourceUid = "prometheus"
+                  relativeTimeRange = {
+                    from = 600
+                    to   = 0
+                  }
+                  model = {
+                    datasource = {
+                      type = "prometheus"
+                      uid  = "prometheus"
+                    }
+                    expr          = "100 - (avg by(instance) (rate(node_cpu_seconds_total{mode=\"idle\"}[5m])) * 100)"
+                    instant       = true
+                    intervalMs    = 1000
+                    maxDataPoints = 43200
+                    refId         = "A"
+                  }
+                },
+                {
+                  refId         = "B"
+                  datasourceUid = "__expr__"
+                  relativeTimeRange = {
+                    from = 0
+                    to   = 0
+                  }
+                  model = {
+                    datasource = {
+                      type = "__expr__"
+                      uid  = "__expr__"
+                    }
+                    expression = "A"
+                    reducer    = "last"
+                    refId      = "B"
+                    type       = "reduce"
+                    settings = {
+                      mode = "dropNN"
+                    }
+                  }
+                },
+                {
+                  refId         = "C"
+                  datasourceUid = "__expr__"
+                  relativeTimeRange = {
+                    from = 0
+                    to   = 0
+                  }
+                  model = {
+                    datasource = {
+                      type = "__expr__"
+                      uid  = "__expr__"
+                    }
+                    conditions = [
+                      {
+                        evaluator = {
+                          params = [85]
+                          type   = "gt"
+                        }
+                      }
+                    ]
+                    expression = "B"
+                    refId      = "C"
+                    type       = "threshold"
+                  }
+                }
+              ]
+            },
+            {
+              uid          = "cfbh00607ltkwb"
+              title        = "Disk Space Low"
+              condition    = "C"
+              for          = "5m"
+              noDataState  = "OK"
+              execErrState = "OK"
+              annotations = {
+                summary     = "Low disk space on {{ $labels.instance }}"
+                description = "Root filesystem on {{ $labels.instance }} has less than 15% free space."
+              }
+              labels = {
+                severity = "critical"
+              }
+              data = [
+                {
+                  refId         = "A"
+                  datasourceUid = "prometheus"
+                  relativeTimeRange = {
+                    from = 600
+                    to   = 0
+                  }
+                  model = {
+                    datasource = {
+                      type = "prometheus"
+                      uid  = "prometheus"
+                    }
+                    expr          = "(node_filesystem_avail_bytes{mountpoint=\"/\",fstype!=\"tmpfs\"} / node_filesystem_size_bytes{mountpoint=\"/\",fstype!=\"tmpfs\"}) * 100"
+                    instant       = true
+                    intervalMs    = 1000
+                    maxDataPoints = 43200
+                    refId         = "A"
+                  }
+                },
+                {
+                  refId         = "B"
+                  datasourceUid = "__expr__"
+                  relativeTimeRange = {
+                    from = 0
+                    to   = 0
+                  }
+                  model = {
+                    datasource = {
+                      type = "__expr__"
+                      uid  = "__expr__"
+                    }
+                    expression = "A"
+                    reducer    = "last"
+                    refId      = "B"
+                    type       = "reduce"
+                    settings = {
+                      mode = "dropNN"
+                    }
+                  }
+                },
+                {
+                  refId         = "C"
+                  datasourceUid = "__expr__"
+                  relativeTimeRange = {
+                    from = 0
+                    to   = 0
+                  }
+                  model = {
+                    datasource = {
+                      type = "__expr__"
+                      uid  = "__expr__"
+                    }
+                    conditions = [
+                      {
+                        evaluator = {
+                          params = [15]
+                          type   = "lt"
+                        }
+                      }
+                    ]
+                    expression = "B"
+                    refId      = "C"
+                    type       = "threshold"
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        {
+          orgId    = 1
+          name     = "pod-health"
+          folder   = "Infrastructure Alerts"
+          interval = "1m"
+          rules = [
+            {
+              uid          = "afbh005pbjrb4b"
+              title        = "Pod CrashLooping"
+              condition    = "C"
+              for          = "15m"
+              noDataState  = "OK"
+              execErrState = "OK"
+              annotations = {
+                summary     = "Pod {{ $labels.namespace }}/{{ $labels.pod }} is crash-looping"
+                description = "Container {{ $labels.container }} in pod {{ $labels.namespace }}/{{ $labels.pod }} has restarted more than 3 times in 15 minutes."
+              }
+              labels = {
+                severity = "warning"
+              }
+              data = [
+                {
+                  refId         = "A"
+                  datasourceUid = "prometheus"
+                  relativeTimeRange = {
+                    from = 900
+                    to   = 0
+                  }
+                  model = {
+                    datasource = {
+                      type = "prometheus"
+                      uid  = "prometheus"
+                    }
+                    expr          = "increase(kube_pod_container_status_restarts_total[15m])"
+                    instant       = true
+                    intervalMs    = 1000
+                    maxDataPoints = 43200
+                    refId         = "A"
+                  }
+                },
+                {
+                  refId         = "B"
+                  datasourceUid = "__expr__"
+                  relativeTimeRange = {
+                    from = 0
+                    to   = 0
+                  }
+                  model = {
+                    datasource = {
+                      type = "__expr__"
+                      uid  = "__expr__"
+                    }
+                    expression = "A"
+                    reducer    = "last"
+                    refId      = "B"
+                    type       = "reduce"
+                    settings = {
+                      mode = "dropNN"
+                    }
+                  }
+                },
+                {
+                  refId         = "C"
+                  datasourceUid = "__expr__"
+                  relativeTimeRange = {
+                    from = 0
+                    to   = 0
+                  }
+                  model = {
+                    datasource = {
+                      type = "__expr__"
+                      uid  = "__expr__"
+                    }
+                    conditions = [
+                      {
+                        evaluator = {
+                          params = [3]
+                          type   = "gt"
+                        }
+                      }
+                    ]
+                    expression = "B"
+                    refId      = "C"
+                    type       = "threshold"
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        {
+          orgId    = 1
+          name     = "prometheus-health"
+          folder   = "Infrastructure Alerts"
+          interval = "1m"
+          rules = [
+            {
+              # Scalar count — no per-target labels available; classic_conditions is fine.
+              uid          = "efbh0063gz1tsb"
+              title        = "Prometheus Target Down"
+              condition    = "threshold"
+              for          = "5m"
+              noDataState  = "OK"
+              execErrState = "OK"
+              annotations = {
+                summary     = "Prometheus scrape target is down"
+                description = "One or more Prometheus scrape targets are unreachable."
+              }
+              labels = {
+                severity = "warning"
+              }
+              data = [
+                {
+                  refId         = "A"
+                  datasourceUid = "prometheus"
+                  relativeTimeRange = {
+                    from = 600
+                    to   = 0
+                  }
+                  model = {
+                    datasource = {
+                      type = "prometheus"
+                      uid  = "prometheus"
+                    }
+                    expr          = "count(up == 0) OR vector(0)"
+                    instant       = true
+                    intervalMs    = 1000
+                    maxDataPoints = 43200
+                    refId         = "A"
+                  }
+                },
+                {
+                  refId         = "threshold"
+                  datasourceUid = "__expr__"
+                  relativeTimeRange = {
+                    from = 0
+                    to   = 0
+                  }
+                  model = {
+                    conditions = [
+                      {
+                        evaluator = {
+                          params = [0]
+                          type   = "gt"
+                        }
+                        operator = {
+                          type = "and"
+                        }
+                        query = {
+                          params = ["A"]
+                        }
+                        reducer = {
+                          type = "last"
+                        }
+                        type = "query"
+                      }
+                    ]
+                    datasource = {
+                      type = "__expr__"
+                      uid  = "__expr__"
+                    }
+                    expression = "A"
+                    refId      = "threshold"
+                    type       = "classic_conditions"
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    })
+
+    "kubernetes.yaml" = yamlencode({
+      apiVersion = 1
+      groups = [
+        {
+          orgId    = 1
+          name     = "Kubernetes Pods"
+          folder   = "Kubernetes"
+          interval = "1m"
+          rules = [
+            {
+              uid       = "pod-crashloopbackoff"
+              title     = "PodCrashLoopBackOff"
+              condition = "C"
+              for       = "5m"
+              annotations = {
+                summary     = "Pod {{ $labels.namespace }}/{{ $labels.pod }} container {{ $labels.container }} is in CrashLoopBackOff"
+                description = "Container {{ $labels.container }} in pod {{ $labels.namespace }}/{{ $labels.pod }} has been in CrashLoopBackOff for more than 5 minutes."
+              }
+              labels = {
+                severity = "warning"
+              }
+              data = [
+                {
+                  refId         = "A"
+                  datasourceUid = "prometheus"
+                  relativeTimeRange = {
+                    from = 600
+                    to   = 0
+                  }
+                  model = {
+                    datasource = {
+                      type = "prometheus"
+                      uid  = "prometheus"
+                    }
+                    expr          = "kube_pod_container_status_waiting_reason{reason=\"CrashLoopBackOff\"} == 1"
+                    instant       = true
+                    intervalMs    = 1000
+                    maxDataPoints = 43200
+                    refId         = "A"
+                  }
+                },
+                {
+                  refId         = "B"
+                  datasourceUid = "__expr__"
+                  relativeTimeRange = {
+                    from = 0
+                    to   = 0
+                  }
+                  model = {
+                    datasource = {
+                      type = "__expr__"
+                      uid  = "__expr__"
+                    }
+                    expression = "A"
+                    reducer    = "last"
+                    refId      = "B"
+                    type       = "reduce"
+                    settings = {
+                      mode = "dropNN"
+                    }
+                  }
+                },
+                {
+                  refId         = "C"
+                  datasourceUid = "__expr__"
+                  relativeTimeRange = {
+                    from = 0
+                    to   = 0
+                  }
+                  model = {
+                    datasource = {
+                      type = "__expr__"
+                      uid  = "__expr__"
+                    }
+                    conditions = [
+                      {
+                        evaluator = {
+                          params = [0]
+                          type   = "gt"
+                        }
+                      }
+                    ]
+                    expression = "B"
+                    refId      = "C"
+                    type       = "threshold"
+                  }
+                }
+              ]
+            }
+          ]
         }
       ]
     })
@@ -244,6 +865,12 @@ resource "kubernetes_deployment" "grafana" {
             read_only  = true
           }
 
+          volume_mount {
+            name       = "alerting"
+            mount_path = "/etc/grafana/provisioning/alerting"
+            read_only  = true
+          }
+
           liveness_probe {
             http_get {
               path = "/api/health"
@@ -285,6 +912,13 @@ resource "kubernetes_deployment" "grafana" {
           name = "dashboard-config"
           config_map {
             name = kubernetes_config_map.dashboards.metadata[0].name
+          }
+        }
+
+        volume {
+          name = "alerting"
+          config_map {
+            name = kubernetes_config_map.alerting.metadata[0].name
           }
         }
       }

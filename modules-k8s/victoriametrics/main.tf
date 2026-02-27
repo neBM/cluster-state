@@ -8,7 +8,7 @@ locals {
     "app.kubernetes.io/managed-by" = "terraform"
   }
   data_path   = "/victoria-metrics-data"
-  backup_dest = "s3://${var.minio_bucket}"
+  backup_dest = "s3://${var.minio_bucket}/data"
 }
 
 # =============================================================================
@@ -160,6 +160,22 @@ resource "kubernetes_config_map" "scrape_config" {
           ]
         },
 
+        # MinIO metrics (requires JWT bearer token)
+        {
+          job_name     = "minio"
+          metrics_path = "/minio/v2/metrics/cluster"
+          scheme       = "http"
+          authorization = {
+            credentials_file = "/etc/minio-metrics/bearer-token"
+          }
+          static_configs = [{
+            targets = ["minio-api.default.svc.cluster.local:9000"]
+            labels = {
+              job = "minio"
+            }
+          }]
+        },
+
         # Pods with prometheus.io/scrape annotation
         {
           job_name = "kubernetes-pods"
@@ -279,6 +295,8 @@ resource "kubernetes_config_map" "backup_script" {
         echo "Restore complete"
       else
         echo "No backup found or restore failed - starting fresh"
+        # Remove lock file left by vmrestore so VictoriaMetrics can start
+        rm -f "$DATA_PATH/restore-in-progress"
       fi
     EOT
   }
@@ -330,9 +348,23 @@ resource "kubernetes_deployment" "victoriametrics" {
 
           command = ["/bin/sh", "/scripts/restore.sh"]
 
-          env_from {
-            secret_ref {
-              name = var.minio_secret_name
+          env {
+            name = "AWS_ACCESS_KEY_ID"
+            value_from {
+              secret_key_ref {
+                name = var.minio_secret_name
+                key  = "MINIO_ACCESS_KEY"
+              }
+            }
+          }
+
+          env {
+            name = "AWS_SECRET_ACCESS_KEY"
+            value_from {
+              secret_key_ref {
+                name = var.minio_secret_name
+                key  = "MINIO_SECRET_KEY"
+              }
             }
           }
 
@@ -388,6 +420,12 @@ resource "kubernetes_deployment" "victoriametrics" {
             mount_path = local.data_path
           }
 
+          volume_mount {
+            name       = "minio-metrics-token"
+            mount_path = "/etc/minio-metrics"
+            read_only  = true
+          }
+
           liveness_probe {
             http_get {
               path = "/health"
@@ -418,9 +456,23 @@ resource "kubernetes_deployment" "victoriametrics" {
 
           command = ["/bin/sh", "/scripts/backup.sh"]
 
-          env_from {
-            secret_ref {
-              name = var.minio_secret_name
+          env {
+            name = "AWS_ACCESS_KEY_ID"
+            value_from {
+              secret_key_ref {
+                name = var.minio_secret_name
+                key  = "MINIO_ACCESS_KEY"
+              }
+            }
+          }
+
+          env {
+            name = "AWS_SECRET_ACCESS_KEY"
+            value_from {
+              secret_key_ref {
+                name = var.minio_secret_name
+                key  = "MINIO_SECRET_KEY"
+              }
             }
           }
 
@@ -467,6 +519,13 @@ resource "kubernetes_deployment" "victoriametrics" {
           name = "data"
           empty_dir {
             size_limit = "20Gi"
+          }
+        }
+
+        volume {
+          name = "minio-metrics-token"
+          secret {
+            secret_name = "victoriametrics-minio-metrics-token"
           }
         }
       }
