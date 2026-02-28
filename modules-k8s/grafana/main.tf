@@ -588,6 +588,145 @@ resource "kubernetes_config_map" "alerting" {
       ]
     })
 
+    "etcd-alerts.yaml" = yamlencode({
+      apiVersion = 1
+      groups = [
+        {
+          orgId    = 1
+          name     = "etcd-health"
+          folder   = "Infrastructure Alerts"
+          interval = "1m"
+          rules = [
+            {
+              # Fires when etcd leader election happens - indicates a raft disruption.
+              # Any increase in leader_changes over 5 minutes is worth knowing about.
+              uid          = "etcd-leader-changes"
+              title        = "etcd Leader Change"
+              condition    = "C"
+              for          = "0s"
+              noDataState  = "OK"
+              execErrState = "OK"
+              annotations = {
+                summary     = "etcd leader changed on {{ $labels.instance }}"
+                description = "etcd has seen {{ $values.B }} leader change(s) in the last 5 minutes on {{ $labels.instance }}. This indicates raft disruption - check k3s logs on the node that was leader."
+              }
+              labels = { severity = "warning" }
+              data = [
+                {
+                  refId             = "A"
+                  datasourceUid     = "prometheus"
+                  relativeTimeRange = { from = 600, to = 0 }
+                  model = {
+                    datasource    = { type = "prometheus", uid = "prometheus" }
+                    expr          = "increase(etcd_server_leader_changes_seen_total[5m])"
+                    instant       = true
+                    intervalMs    = 1000
+                    maxDataPoints = 43200
+                    refId         = "A"
+                  }
+                },
+                {
+                  refId             = "B"
+                  datasourceUid     = "__expr__"
+                  relativeTimeRange = { from = 0, to = 0 }
+                  model = {
+                    datasource = { type = "__expr__", uid = "__expr__" }
+                    expression = "A"
+                    reducer    = "last"
+                    refId      = "B"
+                    settings   = { mode = "dropNN" }
+                    type       = "reduce"
+                  }
+                },
+                {
+                  refId             = "C"
+                  datasourceUid     = "__expr__"
+                  relativeTimeRange = { from = 0, to = 0 }
+                  model = {
+                    conditions = [
+                      {
+                        evaluator = { params = [0], type = "gt" }
+                        operator  = { type = "and" }
+                        query     = { params = ["B"] }
+                        reducer   = { type = "last" }
+                        type      = "query"
+                      }
+                    ]
+                    datasource = { type = "__expr__", uid = "__expr__" }
+                    expression = "B"
+                    refId      = "C"
+                    type       = "classic_conditions"
+                  }
+                }
+              ]
+            },
+            {
+              # Fires when an etcd member has no leader - cluster is unavailable.
+              uid          = "etcd-no-leader"
+              title        = "etcd No Leader"
+              condition    = "C"
+              for          = "1m"
+              noDataState  = "OK"
+              execErrState = "OK"
+              annotations = {
+                summary     = "etcd cluster has no leader on {{ $labels.instance }}"
+                description = "etcd on {{ $labels.instance }} reports no leader (etcd_server_has_leader=0) for more than 1 minute. The cluster is unavailable."
+              }
+              labels = { severity = "critical" }
+              data = [
+                {
+                  refId             = "A"
+                  datasourceUid     = "prometheus"
+                  relativeTimeRange = { from = 600, to = 0 }
+                  model = {
+                    datasource    = { type = "prometheus", uid = "prometheus" }
+                    expr          = "etcd_server_has_leader"
+                    instant       = true
+                    intervalMs    = 1000
+                    maxDataPoints = 43200
+                    refId         = "A"
+                  }
+                },
+                {
+                  refId             = "B"
+                  datasourceUid     = "__expr__"
+                  relativeTimeRange = { from = 0, to = 0 }
+                  model = {
+                    datasource = { type = "__expr__", uid = "__expr__" }
+                    expression = "A"
+                    reducer    = "last"
+                    refId      = "B"
+                    settings   = { mode = "dropNN" }
+                    type       = "reduce"
+                  }
+                },
+                {
+                  refId             = "C"
+                  datasourceUid     = "__expr__"
+                  relativeTimeRange = { from = 0, to = 0 }
+                  model = {
+                    conditions = [
+                      {
+                        evaluator = { params = [1], type = "lt" }
+                        operator  = { type = "and" }
+                        query     = { params = ["B"] }
+                        reducer   = { type = "last" }
+                        type      = "query"
+                      }
+                    ]
+                    datasource = { type = "__expr__", uid = "__expr__" }
+                    expression = "B"
+                    refId      = "C"
+                    type       = "classic_conditions"
+                  }
+                }
+              ]
+            },
+          ]
+        }
+      ]
+    })
+
     "kubernetes.yaml" = yamlencode({
       apiVersion = 1
       groups = [
@@ -678,6 +817,39 @@ resource "kubernetes_config_map" "alerting" {
               ]
             }
           ]
+        }
+      ]
+    })
+
+    # Contact point: email via SMTP relay.
+    # The recipient address is injected from the GF_ALERT_EMAIL_TO env var
+    # (sourced from the grafana-smtp K8s secret) so it is never committed to git.
+    "contactpoints.yaml" = yamlencode({
+      apiVersion = 1
+      contactPoints = [
+        {
+          orgId = 1
+          name  = "email"
+          receivers = [
+            {
+              uid  = "email-alerts"
+              type = "email"
+              settings = {
+                addresses = "$${GF_ALERT_EMAIL_TO}"
+              }
+            }
+          ]
+        }
+      ]
+    })
+
+    # Default notification policy: route all alerts to the email contact point.
+    "policies.yaml" = yamlencode({
+      apiVersion = 1
+      policies = [
+        {
+          orgId    = 1
+          receiver = "email"
         }
       ]
     })
@@ -808,13 +980,62 @@ resource "kubernetes_deployment" "grafana" {
             value = "https://${var.ingress_hostname}"
           }
 
-          # Admin password from Vault
+          # Admin password
           env {
             name = "GF_SECURITY_ADMIN_PASSWORD"
             value_from {
               secret_key_ref {
                 name = "${local.app_name}-secrets"
                 key  = "GF_SECURITY_ADMIN_PASSWORD"
+              }
+            }
+          }
+
+          # SMTP / email alerting
+          env {
+            name  = "GF_SMTP_ENABLED"
+            value = "true"
+          }
+          env {
+            name  = "GF_SMTP_HOST"
+            value = "mail.brmartin.co.uk:587"
+          }
+          env {
+            name  = "GF_SMTP_FROM_ADDRESS"
+            value = "services@brmartin.co.uk"
+          }
+          env {
+            name  = "GF_SMTP_FROM_NAME"
+            value = "Grafana"
+          }
+          env {
+            name  = "GF_SMTP_STARTTLS_POLICY"
+            value = "MandatoryStartTLS"
+          }
+          env {
+            name = "GF_SMTP_USER"
+            value_from {
+              secret_key_ref {
+                name = "grafana-smtp"
+                key  = "GF_SMTP_USER"
+              }
+            }
+          }
+          env {
+            name = "GF_SMTP_PASSWORD"
+            value_from {
+              secret_key_ref {
+                name = "grafana-smtp"
+                key  = "GF_SMTP_PASSWORD"
+              }
+            }
+          }
+          env {
+            name = "GF_ALERT_EMAIL_TO"
+            value_from {
+              secret_key_ref {
+                name = "grafana-smtp"
+                key  = "GF_ALERT_EMAIL_TO"
               }
             }
           }
