@@ -9,7 +9,7 @@ Infrastructure-as-Code repository for a Kubernetes (K3s) cluster. All services h
 - **Kubernetes (K3s)** - Primary workload orchestration (all services)
 - **Cilium** - Kubernetes CNI with network policies
 - **Traefik** - Ingress controller (K8s IngressRoutes)
-- **External Secrets Operator** - Syncs secrets from Vault to K8s
+- **External Secrets Operator** - Syncs secrets from Vault to K8s (legacy, no longer actively used for new services)
 - **Terraform** - Infrastructure provisioning (K8s resources)
 - **GlusterFS** - Distributed storage (hostPath mounts in K8s)
 - **NFS-Ganesha** - NFS server with FSAL_GLUSTER (stable fileids), built from source V9.4 on all nodes
@@ -390,13 +390,15 @@ GlusterFS doesn't support Unix sockets. Services using sockets (Redis, Gitaly, P
 
 ## Observability Stack
 
-### Prometheus (Metrics Collection)
-- **URL**: https://prometheus.brmartin.co.uk
-- **Purpose**: Collects and stores metrics from Kubernetes nodes, pods, and services
-- **Storage**: 10GB on GlusterFS with 30-day retention
+### VictoriaMetrics (Metrics Collection)
+- **URL**: https://victoriametrics.brmartin.co.uk
+- **Purpose**: Drop-in Prometheus replacement, collects and stores metrics from Kubernetes nodes, pods, and services
+- **Storage**: emptyDir with hourly backup to MinIO
+- **Retention**: 30 days
 - **Scraping**: Auto-discovers targets via Kubernetes API and `prometheus.io/*` annotations
+- **Supplementary**: node-exporter (DaemonSet) and kube-state-metrics for host and K8s object metrics
 
-**Common queries**:
+**Common queries** (PromQL-compatible):
 ```promql
 # CPU usage by node
 100 - (avg(rate(node_cpu_seconds_total{mode="idle"}[5m])) by (instance) * 100)
@@ -411,7 +413,7 @@ increase(kube_pod_container_status_restarts_total[1h])
 ### Grafana (Visualization)
 - **URL**: https://grafana.brmartin.co.uk
 - **Auth**: Keycloak SSO (prod realm)
-- **Data Source**: Prometheus (auto-configured)
+- **Data Source**: VictoriaMetrics (auto-configured, Prometheus-compatible)
 - **Storage**: 1GB on GlusterFS for dashboards and SQLite DB
 
 **Useful dashboards** (import by ID):
@@ -492,8 +494,9 @@ glab api "projects/<id>/pipelines?ref=main&status=success&per_page=1"
 - Elasticsearch: https://es.brmartin.co.uk
 - MinIO Console: https://minio.brmartin.co.uk
 - Keycloak (SSO): https://sso.brmartin.co.uk
-- Prometheus: https://prometheus.brmartin.co.uk
+- VictoriaMetrics: https://victoriametrics.brmartin.co.uk
 - Grafana: https://grafana.brmartin.co.uk
+- Headlamp: https://headlamp.brmartin.co.uk
 - Meshery: https://meshery.brmartin.co.uk
 
 ## Services (K8s)
@@ -521,7 +524,16 @@ glab api "projects/<id>/pipelines?ref=main&status=success&per_page=1"
 | tautulli | Deployment | Plex monitoring/statistics |
 | elk | StatefulSet+Deployment | Elasticsearch 9.x multi-node (2 data + 1 tiebreaker) + Kibana 9.x, data on local NVMe |
 | athenaeum | Multiple | Knowledge wiki (backend, frontend, redis), Keycloak SSO, Ollama for fact extraction |
+| headlamp | Deployment | K8s web dashboard, Keycloak OIDC, kube-system namespace |
 | jayne-martin-counselling | Deployment | Static counselling website |
+| laurens-dissertation | Deployment | TikTok Shop vs Amazon profitability study |
+| iris | Deployment | Self-hosted media server (Movies & TV) |
+| victoriametrics | Deployment | Metrics collection (Prometheus replacement), MinIO backup |
+| node-exporter | DaemonSet | Host metrics collection |
+| kube-state-metrics | Deployment | Kubernetes object metrics |
+| elastic-agent | DaemonSet | K8s log collection via Fleet, elastic-system namespace |
+| hubble-ui | Deployment | Cilium network flow visualization, kube-system namespace |
+| goldilocks | Deployment | VPA recommendations dashboard, kube-system namespace |
 
 ## Active Technologies
 - HCL (Terraform 1.x), YAML (K8s manifests via Terraform kubernetes provider)
@@ -537,7 +549,7 @@ glab api "projects/<id>/pipelines?ref=main&status=success&per_page=1"
 
 ## Recent Changes
 - 011-traefik-encoded-slash: Enabled `allowEncodedSlash` on both Traefik instances so GitLab API slugs (`namespace%2Fproject`) work correctly with `glab`
-- 010-observability-stack: Added Prometheus, Grafana, and Meshery for cluster observability
+- 010-observability-stack: Added VictoriaMetrics, Grafana, and Meshery for cluster observability
 - 009-es-multi-node-cluster: Migrated Elasticsearch from single-node on GlusterFS to 3-node cluster (2 data + 1 tiebreaker) on local NVMe storage
 - 008-gitlab-multi-container: Migrated GitLab from Omnibus to CNG multi-container architecture (webservice, workhorse, sidekiq, gitaly, redis, registry)
 - 007-jayne-martin-k8s-migration: Migrated Jayne Martin Counselling to Kubernetes, decommissioned Nomad

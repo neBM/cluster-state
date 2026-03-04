@@ -390,6 +390,19 @@ module "k8s_meshery" {
   replicas         = 0 # Disabled — OOMKills at 1Gi, revisit later
 }
 
+# Headlamp - Kubernetes web dashboard
+# OIDC via Keycloak, cluster-admin RBAC, deployed to kube-system
+# Requires: Keycloak client "headlamp" in prod realm with client secret
+# Redirect URI: https://headlamp.brmartin.co.uk/oidc-callback
+module "k8s_headlamp" {
+  source = "./modules-k8s/headlamp"
+
+  namespace        = "kube-system"
+  ingress_hostname = "headlamp.brmartin.co.uk"
+  oidc_issuer_url  = "https://sso.brmartin.co.uk/realms/prod"
+  oidc_client_id   = "headlamp"
+}
+
 # Iris - Self-hosted media server (Movies & TV)
 module "k8s_iris" {
   source = "./modules-k8s/iris"
