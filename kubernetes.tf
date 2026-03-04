@@ -158,22 +158,6 @@ module "k8s_keycloak" {
   db_port   = "5433"
 }
 
-# AppFlowy - Collaborative documentation platform
-# Multi-component app: gotrue, cloud, admin-frontend, worker, web, postgres, redis
-# PostgreSQL uses hostPath on Hestia (GlusterFS mount)
-# MinIO used for S3 storage (already on K8s)
-module "k8s_appflowy" {
-  source = "./modules-k8s/appflowy"
-
-  namespace = "default"
-  hostname  = "docs.brmartin.co.uk"
-  # External PostgreSQL on martinibar (192.168.1.10:5433)
-  # MinIO is now on K8s
-  minio_endpoint = "http://minio-api.default.svc.cluster.local:9000"
-  # Keycloak is now on K8s
-  keycloak_url = "https://sso.brmartin.co.uk/realms/prod"
-}
-
 # Athenaeum - FastAPI + Vue 3 Wiki Application
 # Multi-component app: backend (FastAPI), frontend (Vue 3), redis
 # Uses external PostgreSQL on martinibar, Keycloak for auth, MinIO for attachments
@@ -272,7 +256,7 @@ module "k8s_plextraktsync" {
   namespace = "default"
 }
 
-# Media Centre - Plex, Jellyfin, Tautulli
+# Media Centre - Plex, Tautulli
 # Plex requires NVIDIA GPU on Hestia node
 module "k8s_media_centre" {
   source = "./modules-k8s/media-centre"

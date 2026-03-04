@@ -1,8 +1,7 @@
-# Media Centre - Plex, Jellyfin, Tautulli
+# Media Centre - Plex, Tautulli
 #
 # Components:
 # - Plex: Media server with NVIDIA GPU transcoding, periodic sqlite backup
-# - Jellyfin: Alternative media server
 # - Tautulli: Plex monitoring/statistics
 #
 # Requirements:
@@ -14,11 +13,6 @@ locals {
   plex_labels = {
     app        = "media-centre"
     component  = "plex"
-    managed-by = "terraform"
-  }
-  jellyfin_labels = {
-    app        = "media-centre"
-    component  = "jellyfin"
     managed-by = "terraform"
   }
   tautulli_labels = {
@@ -61,25 +55,6 @@ resource "kubernetes_persistent_volume_claim" "plex_config" {
   }
 }
 
-resource "kubernetes_persistent_volume_claim" "jellyfin_config" {
-  metadata {
-    name      = "jellyfin-config"
-    namespace = var.namespace
-    annotations = {
-      "volume-name" = "jellyfin_config"
-    }
-  }
-  spec {
-    storage_class_name = "glusterfs-nfs"
-    access_modes       = ["ReadWriteMany"]
-    resources {
-      requests = {
-        storage = "5Gi"
-      }
-    }
-  }
-}
-
 # =============================================================================
 # Synology NAS NFS PersistentVolumes (soft mount)
 #
@@ -89,7 +64,7 @@ resource "kubernetes_persistent_volume_claim" "jellyfin_config" {
 #
 # PVs with mount_options = ["soft"] cause the kernel to return EIO to the
 # application after retrans retransmissions instead of hanging forever.
-# The app (plex/jellyfin) will fail to read the file — the node stays up.
+# The app (plex) will fail to read the file — the node stays up.
 # =============================================================================
 
 resource "kubernetes_persistent_volume" "synology_docker" {
@@ -785,182 +760,6 @@ resource "kubernetes_cron_job_v1" "plex_db_backup" {
       }
     }
   }
-}
-
-# =============================================================================
-# Jellyfin Media Server
-# =============================================================================
-
-resource "kubernetes_deployment" "jellyfin" {
-  metadata {
-    name      = "jellyfin"
-    namespace = var.namespace
-    labels    = local.jellyfin_labels
-  }
-
-  spec {
-    replicas = 1
-    strategy {
-      type = "Recreate"
-    }
-
-    selector {
-      match_labels = local.jellyfin_labels
-    }
-
-    template {
-      metadata {
-        labels      = local.jellyfin_labels
-        annotations = local.elastic_log_annotations
-      }
-
-      spec {
-        security_context {
-          fs_group            = 997 # video group
-          supplemental_groups = [997]
-        }
-
-        container {
-          name  = "jellyfin"
-          image = "${var.jellyfin_image}:${var.jellyfin_tag}"
-
-          port {
-            container_port = 8096
-            name           = "http"
-          }
-
-          env {
-            name  = "JELLYFIN_PublishedServerUrl"
-            value = "https://jellyfin.brmartin.co.uk"
-          }
-
-          volume_mount {
-            name       = "jellyfin-config"
-            mount_path = "/config"
-          }
-
-          volume_mount {
-            name       = "cache"
-            mount_path = "/cache"
-          }
-
-          volume_mount {
-            name       = "media"
-            mount_path = "/media"
-          }
-
-          resources {
-            requests = {
-              cpu    = "50m"
-              memory = "700Mi"
-            }
-            limits = {
-              memory = "2Gi"
-            }
-          }
-
-          liveness_probe {
-            http_get {
-              path = "/health"
-              port = 8096
-            }
-            initial_delay_seconds = 30
-            period_seconds        = 30
-          }
-
-          readiness_probe {
-            http_get {
-              path = "/health"
-              port = 8096
-            }
-            initial_delay_seconds = 10
-            period_seconds        = 10
-          }
-
-          security_context {
-            privileged = true # Required for /dev/dri access
-          }
-        }
-
-        volume {
-          name = "jellyfin-config"
-          persistent_volume_claim {
-            claim_name = kubernetes_persistent_volume_claim.jellyfin_config.metadata[0].name
-          }
-        }
-
-        volume {
-          name = "cache"
-          empty_dir {
-            size_limit = "4Gi"
-          }
-        }
-
-        volume {
-          name = "media"
-          persistent_volume_claim {
-            claim_name = kubernetes_persistent_volume_claim.synology_docker.metadata[0].name
-          }
-        }
-
-        volume {
-          name = "dri"
-          host_path {
-            path = "/dev/dri"
-            type = "Directory"
-          }
-        }
-      }
-    }
-  }
-}
-
-resource "kubernetes_service" "jellyfin" {
-  metadata {
-    name      = "jellyfin"
-    namespace = var.namespace
-    labels    = local.jellyfin_labels
-  }
-
-  spec {
-    selector = local.jellyfin_labels
-
-    port {
-      port        = 8096
-      target_port = 8096
-      name        = "http"
-    }
-  }
-}
-
-resource "kubectl_manifest" "jellyfin_ingressroute" {
-  yaml_body = yamlencode({
-    apiVersion = "traefik.io/v1alpha1"
-    kind       = "IngressRoute"
-    metadata = {
-      name      = "jellyfin"
-      namespace = var.namespace
-      labels    = local.jellyfin_labels
-    }
-    spec = {
-      entryPoints = ["websecure"]
-      routes = [
-        {
-          match = "Host(`jellyfin.brmartin.co.uk`)"
-          kind  = "Rule"
-          services = [
-            {
-              name = kubernetes_service.jellyfin.metadata[0].name
-              port = 8096
-            }
-          ]
-        }
-      ]
-      tls = {
-        secretName = "wildcard-brmartin-tls"
-      }
-    }
-  })
 }
 
 # =============================================================================

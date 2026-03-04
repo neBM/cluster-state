@@ -510,7 +510,7 @@ glab api "projects/<id>/pipelines?ref=main&status=success&per_page=1"
 | ollama | Deployment | LLM inference, GPU on Hestia |
 | minio | Deployment | Object storage |
 | keycloak | Deployment | SSO/OAuth |
-| appflowy | Multiple | 7 components (cloud, gotrue, worker, web, admin, postgres, redis) |
+
 | nextcloud | Deployment | File sync |
 | matrix | Multiple | 6 components (synapse, mas, whatsapp-bridge, nginx, element, cinny) |
 | gitlab | Multiple | CNG multi-container (webservice, workhorse, sidekiq, gitaly, redis, registry), SSH via NodePort 30022, external PostgreSQL |
@@ -520,7 +520,7 @@ glab api "projects/<id>/pipelines?ref=main&status=success&per_page=1"
 | open-webui | Deployment | LLM chat UI, with valkey + postgres sidecars |
 | plextraktsync | CronJob | Plex/Trakt sync (every 2 hours) |
 | plex | StatefulSet | Media server, NVIDIA GPU, sqlite3 .backup CronJob to MinIO |
-| jellyfin | Deployment | Alternative media server |
+
 | tautulli | Deployment | Plex monitoring/statistics |
 | elk | StatefulSet+Deployment | Elasticsearch 9.x multi-node (2 data + 1 tiebreaker) + Kibana 9.x, data on local NVMe |
 | athenaeum | Multiple | Knowledge wiki (backend, frontend, redis), Keycloak SSO, Ollama for fact extraction |

@@ -17,19 +17,6 @@ variable "plex_tag" {
   default = "latest"
 }
 
-variable "jellyfin_image" {
-  description = "Jellyfin Docker image name"
-  type        = string
-  default     = "ghcr.io/jellyfin/jellyfin"
-}
-
-variable "jellyfin_tag" {
-  description = "Jellyfin Docker image tag"
-  type        = string
-  # renovate: datasource=docker depName=ghcr.io/jellyfin/jellyfin
-  default = "10.11.6"
-}
-
 variable "tautulli_image" {
   description = "Tautulli Docker image name"
   type        = string
