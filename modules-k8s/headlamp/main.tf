@@ -57,6 +57,7 @@ resource "kubernetes_deployment" "headlamp" {
             "-oidc-client-secret=$(OIDC_CLIENT_SECRET)",
             "-oidc-idp-issuer-url=${var.oidc_issuer_url}",
             "-oidc-scopes=${var.oidc_scopes}",
+            "-oidc-callback-url=https://${var.ingress_hostname}/oidc-callback",
           ]
 
           env {
@@ -168,22 +169,26 @@ resource "kubectl_manifest" "ingressroute" {
     spec = {
       entryPoints = ["websecure"]
       routes = [
-        {
-          match = "Host(`${var.ingress_hostname}`)"
-          kind  = "Rule"
-          middlewares = length(var.traefik_middlewares) > 0 ? [
-            for middleware in var.traefik_middlewares : {
-              name      = middleware
-              namespace = local.namespace
-            }
-          ] : null
-          services = [
-            {
-              name = kubernetes_service.headlamp.metadata[0].name
-              port = "http"
-            }
-          ]
-        }
+        merge(
+          {
+            match = "Host(`${var.ingress_hostname}`)"
+            kind  = "Rule"
+            services = [
+              {
+                name = kubernetes_service.headlamp.metadata[0].name
+                port = "http"
+              }
+            ]
+          },
+          length(var.traefik_middlewares) > 0 ? {
+            middlewares = [
+              for middleware in var.traefik_middlewares : {
+                name      = middleware
+                namespace = local.namespace
+              }
+            ]
+          } : {}
+        )
       ]
       tls = {
         secretName = var.tls_secret_name
