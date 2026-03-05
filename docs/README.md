@@ -25,7 +25,7 @@ This directory contains documentation for the K8s (K3s) cluster infrastructure.
 | Component | Purpose | Config Location |
 |-----------|---------|-----------------|
 | K3s | Kubernetes distribution | `~/.kube/k3s-config` |
-| GlusterFS | Distributed storage | `gluster volume info storage-vol` |
+| GlusterFS | Distributed storage | `gluster volume info nomad-vol` |
 | NFS-Ganesha | NFS server (FSAL_GLUSTER) | `/etc/ganesha/ganesha.conf` |
 | Elasticsearch | Log storage & search | `modules-k8s/elk/` |
 | Elastic Agent | Log collection | DaemonSet in K8s |
@@ -34,9 +34,9 @@ This directory contains documentation for the K8s (K3s) cluster infrastructure.
 
 | Node | IP | Roles |
 |------|-----|-------|
-| Hestia | 192.168.1.5 | K3s server, NVIDIA GPU, NFS-Ganesha V9.4 |
-| Heracles | 192.168.1.6 | K3s agent, glusterd, NFS-Ganesha V9.4 |
-| Nyx | 192.168.1.7 | K3s agent, glusterd, NFS-Ganesha V9.4 |
+| Hestia | 192.168.1.5 | K3s control-plane/etcd, NVIDIA GPU, NFS-Ganesha V9.4 |
+| Heracles | 192.168.1.6 | K3s control-plane/etcd, glusterd, NFS-Ganesha V9.4 |
+| Nyx | 192.168.1.7 | K3s control-plane/etcd, glusterd, NFS-Ganesha V9.4 |
 
 ### Common Commands
 
@@ -47,7 +47,7 @@ kubectl get pods -n default
 kubectl logs <pod-name> -n default
 
 # Check storage health
-gluster volume status storage-vol
+gluster volume status nomad-vol
 ss -tlnp | grep 2049
 
 # Check for errors

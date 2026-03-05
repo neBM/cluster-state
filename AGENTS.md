@@ -249,7 +249,7 @@ If litestream backup in MinIO is corrupted (decode errors on restore), recover f
 ### GlusterFS Architecture
 
 ```
-Heracles (/data/glusterfs/brick1) ─┬─ GlusterFS "storage-vol" (Distributed)
+Heracles (/data/glusterfs/brick1) ─┬─ GlusterFS "nomad-vol" (Distributed)
 Nyx (/data/glusterfs/brick1) ──────┘
                                    │
                                    ▼

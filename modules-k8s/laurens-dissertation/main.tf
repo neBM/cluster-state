@@ -54,7 +54,7 @@ resource "kubernetes_persistent_volume_claim" "archive" {
     namespace = var.namespace
     labels    = local.labels
     annotations = {
-      "volume-name" = "glusterfs_laurens_dissertation_archive"
+      "volume-name" = "laurens_dissertation_archive"
     }
   }
 
