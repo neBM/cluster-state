@@ -12,9 +12,11 @@ locals {
     managed-by = "terraform"
   }
 
-  # Kubernetes executor config template
-  # ARCH_PLACEHOLDER is replaced per-deployment
-  config_template = <<-EOF
+  # Shared TOML config body used by all runners.
+  # CONCURRENT_PLACEHOLDER and RUNNER_NAME_PLACEHOLDER are substituted per-deployment.
+  # Credentials (RUNNER_TOKEN_PLACEHOLDER, MINIO_*_PLACEHOLDER) are injected at runtime
+  # by the init container so they never appear in ConfigMaps.
+  _config_common = <<-EOF
 concurrent = CONCURRENT_PLACEHOLDER
 check_interval = 30
 shutdown_timeout = 0
@@ -70,7 +72,9 @@ shutdown_timeout = 0
     # Pull policy: if-not-present by default, jobs can override
     pull_policy = ["if-not-present"]
     allowed_pull_policies = ["always", "if-not-present", "never"]
-    
+
+    HELPER_IMAGE_LINE_PLACEHOLDER
+
   # Kubedock: minimal Docker API that orchestrates containers as K8s pods.
   # Injected into every job pod so testcontainers "just works" without any
   # per-project CI config. DOCKER_HOST env var above points to this service.
@@ -79,7 +83,12 @@ shutdown_timeout = 0
     alias = "kubedock"
     command = ["server", "--port-forward"]
 
-  # Node selector for arch-specific builds (must be after all kubernetes settings)
+EOF
+
+  # Kubernetes executor config template for arch-specific runners (amd64 / arm64).
+  # ARCH_PLACEHOLDER is substituted per-deployment to pin job pods to that arch.
+  config_template = join("", [local._config_common, <<-EOF
+  # Node selector — pins job pods to the runner's architecture.
   [runners.kubernetes.node_selector]
     "kubernetes.io/arch" = "ARCH_PLACEHOLDER"
 
@@ -121,6 +130,50 @@ shutdown_timeout = 0
       AccessKey = "MINIO_ACCESS_KEY_PLACEHOLDER"
       SecretKey = "MINIO_SECRET_KEY_PLACEHOLDER"
 EOF
+  ])
+
+  # Config template for the any-arch runner.
+  # Uses a multi-arch helper image hosted in our registry, assembled from GitLab's
+  # arch-specific tags by the infrastructure/gitlab-runner-helper pipeline.
+  # containerd on any node resolves the correct variant automatically — no node_selector
+  # or arch pinning needed on either the runner process pod or job pods.
+  config_template_any = join("", [local._config_common, <<-EOF
+  # No node_selector — job pods float to whichever node has available resources.
+
+  # Persistent node-local cache for build tool dependencies (Maven, Gradle, pip, uv, npm)
+  [[runners.kubernetes.volumes.host_path]]
+    name = "ci-cache"
+    mount_path = "/ci-cache"
+    host_path = "/var/lib/ci-cache"
+    read_only = false
+
+  # Persistent container storage for buildah/podman (base images, layers).
+  [[runners.kubernetes.volumes.host_path]]
+    name = "containers-storage"
+    mount_path = "/var/lib/containers"
+    host_path = "/var/lib/ci-containers"
+    read_only = false
+
+  # In-cluster registry bypass
+  [[runners.kubernetes.volumes.config_map]]
+    name = "gitlab-runner-registries-conf"
+    mount_path = "/etc/containers/registries.conf"
+    sub_path = "registries.conf"
+    read_only = true
+
+  # Shared cache via MinIO (S3-compatible)
+  [runners.cache]
+    Type = "s3"
+    Shared = true
+    [runners.cache.s3]
+      ServerAddress = "${var.cache_s3_endpoint}"
+      BucketName = "${var.cache_s3_bucket}"
+      Insecure = true
+      AuthenticationType = "access-key"
+      AccessKey = "MINIO_ACCESS_KEY_PLACEHOLDER"
+      SecretKey = "MINIO_SECRET_KEY_PLACEHOLDER"
+EOF
+  ])
 }
 
 # =============================================================================
@@ -247,6 +300,45 @@ EOF
 }
 
 # =============================================================================
+# ConfigMaps for stable runner system IDs
+# Persists the runner's .runner_system_id across pod restarts so GitLab
+# doesn't accumulate offline manager entries for every pod recreation.
+# =============================================================================
+
+resource "kubernetes_config_map" "system_id_amd64" {
+  metadata {
+    name      = "gitlab-runner-system-id-amd64"
+    namespace = var.namespace
+    labels    = merge(local.labels, { arch = "amd64" })
+  }
+  data = {
+    "system_id" = "r_87qXxf9xnF9v"
+  }
+}
+
+resource "kubernetes_config_map" "system_id_arm64" {
+  metadata {
+    name      = "gitlab-runner-system-id-arm64"
+    namespace = var.namespace
+    labels    = merge(local.labels, { arch = "arm64" })
+  }
+  data = {
+    "system_id" = "r_BzDQKMBlN6F3"
+  }
+}
+
+resource "kubernetes_config_map" "system_id_any" {
+  metadata {
+    name      = "gitlab-runner-system-id-any"
+    namespace = var.namespace
+    labels    = merge(local.labels, { arch = "any" })
+  }
+  data = {
+    "system_id" = "r_4fRxYMrK4twP"
+  }
+}
+
+# =============================================================================
 # ConfigMaps for arch-specific config templates
 # =============================================================================
 
@@ -259,8 +351,11 @@ resource "kubernetes_config_map" "config_template_amd64" {
 
   data = {
     "config.toml.template" = replace(
-      replace(local.config_template, "ARCH_PLACEHOLDER", "amd64"),
-      "CONCURRENT_PLACEHOLDER", tostring(var.amd64_concurrent)
+      replace(
+        replace(local.config_template, "ARCH_PLACEHOLDER", "amd64"),
+        "CONCURRENT_PLACEHOLDER", tostring(var.amd64_concurrent)
+      ),
+      "HELPER_IMAGE_LINE_PLACEHOLDER", ""
     )
   }
 }
@@ -274,8 +369,30 @@ resource "kubernetes_config_map" "config_template_arm64" {
 
   data = {
     "config.toml.template" = replace(
-      replace(local.config_template, "ARCH_PLACEHOLDER", "arm64"),
-      "CONCURRENT_PLACEHOLDER", tostring(var.arm64_concurrent)
+      replace(
+        replace(local.config_template, "ARCH_PLACEHOLDER", "arm64"),
+        "CONCURRENT_PLACEHOLDER", tostring(var.arm64_concurrent)
+      ),
+      "HELPER_IMAGE_LINE_PLACEHOLDER", ""
+    )
+  }
+}
+
+resource "kubernetes_config_map" "config_template_any" {
+  metadata {
+    name      = "gitlab-runner-config-template-any"
+    namespace = var.namespace
+    labels    = merge(local.labels, { arch = "any" })
+  }
+
+  data = {
+    "config.toml.template" = replace(
+      replace(
+        local.config_template_any,
+        "CONCURRENT_PLACEHOLDER", tostring(var.any_concurrent)
+      ),
+      "HELPER_IMAGE_LINE_PLACEHOLDER",
+      "helper_image = \"registry.brmartin.co.uk/infrastructure/gitlab-runner-helper:${var.image_tag}\"\n    image_pull_secrets = [\"gitlab-runner-helper-pull\"]"
     )
   }
 }
@@ -319,7 +436,7 @@ resource "kubernetes_deployment" "runner_amd64" {
           image   = "busybox:1.37"
           command = ["/bin/sh", "-c"]
           args = [
-            "sed -e \"s/RUNNER_NAME_PLACEHOLDER/k8s-amd64/\" -e \"s/RUNNER_TOKEN_PLACEHOLDER/$RUNNER_TOKEN/\" -e \"s/MINIO_ACCESS_KEY_PLACEHOLDER/$MINIO_ACCESS_KEY/\" -e \"s/MINIO_SECRET_KEY_PLACEHOLDER/$MINIO_SECRET_KEY/\" /template/config.toml.template > /config/config.toml"
+            "sed -e \"s/RUNNER_NAME_PLACEHOLDER/k8s-amd64/\" -e \"s/RUNNER_TOKEN_PLACEHOLDER/$RUNNER_TOKEN/\" -e \"s/MINIO_ACCESS_KEY_PLACEHOLDER/$MINIO_ACCESS_KEY/\" -e \"s/MINIO_SECRET_KEY_PLACEHOLDER/$MINIO_SECRET_KEY/\" /template/config.toml.template > /config/config.toml && cp /system-id/system_id /config/.runner_system_id"
           ]
 
           env {
@@ -361,6 +478,11 @@ resource "kubernetes_deployment" "runner_amd64" {
             name       = "config"
             mount_path = "/config"
           }
+
+          volume_mount {
+            name       = "system-id"
+            mount_path = "/system-id"
+          }
         }
 
         container {
@@ -376,7 +498,7 @@ resource "kubernetes_deployment" "runner_amd64" {
           resources {
             requests = {
               cpu    = "100m"
-              memory = "128Mi"
+              memory = "64Mi"
             }
             limits = {
               cpu    = "500m"
@@ -389,6 +511,13 @@ resource "kubernetes_deployment" "runner_amd64" {
           name = "config-template"
           config_map {
             name = kubernetes_config_map.config_template_amd64.metadata[0].name
+          }
+        }
+
+        volume {
+          name = "system-id"
+          config_map {
+            name = kubernetes_config_map.system_id_amd64.metadata[0].name
           }
         }
 
@@ -442,7 +571,7 @@ resource "kubernetes_deployment" "runner_arm64" {
           image   = "busybox:1.37"
           command = ["/bin/sh", "-c"]
           args = [
-            "sed -e \"s/RUNNER_NAME_PLACEHOLDER/k8s-arm64/\" -e \"s/RUNNER_TOKEN_PLACEHOLDER/$RUNNER_TOKEN/\" -e \"s/MINIO_ACCESS_KEY_PLACEHOLDER/$MINIO_ACCESS_KEY/\" -e \"s/MINIO_SECRET_KEY_PLACEHOLDER/$MINIO_SECRET_KEY/\" /template/config.toml.template > /config/config.toml"
+            "sed -e \"s/RUNNER_NAME_PLACEHOLDER/k8s-arm64/\" -e \"s/RUNNER_TOKEN_PLACEHOLDER/$RUNNER_TOKEN/\" -e \"s/MINIO_ACCESS_KEY_PLACEHOLDER/$MINIO_ACCESS_KEY/\" -e \"s/MINIO_SECRET_KEY_PLACEHOLDER/$MINIO_SECRET_KEY/\" /template/config.toml.template > /config/config.toml && cp /system-id/system_id /config/.runner_system_id"
           ]
 
           env {
@@ -484,6 +613,11 @@ resource "kubernetes_deployment" "runner_arm64" {
             name       = "config"
             mount_path = "/config"
           }
+
+          volume_mount {
+            name       = "system-id"
+            mount_path = "/system-id"
+          }
         }
 
         container {
@@ -499,7 +633,7 @@ resource "kubernetes_deployment" "runner_arm64" {
           resources {
             requests = {
               cpu    = "100m"
-              memory = "128Mi"
+              memory = "64Mi"
             }
             limits = {
               cpu    = "500m"
@@ -516,6 +650,13 @@ resource "kubernetes_deployment" "runner_arm64" {
         }
 
         volume {
+          name = "system-id"
+          config_map {
+            name = kubernetes_config_map.system_id_arm64.metadata[0].name
+          }
+        }
+
+        volume {
           name = "config"
           empty_dir {}
         }
@@ -527,13 +668,147 @@ resource "kubernetes_deployment" "runner_arm64" {
 }
 
 # =============================================================================
+# Any-arch Runner (no node_selector — job pods float to any available node)
+# Handles all untagged jobs. The amd64/arm64 runners have run_untagged=false
+# in GitLab and only accept jobs explicitly tagged with "amd64" or "arm64".
+# =============================================================================
+
+resource "kubernetes_deployment" "runner_any" {
+  metadata {
+    name      = "gitlab-runner-any"
+    namespace = var.namespace
+    labels    = merge(local.labels, { arch = "any" })
+  }
+
+  spec {
+    replicas = 1
+    strategy {
+      type = "Recreate"
+    }
+
+    selector {
+      match_labels = merge(local.labels, { arch = "any" })
+    }
+
+    template {
+      metadata {
+        labels = merge(local.labels, { arch = "any" })
+      }
+
+      spec {
+        service_account_name = kubernetes_service_account.runner.metadata[0].name
+
+        # No node_selector on the runner process pod — let K8s place it anywhere.
+
+        # Init container to generate config from template + secret
+        init_container {
+          name    = "config-generator"
+          image   = "busybox:1.37"
+          command = ["/bin/sh", "-c"]
+          args = [
+            "sed -e \"s/RUNNER_NAME_PLACEHOLDER/k8s-any/\" -e \"s/RUNNER_TOKEN_PLACEHOLDER/$RUNNER_TOKEN/\" -e \"s/MINIO_ACCESS_KEY_PLACEHOLDER/$MINIO_ACCESS_KEY/\" -e \"s/MINIO_SECRET_KEY_PLACEHOLDER/$MINIO_SECRET_KEY/\" /template/config.toml.template > /config/config.toml && cp /system-id/system_id /config/.runner_system_id"
+          ]
+
+          env {
+            name = "RUNNER_TOKEN"
+            value_from {
+              secret_key_ref {
+                name = "gitlab-runner-secrets"
+                key  = "runner_token_any"
+              }
+            }
+          }
+
+          env {
+            name = "MINIO_ACCESS_KEY"
+            value_from {
+              secret_key_ref {
+                name = var.cache_s3_secret_name
+                key  = "accesskey"
+              }
+            }
+          }
+
+          env {
+            name = "MINIO_SECRET_KEY"
+            value_from {
+              secret_key_ref {
+                name = var.cache_s3_secret_name
+                key  = "secretkey"
+              }
+            }
+          }
+
+          volume_mount {
+            name       = "config-template"
+            mount_path = "/template"
+          }
+
+          volume_mount {
+            name       = "config"
+            mount_path = "/config"
+          }
+
+          volume_mount {
+            name       = "system-id"
+            mount_path = "/system-id"
+          }
+        }
+
+        container {
+          name  = "gitlab-runner"
+          image = "${var.image}:${var.image_tag}"
+          args  = ["run", "--config", "/config/config.toml"]
+
+          volume_mount {
+            name       = "config"
+            mount_path = "/config"
+          }
+
+          resources {
+            requests = {
+              cpu    = "100m"
+              memory = "64Mi"
+            }
+            limits = {
+              cpu    = "500m"
+              memory = "256Mi"
+            }
+          }
+        }
+
+        volume {
+          name = "config-template"
+          config_map {
+            name = kubernetes_config_map.config_template_any.metadata[0].name
+          }
+        }
+
+        volume {
+          name = "system-id"
+          config_map {
+            name = kubernetes_config_map.system_id_any.metadata[0].name
+          }
+        }
+
+        volume {
+          name = "config"
+          empty_dir {}
+        }
+      }
+    }
+  }
+}
+
+# =============================================================================
 # Secret for runner tokens
 # =============================================================================
 # Note: gitlab-runner-secrets is managed manually (Vault removed 2026-01)
-# The secret must exist with keys: runner_token_amd64, runner_token_arm64
+# The secret must exist with keys: runner_token_amd64, runner_token_arm64, runner_token_any
 #
 # To create/update:
 #   kubectl create secret generic gitlab-runner-secrets \
 #     --from-literal=runner_token_amd64=glrt-xxx \
 #     --from-literal=runner_token_arm64=glrt-yyy \
+#     --from-literal=runner_token_any=glrt-zzz \
 #     --dry-run=client -o yaml | kubectl apply -f -

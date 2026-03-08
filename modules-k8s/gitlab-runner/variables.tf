@@ -64,3 +64,9 @@ variable "arm64_concurrent" {
   type        = number
   default     = 2
 }
+
+variable "any_concurrent" {
+  description = "Max concurrent jobs for the any-arch runner (no node_selector, picks up untagged jobs)"
+  type        = number
+  default     = 3
+}
