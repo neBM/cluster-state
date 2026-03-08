@@ -152,7 +152,7 @@ variable "webservice_cpu_request" {
 variable "workhorse_memory_request" {
   description = "Workhorse memory request"
   type        = string
-  default     = "64Mi"
+  default     = "32Mi"
 }
 
 variable "workhorse_memory_limit" {
@@ -228,7 +228,7 @@ variable "registry_cpu_request" {
 variable "redis_memory_request" {
   description = "Redis memory request"
   type        = string
-  default     = "64Mi"
+  default     = "32Mi"
 }
 
 variable "redis_memory_limit" {

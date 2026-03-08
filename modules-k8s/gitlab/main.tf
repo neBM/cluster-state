@@ -160,6 +160,8 @@ production:
       - "10.42.0.0/16"
       - "10.43.0.0/16"
     time_zone: "Europe/London"
+    action_cable_allowed_origins:
+      - "https://${var.gitlab_hostname}"
     
   artifacts:
     enabled: true
@@ -750,7 +752,7 @@ resource "kubernetes_deployment" "webservice" {
 
           env {
             name  = "WORKER_PROCESSES"
-            value = "1"
+            value = "2"
           }
 
           env {
