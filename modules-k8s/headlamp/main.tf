@@ -58,6 +58,7 @@ resource "kubernetes_deployment" "headlamp" {
             "-oidc-idp-issuer-url=${var.oidc_issuer_url}",
             "-oidc-scopes=${var.oidc_scopes}",
             "-oidc-callback-url=https://${var.ingress_hostname}/oidc-callback",
+            "-log-level=debug",
           ]
 
           env {
@@ -68,6 +69,11 @@ resource "kubernetes_deployment" "headlamp" {
                 key  = "client-secret"
               }
             }
+          }
+
+          env {
+            name  = "GODEBUG"
+            value = "http2client=0"
           }
 
           port {
