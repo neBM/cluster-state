@@ -278,43 +278,32 @@ module "k8s_jayne_martin_counselling" {
 }
 
 # =============================================================================
-# ELK Stack Migration (006-elk-k8s-migration)
+# Loki + Alloy (011-loki-migration)
 # =============================================================================
 
-# ELK Stack - Elasticsearch and Kibana
-# Single-node Elasticsearch cluster on GlusterFS
-# Migrated from 3-node Nomad cluster
-module "k8s_elk" {
-  source = "./modules-k8s/elk"
+# Loki - Log aggregation backend (replaces Elasticsearch for log storage)
+# Monolithic mode, MinIO-backed S3 storage, 30-day retention
+module "k8s_loki" {
+  source = "./modules-k8s/loki"
 
-  namespace        = "default"
-  es_hostname      = "es.brmartin.co.uk"
-  kibana_hostname  = "kibana.brmartin.co.uk"
-  es_image_tag     = "9.2.3"
-  kibana_image_tag = "9.2.3"
+  namespace         = "default"
+  minio_endpoint    = "minio-api.default.svc.cluster.local:9000"
+  minio_bucket      = "loki"
+  minio_secret_name = "loki-minio"
+  retention_period  = "720h"
+}
 
-  # Increased from 1Gi - OOM during Fleet policy deployment
-  kibana_memory_request = "1Gi"
-  kibana_memory_limit   = "2Gi"
+# Alloy - Log collection DaemonSet (replaces Elastic Agent for log shipping)
+# Tails /var/log/pods on all nodes, ships to Loki with structured labels
+module "k8s_alloy" {
+  source = "./modules-k8s/alloy"
+
+  namespace = "default"
+  loki_url  = "http://loki.default.svc.cluster.local:3100/loki/api/v1/push"
 }
 
 # =============================================================================
 # Observability
-# =============================================================================
-
-# Elastic Agent - K8s log collection via Fleet
-# DaemonSet collects container logs from all nodes
-# Enrollment token stored in elastic-system/elastic-agent-enrollment secret
-module "k8s_elastic_agent" {
-  source = "./modules-k8s/elastic-agent"
-
-  namespace                    = "elastic-system"
-  fleet_url                    = "https://192.168.1.5:8220" # hestia.lan - use IP for K8s DNS compatibility
-  fleet_insecure               = true                       # Fleet Server uses self-signed cert
-  enrollment_token_secret_name = "elastic-agent-enrollment"
-  enrollment_token_secret_key  = "token"
-  # Image defaults set in module variables with renovate comments
-}
 
 # VictoriaMetrics - Metrics collection and monitoring
 # Drop-in Prometheus replacement with better efficiency
@@ -362,6 +351,7 @@ module "k8s_grafana" {
   keycloak_url       = "https://sso.brmartin.co.uk"
   keycloak_realm     = "prod"
   keycloak_client_id = "grafana"
+  loki_url           = "http://loki.default.svc.cluster.local:3100"
 }
 
 # Meshery - Service mesh management for Cilium
