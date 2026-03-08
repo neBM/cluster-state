@@ -74,11 +74,8 @@ terraform apply tfplan
 ### Kubernetes
 
 ```bash
-# Set KUBECONFIG for all kubectl commands
-export KUBECONFIG=~/.kube/k3s-config
-
-# Or prefix each command
-KUBECONFIG=~/.kube/k3s-config kubectl get pods
+# KUBECONFIG is already set in the shell environment — kubectl works directly
+kubectl get pods
 
 # Common commands
 kubectl get pods -n default
@@ -105,69 +102,42 @@ kubectl rollout restart deployment/<name> -n default
 /usr/bin/ssh 192.168.1.5 "rsync -av --progress <src>/ <dst>/"
 ```
 
-## Observability (Elasticsearch)
+## Observability (Loki)
 
-Logs are collected from all Docker containers and shipped to Elasticsearch.
+Logs are collected from all pods and host system journals by Grafana Alloy (DaemonSet) and shipped to Grafana Loki. Query logs via **Grafana Explore** at https://grafana.brmartin.co.uk — select the "Loki" datasource.
 
-### API Access
-
-```bash
-# Cluster health
-curl -s -H "Authorization: ApiKey $ELASTIC_API_KEY" \
-  "https://es.brmartin.co.uk/_cluster/health?pretty"
-```
-
-### Common Log Queries
+### Common LogQL Queries
 
 ```bash
-# Count logs by container (last hour)
-curl -s -H "Authorization: ApiKey $ELASTIC_API_KEY" \
-  "https://es.brmartin.co.uk/.ds-logs-docker.container_logs-*/_search" \
-  -H "Content-Type: application/json" -d '{
-  "size": 0,
-  "query": {"bool": {"must": [{"range": {"@timestamp": {"gte": "now-1h"}}}]}},
-  "aggs": {"by_container": {"terms": {"field": "container.name", "size": 20}}}
-}' | jq '.aggregations.by_container.buckets'
+# All logs from the default namespace (last 1h) — run via Loki API
+LOKI_POD=$(kubectl get pod -l app.kubernetes.io/name=loki -n default -o name | head -1)
 
 # Recent logs from a specific container
-curl -s -H "Authorization: ApiKey $ELASTIC_API_KEY" \
-  "https://es.brmartin.co.uk/.ds-logs-docker.container_logs-*/_search" \
-  -H "Content-Type: application/json" -d '{
-  "size": 20,
-  "query": {"bool": {"must": [
-    {"range": {"@timestamp": {"gte": "now-1h"}}},
-    {"wildcard": {"container.name": "gitlab*"}}
-  ]}},
-  "sort": [{"@timestamp": "desc"}],
-  "_source": ["@timestamp", "container.name", "message"]
-}' | jq '.hits.hits[]._source'
+kubectl exec -n default $LOKI_POD -- \
+  wget -qO- 'http://localhost:3100/loki/api/v1/query_range?query={namespace="default",container="gitlab-webservice"}&limit=20'
 
-# Search for errors
-curl -s -H "Authorization: ApiKey $ELASTIC_API_KEY" \
-  "https://es.brmartin.co.uk/.ds-logs-docker.container_logs-*/_search" \
-  -H "Content-Type: application/json" -d '{
-  "size": 10,
-  "query": {"bool": {"must": [
-    {"range": {"@timestamp": {"gte": "now-1h"}}},
-    {"match_phrase": {"message": "error"}}
-  ]}},
-  "sort": [{"@timestamp": "desc"}]
-}' | jq '.hits.hits[]._source'
+# Count log entries by container (last hour)
+# Use Grafana Explore with: sum by (container) (count_over_time({namespace="default"}[1h]))
 
-# Log rate per minute (useful for diagnosing noisy services)
-curl -s -H "Authorization: ApiKey $ELASTIC_API_KEY" \
-  "https://es.brmartin.co.uk/.ds-logs-docker.container_logs-*/_search" \
-  -H "Content-Type: application/json" -d '{
-  "size": 0,
-  "query": {"bool": {"must": [
-    {"range": {"@timestamp": {"gte": "now-1h"}}},
-    {"wildcard": {"container.name": "SERVICE*"}}
-  ]}},
-  "aggs": {"per_minute": {"date_histogram": {"field": "@timestamp", "fixed_interval": "1m"}}}
-}' | jq '.aggregations.per_minute.buckets[-10:] | map({time: .key_as_string, count: .doc_count})'
+# Search for errors across all pods
+# LogQL: {cluster="k3s-homelab"} |= "error"
+
+# Log rate per minute for a specific service
+# LogQL: sum(rate({namespace="default",container="traefik"}[1m]))
+
+# Journal logs (systemd units)
+# LogQL: {job="journal"} | unit="k3s.service"
+
+# Syslog / auth.log
+# LogQL: {job="node/syslog"}
+# LogQL: {job="node/auth"}
 ```
 
-Note: The `message` field is `match_only_text` type, so it cannot be used in aggregations - only in searches.
+### Label Schema
+
+All logs carry these labels: `namespace`, `pod`, `container`, `node`, `cluster="k3s-homelab"`, `job`
+
+Host logs additionally carry: `unit` (journal), `job="node/syslog"` or `job="node/auth"`
 
 ## Naming Conventions
 
@@ -332,7 +302,7 @@ When services report "stale file handle" errors after NFS changes or node restar
 /usr/bin/ssh 192.168.1.X "sudo sync && echo 3 | sudo tee /proc/sys/vm/drop_caches"
 
 # 2. Delete the affected pod (K8s will recreate with fresh mounts)
-KUBECONFIG=~/.kube/k3s-config kubectl delete pod <pod-name> -n default
+kubectl delete pod <pod-name> -n default
 ```
 
 **Severe cases:** If kernel NFS client cache is deeply corrupted (e.g., after cluster instability or sustained fileid changes), a **full node reboot** may be required to clear the kernel NFS client cache completely.
@@ -342,7 +312,7 @@ KUBECONFIG=~/.kube/k3s-config kubectl delete pod <pod-name> -n default
 **PVC stuck in Pending:**
 ```bash
 # Check provisioner logs
-KUBECONFIG=~/.kube/k3s-config kubectl logs -l app=nfs-subdir-external-provisioner -n default
+kubectl logs -l app=nfs-subdir-external-provisioner -n default
 
 # Common causes:
 # - NFS server unreachable (check NFS mount on provisioner node)
@@ -353,17 +323,17 @@ KUBECONFIG=~/.kube/k3s-config kubectl logs -l app=nfs-subdir-external-provisione
 **Directory not created:**
 ```bash
 # Check PVC events
-KUBECONFIG=~/.kube/k3s-config kubectl describe pvc <pvc-name>
+kubectl describe pvc <pvc-name>
 
 # Verify NFS mount on provisioner's node
-KUBECONFIG=~/.kube/k3s-config kubectl get pod -l app=nfs-subdir-external-provisioner -o wide
+kubectl get pod -l app=nfs-subdir-external-provisioner -o wide
 /usr/bin/ssh <node-ip> "mount | grep storage"
 ```
 
 **Verify provisioner is running:**
 ```bash
-KUBECONFIG=~/.kube/k3s-config kubectl get pods -l app=nfs-subdir-external-provisioner
-KUBECONFIG=~/.kube/k3s-config kubectl get storageclass glusterfs-nfs
+kubectl get pods -l app=nfs-subdir-external-provisioner
+kubectl get storageclass glusterfs-nfs
 ```
 
 ### NVIDIA GPU / Device Plugin
@@ -377,10 +347,10 @@ The NVIDIA device plugin can silently stop advertising GPUs while its pod remain
 /usr/bin/ssh 192.168.1.5 "nvidia-smi"
 
 # Check K8s GPU capacity (should show 2)
-KUBECONFIG=~/.kube/k3s-config kubectl describe node hestia | grep nvidia.com/gpu
+kubectl describe node hestia | grep nvidia.com/gpu
 
 # Fix: restart the device plugin pod
-KUBECONFIG=~/.kube/k3s-config kubectl delete pod -n kube-system -l app=nvidia-device-plugin-daemonset
+kubectl delete pod -n kube-system -l app=nvidia-device-plugin-daemonset
 ```
 
 ### GlusterFS Socket Limitations
@@ -490,8 +460,6 @@ glab api "projects/<id>/pipelines?ref=main&status=success&per_page=1"
 ## Links
 
 - GitLab: https://git.brmartin.co.uk
-- Kibana: https://kibana.brmartin.co.uk
-- Elasticsearch: https://es.brmartin.co.uk
 - MinIO Console: https://minio.brmartin.co.uk
 - Keycloak (SSO): https://sso.brmartin.co.uk
 - VictoriaMetrics: https://victoriametrics.brmartin.co.uk
@@ -522,7 +490,8 @@ glab api "projects/<id>/pipelines?ref=main&status=success&per_page=1"
 | plex | StatefulSet | Media server, NVIDIA GPU, sqlite3 .backup CronJob to MinIO |
 
 | tautulli | Deployment | Plex monitoring/statistics |
-| elk | StatefulSet+Deployment | Elasticsearch 9.x multi-node (2 data + 1 tiebreaker) + Kibana 9.x, data on local NVMe |
+| loki | Deployment | Log aggregation backend (MinIO-backed S3 storage, 30-day retention) |
+| alloy | DaemonSet | Log collection — tails pod logs + journal + syslog on all 3 nodes, ships to Loki |
 | athenaeum | Multiple | Knowledge wiki (backend, frontend, redis), Keycloak SSO, Ollama for fact extraction |
 | headlamp | Deployment | K8s web dashboard, Keycloak OIDC, kube-system namespace |
 | jayne-martin-counselling | Deployment | Static counselling website |
@@ -531,7 +500,6 @@ glab api "projects/<id>/pipelines?ref=main&status=success&per_page=1"
 | victoriametrics | Deployment | Metrics collection (Prometheus replacement), MinIO backup |
 | node-exporter | DaemonSet | Host metrics collection |
 | kube-state-metrics | Deployment | Kubernetes object metrics |
-| elastic-agent | DaemonSet | K8s log collection via Fleet, elastic-system namespace |
 | hubble-ui | Deployment | Cilium network flow visualization, kube-system namespace |
 | goldilocks | Deployment | VPA recommendations dashboard, kube-system namespace |
 
@@ -541,13 +509,14 @@ glab api "projects/<id>/pipelines?ref=main&status=success&per_page=1"
 - GlusterFS via NFS-Ganesha at `/storage/v/` on all nodes
 - NFS Subdir External Provisioner for dynamic PVC provisioning
 - MinIO (litestream backups)
-- Elasticsearch 9.x multi-node cluster (2 data nodes + 1 voting-only tiebreaker)
-- Kibana 9.x (K8s Deployment)
+- Grafana Loki 3.x (monolithic, MinIO-backed S3 storage, 30-day retention)
+- Grafana Alloy 1.x DaemonSet (pod logs + systemd journal + syslog/auth collection)
 - GitLab CNG container images (registry.gitlab.com/gitlab-org/build/cng)
 - External PostgreSQL (192.168.1.10:5433) for GitLab
-- local-path-retain StorageClass for ES data nodes (50GB each on local NVMe)
+- HCL (Terraform 1.x) — same as all other modules
 
 ## Recent Changes
+- 011-loki-migration: Replaced 3-node Elasticsearch + Kibana + Elastic Agent with Grafana Loki (monolithic, MinIO-backed) + Grafana Alloy DaemonSet; freed ~100GB NVMe and ~11GB RAM
 - 011-traefik-encoded-slash: Enabled `allowEncodedSlash` on both Traefik instances so GitLab API slugs (`namespace%2Fproject`) work correctly with `glab`
 - 010-observability-stack: Added VictoriaMetrics, Grafana, and Meshery for cluster observability
 - 009-es-multi-node-cluster: Migrated Elasticsearch from single-node on GlusterFS to 3-node cluster (2 data + 1 tiebreaker) on local NVMe storage

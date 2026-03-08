@@ -117,3 +117,9 @@ variable "vault_secret_path" {
   description = "Vault secret path for Grafana credentials"
   default     = "nomad/default/grafana"
 }
+
+variable "loki_url" {
+  type        = string
+  description = "Loki base URL for datasource provisioning"
+  default     = "http://loki.default.svc.cluster.local:3100"
+}
