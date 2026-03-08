@@ -139,7 +139,7 @@ resource "kubernetes_deployment" "provisioner" {
           resources {
             requests = {
               cpu    = "50m"
-              memory = "64Mi"
+              memory = "32Mi"
             }
             limits = {
               cpu    = "200m"

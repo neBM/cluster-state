@@ -186,7 +186,7 @@ resource "kubernetes_deployment" "nginx_sites" {
           resources {
             requests = {
               cpu    = "50m"
-              memory = "64Mi"
+              memory = "32Mi"
             }
             limits = {
               cpu    = "200m"
@@ -239,7 +239,7 @@ resource "kubernetes_deployment" "nginx_sites" {
           resources {
             requests = {
               cpu    = "100m"
-              memory = "64Mi"
+              memory = "32Mi"
             }
             limits = {
               cpu    = "500m"
