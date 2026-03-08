@@ -478,7 +478,6 @@ resource "kubernetes_stateful_set" "plex" {
   }
 
   depends_on = [
-    kubectl_manifest.external_secret,
     kubernetes_persistent_volume_claim.plex_config,
   ]
 }
@@ -908,47 +907,6 @@ resource "kubectl_manifest" "tautulli_ingressroute" {
   })
 }
 
-# =============================================================================
-# External Secret for MinIO credentials
-# =============================================================================
-
-resource "kubectl_manifest" "external_secret" {
-  yaml_body = yamlencode({
-    apiVersion = "external-secrets.io/v1"
-    kind       = "ExternalSecret"
-    metadata = {
-      name      = "media-centre-secrets"
-      namespace = var.namespace
-      labels = {
-        app        = "media-centre"
-        managed-by = "terraform"
-      }
-    }
-    spec = {
-      refreshInterval = "1h"
-      secretStoreRef = {
-        name = "vault-backend"
-        kind = "ClusterSecretStore"
-      }
-      target = {
-        name = "media-centre-secrets"
-      }
-      data = [
-        {
-          secretKey = "MINIO_ACCESS_KEY"
-          remoteRef = {
-            key      = "nomad/default/media-centre"
-            property = "MINIO_ACCESS_KEY"
-          }
-        },
-        {
-          secretKey = "MINIO_SECRET_KEY"
-          remoteRef = {
-            key      = "nomad/default/media-centre"
-            property = "MINIO_SECRET_KEY"
-          }
-        }
-      ]
-    }
-  })
-}
+# Media centre secrets are managed outside Terraform as a plain Kubernetes Secret.
+# Secret name: media-centre-secrets
+# Keys: MINIO_ACCESS_KEY, MINIO_SECRET_KEY

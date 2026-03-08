@@ -168,7 +168,6 @@ resource "kubernetes_deployment" "keycloak" {
     }
   }
 
-  depends_on = [kubectl_manifest.external_secret]
 }
 
 resource "kubernetes_service" "keycloak" {

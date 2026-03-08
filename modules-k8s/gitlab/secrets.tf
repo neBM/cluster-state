@@ -14,40 +14,13 @@
 # 6. gitlab-registry-auth (gitlab-registry.key, gitlab-registry.crt) - Extracted from Omnibus, applied via kubectl
 
 # =============================================================================
-# Database Password (from Vault via External Secrets Operator)
+# Database Password
 # =============================================================================
-
-# This is the only secret managed via Terraform - it pulls from Vault
-resource "kubectl_manifest" "external_secret" {
-  yaml_body = yamlencode({
-    apiVersion = "external-secrets.io/v1"
-    kind       = "ExternalSecret"
-    metadata = {
-      name      = "gitlab-secrets"
-      namespace = var.namespace
-    }
-    spec = {
-      refreshInterval = "1h"
-      secretStoreRef = {
-        name = "vault-backend"
-        kind = "ClusterSecretStore"
-      }
-      target = {
-        name           = "gitlab-secrets"
-        creationPolicy = "Owner"
-      }
-      data = [
-        {
-          secretKey = "db_password"
-          remoteRef = {
-            key      = "nomad/default/gitlab"
-            property = "db_password"
-          }
-        }
-      ]
-    }
-  })
-}
+#
+# gitlab-secrets (db_password) is managed outside Terraform as a plain Kubernetes Secret.
+# Create/update with:
+#   kubectl create secret generic gitlab-secrets --from-literal=db_password=<value> \
+#     -n default --dry-run=client -o yaml | kubectl apply -f -
 
 # =============================================================================
 # Manual Secret Creation Instructions

@@ -214,7 +214,6 @@ resource "kubernetes_deployment" "open_webui" {
   }
 
   depends_on = [
-    kubectl_manifest.external_secret,
     kubernetes_deployment.valkey,
     kubernetes_persistent_volume_claim.data,
   ]
@@ -335,58 +334,6 @@ resource "kubectl_manifest" "ingressroute" {
   })
 }
 
-# =============================================================================
-# External Secret
-# =============================================================================
-
-resource "kubectl_manifest" "external_secret" {
-  yaml_body = yamlencode({
-    apiVersion = "external-secrets.io/v1"
-    kind       = "ExternalSecret"
-    metadata = {
-      name      = "open-webui-secrets"
-      namespace = var.namespace
-      labels    = local.app_labels
-    }
-    spec = {
-      refreshInterval = "1h"
-      secretStoreRef = {
-        name = "vault-backend"
-        kind = "ClusterSecretStore"
-      }
-      target = {
-        name = "open-webui-secrets"
-      }
-      data = [
-        {
-          secretKey = "OAUTH_CLIENT_SECRET"
-          remoteRef = {
-            key      = "nomad/default/open-webui"
-            property = "OAUTH_CLIENT_SECRET"
-          }
-        },
-        {
-          secretKey = "WEBUI_SECRET_KEY"
-          remoteRef = {
-            key      = "nomad/default/open-webui"
-            property = "WEBUI_SECRET_KEY"
-          }
-        },
-        {
-          secretKey = "DATABASE_URL"
-          remoteRef = {
-            key      = "nomad/default/open-webui"
-            property = "DATABASE_URL"
-          }
-        },
-        {
-          secretKey = "POSTGRES_PASSWORD"
-          remoteRef = {
-            key      = "nomad/default/open-webui"
-            property = "POSTGRES_PASSWORD"
-          }
-        }
-      ]
-    }
-  })
-}
+# Open WebUI secrets are managed outside Terraform as a plain Kubernetes Secret.
+# Secret name: open-webui-secrets
+# Keys: OAUTH_CLIENT_SECRET, WEBUI_SECRET_KEY, DATABASE_URL, POSTGRES_PASSWORD

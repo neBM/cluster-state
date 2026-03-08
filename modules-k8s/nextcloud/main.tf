@@ -313,7 +313,6 @@ resource "kubernetes_deployment" "nextcloud" {
   }
 
   depends_on = [
-    kubectl_manifest.external_secret,
     kubernetes_persistent_volume_claim.config,
     kubernetes_persistent_volume_claim.custom_apps,
     kubernetes_persistent_volume_claim.data,

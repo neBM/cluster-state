@@ -7,52 +7,9 @@ locals {
   }
 }
 
-# ExternalSecret to pull credentials from Vault
-resource "kubectl_manifest" "external_secret" {
-  yaml_body = yamlencode({
-    apiVersion = "external-secrets.io/v1"
-    kind       = "ExternalSecret"
-    metadata = {
-      name      = "${local.app_name}-secrets"
-      namespace = var.namespace
-      labels    = local.labels
-    }
-    spec = {
-      refreshInterval = "1h"
-      secretStoreRef = {
-        name = "vault-backend"
-        kind = "ClusterSecretStore"
-      }
-      target = {
-        name           = "${local.app_name}-secrets"
-        creationPolicy = "Owner"
-      }
-      data = [
-        {
-          secretKey = "DATABASE_URL"
-          remoteRef = {
-            key      = "nomad/data/default/vaultwarden"
-            property = "DATABASE_URL"
-          }
-        },
-        {
-          secretKey = "SMTP_PASSWORD"
-          remoteRef = {
-            key      = "nomad/data/default/vaultwarden"
-            property = "SMTP_PASSWORD"
-          }
-        },
-        {
-          secretKey = "ADMIN_TOKEN"
-          remoteRef = {
-            key      = "nomad/data/default/vaultwarden"
-            property = "ADMIN_TOKEN"
-          }
-        }
-      ]
-    }
-  })
-}
+# Vaultwarden secrets are managed outside Terraform as a plain Kubernetes Secret.
+# Secret name: vaultwarden-secrets
+# Keys: DATABASE_URL, SMTP_PASSWORD, ADMIN_TOKEN
 
 # =============================================================================
 # Persistent Volume Claims (glusterfs-nfs)
@@ -241,7 +198,6 @@ resource "kubernetes_deployment" "vaultwarden" {
   }
 
   depends_on = [
-    kubectl_manifest.external_secret,
     kubernetes_persistent_volume_claim.data,
   ]
 }

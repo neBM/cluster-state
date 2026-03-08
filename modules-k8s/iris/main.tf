@@ -217,7 +217,7 @@ resource "kubernetes_deployment" "api" {
             value = "/data/iris/hls-sessions"
           }
 
-          # Sensitive config from ExternalSecret → iris-secrets
+          # Sensitive config from iris-secrets (plain Kubernetes Secret)
           env {
             name = "DATABASE_URL"
             value_from {

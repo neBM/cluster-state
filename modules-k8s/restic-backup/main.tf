@@ -221,40 +221,8 @@ resource "kubernetes_cron_job_v1" "restic_backup" {
     }
   }
 
-  depends_on = [kubectl_manifest.external_secret]
 }
 
-# =============================================================================
-# External Secret
-# =============================================================================
-
-resource "kubectl_manifest" "external_secret" {
-  yaml_body = yamlencode({
-    apiVersion = "external-secrets.io/v1"
-    kind       = "ExternalSecret"
-    metadata = {
-      name      = "restic-backup-secrets"
-      namespace = var.namespace
-      labels    = local.labels
-    }
-    spec = {
-      refreshInterval = "1h"
-      secretStoreRef = {
-        name = "vault-backend"
-        kind = "ClusterSecretStore"
-      }
-      target = {
-        name = "restic-backup-secrets"
-      }
-      data = [
-        {
-          secretKey = "RESTIC_PASSWORD"
-          remoteRef = {
-            key      = "nomad/default/restic-backup"
-            property = "RESTIC_PASSWORD"
-          }
-        }
-      ]
-    }
-  })
-}
+# Restic backup secrets are managed outside Terraform as a plain Kubernetes Secret.
+# Secret name: restic-backup-secrets
+# Keys: RESTIC_PASSWORD

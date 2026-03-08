@@ -44,11 +44,6 @@ module "k8s_nfs_provisioner" {
   reclaim_policy     = "Retain"
 }
 
-# Vault integration for External Secrets Operator
-module "k8s_vault_integration" {
-  source = "./k8s/core/vault-integration"
-}
-
 # CI Service Account for GitLab CI/CD pipelines
 # Provides limited RBAC permissions for Terraform to manage K8s resources
 module "k8s_ci_service_account" {

@@ -26,4 +26,9 @@ resource "kubernetes_storage_class" "glusterfs_nfs" {
 
   # Allow volume expansion (no-op for NFS, but required for some workflows)
   allow_volume_expansion = false
+
+  # Suppress SELinux xattr lookups (EOPNOTSUPP) on NFS mounts.
+  # NFS does not support security.selinux xattrs, so the kernel logs a warning
+  # for every inode access. A fixed context label prevents per-inode getxattr calls.
+  mount_options = ["context=system_u:object_r:nfs_t:s0"]
 }

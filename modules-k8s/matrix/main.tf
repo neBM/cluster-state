@@ -499,7 +499,6 @@ resource "kubernetes_deployment" "synapse" {
   }
 
   depends_on = [
-    kubectl_manifest.external_secret,
     kubernetes_persistent_volume_claim.synapse_data,
     kubernetes_persistent_volume_claim.media_store,
   ]
@@ -609,7 +608,6 @@ resource "kubernetes_deployment" "mas" {
   }
 
   depends_on = [
-    kubectl_manifest.external_secret,
     kubernetes_persistent_volume_claim.mas_config,
   ]
 }

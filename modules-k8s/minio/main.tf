@@ -140,7 +140,6 @@ resource "kubernetes_deployment" "minio" {
     }
   }
 
-  depends_on = [kubectl_manifest.external_secret]
 }
 
 # Service for S3 API - NodePort so Nomad services can reach it
