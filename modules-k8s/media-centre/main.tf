@@ -410,7 +410,7 @@ resource "kubernetes_stateful_set" "plex" {
           resources {
             requests = {
               cpu    = "100m"
-              memory = "700Mi"
+              memory = "300Mi"
             }
             limits = {
               cpu              = "4"
