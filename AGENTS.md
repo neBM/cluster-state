@@ -207,6 +207,51 @@ volume {
 
 ## Debugging Tips
 
+### Mail Stack Operations
+
+**lldap admin UI**: https://ldap.brmartin.co.uk — local admin credentials in `lldap-admin-secret` K8s secret.
+
+**Add a new mail account**:
+1. Log into lldap, create user with `mail=user@brmartin.co.uk`
+2. Add user to `mail-users` group
+3. Set password via: `kubectl exec -n default -l app=lldap -- /app/lldap_set_password --base-url http://localhost:17170 --admin-username admin --admin-password <pw> --username <user> --password <pw>`
+4. Create mailbox directory (handled automatically by Dovecot on first login)
+
+**Disable a mail account**: Remove user from `mail-users` group in lldap. Dovecot's passdb group check enforces this — auth fails immediately.
+
+**DKIM key rotation** (if keys need to change):
+```bash
+kubectl create secret generic dkim-keys -n default \
+  --from-file=brmartin.co.uk.dkim.key=<new_key_file> \
+  --dry-run=client -o yaml | kubectl apply -f -
+kubectl rollout restart deployment/rspamd -n default
+```
+
+**Rspamd web UI** (port-forward): `kubectl port-forward -n default svc/rspamd 11334:11334`
+
+**Dovecot common commands**:
+```bash
+# Test LDAP auth
+kubectl exec -n default dovecot-0 -- doveadm auth test user@brmartin.co.uk <password>
+# List mailboxes
+kubectl exec -n default dovecot-0 -- doveadm mailbox list -u user@brmartin.co.uk
+# Message counts
+kubectl exec -n default dovecot-0 -- doveadm mailbox status -u user@brmartin.co.uk "messages" INBOX
+# Recent errors
+kubectl exec -n default dovecot-0 -- doveadm log errors
+```
+
+**Migrate a new mailbox** (if mailcow-encrypted source): Use the dovecot-decrypt container pattern — see TASK notes in `specs/012-k8s-mail-server/tasks.md`. Plain Maildir sources: `rsync -av --chown=5000:5000 <src>/Maildir/ /storage/v/glusterfs_dovecot_mailboxes/<domain>/<user>/Maildir/`
+
+**mail-tls secret renewal**: When the wildcard cert renews, re-copy to default namespace:
+```bash
+kubectl get secret wildcard-brmartin-tls -n traefik -o yaml \
+  | sed 's/namespace: traefik/namespace: default/' \
+  | kubectl apply -f -
+kubectl delete pod dovecot-0 -n default  # restart to reload TLS cert
+kubectl rollout restart deployment/postfix -n default
+```
+
 ### Litestream Issues
 - Check logs: `kubectl logs <pod> -c litestream`
 - "database disk image is malformed" during checkpoint = WAL/database mismatch
@@ -489,6 +534,8 @@ glab api "projects/<id>/pipelines?ref=main&status=success&per_page=1"
 | plextraktsync | CronJob | Plex/Trakt sync (every 2 hours) |
 | plex | StatefulSet | Media server, NVIDIA GPU, sqlite3 .backup CronJob to MinIO |
 
+| lldap | Deployment | Lightweight LDAP — user/group store for mail stack; admin UI at ldap.brmartin.co.uk (local admin credentials); Keycloak federates users READ_ONLY |
+| mail | Multiple | Postfix (SMTP), Dovecot (IMAP/POP3/LMTP), Rspamd (spam+DKIM), SoGO (webmail), mail-redis; mailboxes on glusterfs-nfs PVC; DKIM keys in `dkim-keys` Secret; TLS via `mail-tls` Secret; mail ports via hostPort on Hestia |
 | tautulli | Deployment | Plex monitoring/statistics |
 | loki | Deployment | Log aggregation backend (MinIO-backed S3 storage, 30-day retention) |
 | alloy | DaemonSet | Log collection — tails pod logs + journal + syslog on all 3 nodes, ships to Loki |
@@ -514,8 +561,10 @@ glab api "projects/<id>/pipelines?ref=main&status=success&per_page=1"
 - GitLab CNG container images (registry.gitlab.com/gitlab-org/build/cng)
 - External PostgreSQL (192.168.1.10:5433) for GitLab
 - HCL (Terraform 1.x) — same as all other modules
+- External PostgreSQL (192.168.1.10:5433) for lldap and SoGO (mail stack)
 
 ## Recent Changes
+- 012-k8s-mail-server: Migrated mailcow to standalone K8s mail stack (Postfix+Dovecot+Rspamd+SoGO+lldap); mailcow Docker Compose decommissioned; Keycloak LDAP federation configured; Dovecot group-enforcement via two-passdb chain (mail-users group in lldap)
 - 011-loki-migration: Replaced 3-node Elasticsearch + Kibana + Elastic Agent with Grafana Loki (monolithic, MinIO-backed) + Grafana Alloy DaemonSet; freed ~100GB NVMe and ~11GB RAM
 - 011-traefik-encoded-slash: Enabled `allowEncodedSlash` on both Traefik instances so GitLab API slugs (`namespace%2Fproject`) work correctly with `glab`
 - 010-observability-stack: Added VictoriaMetrics, Grafana, and Meshery for cluster observability

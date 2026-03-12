@@ -372,6 +372,33 @@ module "k8s_headlamp" {
   oidc_client_id   = "headlamp"
 }
 
+# lldap - Lightweight LDAP identity store (mail stack + Keycloak federation)
+# Secrets pre-created with kubectl — see modules-k8s/lldap/secrets.tf
+module "k8s_lldap" {
+  source = "./modules-k8s/lldap"
+
+  namespace    = "default"
+  hostname     = "ldap.brmartin.co.uk"
+  ldap_base_dn = "dc=brmartin,dc=co,dc=uk"
+}
+
+# mail - Kubernetes-native mail stack (Postfix + Dovecot + Rspamd + Redis + SoGO)
+# Secrets pre-created with kubectl — see modules-k8s/mail/secrets.tf
+module "k8s_mail" {
+  source = "./modules-k8s/mail"
+
+  namespace    = "default"
+  hostname     = "mail.brmartin.co.uk"
+  lldap_host   = "lldap.default.svc.cluster.local"
+  ldap_base_dn = "dc=brmartin,dc=co,dc=uk"
+  domains      = ["brmartin.co.uk", "martinilink.co.uk"]
+
+  db_host      = "192.168.1.10"
+  db_port      = 5433
+  sogo_db_name = "sogo"
+  sogo_db_user = "sogo"
+}
+
 # Iris - Self-hosted media server (Movies & TV)
 module "k8s_iris" {
   source = "./modules-k8s/iris"
