@@ -122,6 +122,14 @@ resource "kubernetes_cluster_role" "ci" {
     verbs      = ["get", "list", "watch", "create", "update", "patch", "delete"]
   }
 
+  # CRD discovery — required by the kubernetes_manifest Terraform resource to
+  # resolve GVKs (e.g. CiliumNetworkPolicy) before applying manifests
+  rule {
+    api_groups = ["apiextensions.k8s.io"]
+    resources  = ["customresourcedefinitions"]
+    verbs      = ["get", "list", "watch"]
+  }
+
   # Policy API (PodDisruptionBudgets)
   rule {
     api_groups = ["policy"]
