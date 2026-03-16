@@ -80,7 +80,7 @@ resource "kubernetes_persistent_volume" "synology_docker" {
     # "synology-nfs-static" is a static-only class (no provisioner).
     # Must match the PVC storage_class_name for Kubernetes to bind them.
     storage_class_name = "synology-nfs-static"
-    mount_options      = ["soft"]
+    mount_options      = ["soft", "timeo=150", "retrans=3"]
     persistent_volume_source {
       nfs {
         server = "192.168.1.10"
@@ -118,7 +118,7 @@ resource "kubernetes_persistent_volume" "synology_share" {
     access_modes                     = ["ReadWriteMany"]
     persistent_volume_reclaim_policy = "Retain"
     storage_class_name               = "synology-nfs-static"
-    mount_options                    = ["soft"]
+    mount_options                    = ["soft", "timeo=150", "retrans=3"]
     persistent_volume_source {
       nfs {
         server = "192.168.1.10"

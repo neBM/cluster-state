@@ -65,7 +65,7 @@ resource "kubernetes_persistent_volume" "synology_media" {
     access_modes                     = ["ReadOnlyMany"]
     persistent_volume_reclaim_policy = "Retain"
     storage_class_name               = "synology-nfs-static"
-    mount_options                    = ["soft", "ro"]
+    mount_options                    = ["soft", "ro", "timeo=150", "retrans=3"]
     persistent_volume_source {
       nfs {
         server    = var.media_nfs_server

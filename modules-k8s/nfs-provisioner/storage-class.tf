@@ -27,8 +27,16 @@ resource "kubernetes_storage_class" "glusterfs_nfs" {
   # Allow volume expansion (no-op for NFS, but required for some workflows)
   allow_volume_expansion = false
 
-  # Suppress SELinux xattr lookups (EOPNOTSUPP) on NFS mounts.
+  # soft: return EIO to the application after retrans failures instead of
+  # blocking the kernel NFS thread indefinitely. On localhost NFS-Ganesha, an
+  # unresponsive server means the local daemon is already dead — failing fast
+  # prevents a single stalled mount from freezing the entire node.
+  #
+  # timeo=30: 3-second major timeout per attempt (timeo is in tenths of a second).
+  # retrans=3: retry up to 3 times before returning EIO (~9s total).
+  #
+  # context=...: suppress SELinux xattr lookups (EOPNOTSUPP) on NFS mounts.
   # NFS does not support security.selinux xattrs, so the kernel logs a warning
   # for every inode access. A fixed context label prevents per-inode getxattr calls.
-  mount_options = ["context=system_u:object_r:nfs_t:s0"]
+  mount_options = ["soft", "timeo=30", "retrans=3", "context=system_u:object_r:nfs_t:s0"]
 }

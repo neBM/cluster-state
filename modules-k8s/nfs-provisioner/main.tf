@@ -148,6 +148,11 @@ resource "kubernetes_deployment" "provisioner" {
           }
         }
 
+        # NOTE: inline nfs{} volumes do not support mount_options — that field
+        # only exists on PersistentVolume resources. This mount therefore uses
+        # kernel-default hard mount behaviour. Converting to a PV/PVC would
+        # allow soft mount options to be applied, but the blast radius of a
+        # hung provisioner pod is low (single pod, single mount).
         volume {
           name = "nfs-root"
           nfs {
