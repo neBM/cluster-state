@@ -374,8 +374,12 @@ resource "kubernetes_deployment" "web" {
             container_port = 8080
           }
 
-          # OIDC configuration for the SPA — injected into config.js at
+          # Auth mode + OIDC configuration for the SPA — injected into config.js at
           # container startup by docker-entrypoint.sh via envsubst.
+          env {
+            name  = "IRIS_AUTH_MODE"
+            value = var.auth_mode
+          }
           env {
             name  = "IRIS_OIDC_AUTHORITY"
             value = var.keycloak_issuer_url
