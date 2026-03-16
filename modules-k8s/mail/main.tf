@@ -682,7 +682,25 @@ resource "kubernetes_service" "postfix" {
   spec {
     selector = { app = "postfix" }
 
-    # Internal port for SoGO → Postfix submission
+    # externalIPs causes Cilium to create iptables DNAT rules on the node's
+    # physical interface (enp34s0) for inbound mail ports. hostPort alone does
+    # not work in Cilium VXLAN mode (no TC BPF filter on the physical NIC).
+    external_ips = [var.mail_node_ip]
+
+    port {
+      name        = "smtp"
+      port        = 25
+      target_port = 25
+      protocol    = "TCP"
+    }
+
+    port {
+      name        = "smtps"
+      port        = 465
+      target_port = 465
+      protocol    = "TCP"
+    }
+
     port {
       name        = "submission"
       port        = 587
@@ -1138,7 +1156,11 @@ resource "kubernetes_service" "dovecot" {
   spec {
     selector = { app = "dovecot" }
 
-    # LMTP — Postfix delivers mail here
+    # externalIPs causes Cilium to create iptables DNAT rules on the node's
+    # physical interface (enp34s0) for inbound mail client ports.
+    external_ips = [var.mail_node_ip]
+
+    # Internal cluster ports
     port {
       name        = "lmtp"
       port        = 24
@@ -1146,7 +1168,6 @@ resource "kubernetes_service" "dovecot" {
       protocol    = "TCP"
     }
 
-    # SASL — Postfix delegates SMTP AUTH here
     port {
       name        = "sasl"
       port        = 12345
@@ -1154,11 +1175,39 @@ resource "kubernetes_service" "dovecot" {
       protocol    = "TCP"
     }
 
-    # IMAP — SoGO accesses mailboxes here
+    # External mail client ports
     port {
       name        = "imap"
       port        = 143
       target_port = 143
+      protocol    = "TCP"
+    }
+
+    port {
+      name        = "imaps"
+      port        = 993
+      target_port = 993
+      protocol    = "TCP"
+    }
+
+    port {
+      name        = "pop3"
+      port        = 110
+      target_port = 110
+      protocol    = "TCP"
+    }
+
+    port {
+      name        = "pop3s"
+      port        = 995
+      target_port = 995
+      protocol    = "TCP"
+    }
+
+    port {
+      name        = "sieve"
+      port        = 4190
+      target_port = 4190
       protocol    = "TCP"
     }
 
@@ -1235,6 +1284,7 @@ resource "kubernetes_manifest" "np_dovecot" {
     spec = {
       endpointSelector = { matchLabels = { app = "dovecot" } }
       ingress = [
+        # Postfix: LMTP delivery and SASL auth
         {
           fromEndpoints = [{ matchLabels = { app = "postfix" } }]
           toPorts = [
@@ -1242,9 +1292,21 @@ resource "kubernetes_manifest" "np_dovecot" {
             { ports = [{ port = "12345", protocol = "TCP" }] },
           ]
         },
+        # SoGO: internal IMAP access
         {
           fromEndpoints = [{ matchLabels = { app = "sogo" } }]
           toPorts       = [{ ports = [{ port = "143", protocol = "TCP" }, { port = "993", protocol = "TCP" }] }]
+        },
+        # External mail clients (IMAP/POP3) via externalIPs service
+        {
+          fromCIDR = ["0.0.0.0/0"]
+          toPorts = [{ ports = [
+            { port = "143", protocol = "TCP" },
+            { port = "993", protocol = "TCP" },
+            { port = "110", protocol = "TCP" },
+            { port = "995", protocol = "TCP" },
+            { port = "4190", protocol = "TCP" },
+          ] }]
         },
       ]
     }

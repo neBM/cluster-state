@@ -86,3 +86,9 @@ variable "sogo_db_user" {
   default     = "sogo"
 }
 
+variable "mail_node_ip" {
+  description = "LAN IP of the node running Postfix and Dovecot (used as externalIPs on services so Cilium creates iptables DNAT rules for inbound mail ports)"
+  type        = string
+  default     = "192.168.1.5"
+}
+
