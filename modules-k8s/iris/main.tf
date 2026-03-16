@@ -197,6 +197,14 @@ resource "kubernetes_deployment" "api" {
             value = "redis://iris-valkey.${var.namespace}.svc.cluster.local:6379/0"
           }
           env {
+            name  = "AUTH_MODE"
+            value = var.auth_mode
+          }
+          env {
+            name  = "LOCAL_AUTH_SESSION_TTL_SECONDS"
+            value = tostring(var.local_auth_session_ttl_seconds)
+          }
+          env {
             name  = "KEYCLOAK_ISSUER_URL"
             value = var.keycloak_issuer_url
           }

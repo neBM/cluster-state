@@ -31,14 +31,31 @@ variable "hostname" {
   default     = "iris.brmartin.co.uk"
 }
 
+variable "auth_mode" {
+  description = "Authentication backend: 'oidc' uses Keycloak (requires keycloak_issuer_url and keycloak_audience); 'local' uses built-in username/password"
+  type        = string
+  default     = "oidc"
+
+  validation {
+    condition     = contains(["local", "oidc"], var.auth_mode)
+    error_message = "auth_mode must be 'local' or 'oidc'."
+  }
+}
+
+variable "local_auth_session_ttl_seconds" {
+  description = "How long a local-auth session token remains valid (seconds). Only used when auth_mode = 'local'."
+  type        = number
+  default     = 86400
+}
+
 variable "keycloak_issuer_url" {
-  description = "Keycloak OIDC issuer URL used for JWT validation"
+  description = "Keycloak OIDC issuer URL used for JWT validation. Required when auth_mode = 'oidc'."
   type        = string
   default     = "https://sso.brmartin.co.uk/realms/prod"
 }
 
 variable "keycloak_audience" {
-  description = "Expected JWT audience (Keycloak client ID)"
+  description = "Expected JWT audience (Keycloak client ID). Required when auth_mode = 'oidc'."
   type        = string
   default     = "iris-api"
 }
