@@ -1,5 +1,11 @@
 # Mail stack secrets must be created manually before applying this module.
 #
+# Postfix outbound relay (Mailgun):
+#   kubectl create secret generic postfix-relay-secret -n default \
+#     --from-literal=RELAY_HOST='[smtp.mailgun.org]:587' \
+#     --from-literal=RELAY_USERNAME='postmaster@mg.brmartin.co.uk' \
+#     --from-literal=RELAY_PASSWORD='<mailgun-smtp-password>'
+#
 # DKIM private keys (extracted from mailcow Redis):
 #   kubectl create secret generic dkim-keys -n default \
 #     --from-file=brmartin.co.uk.dkim.key=<(redis-cli HGET DKIM_PRIV_KEYS dkim.brmartin.co.uk) \
@@ -32,6 +38,13 @@
 data "kubernetes_secret" "dkim_keys" {
   metadata {
     name      = "dkim-keys"
+    namespace = var.namespace
+  }
+}
+
+data "kubernetes_secret" "postfix_relay" {
+  metadata {
+    name      = "postfix-relay-secret"
     namespace = var.namespace
   }
 }

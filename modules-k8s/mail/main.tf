@@ -395,12 +395,24 @@ resource "kubernetes_config_map" "postfix_main" {
       postconf -e "non_smtpd_milters=inet:rspamd.default.svc.cluster.local:11332"
       postconf -e "milter_mail_macros=i {mail_addr} {client_addr} {client_name} {auth_authen}"
 
-      # Misc
-      postconf -e "inet_interfaces=all"
-      postconf -e "inet_protocols=ipv4"
-      postconf -e "compatibility_level=3.8"
+       # Outbound relay (Mailgun) — credentials injected from postfix-relay-secret
+       postconf -e "relayhost=$RELAY_HOST"
+       postconf -e "smtp_sasl_auth_enable=yes"
+       postconf -e "smtp_sasl_security_options=noanonymous"
+       postconf -e "smtp_sasl_tls_security_options=noanonymous"
+       postconf -e "smtp_tls_security_level=encrypt"
+       postconf -e "smtp_sasl_password_maps=hash:/etc/postfix/sasl_passwd"
+       echo "$RELAY_HOST $RELAY_USERNAME:$RELAY_PASSWORD" > /tmp/sasl_passwd
+       postmap /tmp/sasl_passwd
+       cp /tmp/sasl_passwd.db /etc/postfix/sasl_passwd.db
+       rm -f /tmp/sasl_passwd
 
-      # Build hash tables for virtual mailbox and alias maps
+       # Misc
+       postconf -e "inet_interfaces=all"
+       postconf -e "inet_protocols=ipv4"
+       postconf -e "compatibility_level=3.8"
+
+       # Build hash tables for virtual mailbox and alias maps
       cp /etc/postfix/vmailbox /tmp/vmailbox
       cp /etc/postfix/virtual /tmp/virtual_alias
       postmap /tmp/vmailbox
@@ -568,6 +580,36 @@ resource "kubernetes_stateful_set" "postfix" {
             host_port      = 587
             name           = "submission"
             protocol       = "TCP"
+          }
+
+          env {
+            name = "RELAY_HOST"
+            value_from {
+              secret_key_ref {
+                name = data.kubernetes_secret.postfix_relay.metadata[0].name
+                key  = "RELAY_HOST"
+              }
+            }
+          }
+
+          env {
+            name = "RELAY_USERNAME"
+            value_from {
+              secret_key_ref {
+                name = data.kubernetes_secret.postfix_relay.metadata[0].name
+                key  = "RELAY_USERNAME"
+              }
+            }
+          }
+
+          env {
+            name = "RELAY_PASSWORD"
+            value_from {
+              secret_key_ref {
+                name = data.kubernetes_secret.postfix_relay.metadata[0].name
+                key  = "RELAY_PASSWORD"
+              }
+            }
           }
 
           # tozd/postfix sources this file in its runit run script before Postfix starts
@@ -1347,10 +1389,13 @@ resource "kubernetes_manifest" "np_postfix" {
           toEndpoints = [{ matchLabels = { app = "lldap" } }]
           toPorts     = [{ ports = [{ port = "3890", protocol = "TCP" }] }]
         },
-        # External SMTP relay (outbound mail to internet)
+        # External SMTP — direct delivery (port 25) and Mailgun relay (port 587)
         {
-          toCIDR  = ["0.0.0.0/0"]
-          toPorts = [{ ports = [{ port = "25", protocol = "TCP" }] }]
+          toCIDR = ["0.0.0.0/0"]
+          toPorts = [{ ports = [
+            { port = "25", protocol = "TCP" },
+            { port = "587", protocol = "TCP" },
+          ] }]
         },
         # DNS resolution
         {
