@@ -1297,9 +1297,13 @@ resource "kubernetes_manifest" "np_dovecot" {
           fromEndpoints = [{ matchLabels = { app = "sogo" } }]
           toPorts       = [{ ports = [{ port = "143", protocol = "TCP" }, { port = "993", protocol = "TCP" }] }]
         },
-        # External mail clients (IMAP/POP3) via externalIPs service
+        # External mail clients (IMAP/POP3) via externalIPs service.
+        # fromEntities "world" covers external IPs; "host" covers traffic
+        # SNAT'd to cilium_host IP by Cilium kube-proxy-replacement before
+        # reaching the endpoint. fromCIDR 0.0.0.0/0 alone does NOT cover
+        # reserved:host identity in Cilium policy evaluation.
         {
-          fromCIDR = ["0.0.0.0/0"]
+          fromEntities = ["world", "host"]
           toPorts = [{ ports = [
             { port = "143", protocol = "TCP" },
             { port = "993", protocol = "TCP" },
