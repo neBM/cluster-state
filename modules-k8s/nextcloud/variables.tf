@@ -60,3 +60,21 @@ variable "db_user" {
   type        = string
   default     = "nextcloud"
 }
+
+variable "oidc_client_id" {
+  description = "OIDC client ID for Keycloak SSO"
+  type        = string
+  default     = "nextcloud"
+}
+
+variable "oidc_provider_url" {
+  description = "OIDC provider URL"
+  type        = string
+  default     = "https://sso.brmartin.co.uk/realms/prod"
+}
+
+variable "mail_smtp_user" {
+  description = "SMTP username for outgoing mail"
+  type        = string
+  default     = "ben@brmartin.co.uk"
+}
