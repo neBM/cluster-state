@@ -60,6 +60,18 @@ variable "keycloak_audience" {
   default     = "iris-api"
 }
 
+variable "oidc_admin_claim" {
+  description = "JWT claim name used for OIDC admin role mapping (e.g. 'groups'). Only used when auth_mode = 'oidc'. If empty, all OIDC users receive the Viewer role."
+  type        = string
+  default     = "groups"
+}
+
+variable "oidc_admin_value" {
+  description = "Value within the OIDC admin claim that grants the Admin role (e.g. 'iris-admin'). Only used when auth_mode = 'oidc'."
+  type        = string
+  default     = "iris-admin"
+}
+
 variable "media_nfs_server" {
   description = "NFS server hostname or IP that exports the media library"
   type        = string

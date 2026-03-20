@@ -213,6 +213,14 @@ resource "kubernetes_deployment" "api" {
             value = var.keycloak_audience
           }
           env {
+            name  = "OIDC_ADMIN_CLAIM"
+            value = var.oidc_admin_claim
+          }
+          env {
+            name  = "OIDC_ADMIN_VALUE"
+            value = var.oidc_admin_value
+          }
+          env {
             name  = "MEDIA_DIRS"
             value = var.media_dirs
           }
