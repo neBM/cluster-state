@@ -16,6 +16,7 @@ locals {
     app        = local.app_name
     managed-by = "terraform"
   }
+  server_labels = merge(local.labels, { component = "server" })
   valkey_labels = merge(local.labels, { component = "valkey" })
 }
 
@@ -159,19 +160,19 @@ resource "kubernetes_deployment" "iris" {
   metadata {
     name      = "iris"
     namespace = var.namespace
-    labels    = local.labels
+    labels    = local.server_labels
   }
 
   spec {
     replicas = 1
 
     selector {
-      match_labels = local.labels
+      match_labels = local.server_labels
     }
 
     template {
       metadata {
-        labels = local.labels
+        labels = local.server_labels
       }
 
       spec {
@@ -341,11 +342,11 @@ resource "kubernetes_service" "iris" {
   metadata {
     name      = "iris"
     namespace = var.namespace
-    labels    = local.labels
+    labels    = local.server_labels
   }
 
   spec {
-    selector = local.labels
+    selector = local.server_labels
     port {
       name        = "http"
       port        = 8080
