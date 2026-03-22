@@ -16,7 +16,6 @@ locals {
     app        = local.app_name
     managed-by = "terraform"
   }
-  api_labels    = merge(local.labels, { component = "api" })
   valkey_labels = merge(local.labels, { component = "valkey" })
 }
 
@@ -153,26 +152,26 @@ resource "kubernetes_service" "valkey" {
 }
 
 # =============================================================================
-# API Deployment + Service
+# Iris Deployment + Service  (unified Go binary with embedded SPA)
 # =============================================================================
 
-resource "kubernetes_deployment" "api" {
+resource "kubernetes_deployment" "iris" {
   metadata {
-    name      = "iris-api"
+    name      = "iris"
     namespace = var.namespace
-    labels    = local.api_labels
+    labels    = local.labels
   }
 
   spec {
     replicas = 1
 
     selector {
-      match_labels = local.api_labels
+      match_labels = local.labels
     }
 
     template {
       metadata {
-        labels = local.api_labels
+        labels = local.labels
       }
 
       spec {
@@ -181,7 +180,7 @@ resource "kubernetes_deployment" "api" {
         }
 
         container {
-          name  = "api"
+          name  = "iris"
           image = var.image
 
           port {
@@ -338,15 +337,15 @@ resource "kubernetes_deployment" "api" {
   # data.kubernetes_secret.iris is an implicit dependency via secret_key_ref references above.
 }
 
-resource "kubernetes_service" "api" {
+resource "kubernetes_service" "iris" {
   metadata {
-    name      = "iris-api"
+    name      = "iris"
     namespace = var.namespace
-    labels    = local.api_labels
+    labels    = local.labels
   }
 
   spec {
-    selector = local.api_labels
+    selector = local.labels
     port {
       name        = "http"
       port        = 8080
@@ -386,7 +385,7 @@ resource "kubernetes_ingress_v1" "iris" {
           path_type = "Prefix"
           backend {
             service {
-              name = kubernetes_service.api.metadata[0].name
+              name = kubernetes_service.iris.metadata[0].name
               port { number = 8080 }
             }
           }

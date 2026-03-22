@@ -1,6 +1,6 @@
 output "service_url" {
   description = "In-cluster URL for Iris (unified API + SPA server)"
-  value       = "http://iris-api.${var.namespace}.svc.cluster.local:8080"
+  value       = "http://iris.${var.namespace}.svc.cluster.local:8080"
 }
 
 output "ingress_url" {
