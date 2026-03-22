@@ -5,17 +5,10 @@ variable "namespace" {
 }
 
 # renovate: datasource=docker
-variable "api_image" {
-  description = "Iris API container image (registry.brmartin.co.uk/ben/iris/api:<sha>)"
+variable "image" {
+  description = "Iris unified container image — Go binary with embedded SPA (registry.brmartin.co.uk/ben/iris:<sha>)"
   type        = string
-  default     = "registry.brmartin.co.uk/ben/iris/api:latest"
-}
-
-# renovate: datasource=docker
-variable "web_image" {
-  description = "Iris web container image (registry.brmartin.co.uk/ben/iris/web:<sha>)"
-  type        = string
-  default     = "registry.brmartin.co.uk/ben/iris/web:latest"
+  default     = "registry.brmartin.co.uk/ben/iris:latest"
 }
 
 # renovate: datasource=docker
@@ -70,6 +63,24 @@ variable "oidc_admin_value" {
   description = "Value within the OIDC admin claim that grants the Admin role (e.g. 'iris-admin'). Only used when auth_mode = 'oidc'."
   type        = string
   default     = "iris-admin"
+}
+
+variable "oidc_client_id" {
+  description = "OIDC client ID for the SPA frontend. Required when auth_mode = 'oidc'. Served via the dynamic /config.js endpoint."
+  type        = string
+  default     = "iris"
+}
+
+variable "oidc_redirect_uri" {
+  description = "OIDC redirect URI for the SPA frontend. Required when auth_mode = 'oidc'. Defaults to https://<hostname>/."
+  type        = string
+  default     = ""
+}
+
+variable "oidc_silent_redirect_uri" {
+  description = "OIDC silent redirect URI for token renewal. Required when auth_mode = 'oidc'. Defaults to https://<hostname>/silent-renew.html."
+  type        = string
+  default     = ""
 }
 
 variable "media_nfs_server" {

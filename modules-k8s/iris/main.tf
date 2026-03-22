@@ -1,8 +1,7 @@
 # Iris - Self-hosted media server (Movies & TV)
 #
 # Components:
-#   api     — Go REST + WebSocket backend (port 8080)
-#   web     — React SPA served by nginx (port 8080)
+#   iris    — Unified Go binary with embedded React SPA (port 8080)
 #   valkey  — In-cluster Redis-compatible cache (port 6379)
 #
 # External dependencies (must exist before apply):
@@ -18,7 +17,6 @@ locals {
     managed-by = "terraform"
   }
   api_labels    = merge(local.labels, { component = "api" })
-  web_labels    = merge(local.labels, { component = "web" })
   valkey_labels = merge(local.labels, { component = "valkey" })
 }
 
@@ -184,7 +182,7 @@ resource "kubernetes_deployment" "api" {
 
         container {
           name  = "api"
-          image = var.api_image
+          image = var.image
 
           port {
             name           = "http"
@@ -219,6 +217,18 @@ resource "kubernetes_deployment" "api" {
           env {
             name  = "OIDC_ADMIN_VALUE"
             value = var.oidc_admin_value
+          }
+          env {
+            name  = "OIDC_CLIENT_ID"
+            value = var.oidc_client_id
+          }
+          env {
+            name  = "OIDC_REDIRECT_URI"
+            value = var.oidc_redirect_uri != "" ? var.oidc_redirect_uri : "https://${var.hostname}/"
+          }
+          env {
+            name  = "OIDC_SILENT_REDIRECT_URI"
+            value = var.oidc_silent_redirect_uri != "" ? var.oidc_silent_redirect_uri : "https://${var.hostname}/silent-renew.html"
           }
           env {
             name  = "MEDIA_DIRS"
@@ -346,103 +356,7 @@ resource "kubernetes_service" "api" {
 }
 
 # =============================================================================
-# Web Deployment + Service  (nginx serving SPA)
-# =============================================================================
-
-resource "kubernetes_deployment" "web" {
-  metadata {
-    name      = "iris-web"
-    namespace = var.namespace
-    labels    = local.web_labels
-  }
-
-  spec {
-    replicas = 1
-
-    selector {
-      match_labels = local.web_labels
-    }
-
-    template {
-      metadata {
-        labels = local.web_labels
-      }
-
-      spec {
-        image_pull_secrets {
-          name = "gitlab-registry"
-        }
-
-        container {
-          name  = "web"
-          image = var.web_image
-
-          port {
-            name           = "http"
-            container_port = 8080
-          }
-
-          # Auth mode + OIDC configuration for the SPA — injected into config.js at
-          # container startup by docker-entrypoint.sh via envsubst.
-          env {
-            name  = "IRIS_AUTH_MODE"
-            value = var.auth_mode
-          }
-          env {
-            name  = "IRIS_OIDC_AUTHORITY"
-            value = var.keycloak_issuer_url
-          }
-          env {
-            name  = "IRIS_OIDC_CLIENT_ID"
-            value = var.keycloak_audience
-          }
-          env {
-            name  = "IRIS_OIDC_REDIRECT_URI"
-            value = "https://${var.hostname}/callback"
-          }
-          env {
-            name  = "IRIS_OIDC_SILENT_REDIRECT_URI"
-            value = "https://${var.hostname}/silent-renew.html"
-          }
-
-          liveness_probe {
-            http_get {
-              path = "/"
-              port = 8080
-            }
-            initial_delay_seconds = 5
-            period_seconds        = 10
-          }
-
-          resources {
-            requests = { cpu = "50m", memory = "64Mi" }
-            limits   = { memory = "128Mi" }
-          }
-        }
-      }
-    }
-  }
-}
-
-resource "kubernetes_service" "web" {
-  metadata {
-    name      = "iris-web"
-    namespace = var.namespace
-    labels    = local.web_labels
-  }
-
-  spec {
-    selector = local.web_labels
-    port {
-      name        = "http"
-      port        = 8080
-      target_port = 8080
-    }
-  }
-}
-
-# =============================================================================
-# Ingress  (single hostname, path-based routing via Traefik)
+# Ingress  (single hostname, all traffic to unified server)
 # =============================================================================
 
 resource "kubernetes_ingress_v1" "iris" {
@@ -464,40 +378,11 @@ resource "kubernetes_ingress_v1" "iris" {
       secret_name = "wildcard-brmartin-tls"
     }
 
-    # Web SPA — catch-all, must be declared first so more-specific rules below take priority
     rule {
       host = var.hostname
       http {
         path {
           path      = "/"
-          path_type = "Prefix"
-          backend {
-            service {
-              name = kubernetes_service.web.metadata[0].name
-              port { number = 8080 }
-            }
-          }
-        }
-      }
-    }
-
-    # API and WebSocket routes — Traefik gives longer paths priority over /
-    rule {
-      host = var.hostname
-      http {
-        path {
-          path      = "/api"
-          path_type = "Prefix"
-          backend {
-            service {
-              name = kubernetes_service.api.metadata[0].name
-              port { number = 8080 }
-            }
-          }
-        }
-
-        path {
-          path      = "/ws"
           path_type = "Prefix"
           backend {
             service {
