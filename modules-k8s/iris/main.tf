@@ -242,6 +242,34 @@ resource "kubernetes_deployment" "iris" {
             name  = "HLS_TMP_BASE_DIR"
             value = "/data/iris/hls-sessions"
           }
+          env {
+            name  = "DB_MAX_CONNS"
+            value = tostring(var.db_max_conns)
+          }
+          env {
+            name  = "MAX_CONCURRENT_SESSIONS"
+            value = tostring(var.max_concurrent_sessions)
+          }
+          env {
+            name  = "TRANSCODE_WORKERS"
+            value = tostring(var.transcode_workers)
+          }
+          env {
+            name  = "SCANNER_PARALLELISM"
+            value = tostring(var.scanner_parallelism)
+          }
+          env {
+            name  = "IMAGE_CACHE_MAX_SIZE"
+            value = tostring(var.image_cache_max_size)
+          }
+          env {
+            name  = "TRUSTED_PROXIES"
+            value = var.trusted_proxies
+          }
+          env {
+            name  = "APP_ORIGIN"
+            value = var.app_origin != "" ? var.app_origin : "https://${var.hostname}"
+          }
 
           # Sensitive config from iris-secrets (plain Kubernetes Secret)
           env {

@@ -83,6 +83,48 @@ variable "oidc_silent_redirect_uri" {
   default     = ""
 }
 
+variable "db_max_conns" {
+  description = "Maximum number of PostgreSQL connections in the pool."
+  type        = number
+  default     = 10
+}
+
+variable "max_concurrent_sessions" {
+  description = "Maximum number of active streaming sessions system-wide. 0 means no cap."
+  type        = number
+  default     = 0
+}
+
+variable "transcode_workers" {
+  description = "Number of concurrent transcode queue workers."
+  type        = number
+  default     = 1
+}
+
+variable "scanner_parallelism" {
+  description = "Number of files the library scanner probes concurrently."
+  type        = number
+  default     = 4
+}
+
+variable "image_cache_max_size" {
+  description = "Maximum total size in bytes of the image cache directory. 0 means no eviction."
+  type        = number
+  default     = 0
+}
+
+variable "trusted_proxies" {
+  description = "Comma-separated list of proxy IPs/CIDRs whose X-Forwarded-For headers are trusted for client IP extraction."
+  type        = string
+  default     = "10.42.0.0/16"
+}
+
+variable "app_origin" {
+  description = "Allowed origin for WebSocket connections. Defaults to https://<hostname>."
+  type        = string
+  default     = ""
+}
+
 variable "media_nfs_server" {
   description = "NFS server hostname or IP that exports the media library"
   type        = string
