@@ -504,10 +504,13 @@ resource "kubernetes_config_map" "postfix_aliases" {
   data = {
     # Virtual alias map
     # martinilink.co.uk address forwarding
-    # services@ is a send-only address used by cluster apps; bounces go to ben@
+    # services@ is the From: address used by all cluster apps
+    # noreply@ is the Reply-To: for transactional emails (Keycloak etc.)
+    # both route to ben@ so bounces are not silently lost
     "virtual" = <<-EOT
       ben@martinilink.co.uk      ben@brmartin.co.uk
       services@brmartin.co.uk    ben@brmartin.co.uk
+      noreply@brmartin.co.uk     ben@brmartin.co.uk
     EOT
   }
 }
