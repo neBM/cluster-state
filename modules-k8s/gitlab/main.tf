@@ -125,6 +125,45 @@ resource "kubernetes_persistent_volume_claim" "registry" {
 # =============================================================================
 
 # GitLab Rails configuration templates
+# SMTP initializer — loaded by Rails at startup from config/initializers/.
+# Password injected via GITLAB_SMTP_PASSWORD env var (from gitlab-smtp-secret K8s secret).
+# kubectl create secret generic gitlab-smtp-secret -n default \
+#   --from-literal=SMTP_USERNAME='svc-gitlab' \
+#   --from-literal=SMTP_PASSWORD='<generated>'
+resource "kubernetes_config_map" "gitlab_smtp" {
+  metadata {
+    name      = "gitlab-smtp-config"
+    namespace = var.namespace
+    labels    = local.gitlab_labels
+  }
+
+  data = {
+    "smtp_settings.rb" = <<-RUBY
+      # Managed by Terraform — do not edit manually
+      # Loaded by Rails from config/initializers/smtp_settings.rb
+      if Rails.env.production?
+        ActionMailer::Base.delivery_method = :smtp
+        ActionMailer::Base.smtp_settings = {
+          address:              "mail.brmartin.co.uk",
+          port:                 587,
+          user_name:            ENV.fetch("GITLAB_SMTP_USERNAME"),
+          password:             ENV.fetch("GITLAB_SMTP_PASSWORD"),
+          domain:               "brmartin.co.uk",
+          authentication:       :login,
+          enable_starttls_auto: true,
+        }
+      end
+    RUBY
+  }
+}
+
+data "kubernetes_secret" "gitlab_smtp" {
+  metadata {
+    name      = "gitlab-smtp-secret"
+    namespace = var.namespace
+  }
+}
+
 resource "kubernetes_config_map" "gitlab_config" {
   metadata {
     name      = "gitlab-config-templates"
@@ -813,7 +852,7 @@ resource "kubernetes_deployment" "webservice" {
 
           volume_mount {
             name       = "shell-secret"
-            mount_path = "/etc/gitlab/gitlab-shell"
+            mount_path = "/etc/gitlab/registry"
             read_only  = true
           }
 
@@ -821,6 +860,34 @@ resource "kubernetes_deployment" "webservice" {
             name       = "registry-auth"
             mount_path = "/etc/gitlab/registry"
             read_only  = true
+          }
+
+          # SMTP initializer — loaded by Rails at startup
+          volume_mount {
+            name       = "smtp-config"
+            mount_path = "/srv/gitlab/config/initializers/smtp_settings.rb"
+            sub_path   = "smtp_settings.rb"
+            read_only  = true
+          }
+
+          env {
+            name = "GITLAB_SMTP_USERNAME"
+            value_from {
+              secret_key_ref {
+                name = data.kubernetes_secret.gitlab_smtp.metadata[0].name
+                key  = "SMTP_USERNAME"
+              }
+            }
+          }
+
+          env {
+            name = "GITLAB_SMTP_PASSWORD"
+            value_from {
+              secret_key_ref {
+                name = data.kubernetes_secret.gitlab_smtp.metadata[0].name
+                key  = "SMTP_PASSWORD"
+              }
+            }
           }
 
           resources {
@@ -926,6 +993,13 @@ resource "kubernetes_deployment" "webservice" {
             secret_name = "gitlab-registry-auth"
           }
         }
+
+        volume {
+          name = "smtp-config"
+          config_map {
+            name = kubernetes_config_map.gitlab_smtp.metadata[0].name
+          }
+        }
       }
     }
   }
@@ -934,6 +1008,7 @@ resource "kubernetes_deployment" "webservice" {
     kubernetes_deployment.redis,
     kubernetes_deployment.gitaly,
     kubernetes_config_map.gitlab_config,
+    kubernetes_config_map.gitlab_smtp,
     kubernetes_persistent_volume_claim.uploads,
     kubernetes_persistent_volume_claim.shared,
   ]
@@ -1260,6 +1335,34 @@ resource "kubernetes_deployment" "sidekiq" {
             read_only  = true
           }
 
+          # SMTP initializer — Sidekiq sends mail for background jobs (e.g. notifications)
+          volume_mount {
+            name       = "smtp-config"
+            mount_path = "/srv/gitlab/config/initializers/smtp_settings.rb"
+            sub_path   = "smtp_settings.rb"
+            read_only  = true
+          }
+
+          env {
+            name = "GITLAB_SMTP_USERNAME"
+            value_from {
+              secret_key_ref {
+                name = data.kubernetes_secret.gitlab_smtp.metadata[0].name
+                key  = "SMTP_USERNAME"
+              }
+            }
+          }
+
+          env {
+            name = "GITLAB_SMTP_PASSWORD"
+            value_from {
+              secret_key_ref {
+                name = data.kubernetes_secret.gitlab_smtp.metadata[0].name
+                key  = "SMTP_PASSWORD"
+              }
+            }
+          }
+
           resources {
             requests = {
               cpu    = var.sidekiq_cpu_request
@@ -1340,6 +1443,13 @@ resource "kubernetes_deployment" "sidekiq" {
             secret_name = "gitlab-workhorse"
           }
         }
+
+        volume {
+          name = "smtp-config"
+          config_map {
+            name = kubernetes_config_map.gitlab_smtp.metadata[0].name
+          }
+        }
       }
     }
   }
@@ -1348,6 +1458,7 @@ resource "kubernetes_deployment" "sidekiq" {
     kubernetes_deployment.redis,
     kubernetes_deployment.gitaly,
     kubernetes_config_map.gitlab_config,
+    kubernetes_config_map.gitlab_smtp,
   ]
 }
 

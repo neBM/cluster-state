@@ -1,5 +1,50 @@
 # Mail stack secrets must be created manually before applying this module.
 #
+# ─── Cluster app SMTP service accounts ────────────────────────────────────────
+# Each cluster app that sends mail gets a dedicated lldap service account in the
+# mail-senders group (SMTP submission only — no IMAP). All apps send as:
+#   From: services@brmartin.co.uk
+#   SMTP: mail.brmartin.co.uk:587  (CoreDNS rewrites to postfix.default.svc.cluster.local)
+#
+# One-time bootstrap (run after first deploy):
+#
+#   LLDAP_POD=$(kubectl get pod -n default -l app=lldap -o name | head -1)
+#   kubectl port-forward -n default svc/lldap 17170:17170 &
+#   ADMIN_PW=$(kubectl get secret lldap-admin-secret -n default -o jsonpath='{.data.LLDAP_LDAP_USER_PASS}' | base64 -d)
+#   TOKEN=$(curl -s -X POST http://localhost:17170/auth/simple/login \
+#     -H 'Content-Type: application/json' \
+#     -d "{\"username\":\"admin\",\"password\":\"$ADMIN_PW\"}" \
+#     | python3 -c "import sys,json; print(json.load(sys.stdin)['token'])")
+#
+#   # Create mail-senders group
+#   SENDERS_GID=$(curl -s -X POST http://localhost:17170/api/graphql \
+#     -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+#     -d '{"query":"mutation { createGroup(name: \"mail-senders\") { id } }"}' \
+#     | python3 -c "import sys,json; print(json.load(sys.stdin)['data']['createGroup']['id'])")
+#
+#   # For each app in: grafana vaultwarden nextcloud gitlab keycloak
+#   for APP in grafana vaultwarden nextcloud gitlab keycloak; do
+#     PW=$(openssl rand -base64 24)
+#     # Create user
+#     curl -s -X POST http://localhost:17170/api/graphql \
+#       -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+#       -d "{\"query\":\"mutation { createUser(user: { id: \\\"svc-$APP\\\", email: \\\"svc-$APP@brmartin.co.uk\\\", displayName: \\\"$APP SMTP\\\" }) { id } }\"}"
+#     # Add to mail-senders
+#     curl -s -X POST http://localhost:17170/api/graphql \
+#       -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+#       -d "{\"query\":\"mutation { addUserToGroup(userId: \\\"svc-$APP\\\", groupId: $SENDERS_GID) { ok } }\"}"
+#     # Set password
+#     kubectl exec -n default $LLDAP_POD -- /app/lldap_set_password \
+#       --base-url http://localhost:17170 --admin-username admin \
+#       --admin-password "$ADMIN_PW" --username "svc-$APP" --password "$PW"
+#     # Create K8s secret
+#     kubectl create secret generic "${APP}-smtp-secret" -n default \
+#       --from-literal=SMTP_USERNAME="svc-$APP" \
+#       --from-literal=SMTP_PASSWORD="$PW"
+#     echo "Created svc-$APP / ${APP}-smtp-secret"
+#   done
+#   kill %1  # stop port-forward
+#
 # Postfix outbound relay (Mailgun):
 #   kubectl create secret generic postfix-relay-secret -n default \
 #     --from-literal=RELAY_HOST='[smtp.mailgun.org]:587' \

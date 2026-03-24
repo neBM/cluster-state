@@ -74,7 +74,7 @@ variable "oidc_provider_url" {
 }
 
 variable "mail_smtp_user" {
-  description = "SMTP username for outgoing mail"
+  description = "SMTP username for outgoing mail (lldap service account in mail-senders group)"
   type        = string
-  default     = "ben@brmartin.co.uk"
+  default     = "svc-nextcloud"
 }

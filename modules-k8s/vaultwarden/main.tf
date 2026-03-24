@@ -96,8 +96,13 @@ resource "kubernetes_deployment" "vaultwarden" {
           }
 
           env {
-            name  = "SMTP_USERNAME"
-            value = "ben@brmartin.co.uk"
+            name = "SMTP_USERNAME"
+            value_from {
+              secret_key_ref {
+                name = "${local.app_name}-secrets"
+                key  = "SMTP_USERNAME"
+              }
+            }
           }
 
           env {

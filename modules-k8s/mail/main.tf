@@ -502,8 +502,13 @@ resource "kubernetes_config_map" "postfix_aliases" {
   }
 
   data = {
-    # Virtual alias map — migrated from mailcow: ben@martinilink.co.uk → ben@brmartin.co.uk
-    "virtual" = "ben@martinilink.co.uk    ben@brmartin.co.uk\n"
+    # Virtual alias map
+    # martinilink.co.uk address forwarding
+    # services@ is a send-only address used by cluster apps; bounces go to ben@
+    "virtual" = <<-EOT
+      ben@martinilink.co.uk      ben@brmartin.co.uk
+      services@brmartin.co.uk    ben@brmartin.co.uk
+    EOT
   }
 }
 
@@ -918,7 +923,9 @@ resource "kubernetes_config_map" "dovecot_ldap" {
       scope = subtree
 
       # Succeeds only if user is in mail-users group; returns no password (nopassword).
-      pass_filter = (&(objectClass=groupOfNames)(cn=mail-users)(member=uid=%n,${local.ldap_people_dn}))
+      # mail-users: human mailbox accounts (IMAP + SMTP submission)
+      # mail-senders: cluster service accounts (SMTP submission only, no IMAP)
+      pass_filter = (&(objectClass=groupOfNames)(|(cn=mail-users)(cn=mail-senders))(member=uid=%n,${local.ldap_people_dn}))
       pass_attrs = =nopassword=y
     EOF
   }
