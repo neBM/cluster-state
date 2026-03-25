@@ -32,11 +32,17 @@ resource "kubernetes_storage_class" "glusterfs_nfs" {
   # unresponsive server means the local daemon is already dead — failing fast
   # prevents a single stalled mount from freezing the entire node.
   #
+  # softerr: NFSv4-specific complement to soft. With soft alone, NFSv4 enters
+  # session recovery on RPC timeout and blocks in D state indefinitely —
+  # SIGKILL cannot reach processes in this state. softerr (Linux 5.10+) bypasses
+  # session recovery and returns EIO immediately when timeo*retrans expires,
+  # making soft actually effective for NFSv4 mounts.
+  #
   # timeo=30: 3-second major timeout per attempt (timeo is in tenths of a second).
   # retrans=3: retry up to 3 times before returning EIO (~9s total).
   #
   # context=...: suppress SELinux xattr lookups (EOPNOTSUPP) on NFS mounts.
   # NFS does not support security.selinux xattrs, so the kernel logs a warning
   # for every inode access. A fixed context label prevents per-inode getxattr calls.
-  mount_options = ["soft", "timeo=30", "retrans=3", "context=system_u:object_r:nfs_t:s0"]
+  mount_options = ["soft", "softerr", "timeo=30", "retrans=3", "context=system_u:object_r:nfs_t:s0"]
 }
