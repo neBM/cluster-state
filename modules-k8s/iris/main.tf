@@ -271,7 +271,21 @@ resource "kubernetes_deployment" "iris" {
             value = var.app_origin != "" ? var.app_origin : "https://${var.hostname}"
           }
 
+          env {
+            name  = "PLEX_CLIENT_ID"
+            value = var.plex_client_id
+          }
+
           # Sensitive config from iris-secrets (plain Kubernetes Secret)
+          env {
+            name = "SECRET_KEY"
+            value_from {
+              secret_key_ref {
+                name = data.kubernetes_secret.iris.metadata[0].name
+                key  = "SECRET_KEY"
+              }
+            }
+          }
           env {
             name = "DATABASE_URL"
             value_from {
@@ -285,8 +299,9 @@ resource "kubernetes_deployment" "iris" {
             name = "TMDB_API_KEY"
             value_from {
               secret_key_ref {
-                name = data.kubernetes_secret.iris.metadata[0].name
-                key  = "TMDB_API_KEY"
+                name     = data.kubernetes_secret.iris.metadata[0].name
+                key      = "TMDB_API_KEY"
+                optional = true
               }
             }
           }
@@ -294,8 +309,29 @@ resource "kubernetes_deployment" "iris" {
             name = "TVDB_API_KEY"
             value_from {
               secret_key_ref {
-                name = data.kubernetes_secret.iris.metadata[0].name
-                key  = "TVDB_API_KEY"
+                name     = data.kubernetes_secret.iris.metadata[0].name
+                key      = "TVDB_API_KEY"
+                optional = true
+              }
+            }
+          }
+          env {
+            name = "TRAKT_CLIENT_ID"
+            value_from {
+              secret_key_ref {
+                name     = data.kubernetes_secret.iris.metadata[0].name
+                key      = "TRAKT_CLIENT_ID"
+                optional = true
+              }
+            }
+          }
+          env {
+            name = "TRAKT_CLIENT_SECRET"
+            value_from {
+              secret_key_ref {
+                name     = data.kubernetes_secret.iris.metadata[0].name
+                key      = "TRAKT_CLIENT_SECRET"
+                optional = true
               }
             }
           }

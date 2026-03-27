@@ -83,6 +83,12 @@ variable "oidc_silent_redirect_uri" {
   default     = ""
 }
 
+variable "plex_client_id" {
+  description = "Stable X-Plex-Client-Identifier UUID for this Iris installation. If empty, a UUID is generated at startup and persisted in the settings table."
+  type        = string
+  default     = ""
+}
+
 variable "db_max_conns" {
   description = "Maximum number of PostgreSQL connections in the pool."
   type        = number
