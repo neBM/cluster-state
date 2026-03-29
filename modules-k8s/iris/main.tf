@@ -195,8 +195,8 @@ resource "kubernetes_deployment" "iris" {
             value = "redis://iris-valkey.${var.namespace}.svc.cluster.local:6379/0"
           }
           env {
-            name  = "AUTH_MODE"
-            value = var.auth_mode
+            name  = "AUTH_PROVIDERS"
+            value = var.auth_providers
           }
           env {
             name  = "LOCAL_AUTH_SESSION_TTL_SECONDS"
@@ -229,6 +229,10 @@ resource "kubernetes_deployment" "iris" {
           env {
             name  = "OIDC_SILENT_REDIRECT_URI"
             value = var.oidc_silent_redirect_uri != "" ? var.oidc_silent_redirect_uri : "https://${var.hostname}/silent-renew.html"
+          }
+          env {
+            name  = "OIDC_PROVIDER_NAME"
+            value = var.oidc_provider_name
           }
           env {
             name  = "MEDIA_DIRS"

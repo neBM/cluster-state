@@ -24,19 +24,19 @@ variable "hostname" {
   default     = "iris.brmartin.co.uk"
 }
 
-variable "auth_mode" {
-  description = "Authentication backend: 'oidc' uses Keycloak (requires keycloak_issuer_url and keycloak_audience); 'local' uses built-in username/password"
+variable "auth_providers" {
+  description = "Comma-separated list of active authentication providers. Valid values: 'local', 'oidc', or 'local,oidc'."
   type        = string
   default     = "oidc"
 
   validation {
-    condition     = contains(["local", "oidc"], var.auth_mode)
-    error_message = "auth_mode must be 'local' or 'oidc'."
+    condition     = alltrue([for p in split(",", var.auth_providers) : contains(["local", "oidc"], trimspace(p))])
+    error_message = "auth_providers must be a comma-separated list of 'local' and/or 'oidc'."
   }
 }
 
 variable "local_auth_session_ttl_seconds" {
-  description = "How long a local-auth session token remains valid (seconds). Only used when auth_mode = 'local'."
+  description = "How long a local-auth session token remains valid (seconds). Only used when auth_providers includes 'local'."
   type        = number
   default     = 86400
 }
@@ -78,9 +78,15 @@ variable "oidc_redirect_uri" {
 }
 
 variable "oidc_silent_redirect_uri" {
-  description = "OIDC silent redirect URI for token renewal. Required when auth_mode = 'oidc'. Defaults to https://<hostname>/silent-renew.html."
+  description = "OIDC silent redirect URI for token renewal. Only used when auth_providers includes 'oidc'. Defaults to https://<hostname>/silent-renew.html."
   type        = string
   default     = ""
+}
+
+variable "oidc_provider_name" {
+  description = "Display name for the OIDC provider shown in the login picker UI (e.g. 'Keycloak', 'Google'). Only used when auth_providers includes 'oidc'."
+  type        = string
+  default     = "SSO"
 }
 
 variable "plex_client_id" {
