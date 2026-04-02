@@ -852,7 +852,7 @@ resource "kubernetes_deployment" "webservice" {
 
           volume_mount {
             name       = "shell-secret"
-            mount_path = "/etc/gitlab/registry"
+            mount_path = "/etc/gitlab/gitlab-shell"
             read_only  = true
           }
 
