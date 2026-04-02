@@ -238,6 +238,24 @@ resource "kubernetes_deployment" "nextcloud" {
           }
         }
 
+        # Fix ownership of config.php on the NFS-backed config PVC.
+        # The Nextcloud entrypoint creates config.php as root during first-run
+        # initialisation, but Apache runs as www-data (uid 33). Without this,
+        # Nextcloud returns 503 ("Cannot write into config directory").
+        init_container {
+          name  = "fix-config-ownership"
+          image = "busybox:1"
+          command = [
+            "sh", "-c",
+            "chown -R 33:33 /config"
+          ]
+
+          volume_mount {
+            name       = "config"
+            mount_path = "/config"
+          }
+        }
+
         # Redis sidecar for caching and file locking
         container {
           name  = "redis"

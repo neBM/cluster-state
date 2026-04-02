@@ -407,3 +407,27 @@ module "k8s_iris" {
   media_nfs_path   = "/volume1/docker"
 }
 
+# =============================================================================
+# Node Health
+# =============================================================================
+
+# GlusterFS/NFS-Ganesha resilience: restart nfs-ganesha-local.service on the
+# host whenever a GlusterFS brick reconnects after a disconnect. NFS-Ganesha's
+# FSAL_GLUSTER (libgfapi) does not self-heal after brick reconnects — it gets
+# stuck in a state where cross-directory hard links return NFS4ERR_IO, breaking
+# git pushes ("unable to migrate objects to permanent storage"). Runs on all
+# three nodes (Hestia, Heracles, Nyx) since each runs its own NFS-Ganesha.
+module "k8s_gluster_ganesha_watcher" {
+  source    = "./modules-k8s/gluster-ganesha-watcher"
+  namespace = "default"
+}
+
+# Raspberry Pi 5 undervoltage/throttle monitoring on Heracles and Nyx.
+# Polls vcgencmd get_throttled every 60s via nsenter into the host and logs
+# the result. Logs are shipped to Loki by Alloy; alert in Grafana on
+# container="rpi-throttle-monitor" with log line |= "throttle_warning".
+module "k8s_rpi_throttle_monitor" {
+  source    = "./modules-k8s/rpi-throttle-monitor"
+  namespace = "default"
+}
+
