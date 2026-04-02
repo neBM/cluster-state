@@ -561,6 +561,47 @@ resource "kubernetes_stateful_set" "postfix" {
           "kubernetes.io/hostname" = "hestia"
         }
 
+        # Fix spool directory ownership/permissions before Postfix starts.
+        # The tozd/postfix entrypoint runs "postfix set-permissions" which
+        # calls mkdir on queue dirs — if they already exist on the persistent
+        # volume (e.g. after a node restart), mkdir fails with "File exists"
+        # and the integrity check aborts. This init container ensures the
+        # directories exist with correct ownership so the entrypoint succeeds.
+        init_container {
+          name  = "fix-spool-permissions"
+          image = "tozd/postfix:${var.image_tag_postfix}"
+          command = ["sh", "-c", <<-EOT
+            # Postfix queue directories with required owner:group and mode
+            for dir in active bounce corrupt defer deferred flush hold incoming saved trace; do
+              mkdir -p /var/spool/postfix/$dir
+              chown postfix:root /var/spool/postfix/$dir
+              chmod 0700 /var/spool/postfix/$dir
+            done
+            mkdir -p /var/spool/postfix/maildrop
+            chown postfix:postdrop /var/spool/postfix/maildrop
+            chmod 0730 /var/spool/postfix/maildrop
+            mkdir -p /var/spool/postfix/public
+            chown postfix:postdrop /var/spool/postfix/public
+            chmod 0710 /var/spool/postfix/public
+            mkdir -p /var/spool/postfix/private
+            chown postfix:postdrop /var/spool/postfix/private
+            chmod 0700 /var/spool/postfix/private
+            mkdir -p /var/spool/postfix/pid
+            chown root:root /var/spool/postfix/pid
+            chmod 0755 /var/spool/postfix/pid
+            # Spool root must be owned by root
+            chown root:root /var/spool/postfix
+            chmod 0755 /var/spool/postfix
+            echo "Spool permissions fixed"
+          EOT
+          ]
+
+          volume_mount {
+            name       = "spool"
+            mount_path = "/var/spool/postfix"
+          }
+        }
+
         container {
           name = "postfix"
           # renovate: datasource=docker depName=tozd/postfix
