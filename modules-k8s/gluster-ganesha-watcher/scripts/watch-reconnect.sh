@@ -86,7 +86,16 @@ watchdog() {
     # Count processes currently in D (uninterruptible sleep) state.
     # /proc/PID/stat field 3 is the single-character state.
     local d_count
-    d_count=$(awk '{if ($3 == "D") count++} END {print count+0}' /proc/[0-9]*/stat 2>/dev/null)
+    # Pipe through cat so awk reads from stdin rather than opening files directly.
+    # mawk exits fatally (code 2, skipping END) when a /proc/PID/stat file
+    # disappears between glob expansion and awk opening it (process died in the
+    # gap). Reading via stdin avoids that: cat skips missing files with a stderr
+    # message (suppressed), awk always sees a valid stream and always runs END.
+    # The || true absorbs cat's non-zero exit (some files gone) so pipefail
+    # doesn't suppress awk's output. The :-0 guards against any remaining edge
+    # case that could leave d_count empty.
+    d_count=$(cat /proc/[0-9]*/stat 2>/dev/null | awk '{if ($3 == "D") count++} END {print count+0}') || true
+    d_count=${d_count:-0}
 
     if [ "${d_count}" -gt "${D_STATE_THRESHOLD}" ]; then
       if [ "${elevated_since}" -eq 0 ]; then
