@@ -187,19 +187,121 @@ resource "kubernetes_config_map" "synapse_config" {
 }
 
 # =============================================================================
+# MAS ConfigMap (template rendered by init container)
+# =============================================================================
+
+resource "kubernetes_config_map" "mas_config" {
+  metadata {
+    name      = "mas-config-template"
+    namespace = var.namespace
+    labels    = local.mas_labels
+  }
+
+  data = {
+    "config.yaml" = <<-EOF
+      http:
+        listeners:
+        - name: web
+          resources:
+          - name: health
+          - name: discovery
+          - name: human
+          - name: oauth
+          - name: compat
+          - name: graphql
+            playground: true
+          - name: assets
+          binds:
+          - host: 0.0.0.0
+            port: 8081
+          proxy_protocol: false
+        trusted_proxies:
+          - 10.42.0.0/16
+          - 0.0.0.0
+        public_base: https://${var.mas_hostname}/
+        issuer: https://${var.mas_hostname}/
+      database:
+        username: mas_user
+        password: "MAS_DB_PASSWORD_PLACEHOLDER"
+        database: mas
+        host: ${var.db_host}
+        port: ${var.db_port}
+        max_connections: 10
+        min_connections: 0
+        connect_timeout: 30
+        idle_timeout: 600
+        max_lifetime: 1800
+      matrix:
+        homeserver: ${var.server_name}
+        secret: "MAS_ADMIN_TOKEN_PLACEHOLDER"
+        endpoint: http://synapse.${var.namespace}.svc.cluster.local:8008
+      email:
+        from: '"Authentication Service" <services@${var.server_name}>'
+        reply_to: '"Authentication Service" <services@${var.server_name}>'
+        transport: smtp
+        mode: starttls
+        hostname: mail.${var.server_name}
+        port: 587
+        username: svc-matrix
+        password: "MAS_SMTP_PASSWORD_PLACEHOLDER"
+      secrets:
+        encryption: "MAS_ENCRYPTION_PLACEHOLDER"
+        keys:
+        - kid: TPieyaE3PM
+          key_file: /keys/mas_key_rsa
+        - kid: OeZlPcc37E
+          key_file: /keys/mas_key_ec_p256
+        - kid: XctwrElhF9
+          key_file: /keys/mas_key_ec_p384
+        - kid: Bjvh15mokX
+          key_file: /keys/mas_key_ec_k256
+      passwords:
+        enabled: false
+      clients:
+        - client_id: 0000000000000000000SYNAPSE
+          client_auth_method: client_secret_basic
+          client_secret: "MAS_CLIENT_SECRET_PLACEHOLDER"
+      upstream_oauth2:
+        providers:
+          - id: "01HVV3NYJQRY4Y15PWNQ6J2DXR"
+            issuer: "https://sso.${var.server_name}/realms/prod"
+            human_name: "brmartin SSO"
+            token_endpoint_auth_method: client_secret_basic
+            client_id: "mas"
+            client_secret: "MAS_KEYCLOAK_CLIENT_SECRET_PLACEHOLDER"
+            scope: "openid profile email"
+            discovery_mode: oidc
+            claims_imports:
+              localpart:
+                action: require
+                template: "{{ user.preferred_username }}"
+              displayname:
+                action: suggest
+                template: "{{ user.name }}"
+              email:
+                action: suggest
+                template: "{{ user.email }}"
+                set_email_verification: always
+      policy:
+        data:
+          admin_users:
+            - ben
+    EOF
+  }
+}
+
+# =============================================================================
 # Persistent Volume Claims (glusterfs-nfs)
 # =============================================================================
 
 resource "kubernetes_persistent_volume_claim" "synapse_data" {
   metadata {
-    name      = "matrix-synapse-data"
+    name      = "matrix-synapse-data-sw"
     namespace = var.namespace
-    annotations = {
-      "volume-name" = "matrix_synapse_data"
-    }
+    labels    = local.synapse_labels
   }
   spec {
-    storage_class_name = "glusterfs-nfs"
+    storage_class_name = "seaweedfs"
     access_modes       = ["ReadWriteMany"]
     resources {
       requests = {
@@ -211,14 +313,12 @@ resource "kubernetes_persistent_volume_claim" "synapse_data" {
 
 resource "kubernetes_persistent_volume_claim" "media_store" {
   metadata {
-    name      = "matrix-media-store"
+    name      = "matrix-media-store-sw"
     namespace = var.namespace
-    annotations = {
-      "volume-name" = "matrix_media_store"
-    }
+    labels    = local.synapse_labels
   }
   spec {
-    storage_class_name = "glusterfs-nfs"
+    storage_class_name = "seaweedfs"
     access_modes       = ["ReadWriteMany"]
     resources {
       requests = {
@@ -228,35 +328,14 @@ resource "kubernetes_persistent_volume_claim" "media_store" {
   }
 }
 
-resource "kubernetes_persistent_volume_claim" "mas_config" {
-  metadata {
-    name      = "matrix-config"
-    namespace = var.namespace
-    annotations = {
-      "volume-name" = "matrix_config"
-    }
-  }
-  spec {
-    storage_class_name = "glusterfs-nfs"
-    access_modes       = ["ReadWriteMany"]
-    resources {
-      requests = {
-        storage = "1Gi"
-      }
-    }
-  }
-}
-
 resource "kubernetes_persistent_volume_claim" "whatsapp_data" {
   metadata {
-    name      = "matrix-whatsapp-data"
+    name      = "matrix-whatsapp-data-sw"
     namespace = var.namespace
-    annotations = {
-      "volume-name" = "matrix_whatsapp_data"
-    }
+    labels    = local.whatsapp_labels
   }
   spec {
-    storage_class_name = "glusterfs-nfs"
+    storage_class_name = "seaweedfs"
     access_modes       = ["ReadWriteMany"]
     resources {
       requests = {
@@ -545,7 +624,85 @@ resource "kubernetes_deployment" "mas" {
       }
 
       spec {
-        # PVCs provisioned via glusterfs-nfs StorageClass (NFS-backed, available on all nodes)
+        init_container {
+          name    = "config-processor"
+          image   = "busybox:1.37"
+          command = ["/bin/sh", "-c"]
+          args = [<<-EOF
+            cp /config-template/config.yaml /config/config.yaml
+            sed -i "s|MAS_DB_PASSWORD_PLACEHOLDER|$MAS_DB_PASSWORD|g" /config/config.yaml
+            sed -i "s|MAS_ADMIN_TOKEN_PLACEHOLDER|$MAS_ADMIN_TOKEN|g" /config/config.yaml
+            sed -i "s|MAS_SMTP_PASSWORD_PLACEHOLDER|$MAS_SMTP_PASSWORD|g" /config/config.yaml
+            sed -i "s|MAS_ENCRYPTION_PLACEHOLDER|$MAS_ENCRYPTION|g" /config/config.yaml
+            sed -i "s|MAS_CLIENT_SECRET_PLACEHOLDER|$MAS_CLIENT_SECRET|g" /config/config.yaml
+            sed -i "s|MAS_KEYCLOAK_CLIENT_SECRET_PLACEHOLDER|$MAS_KEYCLOAK_CLIENT_SECRET|g" /config/config.yaml
+          EOF
+          ]
+
+          env {
+            name = "MAS_DB_PASSWORD"
+            value_from {
+              secret_key_ref {
+                name = "matrix-secrets"
+                key  = "mas_db_password"
+              }
+            }
+          }
+          env {
+            name = "MAS_ADMIN_TOKEN"
+            value_from {
+              secret_key_ref {
+                name = "matrix-secrets"
+                key  = "mas_admin_token"
+              }
+            }
+          }
+          env {
+            name = "MAS_SMTP_PASSWORD"
+            value_from {
+              secret_key_ref {
+                name = "matrix-secrets"
+                key  = "mas_smtp_password"
+              }
+            }
+          }
+          env {
+            name = "MAS_ENCRYPTION"
+            value_from {
+              secret_key_ref {
+                name = "matrix-secrets"
+                key  = "mas_encryption_secret"
+              }
+            }
+          }
+          env {
+            name = "MAS_CLIENT_SECRET"
+            value_from {
+              secret_key_ref {
+                name = "matrix-secrets"
+                key  = "mas_client_secret"
+              }
+            }
+          }
+          env {
+            name = "MAS_KEYCLOAK_CLIENT_SECRET"
+            value_from {
+              secret_key_ref {
+                name = "matrix-secrets"
+                key  = "mas_keycloak_client_secret"
+              }
+            }
+          }
+
+          volume_mount {
+            name       = "config-template"
+            mount_path = "/config-template"
+          }
+          volume_mount {
+            name       = "config"
+            mount_path = "/config"
+          }
+        }
 
         container {
           name  = "mas"
@@ -557,12 +714,17 @@ resource "kubernetes_deployment" "mas" {
 
           env {
             name  = "MAS_CONFIG"
-            value = "/matrix-config/synapse-mas/config.yaml"
+            value = "/config/config.yaml"
           }
 
           volume_mount {
             name       = "config"
-            mount_path = "/matrix-config"
+            mount_path = "/config"
+            read_only  = true
+          }
+          volume_mount {
+            name       = "keys"
+            mount_path = "/keys"
             read_only  = true
           }
 
@@ -598,9 +760,35 @@ resource "kubernetes_deployment" "mas" {
         }
 
         volume {
+          name = "config-template"
+          config_map {
+            name = kubernetes_config_map.mas_config.metadata[0].name
+          }
+        }
+        volume {
           name = "config"
-          persistent_volume_claim {
-            claim_name = kubernetes_persistent_volume_claim.mas_config.metadata[0].name
+          empty_dir {}
+        }
+        volume {
+          name = "keys"
+          secret {
+            secret_name = "matrix-secrets"
+            items {
+              key  = "mas_key_rsa"
+              path = "mas_key_rsa"
+            }
+            items {
+              key  = "mas_key_ec_p256"
+              path = "mas_key_ec_p256"
+            }
+            items {
+              key  = "mas_key_ec_p384"
+              path = "mas_key_ec_p384"
+            }
+            items {
+              key  = "mas_key_ec_k256"
+              path = "mas_key_ec_k256"
+            }
           }
         }
       }
@@ -608,7 +796,7 @@ resource "kubernetes_deployment" "mas" {
   }
 
   depends_on = [
-    kubernetes_persistent_volume_claim.mas_config,
+    kubernetes_config_map.mas_config,
   ]
 }
 
