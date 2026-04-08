@@ -8,19 +8,17 @@ locals {
 }
 
 # =============================================================================
-# Persistent Volume Claims (glusterfs-nfs)
+# Persistent Volume Claims (seaweedfs)
 # =============================================================================
 
 resource "kubernetes_persistent_volume_claim" "config" {
   metadata {
-    name      = "searxng-config"
+    name      = "searxng-config-sw"
     namespace = var.namespace
-    annotations = {
-      "volume-name" = "searxng_config"
-    }
+    labels    = local.labels
   }
   spec {
-    storage_class_name = "glusterfs-nfs"
+    storage_class_name = "seaweedfs"
     access_modes       = ["ReadWriteMany"]
     resources {
       requests = {
@@ -72,8 +70,9 @@ resource "kubernetes_deployment" "searxng" {
           }
 
           volume_mount {
-            name       = "config"
-            mount_path = "/etc/searxng"
+            name              = "config"
+            mount_path        = "/etc/searxng"
+            mount_propagation = "HostToContainer"
           }
 
           volume_mount {
@@ -127,7 +126,7 @@ resource "kubernetes_deployment" "searxng" {
           }
         }
 
-        # Multi-arch support - GlusterFS NFS mount available on all nodes
+        # Multi-arch support - SeaweedFS CSI available on all nodes
         affinity {
           node_affinity {
             required_during_scheduling_ignored_during_execution {

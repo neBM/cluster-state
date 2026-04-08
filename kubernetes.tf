@@ -44,6 +44,16 @@ module "k8s_nfs_provisioner" {
   reclaim_policy     = "Retain"
 }
 
+# SeaweedFS — Unified storage replacing GlusterFS + NFS-Ganesha + MinIO
+# Provides S3 API, CSI driver for PVCs, and POSIX filer
+module "k8s_seaweedfs" {
+  source = "./modules-k8s/seaweedfs"
+
+  namespace              = "default"
+  master_ingress_hostname = "seaweedfs.brmartin.co.uk"
+  filer_ingress_hostname  = "seaweedfs-filer.brmartin.co.uk"
+}
+
 # CI Service Account for GitLab CI/CD pipelines
 # Provides limited RBAC permissions for Terraform to manage K8s resources
 module "k8s_ci_service_account" {
@@ -113,14 +123,13 @@ module "k8s_vaultwarden" {
 }
 
 # Overseerr - Media request management
-# SQLite on emptyDir with litestream backup to MinIO, config on GlusterFS
+# SQLite on emptyDir with litestream backup to SeaweedFS S3, config on SeaweedFS
 module "k8s_overseerr" {
   source = "./modules-k8s/overseerr"
 
   namespace = "default"
   hostname  = "overseerr.brmartin.co.uk"
-  # MinIO now runs on K8s, use internal service DNS
-  minio_endpoint    = "http://minio-api.default.svc.cluster.local:9000"
+  s3_endpoint       = "http://seaweedfs-s3.default.svc.cluster.local:8333"
   litestream_bucket = "overseerr-litestream"
 }
 
@@ -132,9 +141,8 @@ module "k8s_ollama" {
   namespace = "default"
 }
 
-# MinIO - Object storage for litestream backups
-# Must run on Hestia where GlusterFS NFS mounts are available
-# S3 API exposed via NodePort 30900 for Nomad services
+# MinIO - DEPRECATED: Being replaced by SeaweedFS S3 (Phase 5)
+# Kept running during migration for bucket data access. Will be removed in Phase 6.
 module "k8s_minio" {
   source = "./modules-k8s/minio"
 
@@ -277,15 +285,15 @@ module "k8s_jayne_martin_counselling" {
 # =============================================================================
 
 # Loki - Log aggregation backend (replaces Elasticsearch for log storage)
-# Monolithic mode, MinIO-backed S3 storage, 30-day retention
+# Monolithic mode, SeaweedFS S3 storage, 30-day retention
 module "k8s_loki" {
   source = "./modules-k8s/loki"
 
-  namespace         = "default"
-  minio_endpoint    = "minio-api.default.svc.cluster.local:9000"
-  minio_bucket      = "loki"
-  minio_secret_name = "loki-minio"
-  retention_period  = "720h"
+  namespace      = "default"
+  s3_endpoint    = "seaweedfs-s3.default.svc.cluster.local:8333"
+  s3_bucket      = "loki"
+  s3_secret_name = "loki-s3"
+  retention_period = "720h"
 }
 
 # Alloy - Log collection DaemonSet (replaces Elastic Agent for log shipping)
@@ -302,7 +310,7 @@ module "k8s_alloy" {
 
 # VictoriaMetrics - Metrics collection and monitoring
 # Drop-in Prometheus replacement with better efficiency
-# Data stored in emptyDir, backed up to MinIO via vmbackup
+# Data stored in emptyDir, backed up to SeaweedFS S3 via vmbackup
 module "k8s_victoriametrics" {
   source = "./modules-k8s/victoriametrics"
 
@@ -312,11 +320,10 @@ module "k8s_victoriametrics" {
   scrape_interval  = "15s"
   backup_interval  = "1h"
 
-  # MinIO backup config (secret 'victoriametrics-minio' must exist with AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY)
-  minio_endpoint    = "http://minio-api.default.svc.cluster.local:9000"
-  minio_bucket      = "victoriametrics"
-  minio_secret_name = "victoriametrics-minio"
-
+  # SeaweedFS S3 backup config (secret 'victoriametrics-s3' must exist with MINIO_ACCESS_KEY/MINIO_SECRET_KEY)
+  s3_endpoint    = "http://seaweedfs-s3.default.svc.cluster.local:8333"
+  s3_bucket      = "victoriametrics"
+  s3_secret_name = "victoriametrics-s3"
 }
 
 # Node Exporter - Host metrics collection

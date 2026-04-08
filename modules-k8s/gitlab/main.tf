@@ -42,15 +42,12 @@ locals {
 
 resource "kubernetes_persistent_volume_claim" "repositories" {
   metadata {
-    name      = "gitlab-repositories"
+    name      = "gitlab-repositories-sw"
     namespace = var.namespace
-    annotations = {
-      "volume-name" = "gitlab_repositories"
-    }
+    labels    = local.gitlab_labels
   }
-
   spec {
-    storage_class_name = "glusterfs-nfs"
+    storage_class_name = "seaweedfs"
     access_modes       = ["ReadWriteMany"]
     resources {
       requests = {
@@ -62,15 +59,12 @@ resource "kubernetes_persistent_volume_claim" "repositories" {
 
 resource "kubernetes_persistent_volume_claim" "uploads" {
   metadata {
-    name      = "gitlab-uploads"
+    name      = "gitlab-uploads-sw"
     namespace = var.namespace
-    annotations = {
-      "volume-name" = "gitlab_uploads"
-    }
+    labels    = local.gitlab_labels
   }
-
   spec {
-    storage_class_name = "glusterfs-nfs"
+    storage_class_name = "seaweedfs"
     access_modes       = ["ReadWriteMany"]
     resources {
       requests = {
@@ -82,15 +76,12 @@ resource "kubernetes_persistent_volume_claim" "uploads" {
 
 resource "kubernetes_persistent_volume_claim" "shared" {
   metadata {
-    name      = "gitlab-shared"
+    name      = "gitlab-shared-sw"
     namespace = var.namespace
-    annotations = {
-      "volume-name" = "gitlab_shared"
-    }
+    labels    = local.gitlab_labels
   }
-
   spec {
-    storage_class_name = "glusterfs-nfs"
+    storage_class_name = "seaweedfs"
     access_modes       = ["ReadWriteMany"]
     resources {
       requests = {
@@ -102,15 +93,12 @@ resource "kubernetes_persistent_volume_claim" "shared" {
 
 resource "kubernetes_persistent_volume_claim" "registry" {
   metadata {
-    name      = "gitlab-registry"
+    name      = "gitlab-registry-sw"
     namespace = var.namespace
-    annotations = {
-      "volume-name" = "gitlab_registry"
-    }
+    labels    = local.gitlab_labels
   }
-
   spec {
-    storage_class_name = "glusterfs-nfs"
+    storage_class_name = "seaweedfs"
     access_modes       = ["ReadWriteMany"]
     resources {
       requests = {
@@ -610,8 +598,9 @@ resource "kubernetes_deployment" "gitaly" {
           }
 
           volume_mount {
-            name       = "repositories"
-            mount_path = "/home/git/repositories"
+            name              = "repositories"
+            mount_path        = "/home/git/repositories"
+            mount_propagation = "HostToContainer"
           }
 
           volume_mount {
@@ -820,13 +809,15 @@ resource "kubernetes_deployment" "webservice" {
           }
 
           volume_mount {
-            name       = "uploads"
-            mount_path = "/srv/gitlab/public/uploads"
+            name              = "uploads"
+            mount_path        = "/srv/gitlab/public/uploads"
+            mount_propagation = "HostToContainer"
           }
 
           volume_mount {
-            name       = "shared"
-            mount_path = "/srv/gitlab/shared"
+            name              = "shared"
+            mount_path        = "/srv/gitlab/shared"
+            mount_propagation = "HostToContainer"
           }
 
           volume_mount {
@@ -1108,13 +1099,15 @@ resource "kubernetes_deployment" "workhorse" {
           }
 
           volume_mount {
-            name       = "uploads"
-            mount_path = "/srv/gitlab/public/uploads"
+            name              = "uploads"
+            mount_path        = "/srv/gitlab/public/uploads"
+            mount_propagation = "HostToContainer"
           }
 
           volume_mount {
-            name       = "shared"
-            mount_path = "/srv/gitlab/shared"
+            name              = "shared"
+            mount_path        = "/srv/gitlab/shared"
+            mount_propagation = "HostToContainer"
           }
 
           resources {
@@ -1299,13 +1292,15 @@ resource "kubernetes_deployment" "sidekiq" {
           }
 
           volume_mount {
-            name       = "uploads"
-            mount_path = "/srv/gitlab/public/uploads"
+            name              = "uploads"
+            mount_path        = "/srv/gitlab/public/uploads"
+            mount_propagation = "HostToContainer"
           }
 
           volume_mount {
-            name       = "shared"
-            mount_path = "/srv/gitlab/shared"
+            name              = "shared"
+            mount_path        = "/srv/gitlab/shared"
+            mount_propagation = "HostToContainer"
           }
 
           volume_mount {
@@ -1516,8 +1511,9 @@ resource "kubernetes_deployment" "registry" {
           }
 
           volume_mount {
-            name       = "registry-data"
-            mount_path = "/var/lib/registry"
+            name              = "registry-data"
+            mount_path        = "/var/lib/registry"
+            mount_propagation = "HostToContainer"
           }
 
           volume_mount {

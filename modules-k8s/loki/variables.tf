@@ -16,21 +16,22 @@ variable "image_tag" {
   default     = "3.4.1"
 }
 
-variable "minio_endpoint" {
+variable "s3_endpoint" {
   type        = string
-  description = "MinIO S3-compatible endpoint (host:port, no scheme)"
+  description = "S3-compatible endpoint (host:port, no scheme)"
+  default     = "seaweedfs-s3.default.svc.cluster.local:8333"
 }
 
-variable "minio_bucket" {
+variable "s3_bucket" {
   type        = string
-  description = "MinIO bucket name for Loki chunks and index"
+  description = "S3 bucket name for Loki chunks and index"
   default     = "loki"
 }
 
-variable "minio_secret_name" {
+variable "s3_secret_name" {
   type        = string
   description = "Kubernetes Secret name containing MINIO_ACCESS_KEY and MINIO_SECRET_KEY"
-  default     = "loki-minio"
+  default     = "loki-s3"
 }
 
 variable "retention_period" {

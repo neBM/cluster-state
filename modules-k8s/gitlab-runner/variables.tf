@@ -30,9 +30,9 @@ variable "privileged_jobs" {
 }
 
 variable "cache_s3_endpoint" {
-  description = "MinIO/S3 endpoint for runner shared cache (host:port, no scheme)"
+  description = "S3-compatible endpoint for runner shared cache (host:port, no scheme)"
   type        = string
-  default     = "minio-api.default.svc.cluster.local:9000"
+  default     = "seaweedfs-s3.default.svc.cluster.local:8333"
 }
 
 variable "cache_s3_bucket" {

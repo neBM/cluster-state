@@ -70,23 +70,23 @@ variable "ingress_hostname" {
   default     = "victoriametrics.brmartin.co.uk"
 }
 
-# MinIO backup configuration
-variable "minio_endpoint" {
+# S3 backup configuration (SeaweedFS)
+variable "s3_endpoint" {
   type        = string
-  description = "MinIO API endpoint"
-  default     = "http://minio-api.default.svc.cluster.local:9000"
+  description = "S3-compatible API endpoint"
+  default     = "http://seaweedfs-s3.default.svc.cluster.local:8333"
 }
 
-variable "minio_bucket" {
+variable "s3_bucket" {
   type        = string
-  description = "MinIO bucket for backups"
+  description = "S3 bucket for backups"
   default     = "victoriametrics"
 }
 
-variable "minio_secret_name" {
+variable "s3_secret_name" {
   type        = string
-  description = "Name of existing K8s secret with AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY"
-  default     = "victoriametrics-minio"
+  description = "Name of existing K8s secret with MINIO_ACCESS_KEY and MINIO_SECRET_KEY"
+  default     = "victoriametrics-s3"
 }
 
 variable "backup_interval" {

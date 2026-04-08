@@ -21,23 +21,19 @@ locals {
 }
 
 # =============================================================================
-# Image cache PVC  (glusterfs-nfs, 10 Gi)
+# Image cache PVC  (seaweedfs, 10 Gi)
 # =============================================================================
 
 resource "kubernetes_persistent_volume_claim" "image_cache" {
   metadata {
-    name      = "iris-image-cache"
+    name      = "iris-image-cache-sw"
     namespace = var.namespace
     labels    = local.labels
-    annotations = {
-      # NFS provisioner uses this annotation to name the directory on the NFS server.
-      "volume-name" = "iris_image_cache"
-    }
   }
 
   spec {
     access_modes       = ["ReadWriteMany"]
-    storage_class_name = "glusterfs-nfs"
+    storage_class_name = "seaweedfs"
     resources {
       requests = { storage = "10Gi" }
     }
@@ -341,8 +337,9 @@ resource "kubernetes_deployment" "iris" {
           }
 
           volume_mount {
-            name       = "image-cache"
-            mount_path = "/data/iris/images"
+            name              = "image-cache"
+            mount_path        = "/data/iris/images"
+            mount_propagation = "HostToContainer"
           }
           volume_mount {
             name       = "hls-tmp"
@@ -352,6 +349,15 @@ resource "kubernetes_deployment" "iris" {
             name       = "media"
             mount_path = "/media"
             read_only  = true
+          }
+
+          startup_probe {
+            http_get {
+              path = "/healthz"
+              port = 8080
+            }
+            period_seconds    = 10
+            failure_threshold = 30
           }
 
           liveness_probe {

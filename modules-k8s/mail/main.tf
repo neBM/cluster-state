@@ -159,21 +159,15 @@ resource "kubernetes_config_map" "rspamd_config" {
 
 resource "kubernetes_persistent_volume_claim" "rspamd_data" {
   metadata {
-    name      = "rspamd-data"
+    name      = "rspamd-data-sw"
     namespace = var.namespace
-    annotations = {
-      "volume-name" = "rspamd_data"
-    }
+    labels    = local.labels
   }
-
   spec {
-    storage_class_name = "glusterfs-nfs"
+    storage_class_name = "seaweedfs"
     access_modes       = ["ReadWriteMany"]
-
     resources {
-      requests = {
-        storage = "2Gi"
-      }
+      requests = { storage = "2Gi" }
     }
   }
 }
@@ -241,8 +235,9 @@ resource "kubernetes_deployment" "rspamd" {
           }
 
           volume_mount {
-            name       = "data"
-            mount_path = "/var/lib/rspamd"
+            name              = "data"
+            mount_path        = "/var/lib/rspamd"
+            mount_propagation = "HostToContainer"
           }
 
           liveness_probe {
@@ -517,26 +512,20 @@ resource "kubernetes_config_map" "postfix_aliases" {
 
 resource "kubernetes_persistent_volume_claim" "postfix_spool" {
   metadata {
-    name      = "postfix-spool"
+    name      = "postfix-spool-sw"
     namespace = var.namespace
-    annotations = {
-      "volume-name" = "postfix_spool"
-    }
+    labels    = local.labels
   }
-
   spec {
-    storage_class_name = "glusterfs-nfs"
+    storage_class_name = "seaweedfs"
     access_modes       = ["ReadWriteMany"]
-
     resources {
-      requests = {
-        storage = "5Gi"
-      }
+      requests = { storage = "5Gi" }
     }
   }
 }
 
-resource "kubernetes_stateful_set" "postfix" {
+resource "kubernetes_deployment" "postfix" {
   metadata {
     name      = "postfix"
     namespace = var.namespace
@@ -544,8 +533,11 @@ resource "kubernetes_stateful_set" "postfix" {
   }
 
   spec {
-    service_name = "postfix"
-    replicas     = 1
+    replicas = 1
+
+    strategy {
+      type = "Recreate"
+    }
 
     selector {
       match_labels = { app = "postfix" }
@@ -597,8 +589,9 @@ resource "kubernetes_stateful_set" "postfix" {
           ]
 
           volume_mount {
-            name       = "spool"
-            mount_path = "/var/spool/postfix"
+            name              = "spool"
+            mount_path        = "/var/spool/postfix"
+            mount_propagation = "HostToContainer"
           }
         }
 
@@ -697,8 +690,9 @@ resource "kubernetes_stateful_set" "postfix" {
           }
 
           volume_mount {
-            name       = "spool"
-            mount_path = "/var/spool/postfix"
+            name              = "spool"
+            mount_path        = "/var/spool/postfix"
+            mount_propagation = "HostToContainer"
           }
 
           liveness_probe {
@@ -977,26 +971,20 @@ resource "kubernetes_config_map" "dovecot_ldap" {
 
 resource "kubernetes_persistent_volume_claim" "dovecot_mailboxes" {
   metadata {
-    name      = "dovecot-mailboxes"
+    name      = "dovecot-mailboxes-sw"
     namespace = var.namespace
-    annotations = {
-      "volume-name" = "dovecot_mailboxes"
-    }
+    labels    = local.labels
   }
-
   spec {
-    storage_class_name = "glusterfs-nfs"
+    storage_class_name = "seaweedfs"
     access_modes       = ["ReadWriteMany"]
-
     resources {
-      requests = {
-        storage = "10Gi"
-      }
+      requests = { storage = "10Gi" }
     }
   }
 }
 
-resource "kubernetes_stateful_set" "dovecot" {
+resource "kubernetes_deployment" "dovecot" {
   metadata {
     name      = "dovecot"
     namespace = var.namespace
@@ -1004,8 +992,11 @@ resource "kubernetes_stateful_set" "dovecot" {
   }
 
   spec {
-    service_name = "dovecot"
-    replicas     = 1
+    replicas = 1
+
+    strategy {
+      type = "Recreate"
+    }
 
     selector {
       match_labels = { app = "dovecot" }
@@ -1147,8 +1138,9 @@ resource "kubernetes_stateful_set" "dovecot" {
           }
 
           volume_mount {
-            name       = "mailboxes"
-            mount_path = "/var/mail"
+            name              = "mailboxes"
+            mount_path        = "/var/mail"
+            mount_propagation = "HostToContainer"
           }
 
           # Indexes on emptyDir — avoids NFS mmap issues; rebuilt on pod restart

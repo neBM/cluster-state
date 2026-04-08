@@ -512,12 +512,14 @@ resource "kubernetes_deployment" "synapse" {
             mount_path = "/config"
           }
           volume_mount {
-            name       = "data"
-            mount_path = "/data"
+            name              = "data"
+            mount_path        = "/data"
+            mount_propagation = "HostToContainer"
           }
           volume_mount {
-            name       = "media-store"
-            mount_path = "/media_store"
+            name              = "media-store"
+            mount_path        = "/media_store"
+            mount_propagation = "HostToContainer"
           }
 
           resources {
@@ -855,8 +857,9 @@ resource "kubernetes_deployment" "whatsapp_bridge" {
           }
 
           volume_mount {
-            name       = "data"
-            mount_path = "/data"
+            name              = "data"
+            mount_path        = "/data"
+            mount_propagation = "HostToContainer"
           }
 
           resources {

@@ -8,7 +8,7 @@ locals {
     "app.kubernetes.io/managed-by" = "terraform"
   }
   data_path   = "/victoria-metrics-data"
-  backup_dest = "s3://${var.minio_bucket}/data"
+  backup_dest = "s3://${var.s3_bucket}/data"
 }
 
 # =============================================================================
@@ -160,22 +160,6 @@ resource "kubernetes_config_map" "scrape_config" {
           ]
         },
 
-        # MinIO metrics (requires JWT bearer token)
-        {
-          job_name     = "minio"
-          metrics_path = "/minio/v2/metrics/cluster"
-          scheme       = "http"
-          authorization = {
-            credentials_file = "/etc/minio-metrics/bearer-token"
-          }
-          static_configs = [{
-            targets = ["minio-api.default.svc.cluster.local:9000"]
-            labels = {
-              job = "minio"
-            }
-          }]
-        },
-
         # Pods with prometheus.io/scrape annotation
         {
           job_name = "kubernetes-pods"
@@ -241,7 +225,7 @@ resource "kubernetes_config_map" "backup_script" {
       BACKUP_INTERVAL="${var.backup_interval}"
       DATA_PATH="${local.data_path}"
       BACKUP_DEST="${local.backup_dest}"
-      MINIO_ENDPOINT="${var.minio_endpoint}"
+      MINIO_ENDPOINT="${var.s3_endpoint}"
       
       echo "Starting vmbackup sidecar"
       echo "  Data path: $DATA_PATH"
@@ -280,7 +264,7 @@ resource "kubernetes_config_map" "backup_script" {
       
       DATA_PATH="${local.data_path}"
       BACKUP_SRC="${local.backup_dest}"
-      MINIO_ENDPOINT="${var.minio_endpoint}"
+      MINIO_ENDPOINT="${var.s3_endpoint}"
       
       echo "Starting vmrestore"
       echo "  Data path: $DATA_PATH"
@@ -341,7 +325,7 @@ resource "kubernetes_deployment" "victoriametrics" {
       spec {
         service_account_name = kubernetes_service_account.victoriametrics.metadata[0].name
 
-        # Init container: restore from MinIO backup
+        # Init container: restore from S3 backup
         init_container {
           name  = "vmrestore"
           image = "victoriametrics/vmrestore:${var.image_tag}"
@@ -352,7 +336,7 @@ resource "kubernetes_deployment" "victoriametrics" {
             name = "AWS_ACCESS_KEY_ID"
             value_from {
               secret_key_ref {
-                name = var.minio_secret_name
+                name = var.s3_secret_name
                 key  = "MINIO_ACCESS_KEY"
               }
             }
@@ -362,7 +346,7 @@ resource "kubernetes_deployment" "victoriametrics" {
             name = "AWS_SECRET_ACCESS_KEY"
             value_from {
               secret_key_ref {
-                name = var.minio_secret_name
+                name = var.s3_secret_name
                 key  = "MINIO_SECRET_KEY"
               }
             }
@@ -420,12 +404,6 @@ resource "kubernetes_deployment" "victoriametrics" {
             mount_path = local.data_path
           }
 
-          volume_mount {
-            name       = "minio-metrics-token"
-            mount_path = "/etc/minio-metrics"
-            read_only  = true
-          }
-
           liveness_probe {
             http_get {
               path = "/health"
@@ -449,7 +427,7 @@ resource "kubernetes_deployment" "victoriametrics" {
           }
         }
 
-        # Sidecar container: vmbackup (periodic backups to MinIO)
+        # Sidecar container: vmbackup (periodic backups to SeaweedFS S3)
         container {
           name  = "vmbackup"
           image = "victoriametrics/vmbackup:${var.image_tag}"
@@ -460,7 +438,7 @@ resource "kubernetes_deployment" "victoriametrics" {
             name = "AWS_ACCESS_KEY_ID"
             value_from {
               secret_key_ref {
-                name = var.minio_secret_name
+                name = var.s3_secret_name
                 key  = "MINIO_ACCESS_KEY"
               }
             }
@@ -470,7 +448,7 @@ resource "kubernetes_deployment" "victoriametrics" {
             name = "AWS_SECRET_ACCESS_KEY"
             value_from {
               secret_key_ref {
-                name = var.minio_secret_name
+                name = var.s3_secret_name
                 key  = "MINIO_SECRET_KEY"
               }
             }
@@ -522,12 +500,6 @@ resource "kubernetes_deployment" "victoriametrics" {
           }
         }
 
-        volume {
-          name = "minio-metrics-token"
-          secret {
-            secret_name = "victoriametrics-minio-metrics-token"
-          }
-        }
       }
     }
   }

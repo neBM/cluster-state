@@ -11,7 +11,7 @@ resource "kubectl_manifest" "vpa" {
     spec = {
       targetRef = {
         apiVersion = "apps/v1"
-        kind       = "StatefulSet"
+        kind       = "Deployment"
         name       = local.app_name
       }
       updatePolicy = {
@@ -46,5 +46,5 @@ resource "kubectl_manifest" "vpa" {
     }
   })
 
-  depends_on = [kubernetes_stateful_set.overseerr]
+  depends_on = [kubernetes_deployment.overseerr]
 }

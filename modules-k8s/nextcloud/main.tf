@@ -4,10 +4,7 @@
 # - nextcloud: Main app with redis sidecar (port 80)
 # - cron: Background jobs container (shares volumes with nextcloud)
 #
-# Storage (PVCs via glusterfs-nfs StorageClass):
-# - config: nextcloud_config -> /storage/v/glusterfs_nextcloud_config
-# - custom_apps: nextcloud_custom_apps -> /storage/v/glusterfs_nextcloud_custom_apps
-# - data: nextcloud_data -> /storage/v/glusterfs_nextcloud_data
+# Storage (PVCs via seaweedfs StorageClass)
 #
 # External PostgreSQL on 192.168.1.10:5433
 
@@ -31,12 +28,9 @@ resource "kubernetes_persistent_volume_claim" "config" {
   metadata {
     name      = "nextcloud-config"
     namespace = var.namespace
-    annotations = {
-      "volume-name" = "nextcloud_config"
-    }
   }
   spec {
-    storage_class_name = "glusterfs-nfs"
+    storage_class_name = "seaweedfs"
     access_modes       = ["ReadWriteMany"]
     resources {
       requests = {
@@ -50,12 +44,9 @@ resource "kubernetes_persistent_volume_claim" "custom_apps" {
   metadata {
     name      = "nextcloud-custom-apps"
     namespace = var.namespace
-    annotations = {
-      "volume-name" = "nextcloud_custom_apps"
-    }
   }
   spec {
-    storage_class_name = "glusterfs-nfs"
+    storage_class_name = "seaweedfs"
     access_modes       = ["ReadWriteMany"]
     resources {
       requests = {
@@ -69,12 +60,9 @@ resource "kubernetes_persistent_volume_claim" "data" {
   metadata {
     name      = "nextcloud-data"
     namespace = var.namespace
-    annotations = {
-      "volume-name" = "nextcloud_data"
-    }
   }
   spec {
-    storage_class_name = "glusterfs-nfs"
+    storage_class_name = "seaweedfs"
     access_modes       = ["ReadWriteMany"]
     resources {
       requests = {
@@ -182,7 +170,36 @@ resource "kubernetes_deployment" "nextcloud" {
       }
 
       spec {
-        # PVCs provisioned via glusterfs-nfs StorageClass (NFS-backed, available on all nodes)
+        security_context {
+          fs_group               = 33
+          fs_group_change_policy = "OnRootMismatch"
+        }
+
+        # FUSE mounts default to 777; Nextcloud rejects world-readable data dirs.
+        # fsGroup handles ownership via -map.gid; this just fixes permissions.
+        init_container {
+          name    = "fix-data-perms"
+          image   = "busybox:1"
+          command = ["sh", "-c", "chown 33:33 /nc-data && chmod 0770 /nc-data && chown 33:33 /nc-config /nc-custom-apps"]
+
+          volume_mount {
+            name              = "config"
+            mount_path        = "/nc-config"
+            mount_propagation = "HostToContainer"
+          }
+
+          volume_mount {
+            name              = "custom-apps"
+            mount_path        = "/nc-custom-apps"
+            mount_propagation = "HostToContainer"
+          }
+
+          volume_mount {
+            name              = "data"
+            mount_path        = "/nc-data"
+            mount_propagation = "HostToContainer"
+          }
+        }
 
         # Generate zz-secrets.config.php from K8s secret keys into an emptyDir.
         # This runs before Nextcloud starts, ensuring critical secrets are available
@@ -235,24 +252,6 @@ resource "kubernetes_deployment" "nextcloud" {
           volume_mount {
             name       = "config-secrets"
             mount_path = "/out"
-          }
-        }
-
-        # Fix ownership of config.php on the NFS-backed config PVC.
-        # The Nextcloud entrypoint creates config.php as root during first-run
-        # initialisation, but Apache runs as www-data (uid 33). Without this,
-        # Nextcloud returns 503 ("Cannot write into config directory").
-        init_container {
-          name  = "fix-config-ownership"
-          image = "busybox:1"
-          command = [
-            "sh", "-c",
-            "chown -R 33:33 /config"
-          ]
-
-          volume_mount {
-            name       = "config"
-            mount_path = "/config"
           }
         }
 
@@ -340,18 +339,21 @@ resource "kubernetes_deployment" "nextcloud" {
           }
 
           volume_mount {
-            name       = "config"
-            mount_path = "/var/www/html/config"
+            name              = "config"
+            mount_path        = "/var/www/html/config"
+            mount_propagation = "HostToContainer"
           }
 
           volume_mount {
-            name       = "custom-apps"
-            mount_path = "/var/www/html/custom_apps"
+            name              = "custom-apps"
+            mount_path        = "/var/www/html/custom_apps"
+            mount_propagation = "HostToContainer"
           }
 
           volume_mount {
-            name       = "data"
-            mount_path = "/var/www/html/data"
+            name              = "data"
+            mount_path        = "/var/www/html/data"
+            mount_propagation = "HostToContainer"
           }
 
           volume_mount {
@@ -419,18 +421,21 @@ resource "kubernetes_deployment" "nextcloud" {
           }
 
           volume_mount {
-            name       = "config"
-            mount_path = "/var/www/html/config"
+            name              = "config"
+            mount_path        = "/var/www/html/config"
+            mount_propagation = "HostToContainer"
           }
 
           volume_mount {
-            name       = "custom-apps"
-            mount_path = "/var/www/html/custom_apps"
+            name              = "custom-apps"
+            mount_path        = "/var/www/html/custom_apps"
+            mount_propagation = "HostToContainer"
           }
 
           volume_mount {
-            name       = "data"
-            mount_path = "/var/www/html/data"
+            name              = "data"
+            mount_path        = "/var/www/html/data"
+            mount_propagation = "HostToContainer"
           }
 
           volume_mount {

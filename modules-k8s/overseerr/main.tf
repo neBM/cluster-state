@@ -25,7 +25,7 @@ resource "kubernetes_config_map" "litestream" {
           type                     = "s3"
           bucket                   = var.litestream_bucket
           path                     = "db"
-          endpoint                 = var.minio_endpoint
+          endpoint                 = var.s3_endpoint
           force-path-style         = true
           sync-interval            = "5m"
           snapshot-interval        = "1h"
@@ -38,19 +38,17 @@ resource "kubernetes_config_map" "litestream" {
 }
 
 # =============================================================================
-# Persistent Volume Claims (glusterfs-nfs)
+# Persistent Volume Claims (seaweedfs)
 # =============================================================================
 
 resource "kubernetes_persistent_volume_claim" "config" {
   metadata {
-    name      = "overseerr-config"
+    name      = "overseerr-config-sw"
     namespace = var.namespace
-    annotations = {
-      "volume-name" = "overseerr_config"
-    }
+    labels    = local.labels
   }
   spec {
-    storage_class_name = "glusterfs-nfs"
+    storage_class_name = "seaweedfs"
     access_modes       = ["ReadWriteMany"]
     resources {
       requests = {
@@ -60,8 +58,10 @@ resource "kubernetes_persistent_volume_claim" "config" {
   }
 }
 
-# StatefulSet with litestream sidecar
-resource "kubernetes_stateful_set" "overseerr" {
+# Deployment with litestream sidecar.
+# Singleton — uses Recreate strategy so only one replica ever mounts the
+# shared-state volumes (config PVC, data emptyDir) at a time.
+resource "kubernetes_deployment" "overseerr" {
   metadata {
     name      = local.app_name
     namespace = var.namespace
@@ -69,8 +69,11 @@ resource "kubernetes_stateful_set" "overseerr" {
   }
 
   spec {
-    service_name = local.app_name
-    replicas     = 1
+    replicas = 1
+
+    strategy {
+      type = "Recreate"
+    }
 
     selector {
       match_labels = {
@@ -197,8 +200,9 @@ resource "kubernetes_stateful_set" "overseerr" {
 
           # Mount config from PVC, but db from shared emptyDir
           volume_mount {
-            name       = "config"
-            mount_path = "/app/config"
+            name              = "config"
+            mount_path        = "/app/config"
+            mount_propagation = "HostToContainer"
           }
 
           volume_mount {

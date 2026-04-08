@@ -27,14 +27,16 @@ locals {
 
 resource "kubernetes_persistent_volume_claim" "data" {
   metadata {
-    name      = "open-webui-data"
+    name      = "open-webui-data-sw"
     namespace = var.namespace
-    annotations = {
-      "volume-name" = "ollama_data"
+    labels = {
+      app         = "open-webui"
+      managed-by  = "terraform"
+      environment = "prod"
     }
   }
   spec {
-    storage_class_name = "glusterfs-nfs"
+    storage_class_name = "seaweedfs"
     access_modes       = ["ReadWriteMany"]
     resources {
       requests = {
@@ -170,8 +172,9 @@ resource "kubernetes_deployment" "open_webui" {
           }
 
           volume_mount {
-            name       = "data"
-            mount_path = "/app/backend/data"
+            name              = "data"
+            mount_path        = "/app/backend/data"
+            mount_propagation = "HostToContainer"
           }
 
           resources {

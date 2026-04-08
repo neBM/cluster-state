@@ -118,7 +118,7 @@ EOF
     sub_path = "registries.conf"
     read_only = true
 
-  # Shared cache via MinIO (S3-compatible)
+  # Shared cache via SeaweedFS S3
   [runners.cache]
     Type = "s3"
     Shared = true
@@ -161,7 +161,7 @@ EOF
     sub_path = "registries.conf"
     read_only = true
 
-  # Shared cache via MinIO (S3-compatible)
+  # Shared cache via SeaweedFS S3
   [runners.cache]
     Type = "s3"
     Shared = true

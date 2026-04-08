@@ -28,10 +28,10 @@ variable "vpa_mode" {
   default     = "Off" # Recommendations only for production
 }
 
-variable "minio_endpoint" {
-  description = "MinIO endpoint for litestream backups"
+variable "s3_endpoint" {
+  description = "S3-compatible endpoint for litestream backups"
   type        = string
-  default     = "http://minio.service.consul:9000"
+  default     = "http://seaweedfs-s3.default.svc.cluster.local:8333"
 }
 
 variable "litestream_bucket" {

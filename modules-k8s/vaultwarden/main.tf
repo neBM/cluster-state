@@ -17,14 +17,12 @@ locals {
 
 resource "kubernetes_persistent_volume_claim" "data" {
   metadata {
-    name      = "vaultwarden-data"
+    name      = "vaultwarden-data-sw"
     namespace = var.namespace
-    annotations = {
-      "volume-name" = "vaultwarden_data"
-    }
+    labels    = local.labels
   }
   spec {
-    storage_class_name = "glusterfs-nfs"
+    storage_class_name = "seaweedfs"
     access_modes       = ["ReadWriteMany"]
     resources {
       requests = {
@@ -141,8 +139,9 @@ resource "kubernetes_deployment" "vaultwarden" {
           }
 
           volume_mount {
-            name       = "data"
-            mount_path = "/data"
+            name              = "data"
+            mount_path        = "/data"
+            mount_propagation = "HostToContainer"
           }
 
           resources {

@@ -8,7 +8,7 @@
 # External Dependencies:
 # - PostgreSQL on martinibar (192.168.1.10:5433)
 # - Keycloak SSO (sso.brmartin.co.uk)
-# - MinIO for attachments (minio-api.default.svc.cluster.local:9000)
+# - SeaweedFS S3 for attachments (seaweedfs-s3.default.svc.cluster.local:8333)
 
 locals {
   labels = {

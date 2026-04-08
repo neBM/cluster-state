@@ -50,18 +50,14 @@ resource "kubernetes_persistent_volume_claim" "data" {
 
 resource "kubernetes_persistent_volume_claim" "archive" {
   metadata {
-    name      = "laurens-dissertation-archive"
+    name      = "laurens-dissertation-archive-sw"
     namespace = var.namespace
     labels    = local.labels
-    annotations = {
-      "volume-name" = "laurens_dissertation_archive"
-    }
   }
 
   spec {
-    # GlusterFS is fine for flat file storage (HTML/JSON archives, no locking)
     access_modes       = ["ReadWriteMany"]
-    storage_class_name = var.archive_storage_class
+    storage_class_name = "seaweedfs"
 
     resources {
       requests = {
@@ -142,8 +138,9 @@ resource "kubernetes_deployment" "app" {
           }
 
           volume_mount {
-            name       = "archive"
-            mount_path = "/app/archive"
+            name              = "archive"
+            mount_path        = "/app/archive"
+            mount_propagation = "HostToContainer"
           }
 
           volume_mount {

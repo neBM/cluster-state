@@ -91,19 +91,17 @@ locals {
 }
 
 # =============================================================================
-# Persistent Volume Claims (glusterfs-nfs)
+# Persistent Volume Claims (seaweedfs)
 # =============================================================================
 
 resource "kubernetes_persistent_volume_claim" "code" {
   metadata {
-    name      = "nginx-sites-code"
+    name      = "nginx-sites-code-sw"
     namespace = var.namespace
-    annotations = {
-      "volume-name" = "nginx_sites_code"
-    }
+    labels    = local.labels
   }
   spec {
-    storage_class_name = "glusterfs-nfs"
+    storage_class_name = "seaweedfs"
     access_modes       = ["ReadWriteMany"]
     resources {
       requests = {
@@ -178,9 +176,10 @@ resource "kubernetes_deployment" "nginx_sites" {
           }
 
           volume_mount {
-            name       = "code"
-            mount_path = "/code"
-            read_only  = true
+            name              = "code"
+            mount_path        = "/code"
+            read_only         = true
+            mount_propagation = "HostToContainer"
           }
 
           resources {
@@ -226,9 +225,10 @@ resource "kubernetes_deployment" "nginx_sites" {
           }
 
           volume_mount {
-            name       = "code"
-            mount_path = "/code"
-            read_only  = true
+            name              = "code"
+            mount_path        = "/code"
+            read_only         = true
+            mount_propagation = "HostToContainer"
           }
 
           security_context {

@@ -7,7 +7,7 @@
 # Requirements:
 # - NVIDIA GPU on Hestia node (for Plex transcoding)
 # - NFS access to Synology NAS (192.168.1.10) for media files
-# - MinIO for database backups
+# - SeaweedFS S3 for database backups
 
 locals {
   plex_labels = {
@@ -29,7 +29,7 @@ locals {
 
   # Backup configuration
   plex_backup_bucket   = "plex-backup"
-  plex_backup_endpoint = "http://minio-api.default.svc.cluster.local:9000"
+  plex_backup_endpoint = "http://seaweedfs-s3.default.svc.cluster.local:8333"
 }
 
 # =============================================================================
@@ -40,16 +40,35 @@ resource "kubernetes_persistent_volume_claim" "plex_config" {
   metadata {
     name      = "plex-config"
     namespace = var.namespace
-    annotations = {
-      "volume-name" = "plex_config"
-    }
   }
   spec {
-    storage_class_name = "glusterfs-nfs"
+    storage_class_name = "seaweedfs"
     access_modes       = ["ReadWriteMany"]
     resources {
       requests = {
         storage = "10Gi"
+      }
+    }
+  }
+}
+
+# Plex SQLite databases — node-local on hestia.
+# Previously provisioned via the Plex StatefulSet's volumeClaimTemplate
+# (plex-data-plex-0). Now a standalone PVC so the workload can be a
+# Deployment. WaitForFirstConsumer on the local-path provisioner binds the
+# PV to whichever node the first consumer (the plex pod, pinned to hestia
+# via nodeSelector) schedules onto.
+resource "kubernetes_persistent_volume_claim" "plex_data" {
+  metadata {
+    name      = "plex-data"
+    namespace = var.namespace
+  }
+  spec {
+    storage_class_name = "local-path"
+    access_modes       = ["ReadWriteOnce"]
+    resources {
+      requests = {
+        storage = "2Gi"
       }
     }
   }
@@ -149,7 +168,7 @@ resource "kubernetes_persistent_volume_claim" "synology_share" {
 # Plex Media Server
 # =============================================================================
 
-resource "kubernetes_stateful_set" "plex" {
+resource "kubernetes_deployment" "plex" {
   metadata {
     name      = "plex"
     namespace = var.namespace
@@ -157,8 +176,12 @@ resource "kubernetes_stateful_set" "plex" {
   }
 
   spec {
-    service_name = "plex"
-    replicas     = 1
+    replicas = 1
+
+    # Singleton: only one pod can ever own the SQLite DB PVC and the GPU.
+    strategy {
+      type = "Recreate"
+    }
 
     selector {
       match_labels = local.plex_labels
@@ -180,8 +203,10 @@ resource "kubernetes_stateful_set" "plex" {
         runtime_class_name = "nvidia"
 
         security_context {
-          fs_group = 997 # video group for GPU access
+          fs_group               = 997
+          fs_group_change_policy = "OnRootMismatch"
         }
+
 
         # Init container to restore databases from MinIO snapshots
         # CRITICAL: Plex MUST NOT start without a valid database
@@ -290,7 +315,6 @@ resource "kubernetes_stateful_set" "plex" {
             # Skip integrity checks due to Plex custom FTS tokenizer issues
             # Size check above is sufficient - backups created with sqlite3 .backup are reliable
 
-            chown -R 990:997 "$DB_DIR" 2>/dev/null || true
             echo "Restore complete - Library: $${LIBRARY_SIZE} bytes, Blobs: $${BLOBS_SIZE} bytes"
           EOF
           ]
@@ -382,8 +406,9 @@ resource "kubernetes_stateful_set" "plex" {
           }
 
           volume_mount {
-            name       = "plex-config"
-            mount_path = "/config"
+            name              = "plex-config"
+            mount_path        = "/config"
+            mount_propagation = "HostToContainer"
           }
 
           volume_mount {
@@ -457,20 +482,12 @@ resource "kubernetes_stateful_set" "plex" {
             claim_name = kubernetes_persistent_volume_claim.synology_share.metadata[0].name
           }
         }
-      }
-    }
 
-    # Persistent volume for Plex databases
-    volume_claim_template {
-      metadata {
-        name = "plex-data"
-      }
-      spec {
-        access_modes       = ["ReadWriteOnce"]
-        storage_class_name = "local-path"
-        resources {
-          requests = {
-            storage = "2Gi"
+        # SQLite databases — standalone PVC on hestia's local-path.
+        volume {
+          name = "plex-data"
+          persistent_volume_claim {
+            claim_name = kubernetes_persistent_volume_claim.plex_data.metadata[0].name
           }
         }
       }
@@ -479,6 +496,7 @@ resource "kubernetes_stateful_set" "plex" {
 
   depends_on = [
     kubernetes_persistent_volume_claim.plex_config,
+    kubernetes_persistent_volume_claim.plex_data,
   ]
 }
 
@@ -751,7 +769,7 @@ resource "kubernetes_cron_job_v1" "plex_db_backup" {
             volume {
               name = "plex-data"
               persistent_volume_claim {
-                claim_name = "plex-data-plex-0"
+                claim_name = kubernetes_persistent_volume_claim.plex_data.metadata[0].name
               }
             }
           }

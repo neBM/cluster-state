@@ -1,6 +1,6 @@
-# Restic Backup - Daily backup of GlusterFS volumes
+# Restic Backup - Daily backup of GlusterFS and SeaweedFS volumes
 #
-# Runs daily at 3am, backs up /storage/v to local restic repository
+# Runs daily at 3am, backs up /storage/v (GlusterFS) and SeaweedFS filer to local restic repository
 # Must run on Hestia where backup destination is mounted
 # Requires RESTIC_PASSWORD from Vault
 
@@ -33,6 +33,16 @@ restic backup /data \
   --exclude-caches \
   --exclude-if-present .nobackup \
   --one-file-system \
+  --skip-if-unchanged
+
+echo "Starting backup of SeaweedFS volumes..."
+
+restic backup /data-seaweedfs \
+  --tag seaweedfs \
+  --tag scheduled \
+  --iexclude-file=/config/excludes.txt \
+  --exclude-caches \
+  --exclude-if-present .nobackup \
   --skip-if-unchanged
 
 echo "Backup complete. Running cleanup..."
@@ -81,6 +91,55 @@ transcodes
 # Ollama models (downloadable)
 glusterfs_ollama_data
 EOF
+}
+
+# =============================================================================
+# SeaweedFS filer root PV/PVC — mounts /buckets (all CSI-provisioned volumes)
+# =============================================================================
+
+resource "kubernetes_persistent_volume" "seaweedfs_filer" {
+  metadata {
+    name   = "restic-seaweedfs-filer-root"
+    labels = local.labels
+  }
+
+  spec {
+    capacity = {
+      storage = "100Gi"
+    }
+
+    access_modes                     = ["ReadOnlyMany"]
+    persistent_volume_reclaim_policy = "Retain"
+    storage_class_name               = "seaweedfs"
+
+    persistent_volume_source {
+      csi {
+        driver        = "seaweedfs-csi-driver"
+        volume_handle = "/buckets"
+        read_only     = true
+      }
+    }
+  }
+}
+
+resource "kubernetes_persistent_volume_claim" "seaweedfs_filer" {
+  metadata {
+    name      = "restic-seaweedfs-filer-root"
+    namespace = var.namespace
+    labels    = local.labels
+  }
+
+  spec {
+    access_modes       = ["ReadOnlyMany"]
+    storage_class_name = "seaweedfs"
+    volume_name        = kubernetes_persistent_volume.seaweedfs_filer.metadata[0].name
+
+    resources {
+      requests = {
+        storage = "100Gi"
+      }
+    }
+  }
 }
 
 # =============================================================================
@@ -151,6 +210,12 @@ resource "kubernetes_cron_job_v1" "restic_backup" {
               }
 
               volume_mount {
+                name       = "data-seaweedfs"
+                mount_path = "/data-seaweedfs"
+                read_only  = true
+              }
+
+              volume_mount {
                 name       = "repo"
                 mount_path = "/repo"
                 read_only  = false
@@ -185,6 +250,14 @@ resource "kubernetes_cron_job_v1" "restic_backup" {
               host_path {
                 path = "/storage/v"
                 type = "Directory"
+              }
+            }
+
+            volume {
+              name = "data-seaweedfs"
+              persistent_volume_claim {
+                claim_name = kubernetes_persistent_volume_claim.seaweedfs_filer.metadata[0].name
+                read_only  = true
               }
             }
 

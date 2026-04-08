@@ -54,8 +54,8 @@ resource "kubernetes_config_map" "loki_config" {
 
       storage_config = {
         aws = {
-          bucketnames      = var.minio_bucket
-          endpoint         = var.minio_endpoint
+          bucketnames      = var.s3_bucket
+          endpoint         = var.s3_endpoint
           insecure         = true
           s3forcepathstyle = true
           region           = "us-east-1"
@@ -140,7 +140,7 @@ resource "kubernetes_deployment" "loki" {
             name = "AWS_ACCESS_KEY_ID"
             value_from {
               secret_key_ref {
-                name = var.minio_secret_name
+                name = var.s3_secret_name
                 key  = "MINIO_ACCESS_KEY"
               }
             }
@@ -150,7 +150,7 @@ resource "kubernetes_deployment" "loki" {
             name = "AWS_SECRET_ACCESS_KEY"
             value_from {
               secret_key_ref {
-                name = var.minio_secret_name
+                name = var.s3_secret_name
                 key  = "MINIO_SECRET_KEY"
               }
             }
