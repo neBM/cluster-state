@@ -26,3 +26,6 @@ k3s-config
 *.key
 *.crt
 *.secret.yaml
+
+# Worktrees
+/.worktrees/
