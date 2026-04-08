@@ -274,6 +274,52 @@ nomad job run <job-name>
 
 ---
 
+### 10. EREMOTEIO (errno 121) on NFS4 Directory Access — Kernel 6.18+
+
+**Symptom:**
+```
+ls: cannot open directory '/path': Remote I/O error
+# errno 121 (EREMOTEIO) on any subdirectory access via NFS-Ganesha
+# Root directory listing may work (cached), but stat/readdir on children fails
+```
+
+**Cause:** Linux kernel 6.18 enables NFSv4.1 **directory delegations** by default
+(`/sys/module/nfsv4/parameters/directory_delegations=Y`). The NFS client sends
+`GET_DIR_DELEGATION` (op 46) in COMPOUND operations when opening directories.
+NFS-Ganesha's GLUSTER FSAL returns `NFS4ERR_OP_ILLEGAL` (10044) instead of the
+correct `NFS4ERR_NOTSUPP`, which kills the entire COMPOUND — the subsequent
+GETATTR never executes, producing EREMOTEIO.
+
+**Diagnosis:**
+```bash
+# Confirm kernel version
+uname -r  # 6.18+
+
+# Check if directory delegations are enabled
+cat /sys/module/nfsv4/parameters/directory_delegations  # Y = affected
+
+# Verify with tcpdump (look for "ERROR: unk 10044")
+sudo tcpdump -i lo -nn port 2049 -c 20
+# Then trigger: ls /var/lib/kubelet/pods/.../volumes/kubernetes.io~nfs/.../subdir/
+```
+
+**Fix (runtime — immediate):**
+```bash
+sudo bash -c 'echo N > /sys/module/nfsv4/parameters/directory_delegations'
+sudo bash -c 'echo 3 > /proc/sys/vm/drop_caches'  # clear stale inode cache
+```
+
+**Fix (persistent — survives reboot):**
+```bash
+echo 'options nfsv4 directory_delegations=N' | sudo tee /etc/modprobe.d/nfs-ganesha-workaround.conf
+```
+
+**Note:** This workaround can be removed once NFS-Ganesha handles GET_DIR_DELEGATION
+correctly (returning NFS4ERR_NOTSUPP instead of NFS4ERR_OP_ILLEGAL). Track upstream
+Ganesha for a fix.
+
+---
+
 ## Recovery Procedures
 
 ### Full Cluster Storage Recovery
