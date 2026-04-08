@@ -51,6 +51,18 @@ main.tf            # Terraform config
 | `/mnt/csi/` | Legacy CSI backups |
 | `/var/lib/docker/volumes/` | Docker volume backups |
 
+### Host Firewall (Hestia only)
+
+Hestia runs Fedora with `firewalld` active; heracles and nyx do not. Cilium-managed interfaces (`cilium_host`, `cilium_net`, `cilium_vxlan`, `lxc+`) must be in firewalld's `trusted` zone so pod→host same-node traffic bypasses the `FedoraServer` filter chain. Pod-network enforcement is handled by `CiliumNetworkPolicy`, not the host firewall.
+
+This is **not** currently in Terraform. Re-apply with the idempotent script after a host rebuild:
+
+```bash
+ssh 192.168.1.5 'bash -s' < scripts/hestia-firewalld-setup.sh
+```
+
+Symptom when this drifts: a new Cilium/Hubble component on hestia fails with `no route to host` / `Host is unreachable` on its gRPC port (e.g. `hubble-relay` → `hubble-peer:4244`). Historical fixes also had to open `8472/udp` (VXLAN) and `4240/tcp` (cilium health) — see `specs/003-nomad-to-kubernetes/findings.md`.
+
 ## Common Commands
 
 ### Terraform
