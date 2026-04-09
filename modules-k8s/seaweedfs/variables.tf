@@ -14,13 +14,13 @@ variable "seaweedfs_image_tag" {
 variable "csi_driver_image_tag" {
   description = "SeaweedFS CSI driver image tag"
   type        = string
-  default     = "v0.1.3"
+  default     = "v0.1.4"
 }
 
 variable "csi_mount_image_tag" {
   description = "SeaweedFS mount image tag"
   type        = string
-  default     = "v0.1.3"
+  default     = "v0.1.4"
 }
 
 variable "consumer_recycler_image_tag" {
