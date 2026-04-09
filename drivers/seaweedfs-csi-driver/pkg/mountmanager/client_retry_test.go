@@ -229,3 +229,23 @@ func resetCounters(t *testing.T) {
 	t.Helper()
 	dialRetriesTotal.Reset()
 }
+
+func TestNewEventRecorder_NoEnv(t *testing.T) {
+	t.Setenv("POD_NAME", "")
+	t.Setenv("POD_NAMESPACE", "")
+	rec := NewEventRecorder()
+	if rec != nil {
+		t.Errorf("NewEventRecorder() = %v, want nil when POD_NAME/POD_NAMESPACE unset", rec)
+	}
+}
+
+func TestNewEventRecorder_NoCluster(t *testing.T) {
+	t.Setenv("POD_NAME", "csi-node-test")
+	t.Setenv("POD_NAMESPACE", "default")
+	// rest.InClusterConfig() will fail outside a pod — recorder should
+	// return nil, not panic.
+	rec := NewEventRecorder()
+	if rec != nil {
+		t.Errorf("NewEventRecorder() = %v, want nil outside in-cluster", rec)
+	}
+}

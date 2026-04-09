@@ -21,6 +21,7 @@ type Client struct {
 	baseURL    string
 	endpoint   string // raw endpoint string for log/metric labelling
 	retry      clientRetryConfig
+	events     *EventRecorder // nilable; nil means event emission is skipped
 }
 
 // NewClient builds a new Client for the given endpoint.
@@ -48,6 +49,7 @@ func NewClient(endpoint string) (*Client, error) {
 		baseURL:  "http://unix",
 		endpoint: endpoint,
 		retry:    defaultRetryConfig(),
+		events:   NewEventRecorder(),
 	}, nil
 }
 
@@ -147,6 +149,7 @@ func (c *Client) doPost(ctx context.Context, path string, payload any, out any) 
 		dialRetriesTotal.WithLabelValues("exhausted").Inc()
 		dialRetryDurationSeconds.Observe(elapsed.Seconds())
 		glog.Errorf("mount service at %s unreachable after %s, giving up; kubelet will retry", c.endpoint, elapsed)
+		c.events.RecordMountServiceUnreachable(c.endpoint, elapsed, lastErr)
 		return fmt.Errorf("mount service at %s unreachable after %s: %w", c.endpoint, elapsed, lastErr)
 	}
 
