@@ -377,16 +377,6 @@ func (ns *NodeServer) removeVolumeMutex(volumeID string) {
 // stageNewVolume creates and stages a new volume with the given parameters.
 // This is a helper method used by both NodeStageVolume and NodePublishVolume (for re-staging).
 func (ns *NodeServer) stageNewVolume(ctx context.Context, volumeID, stagingTargetPath string, volContext map[string]string, readOnly bool) (*Volume, error) {
-	// Apply mount-root ownership on the filer before the mount picks up attrs.
-	// Skipped for read-only volumes (filer writes are wasted there, and RO
-	// attr updates generate needless backend load). Passes caller's ctx so
-	// kubelet NodeStageVolume deadline propagates into the filer RPCs.
-	if !readOnly {
-		if err := applyMountRootOwnership(ctx, ns.Driver, volumeID, volContext); err != nil {
-			return nil, fmt.Errorf("apply mount-root ownership for %s: %w", volumeID, err)
-		}
-	}
-
 	mounter, err := newMounter(volumeID, readOnly, ns.Driver, volContext)
 	if err != nil {
 		return nil, err
@@ -395,6 +385,23 @@ func (ns *NodeServer) stageNewVolume(ctx context.Context, volumeID, stagingTarge
 	volume := NewVolume(volumeID, mounter, ns.Driver)
 	if err := volume.Stage(ctx, stagingTargetPath); err != nil {
 		return nil, err
+	}
+
+	// Apply mount-root ownership on the filer AFTER volume.Stage(). weed mount's
+	// startup path can rewrite root-inode attrs (see buildMountArgs comment and
+	// project_csi_v013_mount_clobbers_root), so writing beforehand is pointless:
+	// the mount clobbers our write. Post-stage apply re-stamps the attrs after
+	// any startup clobber, belt-and-braces with -dirAutoCreate=false. Skipped
+	// for read-only volumes. Passes caller's ctx so kubelet NodeStageVolume
+	// deadline propagates into the filer RPCs.
+	if !readOnly {
+		if err := applyMountRootOwnership(ctx, ns.Driver, volumeID, volContext); err != nil {
+			glog.Warningf("failed to apply mount-root ownership for volume %s: %v", volumeID, err)
+			if unstageErr := volume.Unstage(ctx, stagingTargetPath); unstageErr != nil {
+				glog.Errorf("failed to unstage volume %s after mount-root ownership failure: %v", volumeID, unstageErr)
+			}
+			return nil, fmt.Errorf("apply mount-root ownership for %s: %w", volumeID, err)
+		}
 	}
 
 	// Apply quota if available
