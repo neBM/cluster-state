@@ -2,6 +2,8 @@
 
 > **Gap #2 shipped 2026-04-09** — `seaweedfs-consumer-recycler` DaemonSet (v0.1.1) deployed and validated on all 3 nodes (hestia amd64, heracles + nyx arm64). Path A (event-driven, on `seaweedfs-mount` restart) and Path B (stat-prober for stale FUSE mounts) both firing in production.
 
+> **Gap #5 shipped 2026-04-09** — `seaweedfs-csi-driver` v0.1.2 deployed across all 3 nodes. `pkg/mountmanager.Client.doPost()` now retries transport-level dial failures (ENOENT/ECONNREFUSED) for up to 30s before surfacing an error to kubelet, with Prometheus metrics on the new `:9810/metrics` endpoint and `MountServiceUnreachable` k8s Events on retry exhaustion. Unit-tested end-to-end (5 retry scenarios); the forced-exhaustion path was not reproduced in live cluster — see Gap #5 section for details.
+
 > **Status:** Context dump, not yet a plan. Each item below should become its own plan doc (`/superpowers:brainstorm` then `/superpowers:write-plan`) when picked up for implementation. Written 2026-04-08 after `seaweedfs-mount` split shipped; captures residual gaps while context is hot.
 
 **Prior work shipped (2026-04-08):**
@@ -108,7 +110,29 @@
 
 ---
 
-## Gap 5: Startup ordering — csi-node dials socket before seaweedfs-mount ready
+## Gap 5: Startup ordering — csi-node dials socket before seaweedfs-mount ready — **SHIPPED 2026-04-09**
+
+**Shipped as:** retry loop in `drivers/seaweedfs-csi-driver/pkg/mountmanager/client.go` at the `doPost()` layer. Image `registry.brmartin.co.uk/ben/seaweedfs-csi-driver:v0.1.2` (multi-arch, sideloaded). Plan: `docs/superpowers/plans/2026-04-09-seaweedfs-csi-socket-retry.md`. Spec: `docs/superpowers/specs/2026-04-09-seaweedfs-csi-socket-retry-design.md`.
+
+**How it works:**
+- `wait.PollUntilContextTimeout` wraps the http call in `doPost()` with a 30-second budget and 1-second interval.
+- `shouldRetryDial` classifier matches `ENOENT`, `ECONNREFUSED`, and `net.OpError` dial errors only — HTTP 4xx/5xx and context cancellations propagate immediately.
+- Metrics: `seaweedfs_csi_dial_retries_total{outcome=recovered|exhausted}` + `seaweedfs_csi_dial_retry_duration_seconds` histogram on the new csi-node `:9810/metrics` endpoint.
+- K8s Event `Warning/MountServiceUnreachable` on retry exhaustion (graceful-degrade if RBAC missing).
+
+**Port deviation from plan:** The original plan called for exposing `/metrics` on `:9808`, but port 9808 is already bound inside the `csi-node` pod by the upstream `liveness-probe` sidecar (`--http-endpoint=:9808`, see `modules-k8s/seaweedfs/csi.tf`). Moved `metricsPort` default to **9810** in `cmd/seaweedfs-csi-driver/main.go` and added a corresponding `containerPort: 9810` + prometheus scrape annotations in `csi.tf`.
+
+**Reframing of the original gap:** Reading the actual code showed the driver does NOT crash on a missing socket — `mountmanager.NewClient` is lazy and the first dial happens inside `doPost`. The real symptom was kubelet's minute-scale exponential backoff after a single 30-second http-client timeout. The fix removes that backoff by recovering inside the call.
+
+**Validation status:**
+- **Unit tests (proven):** `shouldRetryDial` classifier and all 5 `doPost` retry scenarios (happy path, recovery after delay, budget exhausted, non-retryable 500, context cancelled) covered.
+- **Live deploy (proven):** All 3 csi-node pods running `:v0.1.2`, `/metrics` endpoint reachable on `:9810` on every node, `seaweedfs_csi_dial_retry_duration_seconds_*` histogram registered. Rolling deploy via `RollingUpdate` strategy (not `OnDelete` as the plan assumed) — no manual cycling needed.
+- **RBAC (proven):** csi_node ClusterRole grants `events.k8s.io/events` create/patch — required because the Go code uses `EventsV1()` not `CoreV1().Events()`.
+- **Forced-exhaustion (NOT validated end-to-end):** The Task 15 smoke test attempted to force retry exhaustion by evicting `seaweedfs-mount` from nyx and deleting a consumer pod. The consumer rescheduled to a different node, so no fresh `NodePublishVolume` happened on nyx and the retry loop didn't fire. The `outcome="exhausted"` counter increment and `MountServiceUnreachable` Event emission are proven only by unit tests, not by a live firing. A future test should either (a) cordon the other two nodes and force a consumer pod to re-Publish on nyx, or (b) reboot a node cleanly so kubelet re-stages volumes from scratch while the mount service comes up — the actual real-world scenario this fix targets.
+
+---
+
+### Original planning notes (preserved for history)
 
 **Background:** `csi-seaweedfs` container in `csi-node` DaemonSet connects to `unix:///var/lib/seaweedfs-mount/seaweedfs-mount.sock`. After node reboot or first deploy, csi-node and seaweedfs-mount race. If csi-node starts first, the socket doesn't exist.
 
