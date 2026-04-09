@@ -34,7 +34,7 @@ func NewVolume(volumeID string, mounter Mounter, driver *SeaweedFsDriver) *Volum
 	}
 }
 
-func (vol *Volume) Stage(stagingTargetPath string) error {
+func (vol *Volume) Stage(ctx context.Context, stagingTargetPath string) error {
 	// check whether it can be mounted
 	if isMnt, err := checkMount(stagingTargetPath); err != nil {
 		return err
@@ -43,7 +43,7 @@ func (vol *Volume) Stage(stagingTargetPath string) error {
 		_ = mountutil.Unmount(stagingTargetPath)
 	}
 
-	if u, err := vol.mounter.Mount(stagingTargetPath); err == nil {
+	if u, err := vol.mounter.Mount(ctx, stagingTargetPath); err == nil {
 		if vol.StagedPath != "" {
 			if vol.StagedPath == stagingTargetPath {
 				glog.Warningf("staged path is already set to %s for volume %s", vol.StagedPath, vol.VolumeId)
@@ -114,7 +114,7 @@ func (vol *Volume) Unpublish(targetPath string) error {
 	return nil
 }
 
-func (vol *Volume) Unstage(stagingTargetPath string) error {
+func (vol *Volume) Unstage(ctx context.Context, stagingTargetPath string) error {
 	glog.V(0).Infof("unmounting volume %s from %s", vol.VolumeId, stagingTargetPath)
 
 	if stagingTargetPath != vol.StagedPath && vol.StagedPath != "" {
@@ -132,7 +132,7 @@ func (vol *Volume) Unstage(stagingTargetPath string) error {
 			return err
 		}
 	} else {
-		if err := vol.unmounter.Unmount(); err != nil {
+		if err := vol.unmounter.Unmount(ctx); err != nil {
 			glog.Errorf("error unmounting volume during unstage: %s, err: %v", stagingTargetPath, err)
 			return err
 		}

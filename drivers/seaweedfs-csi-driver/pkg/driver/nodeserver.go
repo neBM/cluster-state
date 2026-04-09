@@ -85,7 +85,7 @@ func (ns *NodeServer) NodeStageVolume(ctx context.Context, req *csi.NodeStageVol
 	volContext = injectVolumeMountGroup(req.GetVolumeCapability(), volContext)
 	readOnly := isVolumeReadOnly(req)
 
-	volume, err := ns.stageNewVolume(volumeID, stagingTargetPath, volContext, readOnly)
+	volume, err := ns.stageNewVolume(ctx, volumeID, stagingTargetPath, volContext, readOnly)
 	if err != nil {
 		// node stage is unsuccessful
 		ns.removeVolumeMutex(volumeID)
@@ -161,7 +161,7 @@ func (ns *NodeServer) NodePublishVolume(ctx context.Context, req *csi.NodePublis
 			volContext = injectVolumeMountGroup(req.GetVolumeCapability(), volContext)
 			readOnly := isPublishVolumeReadOnly(req)
 
-			newVolume, err := ns.stageNewVolume(volumeID, stagingTargetPath, volContext, readOnly)
+			newVolume, err := ns.stageNewVolume(ctx, volumeID, stagingTargetPath, volContext, readOnly)
 			if err != nil {
 				ns.removeVolumeMutex(volumeID)
 				return nil, status.Errorf(codes.Internal, "failed to re-stage volume: %v", err)
@@ -312,7 +312,7 @@ func (ns *NodeServer) NodeUnstageVolume(ctx context.Context, req *csi.NodeUnstag
 		// Also clean up cache directory and socket if they exist
 		CleanupVolumeResources(ns.Driver, volumeID)
 	} else {
-		if err := volume.(*Volume).Unstage(stagingTargetPath); err != nil {
+		if err := volume.(*Volume).Unstage(ctx, stagingTargetPath); err != nil {
 			return nil, status.Error(codes.Internal, err.Error())
 		} else {
 			ns.volumes.Delete(volumeID)
@@ -372,14 +372,14 @@ func (ns *NodeServer) removeVolumeMutex(volumeID string) {
 
 // stageNewVolume creates and stages a new volume with the given parameters.
 // This is a helper method used by both NodeStageVolume and NodePublishVolume (for re-staging).
-func (ns *NodeServer) stageNewVolume(volumeID, stagingTargetPath string, volContext map[string]string, readOnly bool) (*Volume, error) {
+func (ns *NodeServer) stageNewVolume(ctx context.Context, volumeID, stagingTargetPath string, volContext map[string]string, readOnly bool) (*Volume, error) {
 	mounter, err := newMounter(volumeID, readOnly, ns.Driver, volContext)
 	if err != nil {
 		return nil, err
 	}
 
 	volume := NewVolume(volumeID, mounter, ns.Driver)
-	if err := volume.Stage(stagingTargetPath); err != nil {
+	if err := volume.Stage(ctx, stagingTargetPath); err != nil {
 		return nil, err
 	}
 
@@ -388,7 +388,7 @@ func (ns *NodeServer) stageNewVolume(volumeID, stagingTargetPath string, volCont
 		if err := volume.Quota(capacity); err != nil {
 			glog.Warningf("failed to apply quota for volume %s: %v", volumeID, err)
 			// Clean up the staged mount since we're returning an error
-			if unstageErr := volume.Unstage(stagingTargetPath); unstageErr != nil {
+			if unstageErr := volume.Unstage(ctx, stagingTargetPath); unstageErr != nil {
 				glog.Errorf("failed to unstage volume %s after quota failure: %v", volumeID, unstageErr)
 			}
 			return nil, err

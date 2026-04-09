@@ -1,6 +1,7 @@
 package driver
 
 import (
+	"context"
 	"fmt"
 	"path"
 	"strconv"
@@ -12,11 +13,11 @@ import (
 )
 
 type Unmounter interface {
-	Unmount() error
+	Unmount(ctx context.Context) error
 }
 
 type Mounter interface {
-	Mount(target string) (Unmounter, error)
+	Mount(ctx context.Context, target string) (Unmounter, error)
 }
 
 type mountServiceMounter struct {
@@ -52,7 +53,7 @@ func newMounter(volumeID string, readOnly bool, driver *SeaweedFsDriver, volCont
 	}, nil
 }
 
-func (m *mountServiceMounter) Mount(target string) (Unmounter, error) {
+func (m *mountServiceMounter) Mount(ctx context.Context, target string) (Unmounter, error) {
 	if target == "" {
 		return nil, fmt.Errorf("target path is required")
 	}
@@ -78,7 +79,7 @@ func (m *mountServiceMounter) Mount(target string) (Unmounter, error) {
 		LocalSocket: localSocket,
 	}
 
-	_, err = m.client.Mount(req)
+	_, err = m.client.Mount(ctx, req)
 	if err != nil {
 		return nil, err
 	}
@@ -89,8 +90,8 @@ func (m *mountServiceMounter) Mount(target string) (Unmounter, error) {
 	}, nil
 }
 
-func (u *mountServiceUnmounter) Unmount() error {
-	_, err := u.client.Unmount(&mountmanager.UnmountRequest{VolumeID: u.volumeID})
+func (u *mountServiceUnmounter) Unmount(ctx context.Context) error {
+	_, err := u.client.Unmount(ctx, &mountmanager.UnmountRequest{VolumeID: u.volumeID})
 	return err
 }
 
