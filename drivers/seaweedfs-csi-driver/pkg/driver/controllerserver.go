@@ -8,6 +8,7 @@ import (
 	"io"
 	"path"
 	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/container-storage-interface/spec/lib/go/csi"
@@ -296,4 +297,23 @@ func isValidVolumeCapabilities(driverVolumeCaps []*csi.VolumeCapability_AccessMo
 		}
 	}
 	return foundAll
+}
+
+// parseOwnershipAnnotation reads a numeric uid/gid annotation from the map.
+// Returns (nil, nil) when the annotation is absent or empty. Returns an error
+// for non-integer, negative, or out-of-range-for-int32 values.
+func parseOwnershipAnnotation(annotations map[string]string, key string) (*int32, error) {
+	v, ok := annotations[key]
+	if !ok || v == "" {
+		return nil, nil
+	}
+	n, err := strconv.ParseInt(v, 10, 32)
+	if err != nil {
+		return nil, fmt.Errorf("invalid annotation %s=%q: %w", key, v, err)
+	}
+	if n < 0 {
+		return nil, fmt.Errorf("invalid annotation %s=%q: must be >= 0", key, v)
+	}
+	result := int32(n)
+	return &result, nil
 }
