@@ -188,6 +188,12 @@ resource "kubernetes_cluster_role" "csi_node" {
   }
 
   rule {
+    api_groups = ["events.k8s.io"]
+    resources  = ["events"]
+    verbs      = ["create", "patch"]
+  }
+
+  rule {
     api_groups = [""]
     resources  = ["persistentvolumes"]
     verbs      = ["get", "list", "watch", "create", "update", "patch"]
