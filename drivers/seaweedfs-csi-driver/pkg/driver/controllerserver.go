@@ -6,12 +6,14 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io"
+	"os"
 	"path"
 	"regexp"
 	"strconv"
 	"strings"
 
 	"github.com/container-storage-interface/spec/lib/go/csi"
+	"github.com/seaweedfs/seaweedfs-csi-driver/pkg/k8s"
 	"github.com/seaweedfs/seaweedfs/weed/glog"
 	"github.com/seaweedfs/seaweedfs/weed/pb/filer_pb"
 	"github.com/seaweedfs/seaweedfs/weed/s3api/s3bucket"
@@ -20,6 +22,12 @@ import (
 )
 
 var unsafeVolumeIdChars = regexp.MustCompile(`[^-.a-zA-Z0-9]`)
+
+// Testable seams for CreateVolume. Tests replace these with stubs.
+var (
+	getPVCAnnotations = k8s.GetPVCAnnotations
+	mkdirFunc         = filer_pb.Mkdir
+)
 
 type ControllerServer struct {
 	csi.UnimplementedControllerServer
@@ -85,11 +93,55 @@ func (cs *ControllerServer) CreateVolume(ctx context.Context, req *csi.CreateVol
 
 	capacity := req.GetCapacityRange().GetRequiredBytes()
 
-	if err := filer_pb.Mkdir(ctx, cs.Driver, parentDir, volumeName, nil); err != nil {
+	// Resolve mount-root ownership from PVC annotations (if provisioner passed pvc/*
+	// metadata — requires --extra-create-metadata on csi-provisioner).
+	var mountRootUid, mountRootGid *int32
+	if pvcName, pvcNs := params["csi.storage.k8s.io/pvc/name"], params["csi.storage.k8s.io/pvc/namespace"]; pvcName != "" && pvcNs != "" {
+		annotations, err := getPVCAnnotations(ctx, pvcNs, pvcName)
+		if err != nil {
+			return nil, status.Errorf(codes.Internal, "lookup pvc %s/%s: %v", pvcNs, pvcName, err)
+		}
+		uid, err := parseOwnershipAnnotation(annotations, "seaweedfs.csi.brmartin.co.uk/mount-root-uid")
+		if err != nil {
+			return nil, status.Errorf(codes.InvalidArgument, "%v", err)
+		}
+		gid, err := parseOwnershipAnnotation(annotations, "seaweedfs.csi.brmartin.co.uk/mount-root-gid")
+		if err != nil {
+			return nil, status.Errorf(codes.InvalidArgument, "%v", err)
+		}
+		mountRootUid, mountRootGid = uid, gid
+	}
+
+	// Mkdir fn stamps the root inode's attrs at creation so the first getattr
+	// after `weed mount` returns them. No-op when nothing is resolved.
+	mkdirFn := func(entry *filer_pb.Entry) {
+		if entry.Attributes == nil {
+			entry.Attributes = &filer_pb.FuseAttributes{}
+		}
+		if mountRootUid != nil {
+			entry.Attributes.Uid = uint32(*mountRootUid)
+		}
+		if mountRootGid != nil {
+			entry.Attributes.Gid = uint32(*mountRootGid)
+		}
+		if mountRootUid != nil || mountRootGid != nil {
+			entry.Attributes.FileMode = uint32(0770) | uint32(os.ModeDir)
+		}
+	}
+
+	if err := mkdirFunc(ctx, cs.Driver, parentDir, volumeName, mkdirFn); err != nil {
 		return nil, fmt.Errorf("error creating volume: %v", err)
 	}
 
 	glog.V(4).Infof("volume created %s at %s", requestedVolumeId, volumePath)
+
+	// Persist resolved values into VolumeContext for NodeStage to re-apply.
+	if mountRootUid != nil {
+		params["mountRootUid"] = strconv.FormatInt(int64(*mountRootUid), 10)
+	}
+	if mountRootGid != nil {
+		params["mountRootGid"] = strconv.FormatInt(int64(*mountRootGid), 10)
+	}
 
 	// Use full paths as VolumeID
 	// This keeps everything stateless
