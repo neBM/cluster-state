@@ -23,6 +23,12 @@ variable "csi_mount_image_tag" {
   default     = "v1.4.8-split"
 }
 
+variable "consumer_recycler_image_tag" {
+  description = "SeaweedFS consumer recycler image tag"
+  type        = string
+  default     = "v0.1.0"
+}
+
 variable "csi_provisioner_image_tag" {
   description = "CSI external-provisioner sidecar image tag"
   type        = string
