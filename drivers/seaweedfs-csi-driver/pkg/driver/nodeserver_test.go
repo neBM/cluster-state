@@ -1,9 +1,12 @@
 package driver
 
 import (
+	"context"
+	"os"
 	"testing"
 
 	"github.com/container-storage-interface/spec/lib/go/csi"
+	"github.com/seaweedfs/seaweedfs/weed/pb/filer_pb"
 )
 
 func capWithMountGroup(mg string) *csi.VolumeCapability {
@@ -78,5 +81,122 @@ func TestInjectVolumeMountGroup_NilVolContext(t *testing.T) {
 	}
 	if ctx["mountRootGid"] != "997" {
 		t.Errorf("mountRootGid: got %q, want %q", ctx["mountRootGid"], "997")
+	}
+}
+
+func TestApplyMountRootOwnership_Noop(t *testing.T) {
+	called := false
+	orig := applyMountRootOwnershipFiler
+	applyMountRootOwnershipFiler = func(ctx context.Context, d *SeaweedFsDriver, v string, m func(*filer_pb.Entry)) error {
+		called = true
+		return nil
+	}
+	t.Cleanup(func() { applyMountRootOwnershipFiler = orig })
+
+	err := applyMountRootOwnership(context.Background(), nil, "/buckets/x", map[string]string{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if called {
+		t.Errorf("filer seam must not be called when volContext is empty")
+	}
+}
+
+func TestApplyMountRootOwnership_BothSet(t *testing.T) {
+	var gotEntry *filer_pb.Entry
+	orig := applyMountRootOwnershipFiler
+	applyMountRootOwnershipFiler = func(ctx context.Context, d *SeaweedFsDriver, v string, m func(*filer_pb.Entry)) error {
+		entry := &filer_pb.Entry{Attributes: &filer_pb.FuseAttributes{Uid: 111, Gid: 222, FileMode: 0700}}
+		m(entry)
+		gotEntry = entry
+		return nil
+	}
+	t.Cleanup(func() { applyMountRootOwnershipFiler = orig })
+
+	err := applyMountRootOwnership(context.Background(), nil, "/buckets/plex-config", map[string]string{
+		"mountRootUid": "990",
+		"mountRootGid": "997",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if gotEntry.Attributes.Uid != 990 {
+		t.Errorf("Uid: got %d, want 990", gotEntry.Attributes.Uid)
+	}
+	if gotEntry.Attributes.Gid != 997 {
+		t.Errorf("Gid: got %d, want 997", gotEntry.Attributes.Gid)
+	}
+	wantMode := uint32(0770) | uint32(os.ModeDir)
+	if gotEntry.Attributes.FileMode != wantMode {
+		t.Errorf("FileMode: got 0%o, want 0%o", gotEntry.Attributes.FileMode, wantMode)
+	}
+}
+
+func TestApplyMountRootOwnership_GidOnly(t *testing.T) {
+	var gotEntry *filer_pb.Entry
+	orig := applyMountRootOwnershipFiler
+	applyMountRootOwnershipFiler = func(ctx context.Context, d *SeaweedFsDriver, v string, m func(*filer_pb.Entry)) error {
+		// Seed Uid=555 so we can verify it is preserved.
+		entry := &filer_pb.Entry{Attributes: &filer_pb.FuseAttributes{Uid: 555, Gid: 0, FileMode: 0}}
+		m(entry)
+		gotEntry = entry
+		return nil
+	}
+	t.Cleanup(func() { applyMountRootOwnershipFiler = orig })
+
+	err := applyMountRootOwnership(context.Background(), nil, "/buckets/x", map[string]string{"mountRootGid": "997"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if gotEntry.Attributes.Uid != 555 {
+		t.Errorf("Uid must be preserved when only gid is provided, got %d", gotEntry.Attributes.Uid)
+	}
+	if gotEntry.Attributes.Gid != 997 {
+		t.Errorf("Gid: got %d, want 997", gotEntry.Attributes.Gid)
+	}
+	wantMode := uint32(0770) | uint32(os.ModeDir)
+	if gotEntry.Attributes.FileMode != wantMode {
+		t.Errorf("FileMode: got 0%o, want 0%o", gotEntry.Attributes.FileMode, wantMode)
+	}
+}
+
+func TestApplyMountRootOwnership_InvalidUid(t *testing.T) {
+	called := false
+	orig := applyMountRootOwnershipFiler
+	applyMountRootOwnershipFiler = func(ctx context.Context, d *SeaweedFsDriver, v string, m func(*filer_pb.Entry)) error {
+		called = true
+		return nil
+	}
+	t.Cleanup(func() { applyMountRootOwnershipFiler = orig })
+
+	err := applyMountRootOwnership(context.Background(), nil, "/buckets/x", map[string]string{"mountRootUid": "not-a-number"})
+	if err == nil {
+		t.Errorf("expected parse error, got nil")
+	}
+	if called {
+		t.Errorf("filer seam must not be called when parsing fails")
+	}
+}
+
+func TestApplyMountRootOwnership_NilAttributes(t *testing.T) {
+	// Defensive: Entry.Attributes may be nil in some filer states.
+	var gotEntry *filer_pb.Entry
+	orig := applyMountRootOwnershipFiler
+	applyMountRootOwnershipFiler = func(ctx context.Context, d *SeaweedFsDriver, v string, m func(*filer_pb.Entry)) error {
+		entry := &filer_pb.Entry{Attributes: nil}
+		m(entry)
+		gotEntry = entry
+		return nil
+	}
+	t.Cleanup(func() { applyMountRootOwnershipFiler = orig })
+
+	if err := applyMountRootOwnership(context.Background(), nil, "/buckets/x", map[string]string{"mountRootGid": "997"}); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if gotEntry.Attributes == nil {
+		t.Fatal("Attributes should be allocated by mutate fn")
+	}
+	if gotEntry.Attributes.Gid != 997 {
+		t.Errorf("Gid: got %d, want 997", gotEntry.Attributes.Gid)
 	}
 }
