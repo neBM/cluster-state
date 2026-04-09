@@ -426,7 +426,10 @@ func isVolumeReadOnly(req *csi.NodeStageVolumeRequest) bool {
 
 // injectVolumeMountGroup extracts volume_mount_group from the CSI volume capability
 // and injects it as gidMap into volContext if not already set. This wires kubelet's
-// fsGroup through to the FUSE mount's -map.gid argument.
+// fsGroup through to the FUSE mount's -map.gid argument (translation for files
+// *inside* the tree). It also auto-derives mountRootGid from the mount group
+// when mountRootGid is not already set — this is the signal consumed by
+// applyMountRootOwnership to stamp the filer root inode's attrs.
 func injectVolumeMountGroup(cap *csi.VolumeCapability, volContext map[string]string) map[string]string {
 	if cap == nil || cap.GetMount() == nil {
 		return volContext
@@ -444,6 +447,14 @@ func injectVolumeMountGroup(cap *csi.VolumeCapability, volContext map[string]str
 	if _, ok := volContext["gidMap"]; !ok {
 		volContext["gidMap"] = mountGroup + ":0"
 		glog.Infof("injecting volume_mount_group %s as gidMap %s:0 (local:filer)", mountGroup, mountGroup)
+	}
+
+	// Auto-derive mountRootGid from fsGroup when not already set by an explicit
+	// PVC annotation (persisted in volumeAttributes by CreateVolume) or a
+	// retrofit `kubectl patch pv` flow. mountRootUid has no equivalent.
+	if _, ok := volContext["mountRootGid"]; !ok {
+		volContext["mountRootGid"] = mountGroup
+		glog.Infof("auto-deriving mountRootGid=%s from volume_mount_group", mountGroup)
 	}
 
 	return volContext
