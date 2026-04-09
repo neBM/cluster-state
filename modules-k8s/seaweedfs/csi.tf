@@ -106,6 +106,7 @@ resource "kubernetes_deployment" "csi_controller" {
             "--leader-election",
             "--leader-election-namespace=${var.namespace}",
             "--http-endpoint=:9809",
+            "--extra-create-metadata",
           ]
 
           env {
