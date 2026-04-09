@@ -187,6 +187,8 @@ func (m *mountServiceMounter) buildMountArgs(targetPath, cacheDir, localSocket s
 		"path":         {},
 		"parentDir":    {},
 		"volumeName":   {},
+		"mountRootUid": {},
+		"mountRootGid": {},
 	}
 
 	for key, value := range volumeContext {
