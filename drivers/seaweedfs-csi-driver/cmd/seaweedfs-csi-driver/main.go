@@ -36,7 +36,7 @@ var (
 	gidMap            = flag.String("map.gid", "", "map local gid to gid on filer, comma-separated <local_gid>:<filer_gid>")
 	dataCenter        = flag.String("dataCenter", "", "dataCenter this node is running in (locality-definition)")
 	dataLocalityStr   = flag.String("dataLocality", "", "which volume-nodes pods will use for activity (one-of: 'write_preferLocalDc'). Requires used locality-definitions to be set")
-	metricsPort       = flag.Int("metricsPort", 9808, "HTTP port for /metrics; 0 disables the metrics server")
+	metricsPort       = flag.Int("metricsPort", 9810, "HTTP port for /metrics; 0 disables the metrics server")
 	dataLocality      datalocality.DataLocality
 )
 
