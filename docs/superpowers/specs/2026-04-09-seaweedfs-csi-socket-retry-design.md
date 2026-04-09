@@ -69,7 +69,9 @@ modules-k8s/seaweedfs/
 │                                 prometheus scrape annotations
 ├── csi-rbac.tf                ← modified (if needed): grant create on events.k8s.io
 │                                 in the csi-node's namespace
-└── variables.tf               ← modified: bump csi_driver_image_tag default
+└── variables.tf               ← modified: bump csi_driver_image_tag,
+                                 csi_mount_image_tag, AND consumer_recycler_image_tag
+                                 in lockstep to v0.1.2 (unified monorepo version)
 ```
 
 ### Components
@@ -140,7 +142,7 @@ On the csi-node DaemonSet only (controller doesn't run `doPost`):
   "prometheus.io/port"   = "9808"
   "prometheus.io/path"   = "/metrics"
   ```
-- Bump `var.csi_driver_image_tag` default in `variables.tf`. The exact tag string is chosen in the implementation plan; the requirement is that it be distinct from `v1.4.8-split` so the DaemonSet rollout triggers when the plan is applied.
+- Bump **all three** image-tag variables in `variables.tf` to `v0.1.2` in lockstep — `csi_driver_image_tag`, `csi_mount_image_tag`, and `consumer_recycler_image_tag`. The monorepo uses a unified semver-from-zero version stream (`Makefile` already encodes this with a single `VERSION` variable). This release moves the driver and mount off the legacy `v1.4.8-split` tag; the recycler also bumps from `v0.1.1` to `v0.1.2` even though no code changes for it, because the convention is "all three move together". See `memory/project_seaweedfs_monorepo_versioning.md`.
 
 **8. RBAC (`csi-rbac.tf`)**
 
@@ -303,9 +305,9 @@ The `superpowers:test-driven-development` discipline applies. Write tests before
 
 1. **Implement on a feature branch** in the iac/cluster-state repo (driver is in-tree; no external repo involved).
 2. **Unit tests pass** — `go test ./drivers/seaweedfs-csi-driver/pkg/mountmanager/...` green.
-3. **Build multi-arch images** from the Makefile with `VERSION=v1.4.9-split` (or whatever tag the plan settles on). Because the Makefile is host-arch only today, this means running `docker buildx` manually or on each node. Plan will spell out exact commands.
+3. **Build multi-arch images** from the Makefile with `VERSION=v0.1.2`. This produces three image tags in lockstep: `seaweedfs-csi-driver:v0.1.2`, `seaweedfs-mount:v0.1.2`, and `seaweedfs-consumer-recycler:v0.1.2` (the recycler image is identical to v0.1.1 in content but re-tagged so all three components move together — the unified-monorepo-version convention). Because the Makefile is host-arch only today, this means running `docker buildx` manually or on each node. Plan will spell out exact commands.
 4. **Sideload** to all three nodes (registry is backed by SeaweedFS — chicken-egg; see `memory/feedback_always_sideload_seaweedfs_images.md`).
-5. **Terraform apply** with the new `csi_driver_image_tag`. This updates the csi-node DaemonSet spec and the controller Deployment. Controller rolls on its own; csi-node uses `OnDelete` strategy (inherited from the split), so nothing cycles yet.
+5. **Terraform apply** with all three image-tag variables bumped to `v0.1.2`. This updates the csi-node DaemonSet spec, the controller Deployment, and the recycler DaemonSet. Controller rolls on its own; csi-node uses `OnDelete` strategy (inherited from the split), so it does not cycle until step 6. The recycler DaemonSet has a normal rolling update, so it cycles immediately — that is acceptable because the recycler image content is unchanged and the recycler itself tolerates restarts.
 6. **Cycle csi-node pods one at a time**, per the Gap #7 upgrade procedure (which doesn't exist yet — during this rollout, the procedure is ad-hoc: delete the csi-node pod on one node, wait for it to come back, confirm `NodePublishVolume` still works by re-mounting a test PVC, move to next node).
 7. **Manual smoke test** as above on nyx first, then hestia and heracles.
 8. **Commit the tag bump** and the terraform changes atomically.
@@ -330,7 +332,7 @@ None blocking. A couple resolved during brainstorming:
 
 - Problem statement: `docs/superpowers/plans/2026-04-08-seaweedfs-production-readiness-notes.md` §Gap 5.
 - Prior art: `docs/superpowers/specs/2026-04-08-seaweedfs-consumer-recycler-design.md` — same spec style, same metrics/RBAC conventions.
-- Memory: `project_seaweedfs_driver_monorepo_layout.md`, `feedback_always_sideload_seaweedfs_images.md`, `feedback_reputable_libraries.md`, `feedback_prefer_resilience_over_minimal_diff.md`.
+- Memory: `project_seaweedfs_driver_monorepo_layout.md`, `project_seaweedfs_monorepo_versioning.md`, `feedback_always_sideload_seaweedfs_images.md`, `feedback_reputable_libraries.md`, `feedback_prefer_resilience_over_minimal_diff.md`.
 - Code read:
   - `drivers/seaweedfs-csi-driver/pkg/mountmanager/client.go` (current doPost, no retry)
   - `drivers/seaweedfs-csi-driver/pkg/mountmanager/socket.go` (socket path derivation)
