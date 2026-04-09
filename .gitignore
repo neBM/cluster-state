@@ -29,3 +29,9 @@ k3s-config
 
 # Worktrees
 /.worktrees/
+
+# Tool artifacts
+/.opencode/
+
+# CSI driver build outputs
+/drivers/seaweedfs-csi-driver/_output/
