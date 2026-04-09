@@ -1,15 +1,20 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log"
+	"net/http"
 	"os"
 	"strings"
+	"time"
 
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/seaweedfs/seaweedfs-csi-driver/pkg/datalocality"
 	"github.com/seaweedfs/seaweedfs-csi-driver/pkg/driver"
 	"github.com/seaweedfs/seaweedfs/weed/glog"
 	flag "github.com/seaweedfs/seaweedfs/weed/util/fla9"
+	"sigs.k8s.io/controller-runtime/pkg/metrics"
 )
 
 var (
@@ -31,6 +36,7 @@ var (
 	gidMap            = flag.String("map.gid", "", "map local gid to gid on filer, comma-separated <local_gid>:<filer_gid>")
 	dataCenter        = flag.String("dataCenter", "", "dataCenter this node is running in (locality-definition)")
 	dataLocalityStr   = flag.String("dataLocality", "", "which volume-nodes pods will use for activity (one-of: 'write_preferLocalDc'). Requires used locality-definitions to be set")
+	metricsPort       = flag.Int("metricsPort", 9808, "HTTP port for /metrics; 0 disables the metrics server")
 	dataLocality      datalocality.DataLocality
 )
 
@@ -77,6 +83,28 @@ func main() {
 	if err != nil {
 		glog.Error("Precondition failed: ", err)
 		os.Exit(1)
+	}
+
+	if *metricsPort > 0 {
+		mux := http.NewServeMux()
+		mux.Handle("/metrics", promhttp.HandlerFor(metrics.Registry, promhttp.HandlerOpts{}))
+		addr := fmt.Sprintf(":%d", *metricsPort)
+		srv := &http.Server{
+			Addr:              addr,
+			Handler:           mux,
+			ReadHeaderTimeout: 5 * time.Second,
+		}
+		go func() {
+			glog.Infof("metrics server listening on %s", addr)
+			if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+				glog.Errorf("metrics server failed: %v", err)
+			}
+		}()
+		defer func() {
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			_ = srv.Shutdown(ctx)
+		}()
 	}
 
 	glog.Infof("connect to filer %s", *filer)
