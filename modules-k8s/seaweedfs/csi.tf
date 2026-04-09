@@ -221,6 +221,11 @@ resource "kubernetes_daemon_set_v1" "csi_node" {
     template {
       metadata {
         labels = merge(local.labels, { component = "csi-node" })
+        annotations = {
+          "prometheus.io/scrape" = "true"
+          "prometheus.io/port"   = "9810"
+          "prometheus.io/path"   = "/metrics"
+        }
       }
 
       spec {
@@ -272,6 +277,24 @@ resource "kubernetes_daemon_set_v1" "csi_node" {
             value = "unix:///var/lib/seaweedfs-mount/seaweedfs-mount.sock"
           }
 
+          env {
+            name = "POD_NAME"
+            value_from {
+              field_ref {
+                field_path = "metadata.name"
+              }
+            }
+          }
+
+          env {
+            name = "POD_NAMESPACE"
+            value_from {
+              field_ref {
+                field_path = "metadata.namespace"
+              }
+            }
+          }
+
           security_context {
             privileged = true
           }
@@ -279,6 +302,12 @@ resource "kubernetes_daemon_set_v1" "csi_node" {
           port {
             name           = "healthz"
             container_port = 9808
+          }
+
+          port {
+            name           = "metrics"
+            container_port = 9810
+            protocol       = "TCP"
           }
 
           liveness_probe {
