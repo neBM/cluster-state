@@ -60,11 +60,17 @@ func (r *Reconciler) HandleMountDaemonEvent(ctx context.Context, mountPod *corev
 		logger.Info("no candidates to cycle")
 		return
 	}
+	names := make([]string, len(candidates))
+	for i := range candidates {
+		names[i] = candidates[i].Name
+	}
+	logger.Info("cycling consumer pods",
+		"count", len(candidates), "pods", names, "mountPod", mountPod.Name, "node", r.NodeName)
 	if r.Recorder != nil {
 		r.Recorder.Eventf(mountPod, corev1.EventTypeNormal, "RecycleTriggered",
 			"restart detected; cycling %d consumer pod(s) on node %s", len(candidates), r.NodeName)
 	}
-	r.Cycler.CycleBatch(ctx, candidates)
+	r.Cycler.CycleBatch(log.IntoContext(ctx, logger), candidates)
 }
 
 // HandleProbeFailure is invoked by the Prober for each unhealthy mountpoint.
@@ -90,9 +96,7 @@ func (r *Reconciler) HandleProbeFailure(ctx context.Context, mountpoint string) 
 				r.Recorder.Eventf(&candidates[i], corev1.EventTypeWarning, "RecycledStaleMount",
 					"FUSE mount %s failed probe, cycling", mountpoint)
 			}
-			if err := r.Cycler.CycleOne(ctx, &candidates[i]); err != nil {
-				logger.Error(err, "CycleOne failed", "pod", candidates[i].Name)
-			}
+			_ = r.Cycler.CycleOne(log.IntoContext(ctx, logger), &candidates[i])
 			return
 		}
 	}

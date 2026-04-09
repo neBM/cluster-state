@@ -12,6 +12,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes"
+	"sigs.k8s.io/controller-runtime/pkg/log"
 )
 
 // Evictor is the minimal API the cycler needs, separated from the real k8s
@@ -35,31 +36,44 @@ type Cycler struct {
 // map: consecutive calls with the same pod UID within the debounce window
 // are no-ops.
 func (c *Cycler) CycleOne(ctx context.Context, pod *corev1.Pod) error {
+	logger := log.FromContext(ctx)
 	if c.Debounce.Skip(pod.UID) {
 		CyclesTotal.WithLabelValues("skipped_debounce").Inc()
+		logger.Info("skipped pod (debounced)", "pod", pod.Name, "namespace", pod.Namespace)
 		return nil
 	}
 
 	deadline := time.Now().Add(c.EvictionDeadline)
+	loggedBlocked := false
 	for {
 		err := c.Evictor.Evict(ctx, pod)
 		if err == nil {
 			c.Debounce.Mark(pod.UID)
 			CyclesTotal.WithLabelValues("evicted").Inc()
+			logger.Info("evicted pod", "pod", pod.Name, "namespace", pod.Namespace)
 			return nil
 		}
 		if !apierrors.IsTooManyRequests(err) {
 			CyclesTotal.WithLabelValues("error").Inc()
+			logger.Error(err, "eviction failed", "pod", pod.Name, "namespace", pod.Namespace)
 			return fmt.Errorf("evict %s/%s: %w", pod.Namespace, pod.Name, err)
 		}
 		EvictionBlockedTotal.WithLabelValues("pdb").Inc()
+		if !loggedBlocked {
+			logger.Info("eviction blocked by PDB, will retry until deadline",
+				"pod", pod.Name, "namespace", pod.Namespace, "deadline", c.EvictionDeadline)
+			loggedBlocked = true
+		}
 		if time.Now().After(deadline) {
 			if derr := c.Evictor.ForceDelete(ctx, pod); derr != nil {
 				CyclesTotal.WithLabelValues("error").Inc()
+				logger.Error(derr, "force-delete failed", "pod", pod.Name, "namespace", pod.Namespace)
 				return fmt.Errorf("force-delete %s/%s: %w", pod.Namespace, pod.Name, derr)
 			}
 			c.Debounce.Mark(pod.UID)
 			CyclesTotal.WithLabelValues("forced").Inc()
+			logger.Info("force-deleted pod after PDB deadline",
+				"pod", pod.Name, "namespace", pod.Namespace)
 			return nil
 		}
 		select {
