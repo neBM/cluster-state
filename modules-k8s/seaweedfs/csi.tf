@@ -62,6 +62,11 @@ resource "kubernetes_deployment" "csi_controller" {
             "--driverName=seaweedfs-csi-driver",
             "--components=controller",
             "--attacher=true",
+            # Disable /metrics server in the controller pod — :9810 collides
+            # with the csi-resizer sidecar's own metrics endpoint. The dial-retry
+            # metrics only exist on node-side code paths, so the controller has
+            # nothing useful to export. csi-node still serves /metrics on :9810.
+            "--metricsPort=0",
           ]
 
           env {
