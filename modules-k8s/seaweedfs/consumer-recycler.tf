@@ -41,7 +41,7 @@ resource "kubernetes_cluster_role" "consumer_recycler" {
   rule {
     api_groups = [""]
     resources  = ["persistentvolumeclaims"]
-    verbs      = ["get", "list"]
+    verbs      = ["get", "list", "watch"]
   }
 
   rule {
