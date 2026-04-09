@@ -377,6 +377,16 @@ func (ns *NodeServer) removeVolumeMutex(volumeID string) {
 // stageNewVolume creates and stages a new volume with the given parameters.
 // This is a helper method used by both NodeStageVolume and NodePublishVolume (for re-staging).
 func (ns *NodeServer) stageNewVolume(ctx context.Context, volumeID, stagingTargetPath string, volContext map[string]string, readOnly bool) (*Volume, error) {
+	// Apply mount-root ownership on the filer before the mount picks up attrs.
+	// Skipped for read-only volumes (filer writes are wasted there, and RO
+	// attr updates generate needless backend load). Passes caller's ctx so
+	// kubelet NodeStageVolume deadline propagates into the filer RPCs.
+	if !readOnly {
+		if err := applyMountRootOwnership(ctx, ns.Driver, volumeID, volContext); err != nil {
+			return nil, fmt.Errorf("apply mount-root ownership for %s: %w", volumeID, err)
+		}
+	}
+
 	mounter, err := newMounter(volumeID, readOnly, ns.Driver, volContext)
 	if err != nil {
 		return nil, err
