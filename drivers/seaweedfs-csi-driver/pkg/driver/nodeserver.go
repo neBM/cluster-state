@@ -51,6 +51,14 @@ var delegateUnmountToService = func(ctx context.Context, driver *SeaweedFsDriver
 	return err
 }
 
+// stageNewVolumeFunc is a test seam around (*NodeServer).stageNewVolume so
+// NodePublishVolume's self-heal re-stage path can be exercised in tests
+// without dialing the real mount service. The default implementation
+// delegates straight through to ns.stageNewVolume.
+var stageNewVolumeFunc = func(ns *NodeServer, ctx context.Context, volumeID, stagingTargetPath string, volContext map[string]string, readOnly bool) (*Volume, error) {
+	return ns.stageNewVolume(ctx, volumeID, stagingTargetPath, volContext, readOnly)
+}
+
 func (ns *NodeServer) NodeStageVolume(ctx context.Context, req *csi.NodeStageVolumeRequest) (*csi.NodeStageVolumeResponse, error) {
 	volumeID := req.GetVolumeId()
 	// mount the fs here
@@ -158,6 +166,24 @@ func (ns *NodeServer) NodePublishVolume(ctx context.Context, req *csi.NodePublis
 	defer volumeMutex.Unlock()
 
 	volume, ok := ns.volumes.Load(volumeID)
+
+	// v0.1.8 SIGKILL gap fix: the csi-node ns.volumes cache is independent
+	// from the mount-service's m.mounts map. When a weed mount process dies
+	// (e.g. OOMKill, SIGKILL), the mount service detaches the entry via
+	// onExit (manager.go Bug B), but csi-node has no notification channel
+	// and its cache stays warm. Without this check, the next
+	// NodePublishVolume would take the fast path and blindly bind-mount the
+	// now-dead staging path to the new pod's target — every I/O returns
+	// EACCES/EIO until something else invalidates the cache. Observed in
+	// prod against laurens-dissertation-archive-sw on nyx 2026-04-10. See
+	// project_csi_v017_handover_sigkill_gap memory.
+	if ok && !isStagingPathHealthy(stagingTargetPath) {
+		glog.Warningf("volume %s has warm cache but staging path %s is unhealthy; invalidating cache and falling through to self-heal re-stage", volumeID, stagingTargetPath)
+		ns.volumes.Delete(volumeID)
+		volume = nil
+		ok = false
+	}
+
 	if !ok {
 		// Phase 1: Self-healing for missing volume cache
 		// This handles the case where the CSI driver restarted and lost its in-memory state,
@@ -185,7 +211,7 @@ func (ns *NodeServer) NodePublishVolume(ctx context.Context, req *csi.NodePublis
 			volContext = injectVolumeMountGroup(req.GetVolumeCapability(), volContext)
 			readOnly := isPublishVolumeReadOnly(req)
 
-			newVolume, err := ns.stageNewVolume(ctx, volumeID, stagingTargetPath, volContext, readOnly)
+			newVolume, err := stageNewVolumeFunc(ns, ctx, volumeID, stagingTargetPath, volContext, readOnly)
 			if err != nil {
 				ns.removeVolumeMutex(volumeID)
 				return nil, status.Errorf(codes.Internal, "failed to re-stage volume: %v", err)

@@ -59,11 +59,24 @@ func (m *Manager) Mount(req *MountRequest) (*MountResponse, error) {
 	defer lock.Unlock()
 
 	if entry := m.getMount(req.VolumeID); entry != nil {
-		if entry.targetPath == req.TargetPath {
+		if entry.targetPath != req.TargetPath {
+			return nil, fmt.Errorf("volume %s already mounted at %s", req.VolumeID, entry.targetPath)
+		}
+		// Fast-path: only return the cached socket if the underlying weed
+		// mount process is actually still alive. Signal 0 does not deliver
+		// a signal; it only performs the kernel-side permission/existence
+		// check. On an already-waited (reaped) process, Go returns
+		// os.ErrProcessDone from Signal, which is our cue that the entry
+		// is stale and must be respawned instead of returning a dead
+		// localSocket. This closes Bug A in v0.1.7 — without the liveness
+		// check the Mount RPC would happily hand back a socket whose
+		// backing process has been gone for seconds/minutes/hours.
+		if err := entry.process.cmd.Process.Signal(syscall.Signal(0)); err == nil {
 			glog.Infof("volume %s already mounted at %s", req.VolumeID, req.TargetPath)
 			return &MountResponse{LocalSocket: entry.localSocket}, nil
 		}
-		return nil, fmt.Errorf("volume %s already mounted at %s", req.VolumeID, entry.targetPath)
+		glog.Warningf("volume %s has stale dead weed mount entry, detaching and respawning", req.VolumeID)
+		m.detachMount(req.VolumeID)
 	}
 
 	entry, err := m.startMount(req)
@@ -133,6 +146,18 @@ func (m *Manager) removeMount(volumeID string) *mountEntry {
 	return entry
 }
 
+// detachMount removes a volume entry from m.mounts without touching the
+// per-volume keyMutex in m.locks. Unlike removeMount, this is safe to
+// call from background goroutines (e.g. weedMountProcess.wait() firing
+// on an unexpected process exit) that do not hold — and must not race
+// with — the per-volume keyMutex. It is also idempotent: safe to call
+// when the entry has already been removed by a concurrent Unmount RPC.
+func (m *Manager) detachMount(volumeID string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	delete(m.mounts, volumeID)
+}
+
 func (m *Manager) startMount(req *MountRequest) (*mountEntry, error) {
 	targetPath := req.TargetPath
 	if err := ensureTargetClean(targetPath); err != nil {
@@ -157,13 +182,16 @@ func (m *Manager) startMount(req *MountRequest) (*mountEntry, error) {
 		return nil, errors.New("mountArgs is required")
 	}
 
-	process, err := startWeedMountProcess(m.weedBinary, args, targetPath, req.VolumeID)
+	volumeID := req.VolumeID
+	process, err := startWeedMountProcess(m.weedBinary, args, targetPath, volumeID, func() {
+		m.detachMount(volumeID)
+	})
 	if err != nil {
 		return nil, err
 	}
 
 	return &mountEntry{
-		volumeID:    req.VolumeID,
+		volumeID:    volumeID,
 		targetPath:  targetPath,
 		cacheDir:    cacheDir,
 		localSocket: localSocket,
@@ -227,9 +255,15 @@ type weedMountProcess struct {
 	cmd    *exec.Cmd
 	target string
 	done   chan struct{}
+	// onExit is invoked after the weed mount process has terminated and
+	// wait() has finished its cleanup (lazy-unmount + close(done)). It is
+	// used by the Manager to detach the stale mountEntry from m.mounts so
+	// that future Mount RPCs respawn a fresh process instead of returning
+	// a dead-but-cached localSocket. Nilable.
+	onExit func()
 }
 
-func startWeedMountProcess(command string, args []string, target string, volumeID string) (*weedMountProcess, error) {
+func startWeedMountProcess(command string, args []string, target string, volumeID string, onExit func()) (*weedMountProcess, error) {
 	cmd := exec.Command(command, args...)
 
 	// Capture stdout/stderr and log with volume ID prefix for better debugging
@@ -256,6 +290,7 @@ func startWeedMountProcess(command string, args []string, target string, volumeI
 		cmd:    cmd,
 		target: target,
 		done:   make(chan struct{}),
+		onExit: onExit,
 	}
 
 	go process.wait()
@@ -282,6 +317,22 @@ func (p *weedMountProcess) wait() {
 	_ = kubeMounter.Unmount(p.target)
 
 	close(p.done)
+
+	// Fire the exit callback AFTER close(done) so that any Unmount RPC
+	// blocked inside stop() unblocks first. The callback is used by the
+	// Manager to detach the mountEntry from m.mounts so that future
+	// Mount RPCs respawn a fresh process instead of returning a stale
+	// localSocket. This closes Bug B in v0.1.7 — previously an
+	// unexpectedly-exiting weed mount left its m.mounts entry in place
+	// forever, and the "already mounted" fast path would keep handing
+	// out the dead socket until an explicit Unmount RPC arrived.
+	//
+	// The callback must not take the per-volume keyMutex: an in-flight
+	// Unmount RPC may already hold it while waiting for stop() → p.done.
+	// Manager.detachMount is the purpose-built safe path (m.mu only).
+	if p.onExit != nil {
+		p.onExit()
+	}
 }
 
 func (p *weedMountProcess) stop() error {

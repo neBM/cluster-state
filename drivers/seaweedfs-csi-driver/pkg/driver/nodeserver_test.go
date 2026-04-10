@@ -2,6 +2,7 @@ package driver
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -474,5 +475,152 @@ func TestNodeUnstageVolume_NotFound_DelegatesToMountService(t *testing.T) {
 	// be running. Cleanup is the mount service's job, not ours.
 	if _, err := os.Stat(logFile); err != nil {
 		t.Errorf("NodeUnstageVolume wiped cache file %s: %v", logFile, err)
+	}
+}
+
+// publishRequestForTest builds a minimal NodePublishVolumeRequest suitable
+// for NodePublishVolume unit tests. The capability is the common case
+// (SINGLE_NODE_WRITER, filesystem mount, no mount-group fsGroup).
+func publishRequestForTest(volumeID, stagingTargetPath, targetPath string) *csi.NodePublishVolumeRequest {
+	return &csi.NodePublishVolumeRequest{
+		VolumeId:          volumeID,
+		StagingTargetPath: stagingTargetPath,
+		TargetPath:        targetPath,
+		VolumeCapability: &csi.VolumeCapability{
+			AccessType: &csi.VolumeCapability_Mount{
+				Mount: &csi.VolumeCapability_MountVolume{},
+			},
+			AccessMode: &csi.VolumeCapability_AccessMode{
+				Mode: csi.VolumeCapability_AccessMode_SINGLE_NODE_WRITER,
+			},
+		},
+	}
+}
+
+// TestNodePublishVolume_WarmCacheUnhealthyStaging_InvalidatesAndReStages is a
+// regression test for the v0.1.7 SIGKILL self-heal gap.
+//
+// Background: in v0.1.7, the mount-service goroutine correctly detaches a
+// dead weed mount process from its m.mounts map via onExit (Bug B). However,
+// the csi-node's own ns.volumes in-memory cache is independent from the
+// mount-service and is NOT invalidated when a weed mount process dies.
+// Consequence: the next NodePublishVolume for that volume hits the warm
+// cache, takes the fast path, and blindly bind-mounts the (now dead) staging
+// path to the new pod's target path. The bind mount succeeds at the kernel
+// level — but every subsequent I/O returns EACCES / EIO because the
+// underlying FUSE daemon is gone. Observed in prod on 2026-04-10 against
+// laurens-dissertation-archive-sw on nyx after a deliberate SIGKILL test.
+//
+// The fix: on NodePublishVolume, when the cache has a warm entry, also run
+// isStagingPathHealthy against the staging path. If unhealthy, invalidate
+// the cache entry and drop through to the existing self-heal re-stage path.
+//
+// This test asserts two things:
+//  1. The re-stage seam IS called (proving the drop-through happened).
+//  2. The stale cache entry IS removed from ns.volumes.
+//
+// Before the fix: stagerCalls would be 0 because the cache-hit fast path
+// short-circuits past the re-stage branch entirely.
+func TestNodePublishVolume_WarmCacheUnhealthyStaging_InvalidatesAndReStages(t *testing.T) {
+	// Force isStagingPathHealthy to report unhealthy so we don't have to
+	// engineer a real dead FUSE mount in a unit test.
+	origIsHealthy := isStagingPathHealthy
+	isStagingPathHealthy = func(stagingPath string) bool { return false }
+	t.Cleanup(func() { isStagingPathHealthy = origIsHealthy })
+
+	// Stub the stage seam so we never dial a real mount service. Record
+	// whether the re-stage branch fired and with what volumeID.
+	origStager := stageNewVolumeFunc
+	var stagerCalls int
+	var stagerVolumeID string
+	stageNewVolumeFunc = func(ns *NodeServer, ctx context.Context, volumeID, stagingTargetPath string, volContext map[string]string, readOnly bool) (*Volume, error) {
+		stagerCalls++
+		stagerVolumeID = volumeID
+		// Return an error so NodePublishVolume short-circuits before
+		// trying to dial a real bind mount in Volume.Publish.
+		return nil, errors.New("stub stageNewVolumeFunc: re-stage path fired")
+	}
+	t.Cleanup(func() { stageNewVolumeFunc = origStager })
+
+	// t.TempDir() gives a real dir that exists but is NOT a mount point,
+	// which cleanupStaleStagingPath can os.RemoveAll safely.
+	stagingTargetPath := t.TempDir()
+	targetPath := filepath.Join(t.TempDir(), "target")
+	volumeID := "/buckets/pvc-test-sigkill-gap"
+
+	ns := &NodeServer{
+		Driver:        &SeaweedFsDriver{},
+		volumeMutexes: NewKeyMutex(),
+	}
+	// Warm the cache: pretend csi-node already staged this volume. We use
+	// rebuildVolumeFromStaging to construct a plausible Volume without
+	// needing a real mounter / unmounter.
+	ns.volumes.Store(volumeID, ns.rebuildVolumeFromStaging(volumeID, stagingTargetPath))
+
+	_, err := ns.NodePublishVolume(context.Background(), publishRequestForTest(volumeID, stagingTargetPath, targetPath))
+
+	// We deliberately stubbed the stager to fail, so an error is expected.
+	// The point of this test is NOT the error itself but that we TOOK the
+	// re-stage path instead of the cache-hit fast path.
+	if err == nil {
+		t.Fatal("expected error from stub stageNewVolumeFunc; got nil (fast path was taken)")
+	}
+	if stagerCalls != 1 {
+		t.Errorf("stageNewVolumeFunc called %d times, want 1 — cache-hit fast path must NOT skip self-heal when staging is unhealthy", stagerCalls)
+	}
+	if stagerVolumeID != volumeID {
+		t.Errorf("stageNewVolumeFunc called with volumeID %q, want %q", stagerVolumeID, volumeID)
+	}
+	// The stale cache entry MUST be gone. Either the fix explicitly
+	// Deleted it, or the stub stager's error path left it absent — either
+	// way, a subsequent NodePublishVolume would take the self-heal branch.
+	if _, ok := ns.volumes.Load(volumeID); ok {
+		t.Errorf("ns.volumes still contains stale entry for %s after SIGKILL recovery", volumeID)
+	}
+}
+
+// TestNodePublishVolume_WarmCacheHealthyStaging_DoesNotReStage asserts that
+// the v0.1.8 SIGKILL fix does NOT break the common fast path. When the
+// cache is warm AND the staging path is healthy, NodePublishVolume must
+// proceed directly to Publish without calling stageNewVolumeFunc or
+// invalidating the cache.
+func TestNodePublishVolume_WarmCacheHealthyStaging_DoesNotReStage(t *testing.T) {
+	// Claim the staging path is healthy so the fast path is eligible.
+	origIsHealthy := isStagingPathHealthy
+	isStagingPathHealthy = func(stagingPath string) bool { return true }
+	t.Cleanup(func() { isStagingPathHealthy = origIsHealthy })
+
+	// stageNewVolumeFunc must NOT be called on the fast path. If the fix
+	// accidentally fires on healthy mounts, stagerCalled catches it.
+	origStager := stageNewVolumeFunc
+	stagerCalled := false
+	stageNewVolumeFunc = func(ns *NodeServer, ctx context.Context, volumeID, stagingTargetPath string, volContext map[string]string, readOnly bool) (*Volume, error) {
+		stagerCalled = true
+		return nil, errors.New("unexpected stager call on healthy fast path")
+	}
+	t.Cleanup(func() { stageNewVolumeFunc = origStager })
+
+	stagingTargetPath := t.TempDir()
+	targetPath := filepath.Join(t.TempDir(), "target")
+	volumeID := "/buckets/pvc-test-healthy-hot-path"
+
+	ns := &NodeServer{
+		Driver:        &SeaweedFsDriver{},
+		volumeMutexes: NewKeyMutex(),
+	}
+	ns.volumes.Store(volumeID, ns.rebuildVolumeFromStaging(volumeID, stagingTargetPath))
+
+	// NodePublishVolume will proceed to Volume.Publish which calls
+	// mountutil.Mount for a real bind mount; that fails in an unprivileged
+	// test environment. We expect an error, but it must come from Publish
+	// (i.e. AFTER the cache-hit fast path was correctly selected) — NOT
+	// from stageNewVolumeFunc. The assertions below verify this.
+	_, _ = ns.NodePublishVolume(context.Background(), publishRequestForTest(volumeID, stagingTargetPath, targetPath))
+
+	if stagerCalled {
+		t.Error("stageNewVolumeFunc was called on a warm-cache HEALTHY staging path — the v0.1.8 fix is too aggressive and broke the fast path")
+	}
+	if _, ok := ns.volumes.Load(volumeID); !ok {
+		t.Error("cache entry was dropped on healthy fast path — the v0.1.8 fix is too aggressive and invalidated a still-live volume")
 	}
 }
