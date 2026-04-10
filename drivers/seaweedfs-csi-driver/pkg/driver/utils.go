@@ -19,16 +19,14 @@ import (
 )
 
 func NewNodeServer(n *SeaweedFsDriver) *NodeServer {
-	if n.CacheDir != "" {
-		cleanCacheDir := filepath.Clean(n.CacheDir)
-		cleanTempDir := filepath.Clean(os.TempDir())
-		if cleanCacheDir != cleanTempDir {
-			if err := removeDirContent(cleanCacheDir); err != nil {
-				glog.Warningf("error cleaning up cache dir %s: %v", cleanCacheDir, err)
-			}
-		}
-	}
-
+	// NOTE: do NOT wipe n.CacheDir here. In the split-DaemonSet architecture
+	// (csi-node + seaweedfs-mount) the cache dir is a hostPath shared with a
+	// separate, long-lived weed mount process. csi-node restarts must not
+	// touch that cache — doing so invalidates the LevelDB WAL backing the
+	// live FUSE mounts and produces EIO on every inode the mount can no
+	// longer resolve (see project_csi_v016_cache_wipe_fix). Per-volume
+	// cleanup is the mount service's responsibility, triggered through the
+	// Unmount RPC during NodeUnstageVolume.
 	return &NodeServer{
 		Driver:        n,
 		volumeMutexes: NewKeyMutex(),
@@ -136,22 +134,6 @@ func checkMount(targetPath string) (bool, error) {
 		}
 	}
 	return isMnt, nil
-}
-
-func removeDirContent(path string) error {
-	files, err := filepath.Glob(filepath.Join(path, "*"))
-	if err != nil {
-		return err
-	}
-
-	for _, file := range files {
-		err = os.RemoveAll(file)
-		if err != nil {
-			return err
-		}
-	}
-
-	return nil
 }
 
 type KeyMutex struct {

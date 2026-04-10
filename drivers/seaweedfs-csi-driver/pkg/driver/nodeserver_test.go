@@ -3,6 +3,7 @@ package driver
 import (
 	"context"
 	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/container-storage-interface/spec/lib/go/csi"
@@ -355,5 +356,123 @@ func TestApplyMountRootOwnershipKernel_ChmodError(t *testing.T) {
 	err := applyMountRootOwnershipKernel("/staging/target", map[string]string{"mountRootUid": "33333", "mountRootGid": "44444"})
 	if err == nil {
 		t.Fatal("expected chmod error to propagate")
+	}
+}
+
+// TestNewNodeServer_DoesNotWipeCacheDir is a regression test for the csi-node
+// cache-wipe bug that violated the v1.4.8-split architecture guarantee.
+//
+// Prior to this fix, NewNodeServer unconditionally called
+// removeDirContent(driver.CacheDir) on every startup. In the pre-split world
+// weed mount processes lived inside the same pod as the csi-node, so coupling
+// cache lifetime to csi-node lifetime was safe. After the split, weed mount
+// processes run in a separate seaweedfs-mount DaemonSet but still share the
+// cache directory via a node hostPath. Wiping the cache on csi-node startup
+// therefore pulled the LevelDB metadata store out from under live mount
+// processes, producing EIO on every readdir/createFile until the mount pod
+// was also restarted and its consumers were cycled. Observed in prod on
+// 2026-04-10 against Plex's config PVC on hestia.
+func TestNewNodeServer_DoesNotWipeCacheDir(t *testing.T) {
+	cacheDir := t.TempDir()
+
+	// Populate with contents that mirror a real weed mount per-volume cache:
+	// /var/cache/seaweedfs/<volume-hash>/<leveldb-name>/meta/<logfile>
+	volumeHash := filepath.Join(cacheDir, "a7d4b8dfeed099213573a729eb836ca9bb6f0e8b2d1f374f8b59a9b356ccdb73")
+	metaDir := filepath.Join(volumeHash, "be7a760f", "meta")
+	if err := os.MkdirAll(metaDir, 0755); err != nil {
+		t.Fatalf("prep cache dir: %v", err)
+	}
+	logFile := filepath.Join(metaDir, "000002.log")
+	if err := os.WriteFile(logFile, []byte("fake-leveldb-wal"), 0644); err != nil {
+		t.Fatalf("prep log file: %v", err)
+	}
+
+	driver := &SeaweedFsDriver{CacheDir: cacheDir}
+	if ns := NewNodeServer(driver); ns == nil {
+		t.Fatal("NewNodeServer returned nil")
+	}
+
+	// The file MUST still exist. NewNodeServer must never wipe a cache dir
+	// that may be backing a live weed mount process in the split DaemonSet.
+	if _, err := os.Stat(logFile); err != nil {
+		t.Errorf("NewNodeServer wiped cache file %s: %v", logFile, err)
+	}
+	data, err := os.ReadFile(logFile)
+	if err != nil {
+		t.Errorf("reading cache file after NewNodeServer: %v", err)
+	}
+	if string(data) != "fake-leveldb-wal" {
+		t.Errorf("cache file contents altered: got %q, want %q", string(data), "fake-leveldb-wal")
+	}
+}
+
+// TestNodeUnstageVolume_NotFound_DelegatesToMountService is a regression test
+// for the secondary cache-wipe bug: when ns.volumes does NOT have the volume
+// (typically because csi-node restarted between stage and unstage), the old
+// code called CleanupVolumeResources directly, wiping the per-volume cache
+// dir under the still-running weed mount process in the mount DaemonSet.
+//
+// The fix delegates to the mount service via a testable seam
+// (delegateUnmountToService). The mount service is authoritative: if it has
+// the volume tracked, it stops the weed mount process and cleans the dir; if
+// not, it is a no-op. Either way the csi-node must NOT wipe the cache dir
+// locally.
+func TestNodeUnstageVolume_NotFound_DelegatesToMountService(t *testing.T) {
+	cacheDir := t.TempDir()
+	volumeID := "pvc-test-cache-survive"
+
+	// Create the per-volume cache dir exactly where GetCacheDir computes it,
+	// so any code path that calls CleanupVolumeResources (the bug) would wipe
+	// it. Populate with a fake LevelDB log file that must survive.
+	volumeCacheDir := GetCacheDir(cacheDir, volumeID)
+	metaDir := filepath.Join(volumeCacheDir, "be7a760f", "meta")
+	if err := os.MkdirAll(metaDir, 0755); err != nil {
+		t.Fatalf("prep cache dir: %v", err)
+	}
+	logFile := filepath.Join(metaDir, "000002.log")
+	if err := os.WriteFile(logFile, []byte("fake-leveldb-wal"), 0644); err != nil {
+		t.Fatalf("prep log file: %v", err)
+	}
+
+	// Stub the delegate seam so the test doesn't dial a unix socket.
+	origDelegate := delegateUnmountToService
+	var delegateCalls int
+	var delegateVolumeID string
+	delegateUnmountToService = func(ctx context.Context, driver *SeaweedFsDriver, vid string) error {
+		delegateCalls++
+		delegateVolumeID = vid
+		return nil
+	}
+	defer func() { delegateUnmountToService = origDelegate }()
+
+	ns := &NodeServer{
+		Driver:        &SeaweedFsDriver{CacheDir: cacheDir},
+		volumeMutexes: NewKeyMutex(),
+	}
+
+	// Non-existent staging target: mount.CleanupMountPoint is a no-op; its
+	// error is already ignored by the production code.
+	stagingPath := filepath.Join(t.TempDir(), "staging")
+
+	if _, err := ns.NodeUnstageVolume(context.Background(), &csi.NodeUnstageVolumeRequest{
+		VolumeId:          volumeID,
+		StagingTargetPath: stagingPath,
+	}); err != nil {
+		t.Fatalf("NodeUnstageVolume returned error: %v", err)
+	}
+
+	// The mount service MUST have been notified so it can stop any live
+	// weed mount process the csi-node no longer remembers.
+	if delegateCalls != 1 {
+		t.Errorf("delegateUnmountToService called %d times, want 1", delegateCalls)
+	}
+	if delegateVolumeID != volumeID {
+		t.Errorf("delegateUnmountToService called with %q, want %q", delegateVolumeID, volumeID)
+	}
+
+	// The cache dir MUST still be intact — the weed mount process may still
+	// be running. Cleanup is the mount service's job, not ours.
+	if _, err := os.Stat(logFile); err != nil {
+		t.Errorf("NodeUnstageVolume wiped cache file %s: %v", logFile, err)
 	}
 }

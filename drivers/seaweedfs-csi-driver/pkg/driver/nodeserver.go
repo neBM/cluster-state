@@ -31,6 +31,26 @@ type NodeServer struct {
 
 var _ = csi.NodeServer(&NodeServer{})
 
+// delegateUnmountToService asks the (out-of-process) mount service to unmount
+// a volume by ID. It is defined as a package-level variable so tests can stub
+// it without dialing a unix socket.
+//
+// This is the recovery path for NodeUnstageVolume when csi-node has no
+// in-memory record of the volume — typically because csi-node restarted
+// between stage and unstage. In the split-DaemonSet architecture, the mount
+// service may still be running the weed mount process for this volume; only
+// the mount service can authoritatively stop it and clean its cache dir.
+// csi-node must NOT wipe the cache dir locally, because doing so corrupts the
+// LevelDB metadata backing any still-live FUSE mount.
+var delegateUnmountToService = func(ctx context.Context, driver *SeaweedFsDriver, volumeID string) error {
+	client, err := mountmanager.NewClient(driver.mountEndpoint)
+	if err != nil {
+		return err
+	}
+	_, err = client.Unmount(ctx, &mountmanager.UnmountRequest{VolumeID: volumeID})
+	return err
+}
+
 func (ns *NodeServer) NodeStageVolume(ctx context.Context, req *csi.NodeStageVolumeRequest) (*csi.NodeStageVolumeResponse, error) {
 	volumeID := req.GetVolumeId()
 	// mount the fs here
@@ -308,13 +328,20 @@ func (ns *NodeServer) NodeUnstageVolume(ctx context.Context, req *csi.NodeUnstag
 
 	volume, ok := ns.volumes.Load(volumeID)
 	if !ok {
-		glog.Warningf("volume %s hasn't been staged", volumeID)
+		glog.Warningf("volume %s hasn't been staged, delegating unmount to mount service", volumeID)
 
 		// make sure there is no any garbage
 		_ = mount.CleanupMountPoint(stagingTargetPath, mountutil, true)
 
-		// Also clean up cache directory and socket if they exist
-		CleanupVolumeResources(ns.Driver, volumeID)
+		// The mount service is authoritative for the live weed mount process
+		// and its cache dir. If it still has this volume, it will stop the
+		// mount and clean the cache; if not, the RPC is a no-op. Either way,
+		// csi-node must not wipe the cache dir locally — a still-running weed
+		// mount process depends on its LevelDB WAL there. See
+		// project_csi_v016_cache_wipe_fix.
+		if err := delegateUnmountToService(ctx, ns.Driver, volumeID); err != nil {
+			glog.Warningf("delegated unmount for volume %s failed: %v", volumeID, err)
+		}
 	} else {
 		if err := volume.(*Volume).Unstage(ctx, stagingTargetPath); err != nil {
 			return nil, status.Error(codes.Internal, err.Error())
