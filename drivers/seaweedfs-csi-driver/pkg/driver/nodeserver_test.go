@@ -200,3 +200,160 @@ func TestApplyMountRootOwnership_NilAttributes(t *testing.T) {
 		t.Errorf("Gid: got %d, want 997", gotEntry.Attributes.Gid)
 	}
 }
+
+// applyMountRootOwnershipKernel issues os.Chown + os.Chmod on the mounted
+// staging path so weed mount's setattr handler (weedfs_attr.go:107-123,
+// NodeId==1 branch) updates its in-memory wfs.option.MountUid/Gid/Mode. This
+// is the second layer of the mount-root ownership fix: v0.1.4 corrects the
+// filer-side entry, but weed mount NEVER consults the filer for the root
+// inode — it returns option.MountUid/Gid/Mode unconditionally from
+// weedfs.go:362-373. The only way to update those fields from outside weed
+// mount is via a FUSE setattr on NodeId==1.
+
+type kernelCall struct {
+	chownCalled bool
+	chownPath   string
+	chownUid    int
+	chownGid    int
+	chmodCalled bool
+	chmodPath   string
+	chmodMode   os.FileMode
+}
+
+func stubKernelSeams(t *testing.T, chownErr, chmodErr error) *kernelCall {
+	t.Helper()
+	call := &kernelCall{}
+	origChown, origChmod := chownFunc, chmodFunc
+	chownFunc = func(path string, uid, gid int) error {
+		call.chownCalled = true
+		call.chownPath = path
+		call.chownUid = uid
+		call.chownGid = gid
+		return chownErr
+	}
+	chmodFunc = func(path string, mode os.FileMode) error {
+		call.chmodCalled = true
+		call.chmodPath = path
+		call.chmodMode = mode
+		return chmodErr
+	}
+	t.Cleanup(func() {
+		chownFunc = origChown
+		chmodFunc = origChmod
+	})
+	return call
+}
+
+func TestApplyMountRootOwnershipKernel_Noop(t *testing.T) {
+	call := stubKernelSeams(t, nil, nil)
+
+	if err := applyMountRootOwnershipKernel("/staging/target", map[string]string{}); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if call.chownCalled {
+		t.Errorf("chown must not be called when volContext is empty")
+	}
+	if call.chmodCalled {
+		t.Errorf("chmod must not be called when volContext is empty")
+	}
+}
+
+func TestApplyMountRootOwnershipKernel_BothSet(t *testing.T) {
+	call := stubKernelSeams(t, nil, nil)
+
+	if err := applyMountRootOwnershipKernel("/staging/target", map[string]string{
+		"mountRootUid": "33333",
+		"mountRootGid": "44444",
+	}); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !call.chownCalled {
+		t.Fatal("chown must be called")
+	}
+	if call.chownPath != "/staging/target" {
+		t.Errorf("chown path: got %q, want %q", call.chownPath, "/staging/target")
+	}
+	if call.chownUid != 33333 {
+		t.Errorf("chown uid: got %d, want 33333", call.chownUid)
+	}
+	if call.chownGid != 44444 {
+		t.Errorf("chown gid: got %d, want 44444", call.chownGid)
+	}
+	if !call.chmodCalled {
+		t.Fatal("chmod must be called")
+	}
+	if call.chmodMode != 0770 {
+		t.Errorf("chmod mode: got 0%o, want 0770", call.chmodMode)
+	}
+}
+
+func TestApplyMountRootOwnershipKernel_GidOnly(t *testing.T) {
+	call := stubKernelSeams(t, nil, nil)
+
+	if err := applyMountRootOwnershipKernel("/staging/target", map[string]string{"mountRootGid": "44444"}); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !call.chownCalled {
+		t.Fatal("chown must be called")
+	}
+	// Per os.Chown convention, -1 means "don't change".
+	if call.chownUid != -1 {
+		t.Errorf("chown uid: got %d, want -1 (no-change)", call.chownUid)
+	}
+	if call.chownGid != 44444 {
+		t.Errorf("chown gid: got %d, want 44444", call.chownGid)
+	}
+	if !call.chmodCalled {
+		t.Fatal("chmod must be called even when only gid is set (to stamp 0770)")
+	}
+}
+
+func TestApplyMountRootOwnershipKernel_UidOnly(t *testing.T) {
+	call := stubKernelSeams(t, nil, nil)
+
+	if err := applyMountRootOwnershipKernel("/staging/target", map[string]string{"mountRootUid": "33333"}); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if call.chownUid != 33333 {
+		t.Errorf("chown uid: got %d, want 33333", call.chownUid)
+	}
+	if call.chownGid != -1 {
+		t.Errorf("chown gid: got %d, want -1 (no-change)", call.chownGid)
+	}
+}
+
+func TestApplyMountRootOwnershipKernel_InvalidUid(t *testing.T) {
+	call := stubKernelSeams(t, nil, nil)
+
+	err := applyMountRootOwnershipKernel("/staging/target", map[string]string{"mountRootUid": "not-a-number"})
+	if err == nil {
+		t.Fatal("expected parse error, got nil")
+	}
+	if call.chownCalled {
+		t.Errorf("chown must not be called when parsing fails")
+	}
+	if call.chmodCalled {
+		t.Errorf("chmod must not be called when parsing fails")
+	}
+}
+
+func TestApplyMountRootOwnershipKernel_ChownError(t *testing.T) {
+	call := stubKernelSeams(t, os.ErrPermission, nil)
+
+	err := applyMountRootOwnershipKernel("/staging/target", map[string]string{"mountRootUid": "33333", "mountRootGid": "44444"})
+	if err == nil {
+		t.Fatal("expected chown error to propagate")
+	}
+	if call.chmodCalled {
+		t.Errorf("chmod must not be called when chown fails")
+	}
+}
+
+func TestApplyMountRootOwnershipKernel_ChmodError(t *testing.T) {
+	stubKernelSeams(t, nil, os.ErrPermission)
+
+	err := applyMountRootOwnershipKernel("/staging/target", map[string]string{"mountRootUid": "33333", "mountRootGid": "44444"})
+	if err == nil {
+		t.Fatal("expected chmod error to propagate")
+	}
+}

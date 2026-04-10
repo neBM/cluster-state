@@ -402,6 +402,18 @@ func (ns *NodeServer) stageNewVolume(ctx context.Context, volumeID, stagingTarge
 			}
 			return nil, fmt.Errorf("apply mount-root ownership for %s: %w", volumeID, err)
 		}
+		// Filer write is not enough: weed mount returns in-memory
+		// option.MountUid/Gid/Mode for the root inode, never consults the
+		// filer. Do a chown/chmod through the FUSE mount so weed mount's
+		// setattr handler updates those fields (NodeId==1 branch in
+		// weedfs_attr.go). See applyMountRootOwnershipKernel doc.
+		if err := applyMountRootOwnershipKernel(stagingTargetPath, volContext); err != nil {
+			glog.Warningf("failed to apply mount-root ownership (kernel) for volume %s: %v", volumeID, err)
+			if unstageErr := volume.Unstage(ctx, stagingTargetPath); unstageErr != nil {
+				glog.Errorf("failed to unstage volume %s after mount-root ownership (kernel) failure: %v", volumeID, unstageErr)
+			}
+			return nil, fmt.Errorf("apply mount-root ownership (kernel) for %s: %w", volumeID, err)
+		}
 	}
 
 	// Apply quota if available
@@ -479,6 +491,61 @@ func injectVolumeMountGroup(cap *csi.VolumeCapability, volContext map[string]str
 	}
 
 	return volContext
+}
+
+// chownFunc / chmodFunc are testable seams for applyMountRootOwnershipKernel.
+// Real implementation delegates to os; tests replace them with fakes to assert
+// arguments without needing root privileges.
+var (
+	chownFunc = os.Chown
+	chmodFunc = os.Chmod
+)
+
+// applyMountRootOwnershipKernel issues a FUSE setattr on the mounted staging
+// path so weed mount updates its in-memory wfs.option.MountUid/Gid/Mode. This
+// is REQUIRED for pod-side ls on the mount root to reflect the annotated
+// ownership: weed mount's maybeLoadEntry (weed/mount/weedfs.go) and setRootAttr
+// (weed/mount/weedfs_attr.go) return option.MountUid/Gid/Mode unconditionally
+// for the mount root — they NEVER consult the filer for the root inode. The
+// filer write in applyMountRootOwnership is still needed for tools that read
+// the filer directly (weed shell fs.meta.cat, backups), but only a chown/chmod
+// through the FUSE layer updates weed mount's in-memory state. See
+// weedfs_attr.go:107-123 for the NodeId==1 branch that updates option fields.
+//
+// Called post-Stage from stageNewVolume. Idempotent. No-op when neither
+// mountRootUid nor mountRootGid is set. Mode is hardcoded to 0770 to match
+// what applyMountRootOwnership writes to the filer.
+func applyMountRootOwnershipKernel(stagingTargetPath string, volContext map[string]string) error {
+	uidStr, hasUid := volContext["mountRootUid"]
+	gidStr, hasGid := volContext["mountRootGid"]
+	if (!hasUid || uidStr == "") && (!hasGid || gidStr == "") {
+		return nil
+	}
+
+	// os.Chown convention: -1 means "don't change".
+	uid, gid := -1, -1
+	if hasUid && uidStr != "" {
+		n, err := strconv.ParseInt(uidStr, 10, 32)
+		if err != nil {
+			return fmt.Errorf("parse mountRootUid %q: %w", uidStr, err)
+		}
+		uid = int(n)
+	}
+	if hasGid && gidStr != "" {
+		n, err := strconv.ParseInt(gidStr, 10, 32)
+		if err != nil {
+			return fmt.Errorf("parse mountRootGid %q: %w", gidStr, err)
+		}
+		gid = int(n)
+	}
+
+	if err := chownFunc(stagingTargetPath, uid, gid); err != nil {
+		return fmt.Errorf("chown %s: %w", stagingTargetPath, err)
+	}
+	if err := chmodFunc(stagingTargetPath, 0770); err != nil {
+		return fmt.Errorf("chmod %s: %w", stagingTargetPath, err)
+	}
+	return nil
 }
 
 // applyMountRootOwnershipFiler is the testable seam. The real implementation
