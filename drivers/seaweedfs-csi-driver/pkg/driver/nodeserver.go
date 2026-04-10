@@ -2,7 +2,10 @@ package driver
 
 import (
 	"context"
+	"fmt"
 	"os"
+	"path"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -10,6 +13,7 @@ import (
 	"github.com/seaweedfs/seaweedfs-csi-driver/pkg/k8s"
 	"github.com/seaweedfs/seaweedfs-csi-driver/pkg/mountmanager"
 	"github.com/seaweedfs/seaweedfs/weed/glog"
+	"github.com/seaweedfs/seaweedfs/weed/pb/filer_pb"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"k8s.io/mount-utils"
@@ -383,6 +387,23 @@ func (ns *NodeServer) stageNewVolume(ctx context.Context, volumeID, stagingTarge
 		return nil, err
 	}
 
+	// Apply mount-root ownership on the filer AFTER volume.Stage(). weed mount's
+	// startup path can rewrite root-inode attrs (see buildMountArgs comment and
+	// project_csi_v013_mount_clobbers_root), so writing beforehand is pointless:
+	// the mount clobbers our write. Post-stage apply re-stamps the attrs after
+	// any startup clobber, belt-and-braces with -dirAutoCreate=false. Skipped
+	// for read-only volumes. Passes caller's ctx so kubelet NodeStageVolume
+	// deadline propagates into the filer RPCs.
+	if !readOnly {
+		if err := applyMountRootOwnership(ctx, ns.Driver, volumeID, volContext); err != nil {
+			glog.Warningf("failed to apply mount-root ownership for volume %s: %v", volumeID, err)
+			if unstageErr := volume.Unstage(ctx, stagingTargetPath); unstageErr != nil {
+				glog.Errorf("failed to unstage volume %s after mount-root ownership failure: %v", volumeID, unstageErr)
+			}
+			return nil, fmt.Errorf("apply mount-root ownership for %s: %w", volumeID, err)
+		}
+	}
+
 	// Apply quota if available
 	if capacity, err := k8s.GetVolumeCapacity(volumeID); err == nil {
 		if err := volume.Quota(capacity); err != nil {
@@ -426,7 +447,10 @@ func isVolumeReadOnly(req *csi.NodeStageVolumeRequest) bool {
 
 // injectVolumeMountGroup extracts volume_mount_group from the CSI volume capability
 // and injects it as gidMap into volContext if not already set. This wires kubelet's
-// fsGroup through to the FUSE mount's -map.gid argument.
+// fsGroup through to the FUSE mount's -map.gid argument (translation for files
+// *inside* the tree). It also auto-derives mountRootGid from the mount group
+// when mountRootGid is not already set — this is the signal consumed by
+// applyMountRootOwnership to stamp the filer root inode's attrs.
 func injectVolumeMountGroup(cap *csi.VolumeCapability, volContext map[string]string) map[string]string {
 	if cap == nil || cap.GetMount() == nil {
 		return volContext
@@ -446,5 +470,102 @@ func injectVolumeMountGroup(cap *csi.VolumeCapability, volContext map[string]str
 		glog.Infof("injecting volume_mount_group %s as gidMap %s:0 (local:filer)", mountGroup, mountGroup)
 	}
 
+	// Auto-derive mountRootGid from fsGroup when not already set by an explicit
+	// PVC annotation (persisted in volumeAttributes by CreateVolume) or a
+	// retrofit `kubectl patch pv` flow. mountRootUid has no equivalent.
+	if _, ok := volContext["mountRootGid"]; !ok {
+		volContext["mountRootGid"] = mountGroup
+		glog.Infof("auto-deriving mountRootGid=%s from volume_mount_group", mountGroup)
+	}
+
 	return volContext
+}
+
+// applyMountRootOwnershipFiler is the testable seam. The real implementation
+// opens a filer client and does LookupEntry + UpdateEntry; tests replace it
+// with an in-memory stub that just calls the mutate fn on a fake entry.
+// ctx is the caller's context so kubelet cancellations propagate to the
+// filer RPCs.
+var applyMountRootOwnershipFiler = func(ctx context.Context, driver *SeaweedFsDriver, volumeID string, mutate func(*filer_pb.Entry)) error {
+	parentDir, name := splitVolumeIDForFiler(volumeID)
+
+	return driver.WithFilerClient(false, func(client filer_pb.SeaweedFilerClient) error {
+		resp, err := filer_pb.LookupEntry(ctx, client, &filer_pb.LookupDirectoryEntryRequest{
+			Directory: parentDir,
+			Name:      name,
+		})
+		if err != nil {
+			return fmt.Errorf("lookup %s/%s: %w", parentDir, name, err)
+		}
+		entry := resp.Entry
+		if entry == nil {
+			return fmt.Errorf("lookup %s/%s returned nil entry", parentDir, name)
+		}
+
+		mutate(entry)
+
+		return filer_pb.UpdateEntry(ctx, client, &filer_pb.UpdateEntryRequest{
+			Directory: parentDir,
+			Entry:     entry,
+		})
+	})
+}
+
+// splitVolumeIDForFiler converts a filer path volumeID into (parentDir, name)
+// suitable for filer_pb.LookupEntry / UpdateEntry. Accepts legacy non-abs IDs
+// by prepending /buckets (mirrors DeleteVolume's backward-compat path).
+func splitVolumeIDForFiler(volumeID string) (string, string) {
+	if !path.IsAbs(volumeID) {
+		return "/buckets", volumeID
+	}
+	clean := strings.TrimRight(volumeID, "/")
+	parent := path.Dir(clean)
+	name := path.Base(clean)
+	if parent == "" {
+		parent = "/"
+	}
+	return parent, name
+}
+
+// applyMountRootOwnership reads mountRootUid / mountRootGid from volContext,
+// parses them, and applies the result to the filer entry for the volume root
+// via applyMountRootOwnershipFiler. No-op when neither key is set. Idempotent
+// and safe to call on every NodeStageVolume invocation.
+func applyMountRootOwnership(ctx context.Context, driver *SeaweedFsDriver, volumeID string, volContext map[string]string) error {
+	uidStr, hasUid := volContext["mountRootUid"]
+	gidStr, hasGid := volContext["mountRootGid"]
+	if (!hasUid || uidStr == "") && (!hasGid || gidStr == "") {
+		return nil
+	}
+
+	var uid, gid uint32
+	if hasUid && uidStr != "" {
+		n, err := strconv.ParseUint(uidStr, 10, 32)
+		if err != nil {
+			return fmt.Errorf("parse mountRootUid %q: %w", uidStr, err)
+		}
+		uid = uint32(n)
+	}
+	if hasGid && gidStr != "" {
+		n, err := strconv.ParseUint(gidStr, 10, 32)
+		if err != nil {
+			return fmt.Errorf("parse mountRootGid %q: %w", gidStr, err)
+		}
+		gid = uint32(n)
+	}
+
+	mode := uint32(0770) | uint32(os.ModeDir)
+
+	return applyMountRootOwnershipFiler(ctx, driver, volumeID, func(entry *filer_pb.Entry) {
+		if entry.Attributes == nil {
+			entry.Attributes = &filer_pb.FuseAttributes{}
+		}
+		if hasUid && uidStr != "" {
+			entry.Attributes.Uid = uid
+		}
+		if hasGid && gidStr != "" {
+			entry.Attributes.Gid = gid
+		}
+		entry.Attributes.FileMode = mode
+	})
 }

@@ -124,10 +124,17 @@ func (m *mountServiceMounter) buildMountArgs(targetPath, cacheDir, localSocket s
 		collection = path.Base(filerPath)
 	}
 
+	// -dirAutoCreate=false: weed mount's startup auto-create path rewrites
+	// the filer root inode with uid=0/gid=0/fileMode=0777|ModeDir even when
+	// the dir already exists, clobbering attrs written by CreateVolume's
+	// mkdirFunc. Dynamic provisioning always goes through CreateVolume
+	// (which creates the dir), and static provisioning is expected to
+	// pre-create the dir on the filer. See project memory
+	// project_csi_v013_mount_clobbers_root for the proof.
 	args := []string{
 		"-logtostderr=true",
 		"mount",
-		"-dirAutoCreate=true",
+		"-dirAutoCreate=false",
 		"-umask=000",
 		fmt.Sprintf("-dir=%s", targetPath),
 		fmt.Sprintf("-localSocket=%s", localSocket),
@@ -187,6 +194,8 @@ func (m *mountServiceMounter) buildMountArgs(targetPath, cacheDir, localSocket s
 		"path":         {},
 		"parentDir":    {},
 		"volumeName":   {},
+		"mountRootUid": {},
+		"mountRootGid": {},
 	}
 
 	for key, value := range volumeContext {
