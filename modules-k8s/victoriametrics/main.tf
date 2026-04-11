@@ -235,6 +235,15 @@ resource "kubernetes_config_map" "backup_script" {
       MINIO_ENDPOINT="${var.s3_endpoint}"
       SLEEP_SECONDS=${local.backup_sleep_seconds}
 
+      # SIGTERM handling: /bin/sh as PID 1 ignores SIGTERM by default (the
+      # kernel masks signals without handlers for PID 1), so without an
+      # explicit trap the pod hangs until terminationGracePeriodSeconds
+      # expires and kubelet SIGKILLs. The container preStop hook above has
+      # already drained any in-flight vmbackup-prod before SIGTERM arrives,
+      # so exiting immediately here is safe — the bucket is guaranteed
+      # consistent at this point.
+      trap 'echo "Received SIGTERM/INT, exiting"; exit 0' TERM INT
+
       echo "Starting vmbackup sidecar"
       echo "  Data path: $DATA_PATH"
       echo "  Backup destination: $BACKUP_DEST"
@@ -253,7 +262,11 @@ resource "kubernetes_config_map" "backup_script" {
           || echo "Backup failed, will retry next interval"
         
         echo "$(date '+%Y-%m-%d %H:%M:%S') Backup complete, sleeping $SLEEP_SECONDS seconds"
-        sleep $SLEEP_SECONDS
+        # Background sleep + wait so the TERM trap above fires immediately
+        # on SIGTERM. A direct "sleep $SLEEP_SECONDS" would block signal
+        # delivery until sleep exits (up to the full interval).
+        sleep "$SLEEP_SECONDS" &
+        wait $!
       done
     EOT
 
@@ -352,11 +365,32 @@ resource "kubernetes_deployment" "victoriametrics" {
         annotations = {
           "prometheus.io/scrape" = "true"
           "prometheus.io/port"   = "8428"
+          # Force a rolling update whenever backup.sh / restore.sh change.
+          # Without this, ConfigMap edits propagate to the pod's /scripts
+          # volume mount via kubelet sync, but the already-running sh process
+          # keeps executing the OLD script from memory — fixes silently fail
+          # to take effect until someone manually rolls. Keyed to the full
+          # ConfigMap data so any script edit triggers a new ReplicaSet.
+          "checksum/backup-script" = sha256(jsonencode(kubernetes_config_map.backup_script.data))
         }
       }
 
       spec {
         service_account_name = kubernetes_service_account.victoriametrics.metadata[0].name
+
+        # Give vmbackup time to finish an in-flight run before SIGKILL.
+        # vmbackup (Run() in lib/backup/actions/backup.go) atomically swaps the
+        # `backup_complete.ignore` marker — it DELETES the marker at the start
+        # of a run and RECREATES it at the end. vmbackup has no signal handler,
+        # so SIGTERM kills the Go process immediately. If the pod is torn down
+        # mid-run (e.g. terraform-driven rollout under the Recreate strategy),
+        # the marker stays deleted and the next pod's vmrestore init container
+        # sees "cannot find backup_complete.ignore" and starts fresh — silent
+        # data loss on restore. The preStop hook on the sidecar below blocks
+        # pod termination until vmbackup-prod is idle; this grace period must
+        # exceed the longest expected backup duration. 600s is comfortable
+        # headroom for the current ~20Gi storage size.
+        termination_grace_period_seconds = 600
 
         # Init container: restore from S3 backup
         init_container {
@@ -466,6 +500,27 @@ resource "kubernetes_deployment" "victoriametrics" {
           image = "victoriametrics/vmbackup:${var.image_tag}"
 
           command = ["/bin/sh", "/scripts/backup.sh"]
+
+          # Block pod termination until any in-flight vmbackup-prod run
+          # completes. vmbackup's Run() deletes `backup_complete.ignore` at
+          # the start of a run and recreates it at the end — and vmbackup
+          # has no signal handler, so a mid-run SIGTERM leaves the bucket
+          # with the marker missing and the next vmrestore fails. Polling
+          # pidof here holds the container until vmbackup-prod is no longer
+          # running, at which point the bucket is in a consistent state and
+          # kubelet may safely send SIGTERM. Bounded by the pod's
+          # termination_grace_period_seconds above.
+          lifecycle {
+            pre_stop {
+              exec {
+                command = [
+                  "/bin/sh",
+                  "-c",
+                  "echo 'preStop: waiting for vmbackup-prod to finish'; while pidof vmbackup-prod >/dev/null 2>&1; do sleep 1; done; echo 'preStop: vmbackup idle, allowing termination'",
+                ]
+              }
+            }
+          }
 
           env {
             name = "AWS_ACCESS_KEY_ID"
