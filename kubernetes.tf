@@ -438,3 +438,15 @@ module "k8s_rpi_throttle_monitor" {
   namespace = "default"
 }
 
+# Raspberry Pi 5 macb driver TSO/SG offload disable (LP#2133877 mitigation).
+# On Heracles and Nyx the Cadence GEM TX descriptor ring silently wedges
+# across the RP1 PCIe link when TSO is used with scatter-gather, causing
+# intermittent network loss with no kernel-level errors. Disables both
+# offloads via ethtool on startup and re-applies if drift is detected.
+# Remove this module when the upstream macb fix lands and nodes upgrade
+# past the affected 6.17.0-1004/1006-raspi kernel series.
+module "k8s_pi5_macb_offload_fix" {
+  source    = "./modules-k8s/pi5-macb-offload-fix"
+  namespace = "default"
+}
+
