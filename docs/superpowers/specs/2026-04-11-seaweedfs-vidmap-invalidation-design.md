@@ -170,25 +170,24 @@ No new test harness. All 8 tests use the same stubbing pattern as the existing `
 
 ### Prerequisites
 
-- Create `brmartin/seaweedfs` fork on GitHub. The stale external clone at `~/Documents/Personal/projects/seaweedfs-csi-driver/` is unrelated to this delivery — that is the CSI driver fork, not the seaweedfs fork, and its git-remote cleanup (CSI state memory open follow-up #1) is orthogonal.
+None — the seaweedfs fork already exists at `github.com/neBM/seaweedfs`.
 
 ### Sequence
 
-1. Fork `github.com/seaweedfs/seaweedfs` → `github.com/brmartin/seaweedfs`.
-2. Clone fork locally. Cut branch `fix/vidmap-stale-relookup` off the commit our `go.mod` currently pins: `20260402004241-6213daf11812`.
-3. Implement:
+1. Clone `github.com/neBM/seaweedfs` locally. Cut branch `fix/vidmap-stale-relookup` off the commit our `go.mod` currently pins: `20260402004241-6213daf11812`.
+2. Implement:
    - `weed/filer/read_with_relookup.go` — helper + counter registration.
    - `weed/filer/read_with_relookup_test.go` — 8 unit tests.
    - 5 call-site edits (3 in `weed/filer/filechunk_manifest.go` + `reader_cache.go`, 2 in `weed/filer/stream.go`).
    - Deletion of the bespoke block in `filer/stream.go:200-228`.
-4. `go test -race ./weed/filer/... ./weed/wdclient/...` in the fork. Must pass clean.
-5. Commit, push, record commit hash.
-6. In `drivers/seaweedfs-csi-driver/go.mod`: add
-   `replace github.com/seaweedfs/seaweedfs => github.com/brmartin/seaweedfs <commit-hash>`
-7. `go mod tidy` in the CSI driver. Commit resulting `go.mod` / `go.sum` diff.
-8. Bump CSI driver `VERSION` → `0.1.9`. `make test` — all 78 existing tests must still pass.
-9. Build + sideload all three images per existing Makefile flow. All three tags (`csi_driver_image_tag`, `csi_mount_image_tag`, `consumer_recycler_image_tag`) bump to `v0.1.9` in lockstep per `modules-k8s/seaweedfs/variables.tf`.
-10. `tofu apply`. `seaweedfs-csi-node` + `seaweedfs-consumer-recycler` DaemonSets roll automatically (`RollingUpdate` strategy). `seaweedfs-mount` is `OnDelete` — explicit `kubectl delete pod` per node, staggered, to cycle.
+3. `go test -race ./weed/filer/... ./weed/wdclient/...` in the fork. Must pass clean.
+4. Commit, push, record commit hash.
+5. In `drivers/seaweedfs-csi-driver/go.mod`: add
+   `replace github.com/seaweedfs/seaweedfs => github.com/neBM/seaweedfs <commit-hash>`
+6. `go mod tidy` in the CSI driver. Commit resulting `go.mod` / `go.sum` diff.
+7. Bump CSI driver `VERSION` → `0.1.9`. `make test` — all 78 existing tests must still pass.
+8. Build + sideload all three images per existing Makefile flow. All three tags (`csi_driver_image_tag`, `csi_mount_image_tag`, `consumer_recycler_image_tag`) bump to `v0.1.9` in lockstep per `modules-k8s/seaweedfs/variables.tf`.
+9. `tofu apply`. `seaweedfs-csi-node` + `seaweedfs-consumer-recycler` DaemonSets roll automatically (`RollingUpdate` strategy). `seaweedfs-mount` is `OnDelete` — explicit `kubectl delete pod` per node, staggered, to cycle.
 
 ## Verification — must-pass before declaring work complete
 
