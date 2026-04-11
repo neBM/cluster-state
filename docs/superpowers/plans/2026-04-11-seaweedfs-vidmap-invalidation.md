@@ -1482,7 +1482,7 @@ sum by (result) (rate(seaweedfs_filer_vidmap_relookups_total[5m]))
 
 ## 2026-04-11 Resolution notes
 
-**Status:** Task 19 end-to-end verified — fix engages and recovers the stale cache — but detection latency is far worse than the <30s target. Functionally correct, operationally slow. See follow-up below.
+**Status:** RESOLVED in v0.1.11. Task 19 re-ran end-to-end on heracles with measured recovery **28.3 s** (target <30 s). Required two follow-up commits on top of v0.1.10: a 3 s TCP dial timeout (`f606381c27b4`) and a ctx-check fix in the helper (`d4cb0322979c`). See "2026-04-11 v0.1.11 recovery verified" below.
 
 ### Trap: `go.mod replace` does not reach the weed binary
 
@@ -1513,3 +1513,44 @@ Not run. `weed mount` subprocesses are invoked without `-metricsPort`, so the Pr
 
 Also note: the actual counter metric is `SeaweedFS_filer_vidmap_relookups_total` (mixed case, not `seaweedfs_filer_vidmap_relookups_total` as the plan says).
 - Memory update: once the fix is live and verified, update `project_seaweedfs_s3_stale_vidmap_2026_04_10.md` to mark the open item as RESOLVED with commit references.
+
+---
+
+## 2026-04-11 v0.1.11 recovery verified
+
+Follow-up to the "detection latency ≈ 11 min" issue above. Fix shipped as v0.1.11 (overwrite, same tag). Two fork commits on top of `c6b9ccc8a1fb`:
+
+1. **`f606381c27b4` — `fix(http): short TCP dial timeout in global client`.** `weed/util/http/client/http_client.go` now builds its `http.Transport` with `DialContext: (&net.Dialer{Timeout: 3*time.Second, KeepAlive: 30*time.Second}).DialContext`. A dead volume IP now fails fast (~3 s per attempt) instead of waiting the Linux SYN retry budget (~127 s).
+
+2. **`d4cb0322979c` — `fix(filer): bail only on caller ctx cancellation, not on fetch err`.** `weed/filer/read_with_relookup.go` previously bailed early on `errors.Is(fetchErr, context.DeadlineExceeded)`. Harmless at upstream defaults, but once (1) added a `net.Dialer{Timeout: 3s}`, Go's `*net.OpError` wraps a `timeoutError` whose `Is(target error) bool` returns true for `context.DeadlineExceeded`. The helper treated its own internal dial timeout as *caller* cancellation and skipped invalidation. Net result on v0.1.10: dial timeout worked (fast 28 s retry loop) but zero invalidations fired, so recovery hung on the next chunk read with I/O error. Fixed by replacing `errors.Is(fetchErr, ...)` with `ctx.Err() != nil` — only bails if the caller's context was cancelled. Regression test `TestReadChunkWithReLookup_StaleThenFreshOnDialTimeout` added with a `dialTimeoutErr` struct that mimics Go's `net.timeoutError` (returns `true` for `Is(context.DeadlineExceeded)`).
+
+### Re-run of Task 19 (heracles, 2026-04-11 23:21–23:22 BST)
+
+1. Cycled all 3 mount pods after sideloading v0.1.11 tars (amd64+arm64, csi+mount) to hestia/heracles/nyx.
+2. Primed the mount-pod reader cache by reading `/data/icon_cache/sky2.anvilgroup.com.png` through `vaultwarden-648df98bf5-mj22c` on heracles (PVC `pvc-8bec9426-43ef-413d-bbf7-bb7502cab69c`) — elapsed 0.162 s. This populates the weed-mount vidMap for the volume hosting the icon_cache chunks.
+3. Deleted `seaweedfs-volume-2dtjw` (heracles volume pod @ 10.42.2.112). Replacement came up as `seaweedfs-volume-6fmrk` @ 10.42.2.46 — IP rotation confirmed.
+4. Read a **different** cold file (`/data/icon_cache/www.themoviedb.org.png`) through the same mount — different chunk, same volume, so first fetch exercised the stale vidMap URL. Elapsed **28.303 s**, md5 `7cfcb08c42bb6e006c35d5d5dd599e17`.
+
+**Mount log retry trace** (`kubectl logs seaweedfs-mount-cjpgl`):
+
+```
+22:22:54.932 read http://10.42.2.112:8080/193,... failed: dial tcp: i/o timeout (attempt 1, retry in 1s)
+22:22:58.934 read http://10.42.2.112:8080/193,... failed: dial tcp: i/o timeout (attempt 2, retry in 1.5s)
+22:23:03.435 read http://10.42.2.112:8080/193,... failed: dial tcp: i/o timeout (attempt 3, retry in 2.25s)
+22:23:08.686 read http://10.42.2.112:8080/193,... failed: dial tcp: i/o timeout (attempt 4, retry in 3.375s)
+22:23:15.063 read http://10.42.2.112:8080/193,... failed: dial tcp: i/o timeout (attempt 5, retry in 5.0625s)
+# RetriedFetchChunkData returns with error; ReadChunkWithReLookup invalidates vidMap; re-lookup returns 10.42.2.46; fetch succeeds
+```
+
+Breakdown: 5 × 3 s dial timeouts + (1 + 1.5 + 2.25 + 3.375 + 5.0625) s backoff ≈ 28.2 s — matches the measured 28.3 s end-to-end.
+
+### Why the v0.1.10 trap was subtle
+
+The v0.1.10 behaviour **looked** identical to a working fix: dial timeouts were fast, the recovery retry loop ran for ~28 s, and subsequent reads succeeded — but only because of an unrelated cache refresh path, not the helper's invalidation. There were zero `vidmap_relookups_total` increments. The smoking gun was a unit test: `TestReadChunkWithReLookup_StaleThenFreshOnDialTimeout` replayed a synthetic `dialTimeoutErr` that satisfies `errors.Is(err, context.DeadlineExceeded)` and caught the early-bail path. Once we had the test, the one-line fix (`ctx.Err() != nil` instead of `errors.Is(fetchErr, ...)`) was obvious.
+
+Rule of thumb: any "bail on fetch error" check in a helper that wraps an HTTP fetch needs to distinguish *caller* cancellation from *internal* timeouts. Use `ctx.Err()` for the caller; `errors.Is(fetchErr, context.DeadlineExceeded)` will be false-positive the moment you add a dialer timeout that wraps a `timeoutError`.
+
+### Follow-ups that remain open
+
+- **Task 20 metrics** still not executable — `weed mount` still spawned without `-metricsPort`, so `SeaweedFS_filer_vidmap_relookups_total` isn't scrapable. Nice-to-have, not blocking.
+- **Upstream PR** — the fork branch `fix/vidmap-stale-relookup` on `neBM/seaweedfs` now carries 12 commits (helper + refactors + dial-timeout + helper ctx-check fix). PR against `seaweedfs/seaweedfs` not yet filed pending user review. When it lands, see `memory/project_seaweedfs_fork_pin_and_upstream_cleanup.md` for the exact revert checklist (4 pin locations).
