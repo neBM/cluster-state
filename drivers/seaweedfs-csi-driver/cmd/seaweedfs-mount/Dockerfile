@@ -3,7 +3,7 @@
 #   docker build --build-arg SEAWEEDFS_COMMIT=<hash> --build-arg SEAWEEDFS_REPO=<url>
 # Currently pinned to neBM fork which carries the vidMap stale-relookup fix
 # until it lands upstream.
-ARG SEAWEEDFS_COMMIT=c6b9ccc8a1fb
+ARG SEAWEEDFS_COMMIT=d4cb0322979c
 ARG SEAWEEDFS_REPO=https://github.com/neBM/seaweedfs
 
 FROM golang:1.25-alpine AS builder
