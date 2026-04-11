@@ -1,11 +1,13 @@
-ARG SEAWEEDFS_COMMIT=f256002d0ba1
+ARG SEAWEEDFS_COMMIT=c6b9ccc8a1fb
+ARG SEAWEEDFS_REPO=https://github.com/neBM/seaweedfs
 
 FROM golang:1.25-alpine AS builder
 
 RUN apk add git g++
 
 ARG SEAWEEDFS_COMMIT
-RUN git clone https://github.com/seaweedfs/seaweedfs /go/src/github.com/seaweedfs/seaweedfs \
+ARG SEAWEEDFS_REPO
+RUN git clone ${SEAWEEDFS_REPO} /go/src/github.com/seaweedfs/seaweedfs \
     && cd /go/src/github.com/seaweedfs/seaweedfs \
     && git checkout ${SEAWEEDFS_COMMIT} \
     && cd weed \
