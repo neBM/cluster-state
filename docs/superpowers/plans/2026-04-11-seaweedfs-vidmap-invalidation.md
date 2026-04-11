@@ -1477,4 +1477,39 @@ sum by (result) (rate(seaweedfs_filer_vidmap_relookups_total[5m]))
 
 - Open upstream PR against `seaweedfs/seaweedfs` once user has reviewed the change end-to-end. When merged, delete the `replace` directive in `drivers/seaweedfs-csi-driver/go.mod` and pin `github.com/seaweedfs/seaweedfs` at the merged commit.
 - Add a grafana panel for `seaweedfs_filer_vidmap_relookups_total` next to the existing CSI health panels.
+
+---
+
+## 2026-04-11 Resolution notes
+
+**Status:** Task 19 end-to-end verified — fix engages and recovers the stale cache — but detection latency is far worse than the <30s target. Functionally correct, operationally slow. See follow-up below.
+
+### Trap: `go.mod replace` does not reach the weed binary
+
+The vidMap fix was originally shipped as v0.1.9 — fork commit pinned via `go.mod replace`, csi-driver rebuilt, images bumped. It had zero effect in production:
+
+- `drivers/seaweedfs-csi-driver/cmd/seaweedfs-mount/Dockerfile{,.dev}` and `cmd/seaweedfs-csi-driver/Dockerfile.dev` each `git clone https://github.com/seaweedfs/seaweedfs` in the builder stage and `go install` the `weed` binary from that clone. That's a separate module graph — the csi-driver's `go.mod` replace directive never reaches it.
+- The csi-driver's own Go code doesn't import `weed/filer` anywhere (only `weed/glog`, `weed/pb`, `weed/security`, `weed/util`), so every previous fix that lived in csi-driver code compiled in correctly via the replace directive. This is the first fix that touches `weed/filer` itself, which is why nobody noticed the stale `SEAWEEDFS_COMMIT` pin before.
+- Empirically verified on v0.1.9 running on nyx: `strings /usr/bin/weed | grep -E 'ReadChunkWithReLookup|vidmap_relookups_total'` returned no matches.
+
+**Fix:** commits `eee0c05 chore(seaweedfs-csi): pin weed build to neBM fork @ c6b9ccc8` parameterises `SEAWEEDFS_COMMIT` and `SEAWEEDFS_REPO` as build args in all 3 Dockerfiles and pins them to the neBM fork at `c6b9ccc8a1fb`. Upstream-merge cleanup becomes `--build-arg` default flips back to `https://github.com/seaweedfs/seaweedfs`.
+
+### Task 19: verified end-to-end on nyx
+
+1. Primed vidMap cache by reading `/data/rsa_key.pem` (1679 bytes) through `vaultwarden-648df98bf5-8d8vk` on nyx (PVC `pvc-8bec9426-43ef-413d-bbf7-bb7502cab69c`).
+2. Deleted `seaweedfs-volume-td74h` (nyx volume pod @ 10.42.0.93). Replacement came up as `seaweedfs-volume-5897j` @ 10.42.0.115 — IP rotation confirmed.
+3. Re-read `/data/rsa_key.pem`. Mount pod logged successive connection timeouts to the stale `10.42.0.93:8080` for ~11 min, then recovered. Re-read md5 matched pre-test (`44b846168cfb44e44b5f96f9c11b0fd9`).
+4. Subsequent reads of the same file completed in ~130ms — cache was successfully refreshed.
+
+### Known issue: detection latency ≈ 11 min, not <30 s
+
+The fix's helper `ReadChunkWithReLookup` wraps `util_http.RetriedFetchChunkData`, which itself has an inner retry loop (5 iterations, `waitTime 1s → 5.06s`) and, critically, `weed/util/http/client/http_client.go` builds its `http.Transport` without a `DialContext`, so TCP connect to a dead IP waits the Linux default (~127 s SYN retry budget) per attempt. End-to-end: 5 iterations × (127 s + waitTime) ≈ 11 min before the retry loop returns and our helper gets a chance to invalidate + re-lookup.
+
+**Follow-up:** add `DialContext: (&net.Dialer{Timeout: 3 * time.Second}).DialContext` to the `http.Transport` in the fork's `weed/util/http/client/http_client.go`. Expected end-to-end recovery: <20 s. This is a fork change (separate commit, separate v0.1.11 bump) and was explicitly deferred out of this resume session.
+
+### Task 20 status
+
+Not run. `weed mount` subprocesses are invoked without `-metricsPort`, so the Prometheus exposition isn't reachable over HTTP. Validation relied entirely on logs + user-visible recovery. If we want Task 20-style validation in a future session, the csi-driver `manager.go` needs to pass `-metricsPort=<n>` when spawning `weed mount`, and we need a ServiceMonitor / PodMonitor to scrape it.
+
+Also note: the actual counter metric is `SeaweedFS_filer_vidmap_relookups_total` (mixed case, not `seaweedfs_filer_vidmap_relookups_total` as the plan says).
 - Memory update: once the fix is live and verified, update `project_seaweedfs_s3_stale_vidmap_2026_04_10.md` to mark the open item as RESOLVED with commit references.
