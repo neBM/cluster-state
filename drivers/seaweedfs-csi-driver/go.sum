@@ -101,8 +101,8 @@ github.com/modern-go/reflect2 v1.0.2 h1:xBagoLtFs94CBntxluKeaWgTMpvLxC4ur3nMaC9G
 github.com/modern-go/reflect2 v1.0.2/go.mod h1:yWuevngMOJpCy52FWWMvUC8ws7m/LJsjYzDa0/r8luk=
 github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 h1:C3w9PqII01/Oq1c1nUAm88MOHcQC9l5mIlSMApZMrHA=
 github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822/go.mod h1:+n7T8mK8HuQTcFwEeznm/DIxMOiR9yIdICNftLE1DvQ=
-github.com/neBM/seaweedfs v0.0.0-20260411191724-13dd8fb4f940 h1:AsEGH7IScm7+8WmbMsBH9igipEsz4e2VQVOaxQIlEvs=
-github.com/neBM/seaweedfs v0.0.0-20260411191724-13dd8fb4f940/go.mod h1:t3RqdxZFuj1dnjQV+SxFuMwV38l04nIaWpXhcJrIHqA=
+github.com/neBM/seaweedfs v0.0.0-20260411200418-c6b9ccc8a1fb h1:8FQyO65uZJPoSs3BEYKDyVOZdSv0AUr0WdagWv6cDB8=
+github.com/neBM/seaweedfs v0.0.0-20260411200418-c6b9ccc8a1fb/go.mod h1:t3RqdxZFuj1dnjQV+SxFuMwV38l04nIaWpXhcJrIHqA=
 github.com/onsi/ginkgo/v2 v2.23.3 h1:edHxnszytJ4lD9D5Jjc4tiDkPBZ3siDeJJkUZJJVkp0=
 github.com/onsi/ginkgo/v2 v2.23.3/go.mod h1:zXTP6xIp3U8aVuXN8ENK9IXRaTjFnpVB9mGmaSRvxnM=
 github.com/onsi/gomega v1.36.1 h1:bJDPBO7ibjxcbHMgSCoo4Yj18UWbKDlLwX1x9sybDcw=
