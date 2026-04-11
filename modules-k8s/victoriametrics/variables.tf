@@ -95,3 +95,24 @@ variable "backup_interval" {
   default     = "1h"
 }
 
+# Storage configuration (local PV)
+variable "storage_class_name" {
+  type        = string
+  description = "StorageClass for the VictoriaMetrics PVC. Should be a node-local class (late-binding) to avoid network-FS fsync latency on the TSDB write path."
+  default     = "local-path-retain"
+}
+
+variable "storage_size" {
+  type        = string
+  description = "Size of the VictoriaMetrics data PVC"
+  default     = "20Gi"
+}
+
+variable "node_selector" {
+  type        = map(string)
+  description = "Node selector for the VictoriaMetrics pod. Required because the local-path provisioner creates the PV directory on whichever node the pod first schedules to — pin the pod to make that choice deterministic."
+  default = {
+    "kubernetes.io/hostname" = "hestia"
+  }
+}
+

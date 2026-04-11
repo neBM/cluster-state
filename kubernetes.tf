@@ -31,6 +31,19 @@ provider "kubectl" {
 # Core Infrastructure
 # =============================================================================
 
+# local-path with Retain reclaim policy — node-local PV for stateful workloads
+# that need durability across pod restarts without network-FS latency (e.g.
+# TSDBs, SQLite). Late-binding so PVs are created on the node the pod lands on.
+resource "kubernetes_storage_class" "local_path_retain" {
+  metadata {
+    name = "local-path-retain"
+  }
+
+  storage_provisioner = "rancher.io/local-path"
+  reclaim_policy      = "Retain"
+  volume_binding_mode = "WaitForFirstConsumer"
+}
+
 # NFS Subdir External Provisioner - Dynamic volume provisioning for GlusterFS/NFS
 # Creates directories automatically when PVCs are created
 # Directory naming: glusterfs_<service>_<type> via volume-name annotation
@@ -310,7 +323,7 @@ module "k8s_alloy" {
 
 # VictoriaMetrics - Metrics collection and monitoring
 # Drop-in Prometheus replacement with better efficiency
-# Data stored in emptyDir, backed up to SeaweedFS S3 via vmbackup
+# Data stored on local-path PV (pinned to hestia), backed up to SeaweedFS S3 via vmbackup
 module "k8s_victoriametrics" {
   source = "./modules-k8s/victoriametrics"
 

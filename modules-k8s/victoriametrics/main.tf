@@ -9,6 +9,14 @@ locals {
   }
   data_path   = "/victoria-metrics-data"
   backup_dest = "s3://${var.s3_bucket}/data"
+
+  # Convert backup_interval ("1h", "30m") to seconds at plan time so the
+  # rendered shell script contains a plain integer instead of a runtime case.
+  backup_sleep_seconds = (
+    endswith(var.backup_interval, "h") ? tonumber(trimsuffix(var.backup_interval, "h")) * 3600 :
+    endswith(var.backup_interval, "m") ? tonumber(trimsuffix(var.backup_interval, "m")) * 60 :
+    3600
+  )
 }
 
 # =============================================================================
@@ -221,27 +229,18 @@ resource "kubernetes_config_map" "backup_script" {
     "backup.sh" = <<-EOT
       #!/bin/sh
       set -e
-      
-      BACKUP_INTERVAL="${var.backup_interval}"
+
       DATA_PATH="${local.data_path}"
       BACKUP_DEST="${local.backup_dest}"
       MINIO_ENDPOINT="${var.s3_endpoint}"
-      
+      SLEEP_SECONDS=${local.backup_sleep_seconds}
+
       echo "Starting vmbackup sidecar"
       echo "  Data path: $DATA_PATH"
       echo "  Backup destination: $BACKUP_DEST"
       echo "  MinIO endpoint: $MINIO_ENDPOINT"
-      echo "  Backup interval: $BACKUP_INTERVAL"
-      
-      # Convert interval to seconds
-      case "$BACKUP_INTERVAL" in
-        *h) SLEEP_SECONDS=$((${replace(var.backup_interval, "h", "")} * 3600)) ;;
-        *m) SLEEP_SECONDS=$((${replace(var.backup_interval, "m", "")} * 60)) ;;
-        *)  SLEEP_SECONDS=3600 ;;
-      esac
-      
-      echo "Sleeping $SLEEP_SECONDS seconds between backups"
-      
+      echo "  Backup interval: ${var.backup_interval} ($SLEEP_SECONDS seconds)"
+
       while true; do
         echo "$(date '+%Y-%m-%d %H:%M:%S') Starting incremental backup..."
         
@@ -283,6 +282,40 @@ resource "kubernetes_config_map" "backup_script" {
         rm -f "$DATA_PATH/restore-in-progress"
       fi
     EOT
+  }
+}
+
+# =============================================================================
+# Persistent Volume Claim (local-path, late-binding)
+# =============================================================================
+# Uses a node-local PV rather than emptyDir so VM's TSDB survives pod restarts
+# without a full vmrestore-from-S3 cycle. Late-binding: the PV is not created
+# until the pod schedules, at which point local-path creates the directory on
+# whichever node wins — pinned to hestia via node_selector on the Deployment.
+#
+# Durability story:
+#   - Node-local disk: survives pod restart, rollout, eviction
+#   - vmbackup sidecar → MinIO: survives node loss, disk loss (bounded RPO)
+
+resource "kubernetes_persistent_volume_claim" "data" {
+  # Late-binding StorageClass — PVC stays Pending until the pod mounts it.
+  wait_until_bound = false
+
+  metadata {
+    name      = "${local.app_name}-data"
+    namespace = local.namespace
+    labels    = local.labels
+  }
+
+  spec {
+    access_modes       = ["ReadWriteOnce"]
+    storage_class_name = var.storage_class_name
+
+    resources {
+      requests = {
+        storage = var.storage_size
+      }
+    }
   }
 }
 
@@ -492,14 +525,20 @@ resource "kubernetes_deployment" "victoriametrics" {
           }
         }
 
-        # emptyDir for data - fast local storage, restored from MinIO on startup
+        # Node-local PV — durable TSDB storage, survives pod restarts.
+        # First boot: vmrestore init container populates from MinIO S3.
+        # Subsequent restarts: PV already has data, vmrestore is a no-op.
         volume {
           name = "data"
-          empty_dir {
-            size_limit = "20Gi"
+          persistent_volume_claim {
+            claim_name = kubernetes_persistent_volume_claim.data.metadata[0].name
           }
         }
 
+        # Pin to a specific node so the local-path provisioner creates the PV
+        # directory deterministically. Required because local PVs are node-bound
+        # — moving the pod after first bind would orphan the data.
+        node_selector = var.node_selector
       }
     }
   }
@@ -507,6 +546,7 @@ resource "kubernetes_deployment" "victoriametrics" {
   depends_on = [
     kubernetes_config_map.scrape_config,
     kubernetes_config_map.backup_script,
+    kubernetes_persistent_volume_claim.data,
   ]
 }
 
