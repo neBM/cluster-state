@@ -21,7 +21,7 @@ MIGRATIONS=(
   "gitlab-repositories-sw|glusterfs_gitlab_repositories|1000:1000"
   "gitlab-uploads-sw|glusterfs_gitlab_uploads|1000:1000"
   "laurens-dissertation-archive-sw|glusterfs_laurens_dissertation_archive|0:0"
-  "matrix-media-store-sw|glusterfs_matrix_media_store|0:0"
+  "matrix-media-store-sw|glusterfs_matrix_media_store|991:991"
   "matrix-config-sw|glusterfs_matrix_config|0:0"
   "matrix-synapse-data-sw|glusterfs_matrix_synapse_data|0:0"
   "matrix-whatsapp-data-sw|glusterfs_matrix_whatsapp_data|0:0"

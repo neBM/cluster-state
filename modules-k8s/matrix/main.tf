@@ -373,7 +373,16 @@ resource "kubernetes_deployment" "synapse" {
       }
 
       spec {
-        # PVCs provisioned via glusterfs-nfs StorageClass (NFS-backed, available on all nodes)
+        # Synapse image drops to uid/gid 991 internally via its entrypoint. The
+        # SeaweedFS CSI FUSE mount enforces real uids (unlike the old Ganesha
+        # NFS mount which squashed them), so group ownership must match gid 991
+        # for Synapse to write new media files. fsGroup triggers a kubelet-side
+        # recursive chgrp on mount; OnRootMismatch makes it a one-off after the
+        # root dir's gid already matches.
+        security_context {
+          fs_group               = 991
+          fs_group_change_policy = "OnRootMismatch"
+        }
 
         init_container {
           name    = "config-processor"
