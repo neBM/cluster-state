@@ -44,19 +44,6 @@ resource "kubernetes_storage_class" "local_path_retain" {
   volume_binding_mode = "WaitForFirstConsumer"
 }
 
-# NFS Subdir External Provisioner - Dynamic volume provisioning for GlusterFS/NFS
-# Creates directories automatically when PVCs are created
-# Directory naming: glusterfs_<service>_<type> via volume-name annotation
-module "k8s_nfs_provisioner" {
-  source = "./modules-k8s/nfs-provisioner"
-
-  namespace          = "default"
-  nfs_server         = "127.0.0.1"
-  nfs_path           = "/storage/v"
-  storage_class_name = "glusterfs-nfs"
-  reclaim_policy     = "Retain"
-}
-
 # SeaweedFS — Unified storage replacing GlusterFS + NFS-Ganesha + MinIO
 # Provides S3 API, CSI driver for PVCs, and POSIX filer
 module "k8s_seaweedfs" {
@@ -152,15 +139,6 @@ module "k8s_ollama" {
   source = "./modules-k8s/ollama"
 
   namespace = "default"
-}
-
-# MinIO - DEPRECATED: Being replaced by SeaweedFS S3 (Phase 5)
-# Kept running during migration for bucket data access. Will be removed in Phase 6.
-module "k8s_minio" {
-  source = "./modules-k8s/minio"
-
-  namespace        = "default"
-  console_hostname = "minio.brmartin.co.uk"
 }
 
 # Keycloak - SSO provider
@@ -430,17 +408,6 @@ module "k8s_iris" {
 # =============================================================================
 # Node Health
 # =============================================================================
-
-# GlusterFS/NFS-Ganesha resilience: restart nfs-ganesha-local.service on the
-# host whenever a GlusterFS brick reconnects after a disconnect. NFS-Ganesha's
-# FSAL_GLUSTER (libgfapi) does not self-heal after brick reconnects — it gets
-# stuck in a state where cross-directory hard links return NFS4ERR_IO, breaking
-# git pushes ("unable to migrate objects to permanent storage"). Runs on all
-# three nodes (Hestia, Heracles, Nyx) since each runs its own NFS-Ganesha.
-module "k8s_gluster_ganesha_watcher" {
-  source    = "./modules-k8s/gluster-ganesha-watcher"
-  namespace = "default"
-}
 
 # Raspberry Pi 5 undervoltage/throttle monitoring on Heracles and Nyx.
 # Polls vcgencmd get_throttled every 60s via nsenter into the host and logs

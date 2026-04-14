@@ -225,38 +225,39 @@ because:
 - Historical Plex DB state has diverged; recovery value is ~zero
 - Restic covers the live PVC going forward
 
-### Phase 6 — Cleanup
+### Phase 6 — Cleanup (COMPLETE 2026-04-14)
 
-**Goal:** Remove Gluster stack entirely.
+All cluster-side Gluster/MinIO resources removed. Host-level Gluster
+services are still running as a safety net — stop them once 2+ weeks of
+clean restic backups are in hand.
 
-1. Confirm no remaining PVCs on `glusterfs-nfs` StorageClass:
-   ```bash
-   kubectl get pvc -A -o jsonpath='{range .items[?(@.spec.storageClassName=="glusterfs-nfs")]}{.metadata.namespace}/{.metadata.name}{"\n"}{end}'
-   ```
-2. Delete modules in one PR:
-   - `modules-k8s/nfs-provisioner/`
-   - `modules-k8s/gluster-ganesha-watcher/`
-   - `modules-k8s/minio/`
-3. On each node, stop and disable services:
+**Completed:**
+
+- [x] `module.k8s_minio` deleted from `kubernetes.tf`, `modules-k8s/minio/` removed
+- [x] `module.k8s_nfs_provisioner` deleted, `modules-k8s/nfs-provisioner/` removed
+- [x] `module.k8s_gluster_ganesha_watcher` deleted, `modules-k8s/gluster-ganesha-watcher/` removed
+- [x] `glusterfs-nfs` StorageClass destroyed (via nfs-provisioner module)
+- [x] Orphaned `overseerr-config` PVC deleted (live workload on `overseerr-config-sw`)
+- [x] 26 Released glusterfs-nfs PVs hand-deleted (brick data retained on disk)
+- [x] Legacy secrets deleted: `minio-secrets`, `loki-minio`, `victoriametrics-minio`, `appflowy-secrets`
+- [x] `/etc/modprobe.d/nfs-ganesha-workaround.conf` removed from hestia + heracles (nyx never had it)
+
+**Still outstanding (host-level, do when confident in SeaweedFS):**
+
+1. On each node, stop and disable services:
    ```bash
    sudo systemctl disable --now nfs-ganesha-local
    sudo systemctl disable --now glusterd
    ```
-4. Remove the kernel 6.18 `directory_delegations=N` workaround:
+2. Unmount `/storage` and archive brick data:
    ```bash
-   sudo rm /etc/modprobe.d/nfs-ganesha-workaround.conf
-   ```
-5. Archive GlusterFS brick data (don't delete immediately):
-   ```bash
+   sudo umount /storage
    sudo mv /data/glusterfs /data/glusterfs.archived.$(date +%Y%m%d)
    ```
-6. Wait 2+ weeks with good restic backups. Then delete archive:
-   ```bash
-   sudo rm -rf /data/glusterfs.archived.*
-   ```
-7. Remove Gluster packages.
-8. Update `storage-troubleshooting.md` and `glusterfs-architecture.md` — either
-   archive them into `docs/archived/` or rewrite for SeaweedFS.
+3. Wait 2+ weeks with good restic backups, then delete archive and remove
+   Gluster packages.
+4. Archive/rewrite `storage-troubleshooting.md` and `glusterfs-architecture.md`
+   into `docs/archived/` (or rewrite for SeaweedFS).
 
 ## Per-Service Migration Procedure
 
@@ -512,8 +513,8 @@ Track completion in PR description:
 - [x] Phase 3: All stateless PVCs migrated (2026-04-06)
 - [x] Phase 4: All stateful services migrated (2026-04-06)
 - [x] Phase 5: All MinIO buckets mirrored, consumers cut over to SeaweedFS S3 (2026-04-06)
-- [ ] Phase 6: Gluster/Ganesha/MinIO modules deleted, systemd services disabled
-- [ ] Kernel 6.18 workaround removed
+- [x] Phase 6: Gluster/Ganesha/MinIO TF modules deleted (2026-04-14). Host-level `glusterd`/`nfs-ganesha-local` still running pending confidence window.
+- [x] Kernel 6.18 workaround removed (2026-04-14)
 - [ ] `glusterfs-architecture.md` and `storage-troubleshooting.md` updated or archived
 
 ## References
