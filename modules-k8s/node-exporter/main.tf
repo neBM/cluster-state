@@ -49,7 +49,8 @@ resource "kubernetes_daemonset" "node_exporter" {
             "--path.sysfs=/host/sys",
             "--path.rootfs=/host/root",
             "--web.listen-address=:9100",
-            "--collector.filesystem.ignored-mount-points=^/(dev|proc|sys|var/lib/docker/.+|var/lib/kubelet/pods/.+)($|/)"
+            "--collector.filesystem.ignored-mount-points=^/(dev|proc|sys|storage|var/lib/docker/.+|var/lib/kubelet/(pods|plugins)/.+)($|/)",
+            "--collector.filesystem.ignored-fs-types=^(autofs|binfmt_misc|cgroup2?|configfs|debugfs|devpts|devtmpfs|fusectl|fuse\\..+|hugetlbfs|mqueue|nfs4?|nsfs|overlay|proc|pstore|rpc_pipefs|securityfs|selinuxfs|squashfs|sysfs|tracefs|tmpfs)$"
           ]
 
           port {
