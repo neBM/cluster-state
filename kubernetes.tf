@@ -49,7 +49,7 @@ resource "kubernetes_storage_class" "local_path_retain" {
 module "k8s_seaweedfs" {
   source = "./modules-k8s/seaweedfs"
 
-  namespace              = "default"
+  namespace               = "default"
   master_ingress_hostname = "seaweedfs.brmartin.co.uk"
   filer_ingress_hostname  = "seaweedfs-filer.brmartin.co.uk"
 }
@@ -127,8 +127,8 @@ module "k8s_vaultwarden" {
 module "k8s_overseerr" {
   source = "./modules-k8s/overseerr"
 
-  namespace = "default"
-  hostname  = "overseerr.brmartin.co.uk"
+  namespace         = "default"
+  hostname          = "overseerr.brmartin.co.uk"
   s3_endpoint       = "http://seaweedfs-s3.default.svc.cluster.local:8333"
   litestream_bucket = "overseerr-litestream"
 }
@@ -280,10 +280,10 @@ module "k8s_jayne_martin_counselling" {
 module "k8s_loki" {
   source = "./modules-k8s/loki"
 
-  namespace      = "default"
-  s3_endpoint    = "seaweedfs-s3.default.svc.cluster.local:8333"
-  s3_bucket      = "loki"
-  s3_secret_name = "loki-s3"
+  namespace        = "default"
+  s3_endpoint      = "seaweedfs-s3.default.svc.cluster.local:8333"
+  s3_bucket        = "loki"
+  s3_secret_name   = "loki-s3"
   retention_period = "720h"
 }
 
@@ -418,15 +418,13 @@ module "k8s_rpi_throttle_monitor" {
   namespace = "default"
 }
 
-# Raspberry Pi 5 macb driver TSO/SG offload disable (LP#2133877 mitigation).
-# On Heracles and Nyx the Cadence GEM TX descriptor ring silently wedges
-# across the RP1 PCIe link when TSO is used with scatter-gather, causing
-# intermittent network loss with no kernel-level errors. Disables both
-# offloads via ethtool on startup and re-applies if drift is detected.
-# Remove this module when the upstream macb fix lands and nodes upgrade
-# past the affected 6.17.0-1004/1006-raspi kernel series.
-module "k8s_pi5_macb_offload_fix" {
-  source    = "./modules-k8s/pi5-macb-offload-fix"
-  namespace = "default"
-}
+# Pi 5 macb/LP#2133877 recovery is configured directly on Heracles and Nyx
+# via host-level systemd — the `watchdog` package (configured in
+# /etc/watchdog.conf to monitor eth0 byte counters + peer reachability, using
+# the bcm2835_wdt hardware watchdog at /dev/watchdog0) and a one-shot
+# systemd service that persists `ethtool -K eth0 tso off sg off`. Host-level
+# is the right layer for NIC recovery because a wedged NIC can leave a
+# DaemonSet pod unable to signal anything, and because hardware watchdog
+# single-holder semantics don't map cleanly onto pod restarts. Terraform
+# modules removed 2026-04-14.
 
