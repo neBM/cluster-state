@@ -177,8 +177,9 @@ resource "kubernetes_deployment" "iris" {
         }
 
         container {
-          name  = "iris"
-          image = var.image
+          name              = "iris"
+          image             = var.image
+          image_pull_policy = "Always"
 
           port {
             name           = "http"
