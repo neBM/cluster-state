@@ -109,6 +109,7 @@ resource "kubernetes_config_map" "synapse_config" {
       media_retention:
         local_media_lifetime: 1y
         remote_media_lifetime: 1y
+      dynamic_thumbnails: true
       rc_message:
         per_second: 1
         burst_count: 50
