@@ -1553,4 +1553,99 @@ Rule of thumb: any "bail on fetch error" check in a helper that wraps an HTTP fe
 ### Follow-ups that remain open
 
 - **Task 20 metrics** still not executable — `weed mount` still spawned without `-metricsPort`, so `SeaweedFS_filer_vidmap_relookups_total` isn't scrapable. Nice-to-have, not blocking.
-- **Upstream PR** — the fork branch `fix/vidmap-stale-relookup` on `neBM/seaweedfs` now carries 12 commits (helper + refactors + dial-timeout + helper ctx-check fix). PR against `seaweedfs/seaweedfs` not yet filed pending user review. When it lands, see `memory/project_seaweedfs_fork_pin_and_upstream_cleanup.md` for the exact revert checklist (4 pin locations).
+- **Upstream PR** — the fork branch `fix/vidmap-stale-relookup` on `neBM/seaweedfs` now carries 12 commits (helper + refactors + dial-timeout + helper ctx-check fix). PR against `seaweedfs/seaweedfs` not yet filed pending user review. When it lands, see `memory/project_seaweedfs_fork_pin_and_upstream_cleanup.md` for the exact revert checklist (now 5 pin locations — see 2026-04-16 entry).
+
+---
+
+## 2026-04-16 server-side rollout (the missing step)
+
+The v0.1.11 verification on 2026-04-11 only covered the **client** side — CSI
+driver, mount DS, consumer-recycler. The fork-built `weed` binary was shipped
+via the CSI driver Dockerfiles, but the **server** pods (`seaweedfs-master`,
+`seaweedfs-filer`, `seaweedfs-volume`, `seaweedfs-s3`) still pulled upstream
+`chrislusf/seaweedfs:4.18` from Docker Hub. That image does not carry
+`ReadChunkWithReLookup` — verified by `strings /usr/bin/weed | grep ReadChunk`
+returning nothing on the live s3 pod.
+
+Today's symptom: `loki-0` stuck in CrashLoopBackOff after its fresh PVC
+migration. Compactor init failed with `init delete store: unexpected EOF`
+because the `seaweedfs-s3` pod's embedded filer had a cached vidMap pointing
+at dead volume-server IPs (`10.42.0.33`, `10.42.2.100`) from pre-restart pods.
+Live volume pods were at `10.42.2.27` (heracles) and `10.42.0.225` (nyx).
+S3 fetch logs were full of `context canceled` errors reading the stale IPs.
+
+**Fix:** rebuild the upstream server image from the neBM fork at
+`d4cb0322979c80e9ba4fe614db118f5bb70aaee1` (same pin as the CSI Dockerfiles)
+and sideload it under a unique tag so k3s picks it up locally without trying
+to pull from Docker Hub.
+
+### What shipped
+
+- **`drivers/seaweedfs-server/Dockerfile`** — new build, mirrors the existing
+  `drivers/seaweedfs-csi-driver/cmd/seaweedfs-mount/Dockerfile` pattern:
+  `ARG SEAWEEDFS_COMMIT` + `ARG SEAWEEDFS_REPO`, clone + checkout, `go install`
+  the weed binary, final stage pulls `docker/entrypoint.sh` + `docker/filer.toml`
+  out of the fork clone. Matches upstream `docker/Dockerfile.go_build`'s final
+  stage (alpine 3.23, seaweed user uid/gid 1000, same EXPOSE list, same
+  `VOLUME /data`, same entrypoint).
+- **`drivers/seaweedfs-server/Makefile`** — `make tars` for amd64+arm64 via
+  `docker buildx --output type=docker,dest=...`; `make sideload` scps to
+  `hestia.lan` (amd64) + `heracles.lan` / `nyx.lan` (arm64) and runs
+  `sudo k3s ctr -n k8s.io images import`; `make verify` lists the imported
+  tag on each node.
+- **Tag**: `chrislusf/seaweedfs:4.18-nebm-d4cb0322`. Unique enough that k3s's
+  default `IfNotPresent` policy never hits Docker Hub.
+- **`modules-k8s/seaweedfs/variables.tf`** — `seaweedfs_image_tag` default
+  flipped from `4.18` to `4.18-nebm-d4cb0322`; description updated pointing
+  at the fork pin memory. `renovate: datasource=` marker replaced with an
+  explicit ignore.
+
+### `strings` verification (before rollout, per `feedback_fork_fix_ships_via_dockerfile_not_gomod.md`)
+
+Both arch images contain the helper + counter symbols:
+
+```
+$ docker run --rm chrislusf/seaweedfs:4.18-nebm-d4cb0322 \
+    sh -c 'strings /usr/bin/weed | grep -E "ReadChunkWithReLookup|vidmap_relookups_total"'
+vidmap_relookups_total
+github.com/seaweedfs/seaweedfs/weed/filer.ReadChunkWithReLookup
+github.com/seaweedfs/seaweedfs/weed/filer.ReadChunkWithReLookup
+```
+
+(Same output for the arm64 image pulled under a separate local tag for the
+check.)
+
+### Rollout sequence (lowest-blast-radius first)
+
+1. **`terraform apply -target=module.k8s_seaweedfs.kubernetes_deployment.s3`**
+   → s3 pod rolls (RollingUpdate) to the fork image. New s3 pod boots with a
+   fresh vidMap, logs show `Start Seaweed S3 API Server 30GB 4.18 d4cb03229`
+   — confirming the fork commit is baked in. `loki-0` was then kicked
+   (`kubectl delete pod loki-0`, still on old CrashLoopBackOff backoff delay)
+   and reached **Ready in 31 s** — well inside the 2-minute target.
+2. **volume DS** (`kubernetes_daemon_set_v1.volume`) — RollingUpdate, both
+   nodes replaced within ~80 s.
+3. **filer StatefulSet** — single replica, rolled cleanly.
+4. **master StatefulSet** — 3 replicas, rolled one-at-a-time (RollingUpdate)
+   with Raft quorum preserved.
+
+Final check: all 4 server components on `chrislusf/seaweedfs:4.18-nebm-d4cb0322`,
+loki-0 still `1/1 Running`.
+
+### Why this lands a fifth pin location
+
+`memory/project_seaweedfs_fork_pin_and_upstream_cleanup.md` listed four
+pin locations for the fork. With this change there are now **five**:
+
+1. `drivers/seaweedfs-csi-driver/cmd/seaweedfs-mount/Dockerfile`
+2. `drivers/seaweedfs-csi-driver/cmd/seaweedfs-mount/Dockerfile.dev`
+3. `drivers/seaweedfs-csi-driver/cmd/seaweedfs-csi-driver/Dockerfile.dev`
+4. `drivers/seaweedfs-csi-driver/go.mod` (replace directive)
+5. **`drivers/seaweedfs-server/Dockerfile`** ← NEW
+
+Upstream-merge cleanup also needs to: delete `drivers/seaweedfs-server/` entirely
+(reverting to Docker Hub's `chrislusf/seaweedfs:<tag>` once the merged tag
+carries the fix), and flip `modules-k8s/seaweedfs/variables.tf`
+`seaweedfs_image_tag` back to an upstream tag with the `renovate:` marker
+restored. The `drivers/seaweedfs-server/` directory is self-contained — no
+other build produces that image.
