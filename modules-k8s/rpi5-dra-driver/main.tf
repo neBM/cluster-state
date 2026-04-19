@@ -21,6 +21,11 @@ resource "kubernetes_cluster_role" "driver" {
     resources  = ["resourceslices"]
     verbs      = ["get", "list", "watch", "create", "update", "patch", "delete"]
   }
+  rule {
+    api_groups = ["resource.k8s.io"]
+    resources  = ["resourceclaims"]
+    verbs      = ["get", "list", "watch"]
+  }
 }
 
 resource "kubernetes_cluster_role_binding" "driver" {
