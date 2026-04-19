@@ -90,8 +90,24 @@ resource "kubernetes_config_map" "loki_config" {
   }
 }
 
-# Deployment: Loki monolithic
-resource "kubernetes_deployment" "loki" {
+# StatefulSet: Loki monolithic with durable local PVC for WAL/index state.
+#
+# Why StatefulSet (not Deployment):
+#   - volumeClaimTemplate ties the PVC lifecycle to the pod identity, so a
+#     pod restart reuses the same PV — WAL and local index cache survive,
+#     avoiding the corrupt-WAL-on-every-restart loop that the old emptyDir
+#     setup produced.
+#   - Stable pod name (loki-0) is what Grafana's reference charts use for
+#     monolithic and SSD-mode Loki.
+#
+# Why local-path (not SeaweedFS CSI):
+#   - Loki's WAL is fsync-heavy on every ingest batch. FUSE round-trips to a
+#     filer + volume server add milliseconds per fsync, which under sustained
+#     ingest stalls the ingester loop and reintroduces liveness timeouts.
+#   - Loki's own docs explicitly recommend local SSD for the WAL path.
+#   - Chunks still land in SeaweedFS S3 (storage_config.aws) — this PVC is
+#     just the hot working set.
+resource "kubernetes_stateful_set" "loki" {
   metadata {
     name      = local.app_name
     namespace = local.namespace
@@ -99,16 +115,38 @@ resource "kubernetes_deployment" "loki" {
   }
 
   spec {
-    replicas = 1
-
-    strategy {
-      type = "Recreate"
-    }
+    replicas     = 1
+    service_name = kubernetes_service.loki.metadata[0].name
 
     selector {
       match_labels = {
         "app.kubernetes.io/name"     = local.app_name
         "app.kubernetes.io/instance" = local.app_name
+      }
+    }
+
+    # Single-writer storage: never run two pods against the same PV.
+    update_strategy {
+      type = "RollingUpdate"
+    }
+
+    # volumeClaimTemplate creates PVC "data-loki-0" on first schedule.
+    # StorageClass is late-binding (WaitForFirstConsumer) so the PV directory
+    # is created on whichever node the pod lands on — node_selector pins that
+    # to hestia so subsequent restarts find the same data.
+    volume_claim_template {
+      metadata {
+        name   = "data"
+        labels = local.labels
+      }
+      spec {
+        access_modes       = ["ReadWriteOnce"]
+        storage_class_name = var.storage_class_name
+        resources {
+          requests = {
+            storage = var.storage_size
+          }
+        }
       }
     }
 
@@ -118,6 +156,12 @@ resource "kubernetes_deployment" "loki" {
       }
 
       spec {
+        # Allow generous WAL flush on shutdown. flush_on_shutdown=true in the
+        # ingester config means a graceful SIGTERM triggers a full chunk flush
+        # to S3 before exit — bounded by this grace period. Exceeding this
+        # turns SIGTERM into SIGKILL mid-flush and corrupts the WAL.
+        termination_grace_period_seconds = 300
+
         container {
           name  = local.app_name
           image = "grafana/loki:${var.image_tag}"
@@ -167,15 +211,18 @@ resource "kubernetes_deployment" "loki" {
             }
           }
 
-          readiness_probe {
+          # Startup probe gives slow-boot phases (WAL replay + ring join)
+          # up to 10 minutes before kubelet escalates. Liveness only starts
+          # firing after this succeeds, so steady-state liveness can stay
+          # tight without premature kills during recovery.
+          startup_probe {
             http_get {
               path = "/ready"
               port = "http"
             }
-            initial_delay_seconds = 30
-            period_seconds        = 10
-            timeout_seconds       = 5
-            failure_threshold     = 3
+            period_seconds    = 10
+            timeout_seconds   = 5
+            failure_threshold = 60
           }
 
           liveness_probe {
@@ -183,10 +230,19 @@ resource "kubernetes_deployment" "loki" {
               path = "/ready"
               port = "http"
             }
-            initial_delay_seconds = 60
-            period_seconds        = 30
-            timeout_seconds       = 10
-            failure_threshold     = 3
+            period_seconds    = 30
+            timeout_seconds   = 10
+            failure_threshold = 3
+          }
+
+          readiness_probe {
+            http_get {
+              path = "/ready"
+              port = "http"
+            }
+            period_seconds    = 10
+            timeout_seconds   = 5
+            failure_threshold = 3
           }
 
           volume_mount {
@@ -209,16 +265,18 @@ resource "kubernetes_deployment" "loki" {
           }
         }
 
-        volume {
-          name = "data"
-          empty_dir {}
-        }
+        # Pin to a specific node so the local-path provisioner creates the PV
+        # directory deterministically. Required because local PVs are node-bound
+        # — moving the pod after first bind would orphan the data.
+        node_selector = var.node_selector
       }
     }
   }
 }
 
-# Service: Loki ClusterIP
+# Service: Loki ClusterIP (also acts as the governing service for the
+# StatefulSet; single-replica doesn't need per-pod DNS so a regular ClusterIP
+# suffices instead of a headless service).
 resource "kubernetes_service" "loki" {
   metadata {
     name      = local.app_name
