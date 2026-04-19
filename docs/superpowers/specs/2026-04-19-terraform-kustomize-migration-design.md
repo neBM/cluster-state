@@ -40,6 +40,16 @@ No base/overlays split — single cluster, no environment separation needed. Eac
 
 Cutover happens in one pipeline run via Option A (export from live cluster).
 
+### 0. Build new ACT_IMAGE first (long lead time)
+
+The ACT image (`/home/ben/Documents/Personal/projects/libraries/act`) is a large multi-arch build (Ubuntu + Android SDK + Java + Go etc.) that takes significant time. Start this before any other migration work.
+
+Changes to `libraries/act/Dockerfile`:
+- Remove: HashiCorp apt repo + `terraform` package
+- Add: `kubectl` (from Kubernetes apt repo) and `kustomize` (binary install from GitHub releases, pinned version via renovate)
+
+Merge and let the `libraries/act` pipeline build and push the new image tag before proceeding. The cluster-state pipeline stays on the current image until cutover.
+
 ### 1. Export script (`scripts/export-to-kustomize.sh`)
 
 For each workload directory, `kubectl get` the following resource types with `-o yaml`:
@@ -103,7 +113,7 @@ The `before_script` kubeconfig setup is unchanged (same ServiceAccount token, sa
 | `k8s/` | New directory — all workload manifests |
 | `scripts/export-to-kustomize.sh` | New — export + strip script |
 | `.gitlab-ci.yml` | Replace 3-stage TF pipeline with validate + apply |
-| `Dockerfile` (ACT_IMAGE) | Swap terraform/tflint for kustomize |
+| `libraries/act/Dockerfile` | Swap terraform for kubectl + kustomize (built first, long lead time) |
 | `renovate.json` | Update managers |
 | `modules-k8s/` | Deleted |
 | `*.tf` (root) | Deleted |
