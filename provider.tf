@@ -17,7 +17,7 @@ terraform {
 
 provider "helm" {
   kubernetes {
-    config_path    = "~/.kube/k3s-config"
+    config_path    = pathexpand(var.k8s_config_path)
     config_context = "default"
   }
 }
