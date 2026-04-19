@@ -75,6 +75,23 @@ shutdown_timeout = 0
 
     HELPER_IMAGE_LINE_PLACEHOLDER
 
+  # Label every CI job pod so the anti-affinity rule below can find them.
+  [runners.kubernetes.pod_labels]
+    "ci.brmartin.co.uk/job" = "true"
+
+  # Soft anti-affinity: prefer scheduling each job pod on a node that doesn't
+  # already have another CI job pod. Spreads concurrent arm64 jobs across
+  # Heracles and Nyx instead of packing onto one. "preferred" (not required)
+  # so a single surviving node can still take both jobs if the other is down.
+  [runners.kubernetes.affinity]
+    [runners.kubernetes.affinity.pod_anti_affinity]
+      [[runners.kubernetes.affinity.pod_anti_affinity.preferred_during_scheduling_ignored_during_execution]]
+        weight = 100
+        [runners.kubernetes.affinity.pod_anti_affinity.preferred_during_scheduling_ignored_during_execution.pod_affinity_term]
+          topology_key = "kubernetes.io/hostname"
+          [runners.kubernetes.affinity.pod_anti_affinity.preferred_during_scheduling_ignored_during_execution.pod_affinity_term.label_selector]
+            match_labels = { "ci.brmartin.co.uk/job" = "true" }
+
   # Kubedock: minimal Docker API that orchestrates containers as K8s pods.
   # Injected into every job pod so testcontainers "just works" without any
   # per-project CI config. DOCKER_HOST env var above points to this service.
