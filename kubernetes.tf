@@ -183,7 +183,7 @@ module "k8s_nextcloud" {
 }
 
 # Matrix - Federated communication platform
-# Components: synapse, mas, whatsapp-bridge, nginx (well-known), element, cinny
+# Components: synapse, mas, whatsapp-bridge, nginx (well-known), element, cinny, element-admin
 # Uses external PostgreSQL on martinibar.lan, GlusterFS for data/media/config
 module "k8s_matrix" {
   source = "./modules-k8s/matrix"

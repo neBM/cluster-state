@@ -7,6 +7,7 @@
 # - nginx: Well-known endpoints (port 8080)
 # - element: Element web client (port 80)
 # - cinny: Cinny web client (port 80)
+# - element-admin: Synapse admin UI (port 8080)
 #
 # External PostgreSQL on 192.168.1.10:5433
 
@@ -34,6 +35,10 @@ locals {
   cinny_labels = {
     app       = "matrix"
     component = "cinny"
+  }
+  element_admin_labels = {
+    app       = "matrix"
+    component = "element-admin"
   }
 
   # Elastic Agent log routing annotations
@@ -212,6 +217,7 @@ resource "kubernetes_config_map" "mas_config" {
           - name: graphql
             playground: true
           - name: assets
+          - name: adminapi
           binds:
           - host: 0.0.0.0
             port: 8081
@@ -1423,6 +1429,9 @@ resource "kubectl_manifest" "mas_ingressroute" {
           match    = "Host(`${var.mas_hostname}`) || (Host(`${var.synapse_hostname}`) && PathRegexp(`^/_matrix/client/(.*)/(login|logout|refresh)`))"
           kind     = "Rule"
           priority = 100 # Higher priority than synapse route
+          middlewares = [
+            { name = "mas-cors", namespace = var.namespace }
+          ]
           services = [
             {
               name = kubernetes_service.mas.metadata[0].name
@@ -1433,6 +1442,24 @@ resource "kubectl_manifest" "mas_ingressroute" {
       ]
       tls = {
         secretName = "wildcard-brmartin-tls"
+      }
+    }
+  })
+}
+
+resource "kubectl_manifest" "mas_cors" {
+  yaml_body = yamlencode({
+    apiVersion = "traefik.io/v1alpha1"
+    kind       = "Middleware"
+    metadata = {
+      name      = "mas-cors"
+      namespace = var.namespace
+    }
+    spec = {
+      headers = {
+        accessControlAllowMethods    = ["GET", "POST", "PUT", "DELETE", "OPTIONS"]
+        accessControlAllowHeaders    = ["Origin", "X-Requested-With", "Content-Type", "Accept", "Authorization"]
+        accessControlAllowOriginList = ["https://${var.element_admin_hostname}"]
       }
     }
   })
@@ -1584,6 +1611,123 @@ resource "kubectl_manifest" "wellknown_cors" {
     spec = {
       headers = {
         accessControlAllowOriginList = ["*"]
+      }
+    }
+  })
+}
+
+# =============================================================================
+# Element Admin Deployment
+# =============================================================================
+
+resource "kubernetes_deployment" "element_admin" {
+  metadata {
+    name      = "element-admin"
+    namespace = var.namespace
+    labels    = local.element_admin_labels
+  }
+
+  spec {
+    replicas = 1
+
+    selector {
+      match_labels = local.element_admin_labels
+    }
+
+    template {
+      metadata {
+        labels      = local.element_admin_labels
+        annotations = local.elastic_log_annotations
+      }
+
+      spec {
+        container {
+          name  = "element-admin"
+          image = "${var.element_admin_image}:${var.element_admin_tag}"
+
+          port {
+            container_port = 8080
+          }
+
+          env {
+            name  = "SERVER_NAME"
+            value = var.server_name
+          }
+
+          resources {
+            requests = {
+              cpu    = "50m"
+              memory = "32Mi"
+            }
+            limits = {
+              memory = "64Mi"
+            }
+          }
+
+          liveness_probe {
+            tcp_socket {
+              port = 8080
+            }
+            initial_delay_seconds = 10
+            period_seconds        = 30
+            timeout_seconds       = 5
+          }
+
+          readiness_probe {
+            tcp_socket {
+              port = 8080
+            }
+            initial_delay_seconds = 5
+            period_seconds        = 10
+            timeout_seconds       = 5
+          }
+        }
+      }
+    }
+  }
+}
+
+resource "kubernetes_service" "element_admin" {
+  metadata {
+    name      = "element-admin"
+    namespace = var.namespace
+    labels    = local.element_admin_labels
+  }
+
+  spec {
+    selector = local.element_admin_labels
+    port {
+      port        = 8080
+      target_port = 8080
+    }
+  }
+}
+
+resource "kubectl_manifest" "element_admin_ingressroute" {
+  yaml_body = yamlencode({
+    apiVersion = "traefik.io/v1alpha1"
+    kind       = "IngressRoute"
+    metadata = {
+      name      = "element-admin"
+      namespace = var.namespace
+      labels    = { app = "matrix", component = "element-admin" }
+    }
+    spec = {
+      entryPoints = ["websecure"]
+      routes = [
+        {
+          match = "Host(`${var.element_admin_hostname}`)"
+          kind  = "Rule"
+          services = [
+            {
+              name = kubernetes_service.element_admin.metadata[0].name
+              port = 8080
+            }
+          ]
+        }
+      ]
+      tls = {
+        secretName = "wildcard-brmartin-tls"
       }
     }
   })

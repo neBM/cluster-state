@@ -29,6 +29,12 @@ variable "cinny_hostname" {
   default     = "cinny.brmartin.co.uk"
 }
 
+variable "element_admin_hostname" {
+  description = "Hostname for Element Admin UI"
+  type        = string
+  default     = "matrix-admin.brmartin.co.uk"
+}
+
 variable "well_known_hostname" {
   description = "Hostname for well-known endpoints (main domain)"
   type        = string
@@ -102,6 +108,18 @@ variable "cinny_tag" {
   type        = string
   # renovate: datasource=docker depName=ghcr.io/cinnyapp/cinny
   default = "v4.10.3"
+}
+
+variable "element_admin_image" {
+  description = "Element Admin Docker image name"
+  type        = string
+  default     = "oci.element.io/element-admin"
+}
+
+variable "element_admin_tag" {
+  description = "Element Admin Docker image tag"
+  type        = string
+  default = "latest"
 }
 
 variable "nginx_image" {
