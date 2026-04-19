@@ -83,8 +83,15 @@ resource "kubernetes_cluster_role" "ci" {
   # Storage
   rule {
     api_groups = ["storage.k8s.io"]
-    resources  = ["storageclasses"]
+    resources  = ["storageclasses", "csidrivers", "csinodes", "csistoragecapacities"]
     verbs      = ["get", "list", "watch", "create", "update", "patch", "delete"]
+  }
+
+  # Nodes (read-only — label/taint inspection by terraform resource providers)
+  rule {
+    api_groups = [""]
+    resources  = ["nodes"]
+    verbs      = ["get", "list", "watch"]
   }
 
   # RBAC (for creating service accounts and roles within namespaces)
