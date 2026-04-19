@@ -1,2 +1,3 @@
 _output/
-rpi5-dra-driver
+dist/
+/rpi5-dra-driver

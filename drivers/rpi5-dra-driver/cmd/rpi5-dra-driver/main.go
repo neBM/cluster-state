@@ -48,6 +48,11 @@ func main() {
 	klog.Infof("Pi5 devices: H264=%v HEVC=%v RenderNode=%v",
 		devices.HasH264, devices.HasHEVC, devices.HasRenderNode)
 
+	pluginDir := kubeletplugin.KubeletPluginsDir + "/" + driver.DriverName
+	if err := os.MkdirAll(pluginDir, 0750); err != nil {
+		klog.Fatalf("create plugin dir: %v", err)
+	}
+
 	plugin := driver.NewPlugin(devices)
 	dp, err := kubeletplugin.Start(ctx, plugin,
 		kubeletplugin.DriverName(driver.DriverName),
