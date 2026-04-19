@@ -80,7 +80,9 @@ Injects into the container:
 
 No environment variables injected — Iris auto-detects device presence.
 
-**DaemonSet:** Runs on all nodes. RBAC grants `ResourceSlice` create/update/delete for `rpi5.brmartin.co.uk`. Image built and pushed to `registry.brmartin.co.uk/ben/rpi5-dra-driver:<sha>` via GitLab CI.
+**DaemonSet:** Runs on all nodes. RBAC grants `ResourceSlice` create/update/delete for `rpi5.brmartin.co.uk`. Image built and pushed to `registry.brmartin.co.uk/ben/cluster-state/rpi5-dra-driver:<sha>` via GitLab CI.
+
+Note: SeaweedFS drivers are intentionally excluded from CI automation — the GitLab registry is backed by SeaweedFS itself (chicken-and-egg). The rpi5-dra-driver has no such dependency.
 
 ### 2. `modules-k8s/nvidia-dra-driver/` — NVIDIA DRA Driver Terraform Module
 
@@ -140,3 +142,4 @@ Iris migration is last: it has no current GPU dependency, so it can wait until e
 | `modules-k8s/ollama/main.tf` | Migrate GPU resource to DRA |
 | `modules-k8s/media-centre/main.tf` | Migrate GPU resource to DRA |
 | `kubernetes.tf` | Add device-classes + nvidia-dra-driver module calls |
+| `.gitlab-ci.yml` | Add `build` stage — Docker build + push for rpi5-dra-driver |
