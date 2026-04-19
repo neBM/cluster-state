@@ -7,118 +7,100 @@ locals {
   }
 }
 
-# Deployment with GPU support
-resource "kubernetes_deployment" "ollama" {
-  metadata {
-    name      = local.app_name
-    namespace = var.namespace
-    labels    = local.labels
-  }
-
-  spec {
-    replicas = 1
-
-    # GPU resources can't be shared - must terminate old pod before starting new
-    strategy {
-      type = "Recreate"
-    }
-
-    selector {
-      match_labels = {
-        app = local.app_name
-      }
-    }
-
-    template {
-      metadata {
-        labels = local.labels
-      }
-
-      spec {
-        # Use nvidia runtime class for GPU support
-        runtime_class_name = "nvidia"
-
-        container {
-          name  = "ollama"
-          image = "ollama/ollama:${var.image_tag}"
-
-          port {
-            container_port = 11434
-            name           = "api"
-          }
-
-          env {
-            name  = "NVIDIA_DRIVER_CAPABILITIES"
-            value = "all"
-          }
-
-          env {
-            name  = "NVIDIA_VISIBLE_DEVICES"
-            value = "all"
-          }
-
-          volume_mount {
-            name       = "data"
-            mount_path = "/root/.ollama"
-          }
-
-          resources {
-            requests = {
-              cpu              = "100m"
-              memory           = "200Mi"
-              "nvidia.com/gpu" = "1"
+resource "kubectl_manifest" "ollama_gpu_claim_template" {
+  yaml_body = yamlencode({
+    apiVersion = "resource.k8s.io/v1"
+    kind       = "ResourceClaimTemplate"
+    metadata   = { name = "ollama-gpu", namespace = var.namespace }
+    spec = {
+      spec = {
+        devices = {
+          requests = [{
+            name    = "gpu"
+            exactly = { deviceClassName = "nvidia-gpu" }
+          }]
+          config = [{
+            requests = ["gpu"]
+            opaque = {
+              driver = "gpu.nvidia.com"
+              parameters = {
+                apiVersion = "resource.nvidia.com/v1beta1"
+                kind       = "GpuConfig"
+                sharing = {
+                  strategy = "TimeSlicing"
+                  timeSlicingConfig = { interval = "Default" }
+                }
+              }
             }
-            limits = {
-              cpu              = "4"
-              memory           = "8Gi"
-              "nvidia.com/gpu" = "1"
-            }
-          }
-
-          liveness_probe {
-            http_get {
-              path = "/"
-              port = 11434
-            }
-            initial_delay_seconds = 30
-            period_seconds        = 30
-            timeout_seconds       = 5
-          }
-
-          readiness_probe {
-            http_get {
-              path = "/"
-              port = 11434
-            }
-            initial_delay_seconds = 10
-            period_seconds        = 10
-            timeout_seconds       = 5
-          }
-        }
-
-        # Use emptyDir for models - they're downloaded on demand
-        # Can switch to hostPath for persistence if needed
-        volume {
-          name = "data"
-          empty_dir {
-            size_limit = "20Gi"
-          }
-        }
-
-        # Must run on Hestia (GPU node)
-        node_selector = {
-          "kubernetes.io/hostname" = "hestia"
-        }
-
-        # Tolerate GPU taint if present
-        toleration {
-          key      = "nvidia.com/gpu"
-          operator = "Exists"
-          effect   = "NoSchedule"
+          }]
         }
       }
     }
-  }
+  })
+}
+
+resource "kubectl_manifest" "ollama" {
+  yaml_body = yamlencode({
+    apiVersion = "apps/v1"
+    kind       = "Deployment"
+    metadata = {
+      name      = local.app_name
+      namespace = var.namespace
+      labels    = local.labels
+    }
+    spec = {
+      replicas = 1
+      strategy = { type = "Recreate" }
+      selector = { matchLabels = { app = local.app_name } }
+      template = {
+        metadata = { labels = local.labels }
+        spec = {
+          resourceClaims = [{
+            name = "gpu"
+            resourceClaimTemplateName = "ollama-gpu"
+          }]
+          containers = [{
+            name  = "ollama"
+            image = "ollama/ollama:${var.image_tag}"
+            ports = [{ containerPort = 11434, name = "api" }]
+            resources = {
+              requests = {
+                cpu    = "100m"
+                memory = "200Mi"
+              }
+              limits = {
+                cpu    = "4"
+                memory = "8Gi"
+              }
+              claims = [{ name = "gpu" }]
+            }
+            volumeMounts = [{
+              name      = "data"
+              mountPath = "/root/.ollama"
+            }]
+            livenessProbe = {
+              httpGet             = { path = "/", port = 11434 }
+              initialDelaySeconds = 30
+              periodSeconds       = 30
+              timeoutSeconds      = 5
+            }
+            readinessProbe = {
+              httpGet             = { path = "/", port = 11434 }
+              initialDelaySeconds = 10
+              periodSeconds       = 10
+              timeoutSeconds      = 5
+            }
+          }]
+          volumes = [{
+            name     = "data"
+            emptyDir = { sizeLimit = "20Gi" }
+          }]
+        }
+      }
+    }
+  })
+
+  depends_on = [kubectl_manifest.ollama_gpu_claim_template]
 }
 
 resource "kubernetes_service" "ollama" {
