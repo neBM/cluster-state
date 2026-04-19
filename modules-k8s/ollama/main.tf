@@ -7,38 +7,6 @@ locals {
   }
 }
 
-resource "kubectl_manifest" "ollama_gpu_claim_template" {
-  yaml_body = yamlencode({
-    apiVersion = "resource.k8s.io/v1"
-    kind       = "ResourceClaimTemplate"
-    metadata   = { name = "ollama-gpu", namespace = var.namespace }
-    spec = {
-      spec = {
-        devices = {
-          requests = [{
-            name    = "gpu"
-            exactly = { deviceClassName = "nvidia-gpu" }
-          }]
-          config = [{
-            requests = ["gpu"]
-            opaque = {
-              driver = "gpu.nvidia.com"
-              parameters = {
-                apiVersion = "resource.nvidia.com/v1beta1"
-                kind       = "GpuConfig"
-                sharing = {
-                  strategy = "TimeSlicing"
-                  timeSlicingConfig = { interval = "Default" }
-                }
-              }
-            }
-          }]
-        }
-      }
-    }
-  })
-}
-
 resource "kubectl_manifest" "ollama" {
   yaml_body = yamlencode({
     apiVersion = "apps/v1"
@@ -56,8 +24,8 @@ resource "kubectl_manifest" "ollama" {
         metadata = { labels = local.labels }
         spec = {
           resourceClaims = [{
-            name = "gpu"
-            resourceClaimTemplateName = "ollama-gpu"
+            name              = "gpu"
+            resourceClaimName = "hestia-gpu"
           }]
           containers = [{
             name  = "ollama"
@@ -100,7 +68,7 @@ resource "kubectl_manifest" "ollama" {
     }
   })
 
-  depends_on = [kubectl_manifest.ollama_gpu_claim_template]
+  depends_on = []
 }
 
 resource "kubernetes_service" "ollama" {

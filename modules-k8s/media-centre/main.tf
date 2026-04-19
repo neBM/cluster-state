@@ -168,32 +168,6 @@ resource "kubernetes_persistent_volume_claim" "synology_share" {
 # Plex Media Server
 # =============================================================================
 
-resource "kubectl_manifest" "plex_gpu_claim_template" {
-  yaml_body = yamlencode({
-    apiVersion = "resource.k8s.io/v1"
-    kind       = "ResourceClaimTemplate"
-    metadata   = { name = "plex-gpu", namespace = var.namespace }
-    spec = {
-      spec = {
-        devices = {
-          requests = [{ name = "gpu", exactly = { deviceClassName = "nvidia-gpu" } }]
-          config = [{
-            requests = ["gpu"]
-            opaque = {
-              driver = "gpu.nvidia.com"
-              parameters = {
-                apiVersion = "resource.nvidia.com/v1beta1"
-                kind       = "GpuConfig"
-                sharing    = { strategy = "TimeSlicing", timeSlicingConfig = { interval = "Default" } }
-              }
-            }
-          }]
-        }
-      }
-    }
-  })
-}
-
 resource "kubectl_manifest" "plex" {
   yaml_body = yamlencode({
     apiVersion = "apps/v1"
@@ -220,8 +194,8 @@ resource "kubectl_manifest" "plex" {
           }
 
           resourceClaims = [{
-            name                      = "gpu"
-            resourceClaimTemplateName = "plex-gpu"
+            name              = "gpu"
+            resourceClaimName = "hestia-gpu"
           }]
 
           # Init container to restore databases from MinIO snapshots
@@ -418,7 +392,6 @@ resource "kubectl_manifest" "plex" {
   })
 
   depends_on = [
-    kubectl_manifest.plex_gpu_claim_template,
     kubernetes_persistent_volume_claim.plex_config,
     kubernetes_persistent_volume_claim.plex_data,
   ]
