@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	resourcev1beta1 "k8s.io/api/resource/v1beta1"
+	resourcev1 "k8s.io/api/resource/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
@@ -24,41 +24,39 @@ func Publish(ctx context.Context, client kubernetes.Interface, nodeName string, 
 	sliceName := fmt.Sprintf("rpi5-%s", nodeName)
 
 	if !found {
-		err := client.ResourceV1beta1().ResourceSlices().Delete(ctx, sliceName, metav1.DeleteOptions{})
+		err := client.ResourceV1().ResourceSlices().Delete(ctx, sliceName, metav1.DeleteOptions{})
 		if err != nil && !errors.IsNotFound(err) {
 			return fmt.Errorf("delete ResourceSlice: %w", err)
 		}
 		return nil
 	}
 
-	slice := &resourcev1beta1.ResourceSlice{
+	slice := &resourcev1.ResourceSlice{
 		ObjectMeta: metav1.ObjectMeta{Name: sliceName},
-		Spec: resourcev1beta1.ResourceSliceSpec{
+		Spec: resourcev1.ResourceSliceSpec{
 			Driver:   DriverName,
-			NodeName: nodeName,
-			Pool: resourcev1beta1.ResourcePool{
+			NodeName: ptr(nodeName),
+			Pool: resourcev1.ResourcePool{
 				Name:               nodeName,
 				Generation:         0,
 				ResourceSliceCount: 1,
 			},
-			Devices: []resourcev1beta1.Device{
+			Devices: []resourcev1.Device{
 				{
 					Name: DeviceName,
-					Basic: &resourcev1beta1.BasicDevice{
-						Attributes: map[resourcev1beta1.QualifiedName]resourcev1beta1.DeviceAttribute{
-							"vendor":     {StringValue: ptr("raspberrypi")},
-							"codec.h264": {BoolValue: ptr(devices.HasH264)},
-							"codec.hevc": {BoolValue: ptr(devices.HasHEVC)},
-						},
+					Attributes: map[resourcev1.QualifiedName]resourcev1.DeviceAttribute{
+						"vendor":     {StringValue: ptr("raspberrypi")},
+						"codec.h264": {BoolValue: ptr(devices.HasH264)},
+						"codec.hevc": {BoolValue: ptr(devices.HasHEVC)},
 					},
 				},
 			},
 		},
 	}
 
-	existing, err := client.ResourceV1beta1().ResourceSlices().Get(ctx, sliceName, metav1.GetOptions{})
+	existing, err := client.ResourceV1().ResourceSlices().Get(ctx, sliceName, metav1.GetOptions{})
 	if errors.IsNotFound(err) {
-		if _, err := client.ResourceV1beta1().ResourceSlices().Create(ctx, slice, metav1.CreateOptions{}); err != nil {
+		if _, err := client.ResourceV1().ResourceSlices().Create(ctx, slice, metav1.CreateOptions{}); err != nil {
 			return fmt.Errorf("create ResourceSlice: %w", err)
 		}
 		klog.Infof("created ResourceSlice %s", sliceName)
@@ -69,7 +67,7 @@ func Publish(ctx context.Context, client kubernetes.Interface, nodeName string, 
 	}
 
 	slice.ResourceVersion = existing.ResourceVersion
-	if _, err := client.ResourceV1beta1().ResourceSlices().Update(ctx, slice, metav1.UpdateOptions{}); err != nil {
+	if _, err := client.ResourceV1().ResourceSlices().Update(ctx, slice, metav1.UpdateOptions{}); err != nil {
 		return fmt.Errorf("update ResourceSlice: %w", err)
 	}
 	klog.Infof("updated ResourceSlice %s", sliceName)
