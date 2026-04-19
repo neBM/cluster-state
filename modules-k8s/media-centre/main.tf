@@ -168,333 +168,257 @@ resource "kubernetes_persistent_volume_claim" "synology_share" {
 # Plex Media Server
 # =============================================================================
 
-resource "kubernetes_deployment" "plex" {
-  metadata {
-    name      = "plex"
-    namespace = var.namespace
-    labels    = local.plex_labels
-  }
-
-  spec {
-    replicas = 1
-
-    # Singleton: only one pod can ever own the SQLite DB PVC and the GPU.
-    strategy {
-      type = "Recreate"
-    }
-
-    selector {
-      match_labels = local.plex_labels
-    }
-
-    template {
-      metadata {
-        labels      = local.plex_labels
-        annotations = local.elastic_log_annotations
-      }
-
-      spec {
-        # Must run on Hestia for NVIDIA GPU
-        node_selector = {
-          "kubernetes.io/hostname" = "hestia"
-        }
-
-        # Use NVIDIA runtime for GPU transcoding
-        runtime_class_name = "nvidia"
-
-        security_context {
-          fs_group               = 997
-          fs_group_change_policy = "OnRootMismatch"
-        }
-
-
-        # Init container to restore databases from MinIO snapshots
-        # CRITICAL: Plex MUST NOT start without a valid database
-        init_container {
-          name  = "db-restore"
-          image = "alpine:3.23"
-
-          command = ["/bin/sh", "-c"]
-          args = [<<-EOF
-            set -e
-            DB_DIR="/data/Databases"
-            LIBRARY_DB="$DB_DIR/com.plexapp.plugins.library.db"
-            BLOBS_DB="$DB_DIR/com.plexapp.plugins.library.blobs.db"
-            mkdir -p "$DB_DIR"
-
-            # Skip if databases already exist
-            if [ -f "$LIBRARY_DB" ]; then
-              echo "Databases already exist, skipping restore"
-              exit 0
-            fi
-
-            echo "No local database found - attempting restore from MinIO..."
-            echo "CRITICAL: Plex will NOT start if restore fails"
-
-            # Install curl for S3 API access
-            apk add --no-cache curl
-
-            # Function to download latest backup from MinIO
-            download_latest() {
-              local prefix=$1
-              local output=$2
-              
-              echo "Finding latest backup for $prefix..."
-              
-              # List objects and find the most recent one (use sed - alpine grep lacks -P)
-              LATEST=$(curl -sf \
-                --aws-sigv4 "aws:amz:us-east-1:s3" \
-                --user "$MINIO_ACCESS_KEY:$MINIO_SECRET_KEY" \
-                "$MINIO_ENDPOINT/$BACKUP_BUCKET?prefix=$prefix&list-type=2" \
-                2>/dev/null | sed -n 's/.*<Key>\([^<]*\)<\/Key>.*/\1/p' | sort -r | head -1)
-              
-              if [ -z "$LATEST" ]; then
-                echo "ERROR: No backup found for $prefix"
-                return 1
-              fi
-              
-              echo "Downloading: $LATEST"
-              curl -sf \
-                --aws-sigv4 "aws:amz:us-east-1:s3" \
-                --user "$MINIO_ACCESS_KEY:$MINIO_SECRET_KEY" \
-                "$MINIO_ENDPOINT/$BACKUP_BUCKET/$LATEST" \
-                -o "$output"
-              
-              if [ ! -f "$output" ]; then
-                echo "ERROR: Download failed for $output"
-                return 1
-              fi
-              
-              echo "Downloaded: $(stat -c%s "$output") bytes"
-              return 0
+resource "kubectl_manifest" "plex_gpu_claim_template" {
+  yaml_body = yamlencode({
+    apiVersion = "resource.k8s.io/v1"
+    kind       = "ResourceClaimTemplate"
+    metadata   = { name = "plex-gpu", namespace = var.namespace }
+    spec = {
+      spec = {
+        devices = {
+          requests = [{ name = "gpu", exactly = { deviceClassName = "nvidia-gpu" } }]
+          config = [{
+            requests = ["gpu"]
+            opaque = {
+              driver = "gpu.nvidia.com"
+              parameters = {
+                apiVersion = "resource.nvidia.com/v1beta1"
+                kind       = "GpuConfig"
+                sharing    = { strategy = "TimeSlicing", timeSlicingConfig = { interval = "Default" } }
+              }
             }
+          }]
+        }
+      }
+    }
+  })
+}
 
-            RESTORE_FAILED=0
+resource "kubectl_manifest" "plex" {
+  yaml_body = yamlencode({
+    apiVersion = "apps/v1"
+    kind       = "Deployment"
+    metadata = {
+      name      = "plex"
+      namespace = var.namespace
+      labels    = local.plex_labels
+    }
+    spec = {
+      replicas = 1
+      # Singleton: only one pod can ever own the SQLite DB PVC and the GPU.
+      strategy = { type = "Recreate" }
+      selector = { matchLabels = local.plex_labels }
+      template = {
+        metadata = {
+          labels      = local.plex_labels
+          annotations = local.elastic_log_annotations
+        }
+        spec = {
+          securityContext = {
+            fsGroup             = 997
+            fsGroupChangePolicy = "OnRootMismatch"
+          }
 
-            echo "Restoring library database..."
-            if download_latest "library/" "$LIBRARY_DB"; then
-              echo "Library database restored successfully"
-            else
-              echo "ERROR: Library database restore failed!"
-              RESTORE_FAILED=1
-            fi
+          resourceClaims = [{
+            name                      = "gpu"
+            resourceClaimTemplateName = "plex-gpu"
+          }]
 
-            echo "Restoring blobs database..."
-            if download_latest "blobs/" "$BLOBS_DB"; then
-              echo "Blobs database restored successfully"
-            else
-              echo "ERROR: Blobs database restore failed!"
-              RESTORE_FAILED=1
-            fi
+          # Init container to restore databases from MinIO snapshots
+          # CRITICAL: Plex MUST NOT start without a valid database
+          initContainers = [{
+            name    = "db-restore"
+            image   = "alpine:3.23"
+            command = ["/bin/sh", "-c"]
+            args = [join("", [
+              "set -e\n",
+              "DB_DIR=\"/data/Databases\"\n",
+              "LIBRARY_DB=\"$DB_DIR/com.plexapp.plugins.library.db\"\n",
+              "BLOBS_DB=\"$DB_DIR/com.plexapp.plugins.library.blobs.db\"\n",
+              "mkdir -p \"$DB_DIR\"\n",
+              "\n",
+              "# Skip if databases already exist\n",
+              "if [ -f \"$LIBRARY_DB\" ]; then\n",
+              "  echo \"Databases already exist, skipping restore\"\n",
+              "  exit 0\n",
+              "fi\n",
+              "\n",
+              "echo \"No local database found - attempting restore from MinIO...\"\n",
+              "echo \"CRITICAL: Plex will NOT start if restore fails\"\n",
+              "\n",
+              "# Install curl for S3 API access\n",
+              "apk add --no-cache curl\n",
+              "\n",
+              "# Function to download latest backup from MinIO\n",
+              "download_latest() {\n",
+              "  local prefix=$1\n",
+              "  local output=$2\n",
+              "  \n",
+              "  echo \"Finding latest backup for $prefix...\"\n",
+              "  \n",
+              "  # List objects and find the most recent one (use sed - alpine grep lacks -P)\n",
+              "  LATEST=$(curl -sf \\\n",
+              "    --aws-sigv4 \"aws:amz:us-east-1:s3\" \\\n",
+              "    --user \"$MINIO_ACCESS_KEY:$MINIO_SECRET_KEY\" \\\n",
+              "    \"$MINIO_ENDPOINT/$BACKUP_BUCKET?prefix=$prefix&list-type=2\" \\\n",
+              "    2>/dev/null | sed -n 's/.*<Key>\\([^<]*\\)<\\/Key>.*/\\1/p' | sort -r | head -1)\n",
+              "  \n",
+              "  if [ -z \"$LATEST\" ]; then\n",
+              "    echo \"ERROR: No backup found for $prefix\"\n",
+              "    return 1\n",
+              "  fi\n",
+              "  \n",
+              "  echo \"Downloading: $LATEST\"\n",
+              "  curl -sf \\\n",
+              "    --aws-sigv4 \"aws:amz:us-east-1:s3\" \\\n",
+              "    --user \"$MINIO_ACCESS_KEY:$MINIO_SECRET_KEY\" \\\n",
+              "    \"$MINIO_ENDPOINT/$BACKUP_BUCKET/$LATEST\" \\\n",
+              "    -o \"$output\"\n",
+              "  \n",
+              "  if [ ! -f \"$output\" ]; then\n",
+              "    echo \"ERROR: Download failed for $output\"\n",
+              "    return 1\n",
+              "  fi\n",
+              "  \n",
+              "  echo \"Downloaded: $(stat -c%s \\\"$output\\\") bytes\"\n",
+              "  return 0\n",
+              "}\n",
+              "\n",
+              "RESTORE_FAILED=0\n",
+              "\n",
+              "echo \"Restoring library database...\"\n",
+              "if download_latest \"library/\" \"$LIBRARY_DB\"; then\n",
+              "  echo \"Library database restored successfully\"\n",
+              "else\n",
+              "  echo \"ERROR: Library database restore failed!\"\n",
+              "  RESTORE_FAILED=1\n",
+              "fi\n",
+              "\n",
+              "echo \"Restoring blobs database...\"\n",
+              "if download_latest \"blobs/\" \"$BLOBS_DB\"; then\n",
+              "  echo \"Blobs database restored successfully\"\n",
+              "else\n",
+              "  echo \"ERROR: Blobs database restore failed!\"\n",
+              "  RESTORE_FAILED=1\n",
+              "fi\n",
+              "\n",
+              "# Final verification - BOTH databases must exist\n",
+              "if [ ! -f \"$LIBRARY_DB\" ]; then\n",
+              "  echo \"FATAL: Library database does not exist after restore attempt!\"\n",
+              "  echo \"Plex cannot start without a valid database.\"\n",
+              "  echo \"Please check MinIO connectivity and backup status.\"\n",
+              "  exit 1\n",
+              "fi\n",
+              "\n",
+              "if [ ! -f \"$BLOBS_DB\" ]; then\n",
+              "  echo \"FATAL: Blobs database does not exist after restore attempt!\"\n",
+              "  echo \"Plex cannot start without a valid database.\"\n",
+              "  exit 1\n",
+              "fi\n",
+              "\n",
+              "# Verify databases are not empty (minimum viable size check)\n",
+              "LIBRARY_SIZE=$(stat -c%s \"$LIBRARY_DB\" 2>/dev/null || echo \"0\")\n",
+              "BLOBS_SIZE=$(stat -c%s \"$BLOBS_DB\" 2>/dev/null || echo \"0\")\n",
+              "\n",
+              "if [ \"$LIBRARY_SIZE\" -lt 100000 ]; then\n",
+              "  echo \"FATAL: Library database is too small ($LIBRARY_SIZE bytes) - likely corrupted!\"\n",
+              "  echo \"Expected at least 100KB for a valid Plex database.\"\n",
+              "  rm -f \"$LIBRARY_DB\" \"$BLOBS_DB\"\n",
+              "  exit 1\n",
+              "fi\n",
+              "\n",
+              "# Skip integrity checks due to Plex custom FTS tokenizer issues\n",
+              "# Size check above is sufficient - backups created with sqlite3 .backup are reliable\n",
+              "\n",
+              "echo \"Restore complete - Library: $LIBRARY_SIZE bytes, Blobs: $BLOBS_SIZE bytes\"\n",
+            ])]
+            env = [
+              {
+                name = "MINIO_ACCESS_KEY"
+                valueFrom = { secretKeyRef = { name = "media-centre-secrets", key = "MINIO_ACCESS_KEY" } }
+              },
+              {
+                name = "MINIO_SECRET_KEY"
+                valueFrom = { secretKeyRef = { name = "media-centre-secrets", key = "MINIO_SECRET_KEY" } }
+              },
+              { name = "MINIO_ENDPOINT", value = local.plex_backup_endpoint },
+              { name = "BACKUP_BUCKET", value = local.plex_backup_bucket },
+            ]
+            volumeMounts = [{ name = "plex-data", mountPath = "/data" }]
+            resources = {
+              requests = { cpu = "100m", memory = "256Mi" }
+              limits   = { memory = "512Mi" }
+            }
+          }]
 
-            # Final verification - BOTH databases must exist
-            if [ ! -f "$LIBRARY_DB" ]; then
-              echo "FATAL: Library database does not exist after restore attempt!"
-              echo "Plex cannot start without a valid database."
-              echo "Please check MinIO connectivity and backup status."
-              exit 1
-            fi
-
-            if [ ! -f "$BLOBS_DB" ]; then
-              echo "FATAL: Blobs database does not exist after restore attempt!"
-              echo "Plex cannot start without a valid database."
-              exit 1
-            fi
-
-            # Verify databases are not empty (minimum viable size check)
-            LIBRARY_SIZE=$(stat -c%s "$LIBRARY_DB" 2>/dev/null || echo "0")
-            BLOBS_SIZE=$(stat -c%s "$BLOBS_DB" 2>/dev/null || echo "0")
-            
-            if [ "$LIBRARY_SIZE" -lt 100000 ]; then
-              echo "FATAL: Library database is too small ($LIBRARY_SIZE bytes) - likely corrupted!"
-              echo "Expected at least 100KB for a valid Plex database."
-              rm -f "$LIBRARY_DB" "$BLOBS_DB"
-              exit 1
-            fi
-
-            # Skip integrity checks due to Plex custom FTS tokenizer issues
-            # Size check above is sufficient - backups created with sqlite3 .backup are reliable
-
-            echo "Restore complete - Library: $${LIBRARY_SIZE} bytes, Blobs: $${BLOBS_SIZE} bytes"
-          EOF
+          containers = [
+            # Plex container
+            {
+              name  = "plex"
+              image = "${var.plex_image}:${var.plex_tag}"
+              ports = [{ containerPort = 32400, name = "plex" }]
+              env = [
+                { name = "TZ", value = "Europe/London" },
+                { name = "PLEX_UID", value = "990" },
+                { name = "PLEX_GID", value = "997" },
+                { name = "CHANGE_CONFIG_DIR_OWNERSHIP", value = "false" },
+              ]
+              volumeMounts = [
+                { name = "plex-config", mountPath = "/config", mountPropagation = "HostToContainer" },
+                {
+                  name      = "plex-data"
+                  mountPath = "/config/Library/Application Support/Plex Media Server/Plug-in Support/Databases"
+                  subPath   = "Databases"
+                },
+                { name = "transcode", mountPath = "/transcode" },
+                { name = "tmp", mountPath = "/tmp" },
+                { name = "media-docker", mountPath = "/data" },
+                { name = "media-share", mountPath = "/share" },
+              ]
+              resources = {
+                requests = { cpu = "100m", memory = "300Mi" }
+                limits   = { cpu = "4", memory = "4Gi" }
+                claims   = [{ name = "gpu" }]
+              }
+              livenessProbe = {
+                httpGet             = { path = "/identity", port = 32400 }
+                initialDelaySeconds = 60
+                periodSeconds       = 30
+                failureThreshold    = 5
+              }
+            }
           ]
 
-          env {
-            name = "MINIO_ACCESS_KEY"
-            value_from {
-              secret_key_ref {
-                name = "media-centre-secrets"
-                key  = "MINIO_ACCESS_KEY"
-              }
-            }
-          }
-
-          env {
-            name = "MINIO_SECRET_KEY"
-            value_from {
-              secret_key_ref {
-                name = "media-centre-secrets"
-                key  = "MINIO_SECRET_KEY"
-              }
-            }
-          }
-
-          env {
-            name  = "MINIO_ENDPOINT"
-            value = local.plex_backup_endpoint
-          }
-
-          env {
-            name  = "BACKUP_BUCKET"
-            value = local.plex_backup_bucket
-          }
-
-          volume_mount {
-            name       = "plex-data"
-            mount_path = "/data"
-          }
-
-          resources {
-            requests = {
-              cpu    = "100m"
-              memory = "256Mi"
-            }
-            limits = {
-              memory = "512Mi"
-            }
-          }
-        }
-
-        # Plex container
-        container {
-          name  = "plex"
-          image = "${var.plex_image}:${var.plex_tag}"
-
-          port {
-            container_port = 32400
-            name           = "plex"
-          }
-
-          env {
-            name  = "TZ"
-            value = "Europe/London"
-          }
-
-          env {
-            name  = "PLEX_UID"
-            value = "990"
-          }
-
-          env {
-            name  = "PLEX_GID"
-            value = "997"
-          }
-
-          env {
-            name  = "CHANGE_CONFIG_DIR_OWNERSHIP"
-            value = "false"
-          }
-
-          env {
-            name  = "NVIDIA_DRIVER_CAPABILITIES"
-            value = "all"
-          }
-
-          env {
-            name  = "NVIDIA_VISIBLE_DEVICES"
-            value = "all"
-          }
-
-          volume_mount {
-            name              = "plex-config"
-            mount_path        = "/config"
-            mount_propagation = "HostToContainer"
-          }
-
-          volume_mount {
-            name       = "plex-data"
-            mount_path = "/config/Library/Application Support/Plex Media Server/Plug-in Support/Databases"
-            sub_path   = "Databases"
-          }
-
-          volume_mount {
-            name       = "transcode"
-            mount_path = "/transcode"
-          }
-
-          volume_mount {
-            name       = "media-docker"
-            mount_path = "/data"
-          }
-
-          volume_mount {
-            name       = "media-share"
-            mount_path = "/share"
-          }
-
-          resources {
-            requests = {
-              cpu    = "100m"
-              memory = "300Mi"
-            }
-            limits = {
-              cpu              = "4"
-              memory           = "4Gi"
-              "nvidia.com/gpu" = "1"
-            }
-          }
-
-          liveness_probe {
-            http_get {
-              path = "/identity"
-              port = 32400
-            }
-            initial_delay_seconds = 60
-            period_seconds        = 30
-            failure_threshold     = 5
-          }
-        }
-
-        # Volumes
-        volume {
-          name = "plex-config"
-          persistent_volume_claim {
-            claim_name = kubernetes_persistent_volume_claim.plex_config.metadata[0].name
-          }
-        }
-
-        volume {
-          name = "transcode"
-          empty_dir {}
-        }
-
-        # Synology NAS volumes — via PVs with soft mount option
-        volume {
-          name = "media-docker"
-          persistent_volume_claim {
-            claim_name = kubernetes_persistent_volume_claim.synology_docker.metadata[0].name
-          }
-        }
-
-        volume {
-          name = "media-share"
-          persistent_volume_claim {
-            claim_name = kubernetes_persistent_volume_claim.synology_share.metadata[0].name
-          }
-        }
-
-        # SQLite databases — standalone PVC on hestia's local-path.
-        volume {
-          name = "plex-data"
-          persistent_volume_claim {
-            claim_name = kubernetes_persistent_volume_claim.plex_data.metadata[0].name
-          }
+          # Volumes
+          volumes = [
+            {
+              name = "plex-config"
+              persistentVolumeClaim = { claimName = kubernetes_persistent_volume_claim.plex_config.metadata[0].name }
+            },
+            { name = "transcode", emptyDir = {} },
+            { name = "tmp", emptyDir = {} },
+            # Synology NAS volumes — via PVs with soft mount option
+            {
+              name = "media-docker"
+              persistentVolumeClaim = { claimName = kubernetes_persistent_volume_claim.synology_docker.metadata[0].name }
+            },
+            {
+              name = "media-share"
+              persistentVolumeClaim = { claimName = kubernetes_persistent_volume_claim.synology_share.metadata[0].name }
+            },
+            # SQLite databases — standalone PVC on hestia's local-path.
+            {
+              name = "plex-data"
+              persistentVolumeClaim = { claimName = kubernetes_persistent_volume_claim.plex_data.metadata[0].name }
+            },
+          ]
         }
       }
     }
-  }
+  })
 
   depends_on = [
+    kubectl_manifest.plex_gpu_claim_template,
     kubernetes_persistent_volume_claim.plex_config,
     kubernetes_persistent_volume_claim.plex_data,
   ]
