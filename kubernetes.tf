@@ -406,6 +406,30 @@ module "k8s_iris" {
 }
 
 # =============================================================================
+# Hardware Device Assignment (DRA)
+# =============================================================================
+
+# Pi 5 DRA Driver - Device Plugin for dynamic resource allocation
+# Enables Kubernetes-native device assignment for Pi 5 hardware
+module "k8s_rpi5_dra_driver" {
+  source = "./modules-k8s/rpi5-dra-driver"
+}
+
+# NVIDIA DRA Driver - Device Plugin for GPU resource allocation
+# Enables Kubernetes-native GPU scheduling and isolation
+module "k8s_nvidia_dra_driver" {
+  source        = "./modules-k8s/nvidia-dra-driver"
+  chart_version = "25.12.0"
+}
+
+# Device Classes - Kubernetes ResourceClass definitions for DRA
+# Configures device class claims for Pi 5 and NVIDIA GPUs
+module "k8s_device_classes" {
+  source     = "./modules-k8s/device-classes"
+  depends_on = [module.k8s_nvidia_dra_driver, module.k8s_rpi5_dra_driver]
+}
+
+# =============================================================================
 # Node Health
 # =============================================================================
 
