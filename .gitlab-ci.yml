@@ -81,10 +81,9 @@ build-rpi5-dra-driver:
 validate:
   extends: .terraform-base
   stage: validate
+  needs: []
   script:
-    # Format check - no backend required
     - terraform fmt -check -recursive
-    # Validate with -backend=false (no credentials needed)
     - terraform init -backend=false
     - terraform validate
   rules:
@@ -94,6 +93,8 @@ validate:
 plan:
   extends: .terraform-base
   stage: plan
+  needs:
+    - job: validate
   script:
     - terraform init -backend-config="conn_str=$PG_CONN_STR"
     - terraform plan -out=tfplan
@@ -104,14 +105,14 @@ plan:
       - .terraform.lock.hcl
     expire_in: 1 hour
   rules:
-    # Only run on main branch where protected variables are available
     - if: $CI_COMMIT_BRANCH == "main"
 
 apply:
   extends: .terraform-base
   stage: apply
-  dependencies:
-    - plan
+  needs:
+    - job: plan
+      artifacts: true
   script:
     - terraform init -backend-config="conn_str=$PG_CONN_STR"
     - terraform apply -auto-approve
