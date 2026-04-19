@@ -150,6 +150,13 @@ resource "kubernetes_cluster_role" "ci" {
     resources  = ["horizontalpodautoscalers"]
     verbs      = ["get", "list", "watch", "create", "update", "patch", "delete"]
   }
+
+  # DRA (Dynamic Resource Allocation)
+  rule {
+    api_groups = ["resource.k8s.io"]
+    resources  = ["deviceclasses", "resourceclaims", "resourceclaimtemplates", "resourceslices", "podschedulingcontexts"]
+    verbs      = ["get", "list", "watch", "create", "update", "patch", "delete"]
+  }
 }
 
 # Bind the ClusterRole to the ServiceAccount
