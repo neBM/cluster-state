@@ -308,11 +308,11 @@ resource "kubectl_manifest" "plex" {
             ])]
             env = [
               {
-                name = "MINIO_ACCESS_KEY"
+                name      = "MINIO_ACCESS_KEY"
                 valueFrom = { secretKeyRef = { name = "media-centre-secrets", key = "MINIO_ACCESS_KEY" } }
               },
               {
-                name = "MINIO_SECRET_KEY"
+                name      = "MINIO_SECRET_KEY"
                 valueFrom = { secretKeyRef = { name = "media-centre-secrets", key = "MINIO_SECRET_KEY" } }
               },
               { name = "MINIO_ENDPOINT", value = local.plex_backup_endpoint },
@@ -366,23 +366,23 @@ resource "kubectl_manifest" "plex" {
           # Volumes
           volumes = [
             {
-              name = "plex-config"
+              name                  = "plex-config"
               persistentVolumeClaim = { claimName = kubernetes_persistent_volume_claim.plex_config.metadata[0].name }
             },
             { name = "transcode", emptyDir = {} },
             { name = "tmp", emptyDir = {} },
             # Synology NAS volumes — via PVs with soft mount option
             {
-              name = "media-docker"
+              name                  = "media-docker"
               persistentVolumeClaim = { claimName = kubernetes_persistent_volume_claim.synology_docker.metadata[0].name }
             },
             {
-              name = "media-share"
+              name                  = "media-share"
               persistentVolumeClaim = { claimName = kubernetes_persistent_volume_claim.synology_share.metadata[0].name }
             },
             # SQLite databases — standalone PVC on hestia's local-path.
             {
-              name = "plex-data"
+              name                  = "plex-data"
               persistentVolumeClaim = { claimName = kubernetes_persistent_volume_claim.plex_data.metadata[0].name }
             },
           ]

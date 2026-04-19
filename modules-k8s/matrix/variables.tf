@@ -119,7 +119,7 @@ variable "element_admin_image" {
 variable "element_admin_tag" {
   description = "Element Admin Docker image tag"
   type        = string
-  default = "latest"
+  default     = "latest"
 }
 
 variable "nginx_image" {

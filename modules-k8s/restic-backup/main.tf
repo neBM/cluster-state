@@ -1,6 +1,6 @@
-# Restic Backup - Daily backup of GlusterFS and SeaweedFS volumes
+# Restic Backup - Daily backup of SeaweedFS volumes
 #
-# Runs daily at 3am, backs up /storage/v (GlusterFS) and SeaweedFS filer to local restic repository
+# Runs daily at 3am, backs up the SeaweedFS filer root to a local restic repository
 # Must run on Hestia where backup destination is mounted
 # Requires RESTIC_PASSWORD from Vault
 
@@ -23,17 +23,6 @@ if ! restic snapshots >/dev/null 2>&1; then
   echo "Initializing restic repository..."
   restic init
 fi
-
-echo "Starting backup of GlusterFS volumes..."
-
-restic backup /data \
-  --tag glusterfs \
-  --tag scheduled \
-  --iexclude-file=/config/excludes.txt \
-  --exclude-caches \
-  --exclude-if-present .nobackup \
-  --one-file-system \
-  --skip-if-unchanged
 
 echo "Starting backup of SeaweedFS volumes..."
 
@@ -88,8 +77,6 @@ media
 metadata
 transcodes
 
-# Ollama models (downloadable)
-glusterfs_ollama_data
 EOF
 }
 
@@ -204,12 +191,6 @@ resource "kubernetes_cron_job_v1" "restic_backup" {
               command = ["/bin/sh", "/config/backup.sh"]
 
               volume_mount {
-                name       = "data"
-                mount_path = "/data"
-                read_only  = true
-              }
-
-              volume_mount {
                 name       = "data-seaweedfs"
                 mount_path = "/data-seaweedfs"
                 read_only  = true
@@ -242,14 +223,6 @@ resource "kubernetes_cron_job_v1" "restic_backup" {
                   cpu    = "1500m"
                   memory = "2Gi"
                 }
-              }
-            }
-
-            volume {
-              name = "data"
-              host_path {
-                path = "/storage/v"
-                type = "Directory"
               }
             }
 
