@@ -1,11 +1,14 @@
-FROM golang:1.25-alpine AS builder
-WORKDIR /src
-COPY go.mod go.sum ./
-RUN go mod download
-COPY . .
-RUN CGO_ENABLED=0 GOOS=linux go build -a -ldflags '-s -w' \
-    -o /rpi5-dra-driver ./cmd/rpi5-dra-driver
+# NOTE: expects pre-compiled binary in dist/. Not a self-contained build.
+#
+# CI:    compile:rpi5-dra-driver cross-compiles both arches → dist/ artifact
+#        package:rpi5-dra-driver runs this Dockerfile via buildah
+#
+# Local: CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o dist/rpi5-dra-driver-amd64 ./cmd/rpi5-dra-driver
+#        CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -o dist/rpi5-dra-driver-arm64 ./cmd/rpi5-dra-driver
+#        docker build --build-arg TARGETARCH=arm64 .
 
 FROM alpine:3.21
-COPY --from=builder /rpi5-dra-driver /rpi5-dra-driver
+
+ARG TARGETARCH
+COPY dist/rpi5-dra-driver-${TARGETARCH} /rpi5-dra-driver
 ENTRYPOINT ["/rpi5-dra-driver"]
