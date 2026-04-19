@@ -780,7 +780,7 @@ resource "kubernetes_deployment" "webservice" {
 
           env {
             name  = "WORKER_PROCESSES"
-            value = "2"
+            value = "1"
           }
 
           env {
@@ -1618,6 +1618,99 @@ resource "kubernetes_service" "registry_internal" {
       name        = "http"
       port        = 443
       target_port = 5000
+    }
+  }
+}
+
+# =============================================================================
+# Gitaly ref-dir repair CronJob
+#
+# Gitaly 18.x pruneEmptyRefDirs removes empty refs/heads, refs/tags, etc.
+# after pack-refs. SeaweedFS FUSE doesn't recreate empty dirs, so gitaly's
+# repo validator fails with "refs does not exist" on repos with no recent
+# loose refs. This job recreates the standard dirs daily at 04:30 before
+# gitaly housekeeping can hit them again.
+# =============================================================================
+
+resource "kubernetes_cron_job_v1" "gitaly_ref_dir_repair" {
+  metadata {
+    name      = "gitlab-gitaly-ref-dir-repair"
+    namespace = var.namespace
+    labels    = local.gitaly_labels
+  }
+
+  spec {
+    schedule                      = "30 4 * * *"
+    successful_jobs_history_limit = 3
+    failed_jobs_history_limit     = 3
+    concurrency_policy            = "Forbid"
+
+    job_template {
+      metadata {
+        labels = local.gitaly_labels
+      }
+
+      spec {
+        template {
+          metadata {
+            labels = local.gitaly_labels
+          }
+
+          spec {
+            restart_policy = "OnFailure"
+
+            security_context {
+              run_as_user  = 1000
+              run_as_group = 1000
+              fs_group     = 1000
+            }
+
+            container {
+              name  = "ref-dir-repair"
+              image = "alpine:3"
+
+              command = ["/bin/sh", "-c"]
+              args = [<<-EOT
+                set -eu
+                repaired=0
+                for repo in $(find /home/git/repositories -maxdepth 6 -name '*.git' -type d); do
+                  for subdir in refs/heads refs/tags refs/keep-around refs/merge-requests refs/pipelines refs/environments; do
+                    if [ ! -d "$repo/$subdir" ]; then
+                      mkdir -p "$repo/$subdir"
+                      repaired=$((repaired + 1))
+                    fi
+                  done
+                done
+                echo "ref-dir-repair: created $repaired missing dirs"
+              EOT
+              ]
+
+              volume_mount {
+                name              = "repositories"
+                mount_path        = "/home/git/repositories"
+                mount_propagation = "HostToContainer"
+              }
+
+              resources {
+                requests = {
+                  cpu    = "50m"
+                  memory = "32Mi"
+                }
+                limits = {
+                  memory = "128Mi"
+                }
+              }
+            }
+
+            volume {
+              name = "repositories"
+              persistent_volume_claim {
+                claim_name = kubernetes_persistent_volume_claim.repositories.metadata[0].name
+              }
+            }
+          }
+        }
+      }
     }
   }
 }
