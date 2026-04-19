@@ -1388,8 +1388,9 @@ git commit -m "feat(terraform): wire rpi5-dra-driver, nvidia-dra-driver, device-
 
 ## Task 13: Workload Migration — Ollama
 
-> **Gate:** Task 1 (CDI research) must be complete.
-> **runtimeClassName verdict:** [VERDICT — fill in from Task 1]
+> **Gate:** Task 1 (CDI research) complete. ✅
+> **runtimeClassName verdict:** REMOVE — CDI replaces the NVIDIA runtime hook entirely. Official NVIDIA DRA example pods have no `runtimeClassName`. The hook and CDI conflict; hook must not be present when using CDI.
+> **NVIDIA_VISIBLE_DEVICES / NVIDIA_DRIVER_CAPABILITIES:** REMOVE — these env vars only apply on the legacy hook path and have no effect with DRA+CDI.
 
 **Files:**
 - Modify: `modules-k8s/ollama/main.tf`
@@ -1530,8 +1531,8 @@ git commit -m "feat(ollama): migrate GPU to DRA ResourceClaim (nvidia-gpu Device
 
 ## Task 14: Workload Migration — Plex
 
-> **Gate:** Task 1 (CDI research) must be complete.
-> **runtimeClassName verdict:** [VERDICT — fill in from Task 1]
+> **Gate:** Task 1 (CDI research) complete. ✅
+> **runtimeClassName verdict:** REMOVE — CDI replaces the NVIDIA runtime hook entirely. Remove `runtime_class_name = "nvidia"` and the `NVIDIA_VISIBLE_DEVICES` / `NVIDIA_DRIVER_CAPABILITIES` env vars.
 
 **Files:**
 - Modify: `modules-k8s/media-centre/main.tf`
