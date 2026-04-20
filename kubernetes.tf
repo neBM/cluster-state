@@ -69,6 +69,15 @@ module "k8s_clickhouse" {
   namespace = "default"
 }
 
+# LangFuse — LLM observability platform
+# Traces shipped via Claude Code Stop hook (no proxy, Pro/Max billing preserved)
+module "k8s_langfuse" {
+  source = "./modules-k8s/langfuse"
+
+  namespace = "default"
+  hostname  = "langfuse.brmartin.co.uk"
+}
+
 # CI Service Account for GitLab CI/CD pipelines
 # Provides limited RBAC permissions for Terraform to manage K8s resources
 module "k8s_ci_service_account" {
