@@ -23,18 +23,5 @@ variable "image_tag" {
   default = "v0.8.12"
 }
 
-variable "valkey_image" {
-  description = "Valkey Docker image name"
-  type        = string
-  default     = "valkey/valkey"
-}
-
-variable "valkey_tag" {
-  description = "Valkey Docker image tag"
-  type        = string
-  # renovate: datasource=docker depName=valkey/valkey
-  default = "9.0.0-alpine3.22"
-}
-
 # External PostgreSQL on martinibar (192.168.1.10:5433)
 # DATABASE_URL is stored in open-webui-secrets

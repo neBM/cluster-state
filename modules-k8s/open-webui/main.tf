@@ -14,11 +14,6 @@ locals {
     component  = "app"
     managed-by = "terraform"
   }
-  valkey_labels = {
-    app        = "open-webui"
-    component  = "valkey"
-    managed-by = "terraform"
-  }
 }
 
 # =============================================================================
@@ -128,7 +123,7 @@ resource "kubernetes_deployment" "open_webui" {
 
           env {
             name  = "REDIS_URL"
-            value = "redis://open-webui-valkey.default.svc.cluster.local:6379/0"
+            value = "redis://valkey.default.svc.cluster.local:6379/0"
           }
 
           env {
@@ -217,74 +212,10 @@ resource "kubernetes_deployment" "open_webui" {
   }
 
   depends_on = [
-    kubernetes_deployment.valkey,
     kubernetes_persistent_volume_claim.data,
   ]
 }
 
-# =============================================================================
-# Valkey (Redis) Deployment
-# =============================================================================
-
-resource "kubernetes_deployment" "valkey" {
-  metadata {
-    name      = "open-webui-valkey"
-    namespace = var.namespace
-    labels    = local.valkey_labels
-  }
-
-  spec {
-    replicas = 1
-
-    selector {
-      match_labels = local.valkey_labels
-    }
-
-    template {
-      metadata {
-        labels = local.valkey_labels
-      }
-
-      spec {
-        container {
-          name  = "valkey"
-          image = "${var.valkey_image}:${var.valkey_tag}"
-
-          port {
-            container_port = 6379
-          }
-
-          resources {
-            requests = {
-              cpu    = "50m"
-              memory = "64Mi"
-            }
-            limits = {
-              memory = "256Mi"
-            }
-          }
-        }
-      }
-    }
-  }
-}
-
-resource "kubernetes_service" "valkey" {
-  metadata {
-    name      = "open-webui-valkey"
-    namespace = var.namespace
-    labels    = local.valkey_labels
-  }
-
-  spec {
-    selector = local.valkey_labels
-
-    port {
-      port        = 6379
-      target_port = 6379
-    }
-  }
-}
 
 # =============================================================================
 # Open WebUI Service and IngressRoute
