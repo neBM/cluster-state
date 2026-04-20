@@ -69,15 +69,7 @@ locals {
       value = "true"
     },
     {
-      name  = "AUTH_CUSTOM_NAME"
-      value = "Keycloak"
-    },
-    {
-      name  = "AUTH_CUSTOM_SCOPE"
-      value = "openid email profile"
-    },
-    {
-      name  = "AUTH_CUSTOM_ISSUER"
+      name  = "AUTH_KEYCLOAK_ISSUER"
       value = "https://sso.brmartin.co.uk/realms/prod"
     },
   ]
@@ -117,11 +109,11 @@ locals {
       secret_key = "S3_SECRET_ACCESS_KEY"
     },
     {
-      name       = "AUTH_CUSTOM_CLIENT_ID"
+      name       = "AUTH_KEYCLOAK_CLIENT_ID"
       secret_key = "AUTH_CUSTOM_CLIENT_ID"
     },
     {
-      name       = "AUTH_CUSTOM_CLIENT_SECRET"
+      name       = "AUTH_KEYCLOAK_CLIENT_SECRET"
       secret_key = "AUTH_CUSTOM_CLIENT_SECRET"
     },
   ]
