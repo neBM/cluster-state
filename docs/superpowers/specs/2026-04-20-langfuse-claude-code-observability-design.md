@@ -53,7 +53,7 @@ Two containers: `langfuse-web` (dashboard) and `langfuse-worker` (async event pr
 |---|---|
 | `DATABASE_URL` | martinibar PostgreSQL (from secret) |
 | `CLICKHOUSE_URL` | `http://clickhouse.default.svc.cluster.local:8123` |
-| `REDIS_CONNECTION_STRING` | `redis://open-webui-valkey.default.svc.cluster.local:6379` |
+| `REDIS_CONNECTION_STRING` | `redis://valkey.default.svc.cluster.local:6379` |
 | `LANGFUSE_S3_ENDPOINT` | SeaweedFS S3 endpoint |
 | `NEXTAUTH_URL` | `https://langfuse.brmartin.co.uk` |
 | `AUTH_CUSTOM_CLIENT_ID` | Keycloak client ID (from secret) |
@@ -70,13 +70,23 @@ Two containers: `langfuse-web` (dashboard) and `langfuse-worker` (async event pr
 - `LANGFUSE_S3_ACCESS_KEY_ID`
 - `LANGFUSE_S3_SECRET_ACCESS_KEY`
 
+### New: `modules-k8s/valkey`
+
+Shared Valkey instance extracted from open-webui into a standalone module.
+
+- Image: `valkey/valkey:8-alpine` (pinned via `var.image_tag`)
+- Service: ClusterIP, port 6379, name `valkey`
+- No persistence required (cache/queue — loss on restart acceptable)
+- `open-webui` module updated to reference `valkey.default.svc.cluster.local:6379` and remove its own Valkey deployment/service resources
+
+Both open-webui and LangFuse use `redis://valkey.default.svc.cluster.local:6379`.
+
 ### Existing (reused, no changes)
 
 | Service | How used |
 |---|---|
 | martinibar PostgreSQL (192.168.1.10:5433) | LangFuse transactional DB |
 | SeaweedFS | S3 blob storage for LangFuse events/exports |
-| open-webui Valkey | Queue/cache for langfuse-worker |
 
 ## Claude Code Hook
 
