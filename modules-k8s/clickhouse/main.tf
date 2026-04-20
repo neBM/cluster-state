@@ -8,14 +8,14 @@ locals {
 
 resource "kubernetes_persistent_volume_claim_v1" "clickhouse_data" {
   metadata {
-    name      = "clickhouse-data-sw"
+    name      = "clickhouse-data"
     namespace = var.namespace
     labels    = local.labels
   }
 
   spec {
-    storage_class_name = "seaweedfs"
-    access_modes       = ["ReadWriteMany"]
+    storage_class_name = "local-path"
+    access_modes       = ["ReadWriteOnce"]
     resources {
       requests = {
         storage = "10Gi"
@@ -159,8 +159,8 @@ resource "kubernetes_deployment_v1" "clickhouse" {
               memory = "256Mi"
             }
             limits = {
-              cpu    = "1"
-              memory = "1Gi"
+              cpu    = "2"
+              memory = "3Gi"
             }
           }
 
