@@ -62,6 +62,13 @@ module "k8s_valkey" {
   namespace = "default"
 }
 
+# ClickHouse — OLAP trace store for LangFuse
+module "k8s_clickhouse" {
+  source = "./modules-k8s/clickhouse"
+
+  namespace = "default"
+}
+
 # CI Service Account for GitLab CI/CD pipelines
 # Provides limited RBAC permissions for Terraform to manage K8s resources
 module "k8s_ci_service_account" {
