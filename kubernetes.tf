@@ -54,6 +54,14 @@ module "k8s_seaweedfs" {
   filer_ingress_hostname  = "seaweedfs-filer.brmartin.co.uk"
 }
 
+# Valkey — Shared Redis-compatible cache
+# Used by: open-webui, langfuse
+module "k8s_valkey" {
+  source = "./modules-k8s/valkey"
+
+  namespace = "default"
+}
+
 # CI Service Account for GitLab CI/CD pipelines
 # Provides limited RBAC permissions for Terraform to manage K8s resources
 module "k8s_ci_service_account" {
