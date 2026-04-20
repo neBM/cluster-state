@@ -24,6 +24,59 @@ resource "kubernetes_persistent_volume_claim_v1" "clickhouse_data" {
   }
 }
 
+resource "kubernetes_config_map_v1" "clickhouse_config" {
+  metadata {
+    name      = "clickhouse-config"
+    namespace = var.namespace
+    labels    = local.labels
+  }
+
+  data = {
+    "cluster.xml" = <<-XML
+      <clickhouse>
+        <keeper_server>
+          <tcp_port>9181</tcp_port>
+          <server_id>1</server_id>
+          <log_storage_path>/var/lib/clickhouse/coordination/log</log_storage_path>
+          <snapshot_storage_path>/var/lib/clickhouse/coordination/snapshots</snapshot_storage_path>
+          <coordination_settings>
+            <operation_timeout_ms>10000</operation_timeout_ms>
+            <session_timeout_ms>30000</session_timeout_ms>
+            <raft_logs_level>warning</raft_logs_level>
+          </coordination_settings>
+          <raft_configuration>
+            <server>
+              <id>1</id>
+              <hostname>localhost</hostname>
+              <port>9444</port>
+            </server>
+          </raft_configuration>
+        </keeper_server>
+        <zookeeper>
+          <node>
+            <host>localhost</host>
+            <port>9181</port>
+          </node>
+        </zookeeper>
+        <remote_servers>
+          <default>
+            <shard>
+              <replica>
+                <host>localhost</host>
+                <port>9000</port>
+              </replica>
+            </shard>
+          </default>
+        </remote_servers>
+        <macros>
+          <shard>1</shard>
+          <replica>clickhouse-1</replica>
+        </macros>
+      </clickhouse>
+    XML
+  }
+}
+
 resource "kubernetes_deployment_v1" "clickhouse" {
   metadata {
     name      = local.app_name
@@ -114,12 +167,25 @@ resource "kubernetes_deployment_v1" "clickhouse" {
             name       = "clickhouse-data"
             mount_path = "/var/lib/clickhouse"
           }
+
+          volume_mount {
+            name       = "clickhouse-config"
+            mount_path = "/etc/clickhouse-server/config.d"
+            read_only  = true
+          }
         }
 
         volume {
           name = "clickhouse-data"
           persistent_volume_claim {
             claim_name = kubernetes_persistent_volume_claim_v1.clickhouse_data.metadata[0].name
+          }
+        }
+
+        volume {
+          name = "clickhouse-config"
+          config_map {
+            name = kubernetes_config_map_v1.clickhouse_config.metadata[0].name
           }
         }
       }
