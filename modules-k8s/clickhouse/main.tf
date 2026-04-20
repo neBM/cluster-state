@@ -34,6 +34,7 @@ resource "kubernetes_config_map_v1" "clickhouse_config" {
   data = {
     "cluster.xml" = <<-XML
       <clickhouse>
+        <listen_host>0.0.0.0</listen_host>
         <keeper_server>
           <tcp_port>9181</tcp_port>
           <server_id>1</server_id>
