@@ -33,7 +33,7 @@ variable "csi_provisioner_image_tag" {
   description = "CSI external-provisioner sidecar image tag"
   type        = string
   # renovate: datasource=docker depName=registry.k8s.io/sig-storage/csi-provisioner
-  default = "v3.6.4"
+  default = "v6.2.0"
 }
 
 variable "csi_attacher_image_tag" {
@@ -47,7 +47,7 @@ variable "csi_resizer_image_tag" {
   description = "CSI external-resizer sidecar image tag"
   type        = string
   # renovate: datasource=docker depName=registry.k8s.io/sig-storage/csi-resizer
-  default = "v1.14.0"
+  default = "v2.1.0"
 }
 
 variable "csi_node_registrar_image_tag" {
