@@ -29,7 +29,12 @@ shutdown_timeout = 0
   url = "https://git.brmartin.co.uk"
   token = "RUNNER_TOKEN_PLACEHOLDER"
   executor = "kubernetes"
-  # Node-local cache env vars — tools find their caches automatically, no .gitlab-ci.yml changes needed
+  # Node-local cache env vars — tools find their caches automatically, no .gitlab-ci.yml changes needed.
+  # Registry env vars — buildah/podman pick up /etc/containers/registries.conf mounted below,
+  # but pure-Go registry clients (trivy via go-containerregistry, syft via stereoscope) don't
+  # read that file. Mark the internal registry insecure here so .gitlab-ci.yml stays
+  # environment-agnostic: projects don't need to know whether they're running against a
+  # plaintext-on-443 in-cluster registry or a fully TLS-terminated external one.
   environment = [
     "MAVEN_USER_HOME=/ci-cache/m2",
     "GRADLE_USER_HOME=/ci-cache/gradle",
@@ -41,7 +46,10 @@ shutdown_timeout = 0
     "STORAGE_DRIVER=overlay",
     "DOCKER_HOST=tcp://kubedock:2475",
     "TESTCONTAINERS_RYUK_DISABLED=true",
-    "TESTCONTAINERS_CHECKS_DISABLE=true"
+    "TESTCONTAINERS_CHECKS_DISABLE=true",
+    "TRIVY_INSECURE=true",
+    "SYFT_REGISTRY_INSECURE_USE_HTTP=true",
+    "SYFT_REGISTRY_INSECURE_SKIP_TLS_VERIFY=true"
   ]
   
   [runners.kubernetes]
