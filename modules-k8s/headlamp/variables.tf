@@ -26,7 +26,7 @@ variable "image_tag" {
   description = "Container image tag"
   type        = string
   # renovate: datasource=docker depName=ghcr.io/headlamp-k8s/headlamp
-  default = "v0.40.1"
+  default = "v0.41.0"
 }
 
 variable "replicas" {

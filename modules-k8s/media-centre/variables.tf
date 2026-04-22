@@ -27,7 +27,7 @@ variable "tautulli_tag" {
   description = "Tautulli Docker image tag"
   type        = string
   # renovate: datasource=docker depName=ghcr.io/tautulli/tautulli
-  default = "v2.16.1"
+  default = "v2.17.0"
 }
 
 variable "tautulli_config_path" {

@@ -20,7 +20,7 @@ variable "image_tag" {
   description = "GitLab Runner Docker image tag"
   type        = string
   # renovate: datasource=docker depName=gitlab/gitlab-runner
-  default = "v18.8.0"
+  default = "v18.11.1"
 }
 
 variable "privileged_jobs" {
