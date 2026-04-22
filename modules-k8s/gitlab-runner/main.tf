@@ -50,24 +50,28 @@ shutdown_timeout = 0
     image = "alpine:latest"
     privileged = ${var.privileged_jobs}
     
-    # Resource defaults for build containers
+    # Resource defaults for build containers.
+    # No cpu_limit: burstable QoS lets short-lived CI jobs use full node CPU
+    # (parallel go build, golangci-lint, eslint, vite build). cpu_request is
+    # kept small for scheduling; concurrency caps total pressure per node.
+    # Go 1.22+ and golangci-lint read the cgroup cpu.max for GOMAXPROCS /
+    # worker count, so removing the limit unblocks their parallelism.
     cpu_request = "100m"
     memory_request = "512Mi"
-    cpu_limit = "2"
     memory_limit = "6Gi"
-    
+
     # Helper container resources
     helper_cpu_request = "50m"
     helper_memory_request = "128Mi"
     helper_cpu_limit = "500m"
     helper_memory_limit = "256Mi"
-    
+
     # Poll settings
     poll_interval = 3
     poll_timeout = 180
-    
+
     # Cleanup
-    cleanup_grace_period_seconds = 30
+    cleanup_grace_period_seconds = 5
     
     # Pull policy: if-not-present by default, jobs can override
     pull_policy = ["if-not-present"]
