@@ -209,17 +209,17 @@ resource "kubernetes_service_v1" "clickhouse" {
     }
 
     port {
-      name       = "http"
-      port       = 8123
+      name        = "http"
+      port        = 8123
       target_port = 8123
-      protocol   = "TCP"
+      protocol    = "TCP"
     }
 
     port {
-      name       = "native"
-      port       = 9000
+      name        = "native"
+      port        = 9000
       target_port = 9000
-      protocol   = "TCP"
+      protocol    = "TCP"
     }
 
     type = "ClusterIP"

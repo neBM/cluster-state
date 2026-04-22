@@ -9,7 +9,7 @@ variable "hostname" {
 }
 
 variable "image_tag" {
-  type    = string
+  type = string
   # renovate: datasource=docker depName=langfuse/langfuse
   default = "3"
 }
