@@ -40,7 +40,7 @@ csiAttacher:
   # you need to delete seaweedfs CSIDriver crd manually before upgrading with attacher disabled
   # also you need to delete all seaweedfs VolumeAttachment crd manually after upgrade
   enabled: true
-  image: registry.k8s.io/sig-storage/csi-attacher:v4.3.0
+  image: registry.k8s.io/sig-storage/csi-attacher:v4.11.0
   resources: {}
   livenessProbe:
     failureThreshold:
