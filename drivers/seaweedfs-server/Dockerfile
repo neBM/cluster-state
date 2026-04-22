@@ -8,7 +8,7 @@
 ARG SEAWEEDFS_COMMIT=d4cb0322979c80e9ba4fe614db118f5bb70aaee1
 ARG SEAWEEDFS_REPO=https://github.com/neBM/seaweedfs
 
-FROM golang:1.25-alpine AS builder
+FROM golang:1.26-alpine AS builder
 
 RUN apk add --no-cache git g++
 
