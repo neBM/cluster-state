@@ -99,7 +99,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
       - name: Helm check
-        uses: igabaydulin/helm-check-action@0.1.4
+        uses: igabaydulin/helm-check-action@0.2.1
         env:
           CHART_LOCATION: ./deploy/helm/seaweedfs-csi-driver
           CHART_VALUES: ./deploy/helm/seaweedfs-csi-driver/values.yaml
