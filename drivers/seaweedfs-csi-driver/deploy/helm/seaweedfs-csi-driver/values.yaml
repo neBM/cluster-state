@@ -62,7 +62,7 @@ csiNodeDriverRegistrar:
     periodSeconds: 60
 
 csiLivenessProbe:
-  image: registry.k8s.io/sig-storage/livenessprobe:v2.10.0
+  image: registry.k8s.io/sig-storage/livenessprobe:v2.18.0
   resources: {}
 
 seaweedfsCsiPlugin:
