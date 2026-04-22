@@ -20,7 +20,7 @@ jobs:
 
       - name: Docker meta (csi-driver)
         id: docker_meta_csi
-        uses: docker/metadata-action@v5
+        uses: docker/metadata-action@v6
         with:
           images: |
             chrislusf/seaweedfs-csi-driver
@@ -35,7 +35,7 @@ jobs:
 
       - name: Docker meta (mount-service)
         id: docker_meta_mount
-        uses: docker/metadata-action@v5
+        uses: docker/metadata-action@v6
         with:
           images: |
             chrislusf/seaweedfs-mount
