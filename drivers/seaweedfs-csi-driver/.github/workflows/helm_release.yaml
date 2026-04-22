@@ -18,7 +18,7 @@ jobs:
       name: helm-release
       url: https://github.com/${{ github.repository }}/releases
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       
       - name: Setup Helm
         uses: azure/setup-helm@v4
