@@ -53,7 +53,7 @@ csiSnapshotter:
   enabled: false
 
 csiNodeDriverRegistrar:
-  image: registry.k8s.io/sig-storage/csi-node-driver-registrar:v2.8.0
+  image: registry.k8s.io/sig-storage/csi-node-driver-registrar:v2.16.0
   resources: {}
   livenessProbe:
     failureThreshold:
