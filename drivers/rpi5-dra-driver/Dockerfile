@@ -7,7 +7,7 @@
 #        CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -o dist/rpi5-dra-driver-arm64 ./cmd/rpi5-dra-driver
 #        docker build --build-arg TARGETARCH=arm64 .
 
-FROM alpine:3.21
+FROM alpine:3.23
 
 ARG TARGETARCH
 COPY dist/rpi5-dra-driver-${TARGETARCH} /rpi5-dra-driver
