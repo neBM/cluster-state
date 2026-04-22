@@ -33,35 +33,35 @@ variable "csi_provisioner_image_tag" {
   description = "CSI external-provisioner sidecar image tag"
   type        = string
   # renovate: datasource=docker depName=registry.k8s.io/sig-storage/csi-provisioner
-  default = "v3.5.0"
+  default = "v3.6.4"
 }
 
 variable "csi_attacher_image_tag" {
   description = "CSI external-attacher sidecar image tag"
   type        = string
   # renovate: datasource=docker depName=registry.k8s.io/sig-storage/csi-attacher
-  default = "v4.3.0"
+  default = "v4.11.0"
 }
 
 variable "csi_resizer_image_tag" {
   description = "CSI external-resizer sidecar image tag"
   type        = string
   # renovate: datasource=docker depName=registry.k8s.io/sig-storage/csi-resizer
-  default = "v1.8.0"
+  default = "v1.14.0"
 }
 
 variable "csi_node_registrar_image_tag" {
   description = "CSI node-driver-registrar sidecar image tag"
   type        = string
   # renovate: datasource=docker depName=registry.k8s.io/sig-storage/csi-node-driver-registrar
-  default = "v2.8.0"
+  default = "v2.16.0"
 }
 
 variable "csi_liveness_probe_image_tag" {
   description = "CSI liveness probe sidecar image tag"
   type        = string
   # renovate: datasource=docker depName=registry.k8s.io/sig-storage/livenessprobe
-  default = "v2.10.0"
+  default = "v2.18.0"
 }
 
 variable "master_replicas" {

@@ -55,7 +55,7 @@ variable "synapse_tag" {
   description = "Synapse Docker image tag"
   type        = string
   # renovate: datasource=docker depName=ghcr.io/element-hq/synapse
-  default = "v1.147.1"
+  default = "v1.151.0"
 }
 
 variable "mas_image" {
@@ -68,7 +68,7 @@ variable "mas_tag" {
   description = "Matrix Authentication Service Docker image tag"
   type        = string
   # renovate: datasource=docker depName=ghcr.io/element-hq/matrix-authentication-service
-  default = "1.11.0"
+  default = "1.15.0"
 }
 
 variable "whatsapp_image" {
@@ -81,7 +81,7 @@ variable "whatsapp_tag" {
   description = "WhatsApp bridge Docker image tag"
   type        = string
   # renovate: datasource=docker depName=dock.mau.dev/mautrix/whatsapp
-  default = "v0.2602.0"
+  default = "v0.2604.0"
 }
 
 variable "element_image" {
@@ -94,7 +94,7 @@ variable "element_tag" {
   description = "Element web Docker image tag"
   type        = string
   # renovate: datasource=docker depName=docker.io/vectorim/element-web
-  default = "v1.12.10"
+  default = "v1.12.15"
 }
 
 variable "cinny_image" {
@@ -107,7 +107,7 @@ variable "cinny_tag" {
   description = "Cinny Docker image tag"
   type        = string
   # renovate: datasource=docker depName=ghcr.io/cinnyapp/cinny
-  default = "v4.10.3"
+  default = "v4.11.1"
 }
 
 variable "element_admin_image" {
@@ -132,7 +132,7 @@ variable "nginx_tag" {
   description = "Nginx Docker image tag"
   type        = string
   # renovate: datasource=docker depName=docker.io/library/nginx
-  default = "1.29.5-alpine"
+  default = "1.30.0-alpine"
 }
 
 # Database configuration
