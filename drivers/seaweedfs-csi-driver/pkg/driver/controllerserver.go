@@ -16,6 +16,7 @@ import (
 	"github.com/seaweedfs/seaweedfs-csi-driver/pkg/k8s"
 	"github.com/seaweedfs/seaweedfs/weed/glog"
 	"github.com/seaweedfs/seaweedfs/weed/pb/filer_pb"
+	"github.com/seaweedfs/seaweedfs/weed/s3api/s3_constants"
 	"github.com/seaweedfs/seaweedfs/weed/s3api/s3bucket"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -114,6 +115,12 @@ func (cs *ControllerServer) CreateVolume(ctx context.Context, req *csi.CreateVol
 
 	// Mkdir fn stamps the root inode's attrs at creation so the first getattr
 	// after `weed mount` returns them. No-op when nothing is resolved.
+	//
+	// Also stamps Seaweed-X-Amz-Allow-Empty-Folders=true so the filer's
+	// EmptyFolderCleaner (enabled by default for any dir under /buckets/)
+	// leaves empty sub-dirs alone. Without this, consumers that rely on
+	// persistent empty dirs (e.g. gitaly's refs/heads/ between pack-refs
+	// housekeeping cycles) lose those dirs and break.
 	mkdirFn := func(entry *filer_pb.Entry) {
 		if entry.Attributes == nil {
 			entry.Attributes = &filer_pb.FuseAttributes{}
@@ -127,6 +134,10 @@ func (cs *ControllerServer) CreateVolume(ctx context.Context, req *csi.CreateVol
 		if mountRootUid != nil || mountRootGid != nil {
 			entry.Attributes.FileMode = uint32(0770) | uint32(os.ModeDir)
 		}
+		if entry.Extended == nil {
+			entry.Extended = map[string][]byte{}
+		}
+		entry.Extended[s3_constants.ExtAllowEmptyFolders] = []byte("true")
 	}
 
 	if err := mkdirFunc(ctx, cs.Driver, parentDir, volumeName, mkdirFn); err != nil {

@@ -14,7 +14,7 @@ variable "seaweedfs_image_tag" {
 variable "csi_driver_image_tag" {
   description = "SeaweedFS CSI driver image tag"
   type        = string
-  default     = "v0.1.11"
+  default     = "v0.1.12"
 }
 
 variable "csi_mount_image_tag" {

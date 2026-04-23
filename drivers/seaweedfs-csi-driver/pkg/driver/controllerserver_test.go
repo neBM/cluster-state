@@ -8,6 +8,7 @@ import (
 
 	"github.com/container-storage-interface/spec/lib/go/csi"
 	"github.com/seaweedfs/seaweedfs/weed/pb/filer_pb"
+	"github.com/seaweedfs/seaweedfs/weed/s3api/s3_constants"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -89,6 +90,44 @@ func newTestControllerServer(t *testing.T) *ControllerServer {
 		csi.ControllerServiceCapability_RPC_CREATE_DELETE_VOLUME,
 	})
 	return &ControllerServer{Driver: d}
+}
+
+// All CreateVolume calls must stamp Seaweed-X-Amz-Allow-Empty-Folders=true
+// on the bucket entry. Without this, the filer's EmptyFolderCleaner (enabled
+// by default for any path under /buckets/) reaps empty sub-dirs ~2min after
+// they go empty, breaking consumers like gitaly that keep refs/heads/ empty
+// between pack-refs housekeeping cycles.
+func TestCreateVolume_SetsAllowEmptyFoldersAttr(t *testing.T) {
+	var captured *filer_pb.Entry
+	origMkdir := mkdirFunc
+	mkdirFunc = func(ctx context.Context, fc filer_pb.FilerClient, parent, name string, fn func(*filer_pb.Entry)) error {
+		entry := &filer_pb.Entry{Attributes: &filer_pb.FuseAttributes{}}
+		if fn != nil {
+			fn(entry)
+		}
+		captured = entry
+		return nil
+	}
+	t.Cleanup(func() { mkdirFunc = origMkdir })
+
+	cs := newTestControllerServer(t)
+	_, err := cs.CreateVolume(context.Background(), &csi.CreateVolumeRequest{
+		Name: "some-bucket",
+		VolumeCapabilities: []*csi.VolumeCapability{{
+			AccessType: &csi.VolumeCapability_Mount{Mount: &csi.VolumeCapability_MountVolume{}},
+			AccessMode: &csi.VolumeCapability_AccessMode{Mode: csi.VolumeCapability_AccessMode_SINGLE_NODE_WRITER},
+		}},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if captured == nil {
+		t.Fatal("Mkdir fn was not invoked")
+	}
+	got := string(captured.Extended[s3_constants.ExtAllowEmptyFolders])
+	if got != "true" {
+		t.Errorf("%s: got %q, want %q", s3_constants.ExtAllowEmptyFolders, got, "true")
+	}
 }
 
 func TestCreateVolume_ResolvesPVCAnnotations(t *testing.T) {
