@@ -8,5 +8,5 @@ variable "image_tag" {
   description = "ClickHouse server image tag"
   type        = string
   # renovate: datasource=docker depName=clickhouse/clickhouse-server
-  default = "24.12-alpine"
+  default = "26.3-alpine"
 }

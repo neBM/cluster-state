@@ -20,7 +20,7 @@ variable "nextcloud_tag" {
   description = "Docker image tag for Nextcloud"
   type        = string
   # renovate: datasource=docker depName=nextcloud
-  default = "32"
+  default = "33"
 }
 
 variable "redis_image" {
