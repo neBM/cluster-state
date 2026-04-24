@@ -1,4 +1,4 @@
-ARG SEAWEEDFS_COMMIT=d4cb0322979c
+ARG SEAWEEDFS_COMMIT=2df29443f380
 ARG SEAWEEDFS_REPO=https://github.com/neBM/seaweedfs
 
 FROM golang:1.26-alpine AS builder

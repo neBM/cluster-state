@@ -5,10 +5,10 @@ variable "namespace" {
 }
 
 variable "seaweedfs_image_tag" {
-  description = "SeaweedFS image tag. Pinned to neBM fork build (v0.1.11 vidMap invalidation fix) until the fork PR lands upstream. Image must be sideloaded via drivers/seaweedfs-server/Makefile — not available on Docker Hub. See memory/project_seaweedfs_fork_pin_and_upstream_cleanup.md."
+  description = "SeaweedFS image tag. Pinned to neBM fork build (v0.1.11 vidMap invalidation fix + EmptyFolderCleaner default-off) until the fork PRs land upstream. Image must be sideloaded via drivers/seaweedfs-server/Makefile — not available on Docker Hub. See memory/project_seaweedfs_fork_pin_and_upstream_cleanup.md."
   type        = string
   # renovate: ignore — fork build, not a Docker Hub tag
-  default = "4.18-nebm-d4cb0322"
+  default = "4.18-nebm-2df29443"
 }
 
 variable "csi_driver_image_tag" {

@@ -2,8 +2,8 @@
 # go.mod for reproducibility. Override via:
 #   docker build --build-arg SEAWEEDFS_COMMIT=<hash> --build-arg SEAWEEDFS_REPO=<url>
 # Currently pinned to neBM fork which carries the vidMap stale-relookup fix
-# until it lands upstream.
-ARG SEAWEEDFS_COMMIT=d4cb0322979c
+# and the EmptyFolderCleaner default-off fix until they land upstream.
+ARG SEAWEEDFS_COMMIT=2df29443f380
 ARG SEAWEEDFS_REPO=https://github.com/neBM/seaweedfs
 
 FROM golang:1.26-alpine AS builder

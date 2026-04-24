@@ -101,4 +101,4 @@ require (
 	sigs.k8s.io/yaml v1.6.0 // indirect
 )
 
-replace github.com/seaweedfs/seaweedfs => github.com/neBM/seaweedfs v0.0.0-20260411220043-d4cb0322979c
+replace github.com/seaweedfs/seaweedfs => github.com/neBM/seaweedfs v0.0.0-20260424224503-2df29443f380
