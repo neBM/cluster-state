@@ -16,7 +16,7 @@ terraform {
 }
 
 provider "helm" {
-  kubernetes {
+  kubernetes = {
     config_path    = pathexpand(var.k8s_config_path)
     config_context = "default"
   }
