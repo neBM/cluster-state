@@ -57,48 +57,7 @@ locals {
       sleep 5
     done
 
-    python manage.py shell <<'PY'
-    import os
-    from django.contrib.auth import get_user_model
-    from django.contrib.sites.models import Site
-    from allauth.socialaccount.models import SocialApp
-
-    username = os.environ["DJANGO_SUPERUSER_USERNAME"]
-    email = os.environ["DJANGO_SUPERUSER_EMAIL"]
-    password = os.environ["DJANGO_SUPERUSER_PASSWORD"]
-    site_domain = os.environ["GLITCHTIP_DOMAIN"].split("://", 1)[1].rstrip("/")
-    oidc_server_url = os.environ["OIDC_SERVER_URL"]
-
-    User = get_user_model()
-    user, _ = User.objects.get_or_create(
-        username=username,
-        defaults={"email": email, "is_staff": True, "is_superuser": True},
-    )
-    user.email = email
-    user.is_staff = True
-    user.is_superuser = True
-    user.set_password(password)
-    user.save()
-
-    site, _ = Site.objects.update_or_create(
-        pk=1,
-        defaults={"domain": site_domain, "name": "GlitchTip"},
-    )
-
-    app, _ = SocialApp.objects.update_or_create(
-        provider="openid_connect",
-        provider_id="keycloak",
-        defaults={
-            "name": "Keycloak",
-            "client_id": os.environ["OIDC_CLIENT_ID"],
-            "secret": os.environ["OIDC_CLIENT_SECRET"],
-            "settings": {
-                "server_url": oidc_server_url,
-            },
-        },
-    )
-    app.sites.set([site])
-    PY
+    python -c 'import os; os.environ.setdefault("DJANGO_SETTINGS_MODULE", "glitchtip.settings"); import django; django.setup(); from django.contrib.auth import get_user_model; from allauth.socialaccount.models import SocialApp; superuser_name=os.environ["DJANGO_SUPERUSER_USERNAME"]; email=os.environ["DJANGO_SUPERUSER_EMAIL"]; password=os.environ["DJANGO_SUPERUSER_PASSWORD"]; oidc_server_url=os.environ["OIDC_SERVER_URL"]; User=get_user_model(); user, _=User.objects.get_or_create(email=email, defaults={"name": superuser_name, "is_staff": True, "is_superuser": True}); user.name=superuser_name; user.email=email; user.is_staff=True; user.is_superuser=True; user.set_password(password); user.save(); SocialApp.objects.update_or_create(provider="openid_connect", provider_id="keycloak", defaults={"name": "Keycloak", "client_id": os.environ["OIDC_CLIENT_ID"], "secret": os.environ["OIDC_CLIENT_SECRET"], "settings": {"server_url": oidc_server_url}})'
   EOF
 
   oidc_server_url = "https://sso.brmartin.co.uk/realms/prod/.well-known/openid-configuration"
@@ -299,6 +258,10 @@ resource "kubernetes_deployment_v1" "glitchtip" {
             http_get {
               path = "/"
               port = 8000
+              http_header {
+                name  = "Host"
+                value = var.hostname
+              }
             }
             initial_delay_seconds = 60
             period_seconds        = 30
@@ -309,6 +272,10 @@ resource "kubernetes_deployment_v1" "glitchtip" {
             http_get {
               path = "/"
               port = 8000
+              http_header {
+                name  = "Host"
+                value = var.hostname
+              }
             }
             initial_delay_seconds = 30
             period_seconds        = 10
@@ -325,5 +292,7 @@ resource "kubernetes_deployment_v1" "glitchtip" {
       }
     }
   }
+
+  depends_on = [kubernetes_persistent_volume_claim_v1.uploads]
 
 }

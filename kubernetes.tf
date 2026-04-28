@@ -176,6 +176,15 @@ module "k8s_keycloak" {
   db_port   = "5433"
 }
 
+# GlitchTip - error tracking
+# Uses external PostgreSQL on martinibar.lan, shared Valkey, SeaweedFS uploads, and Keycloak OIDC
+module "k8s_glitchtip" {
+  source = "./modules-k8s/glitchtip"
+
+  namespace = "default"
+  hostname  = "glitchtip.brmartin.co.uk"
+}
+
 # Athenaeum - FastAPI + Vue 3 Wiki Application
 # Multi-component app: backend (FastAPI), frontend (Vue 3), redis
 # Uses external PostgreSQL on martinibar, Keycloak for auth, MinIO for attachments
@@ -475,4 +484,3 @@ module "k8s_rpi_throttle_monitor" {
 # DaemonSet pod unable to signal anything, and because hardware watchdog
 # single-holder semantics don't map cleanly onto pod restarts. Terraform
 # modules removed 2026-04-14.
-
