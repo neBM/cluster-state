@@ -44,6 +44,63 @@ locals {
     },
   ]
 
+  secret_env_from = [
+    "glitchtip-secrets",
+    "glitchtip-oidc-secret",
+  ]
+
+  bootstrap_script = <<-EOF
+    set -eu
+
+    until python manage.py migrate --noinput; do
+      echo "Waiting for PostgreSQL..."
+      sleep 5
+    done
+
+    python manage.py shell <<'PY'
+    import os
+    from django.contrib.auth import get_user_model
+    from django.contrib.sites.models import Site
+    from allauth.socialaccount.models import SocialApp
+
+    username = os.environ["DJANGO_SUPERUSER_USERNAME"]
+    email = os.environ["DJANGO_SUPERUSER_EMAIL"]
+    password = os.environ["DJANGO_SUPERUSER_PASSWORD"]
+    site_domain = os.environ["GLITCHTIP_DOMAIN"].split("://", 1)[1].rstrip("/")
+    oidc_server_url = os.environ["OIDC_SERVER_URL"]
+
+    User = get_user_model()
+    user, _ = User.objects.get_or_create(
+        username=username,
+        defaults={"email": email, "is_staff": True, "is_superuser": True},
+    )
+    user.email = email
+    user.is_staff = True
+    user.is_superuser = True
+    user.set_password(password)
+    user.save()
+
+    site, _ = Site.objects.update_or_create(
+        pk=1,
+        defaults={"domain": site_domain, "name": "GlitchTip"},
+    )
+
+    app, _ = SocialApp.objects.update_or_create(
+        provider="openid_connect",
+        provider_id="keycloak",
+        defaults={
+            "name": "Keycloak",
+            "client_id": os.environ["OIDC_CLIENT_ID"],
+            "secret": os.environ["OIDC_CLIENT_SECRET"],
+            "settings": {
+                "server_url": oidc_server_url,
+            },
+        },
+    )
+    app.sites.set([site])
+    PY
+  EOF
+
   oidc_server_url = "https://sso.brmartin.co.uk/realms/prod/.well-known/openid-configuration"
 }
 
@@ -160,58 +217,7 @@ resource "kubernetes_deployment_v1" "glitchtip" {
           image = "glitchtip/glitchtip:${var.image_tag}"
 
           command = ["/bin/sh", "-ec"]
-          args = [<<-EOF
-            set -eu
-
-            until python manage.py migrate --noinput; do
-              echo "Waiting for PostgreSQL..."
-              sleep 5
-            done
-
-            python manage.py shell <<'PY'
-            import os
-            from django.contrib.auth import get_user_model
-            from django.contrib.sites.models import Site
-            from allauth.socialaccount.models import SocialApp
-
-            username = os.environ["DJANGO_SUPERUSER_USERNAME"]
-            email = os.environ["DJANGO_SUPERUSER_EMAIL"]
-            password = os.environ["DJANGO_SUPERUSER_PASSWORD"]
-            site_domain = os.environ["GLITCHTIP_DOMAIN"].split("://", 1)[1].rstrip("/")
-            oidc_server_url = os.environ["OIDC_SERVER_URL"]
-
-            User = get_user_model()
-            user, _ = User.objects.get_or_create(
-                username=username,
-                defaults={"email": email, "is_staff": True, "is_superuser": True},
-            )
-            user.email = email
-            user.is_staff = True
-            user.is_superuser = True
-            user.set_password(password)
-            user.save()
-
-            site, _ = Site.objects.update_or_create(
-                pk=1,
-                defaults={"domain": site_domain, "name": "GlitchTip"},
-            )
-
-            app, _ = SocialApp.objects.update_or_create(
-                provider="openid_connect",
-                provider_id="keycloak",
-                defaults={
-                    "name": "Keycloak",
-                    "client_id": os.environ["OIDC_CLIENT_ID"],
-                    "secret": os.environ["OIDC_CLIENT_SECRET"],
-                    "settings": {
-                        "server_url": oidc_server_url,
-                    },
-                },
-            )
-            app.sites.set([site])
-            PY
-          EOF
-          ]
+          args    = [local.bootstrap_script]
 
           dynamic "env" {
             for_each = local.common_env
@@ -226,15 +232,12 @@ resource "kubernetes_deployment_v1" "glitchtip" {
             value = local.oidc_server_url
           }
 
-          env_from {
-            secret_ref {
-              name = "glitchtip-secrets"
-            }
-          }
-
-          env_from {
-            secret_ref {
-              name = "glitchtip-oidc-secret"
+          dynamic "env_from" {
+            for_each = toset(local.secret_env_from)
+            content {
+              secret_ref {
+                name = env_from.value
+              }
             }
           }
 
@@ -267,15 +270,12 @@ resource "kubernetes_deployment_v1" "glitchtip" {
             }
           }
 
-          env_from {
-            secret_ref {
-              name = "glitchtip-secrets"
-            }
-          }
-
-          env_from {
-            secret_ref {
-              name = "glitchtip-oidc-secret"
+          dynamic "env_from" {
+            for_each = toset(local.secret_env_from)
+            content {
+              secret_ref {
+                name = env_from.value
+              }
             }
           }
 
@@ -326,5 +326,4 @@ resource "kubernetes_deployment_v1" "glitchtip" {
     }
   }
 
-  depends_on = [kubernetes_persistent_volume_claim_v1.uploads]
 }
