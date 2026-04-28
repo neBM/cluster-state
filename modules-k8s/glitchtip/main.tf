@@ -161,7 +161,7 @@ resource "kubernetes_deployment_v1" "glitchtip" {
 
           command = ["/bin/sh", "-ec"]
           args = [<<-EOF
-            set -euo pipefail
+            set -eu
 
             until python manage.py migrate --noinput; do
               echo "Waiting for PostgreSQL..."
@@ -270,12 +270,6 @@ resource "kubernetes_deployment_v1" "glitchtip" {
           env_from {
             secret_ref {
               name = "glitchtip-secrets"
-            }
-          }
-
-          env_from {
-            secret_ref {
-              name = "glitchtip-oidc-secret"
             }
           }
 
