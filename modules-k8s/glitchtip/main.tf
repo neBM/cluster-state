@@ -273,6 +273,12 @@ resource "kubernetes_deployment_v1" "glitchtip" {
             }
           }
 
+          env_from {
+            secret_ref {
+              name = "glitchtip-oidc-secret"
+            }
+          }
+
           volume_mount {
             name       = "uploads"
             mount_path = "/code/uploads"

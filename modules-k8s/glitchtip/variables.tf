@@ -14,5 +14,5 @@ variable "image_tag" {
   description = "GlitchTip container image tag"
   type        = string
   # renovate: datasource=docker depName=glitchtip/glitchtip
-  default     = "6.1.5"
+  default = "6.1.5"
 }
