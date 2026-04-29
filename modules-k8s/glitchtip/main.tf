@@ -42,6 +42,10 @@ locals {
       name  = "LOG_LEVEL"
       value = "INFO"
     },
+    {
+      name  = "GLITCHTIP_ENABLE_MCP"
+      value = "true"
+    },
   ]
 
   secret_env_from = [
