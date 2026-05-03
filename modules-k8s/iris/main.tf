@@ -174,6 +174,9 @@ resource "kubectl_manifest" "iris_transcode_claim_template" {
 }
 
 resource "kubectl_manifest" "iris" {
+  # Iris needs an exclusive transcode device claim. With a single replica,
+  # surge-based rollouts deadlock because the old pod keeps the only matching
+  # device allocated until it is terminated.
   yaml_body = yamlencode({
     apiVersion = "apps/v1"
     kind       = "Deployment"
@@ -184,6 +187,9 @@ resource "kubectl_manifest" "iris" {
     }
     spec = {
       replicas = 1
+      strategy = {
+        type = "Recreate"
+      }
       selector = { matchLabels = local.server_labels }
       template = {
         metadata = { labels = local.server_labels }
