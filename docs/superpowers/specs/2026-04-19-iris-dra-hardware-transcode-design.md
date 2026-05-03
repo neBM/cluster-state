@@ -104,7 +104,7 @@ New Terraform module, applied once. Defines:
 ### 4. Workload Migration
 
 **Iris (`modules-k8s/iris/`):**
-- Add `ResourceClaimTemplate` (`iris-transcode-hw` DeviceClass, 1 device)
+- Add shared `ResourceClaim` (`iris-transcode-hw` DeviceClass, 1 device)
 - Add `resource_claims` reference on pod template
 - No changes to CPU/memory resources
 

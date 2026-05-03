@@ -155,28 +155,25 @@ resource "kubernetes_service" "valkey" {
 # the hashicorp/kubernetes provider does not support this field.
 # =============================================================================
 
-resource "kubectl_manifest" "iris_transcode_claim_template" {
+resource "kubectl_manifest" "iris_transcode_claim" {
   yaml_body = yamlencode({
     apiVersion = "resource.k8s.io/v1"
-    kind       = "ResourceClaimTemplate"
+    kind       = "ResourceClaim"
     metadata = {
-      name      = "iris-transcode-hw"
+      name      = "iris-transcode"
       namespace = var.namespace
     }
     spec = {
-      spec = {
-        devices = {
-          requests = [{ name = "transcode", exactly = { deviceClassName = "iris-transcode-hw" } }]
-        }
+      devices = {
+        requests = [{ name = "transcode", exactly = { deviceClassName = "iris-transcode-hw" } }]
       }
     }
   })
 }
 
 resource "kubectl_manifest" "iris" {
-  # Iris needs an exclusive transcode device claim. With a single replica,
-  # surge-based rollouts deadlock because the old pod keeps the only matching
-  # device allocated until it is terminated.
+  # Iris references a shared static claim so rollout overlap can reuse the same
+  # allocation instead of generating a second competing claim.
   yaml_body = yamlencode({
     apiVersion = "apps/v1"
     kind       = "Deployment"
@@ -187,17 +184,14 @@ resource "kubectl_manifest" "iris" {
     }
     spec = {
       replicas = 1
-      strategy = {
-        type = "Recreate"
-      }
       selector = { matchLabels = local.server_labels }
       template = {
         metadata = { labels = local.server_labels }
         spec = {
           imagePullSecrets = [{ name = "gitlab-registry" }]
           resourceClaims = [{
-            name                      = "transcode"
-            resourceClaimTemplateName = "iris-transcode-hw"
+            name              = "transcode"
+            resourceClaimName = "iris-transcode"
           }]
           containers = [{
             name            = "iris"
@@ -274,7 +268,7 @@ resource "kubectl_manifest" "iris" {
   })
 
   depends_on = [
-    kubectl_manifest.iris_transcode_claim_template,
+    kubectl_manifest.iris_transcode_claim,
     kubernetes_service.valkey,
   ]
 }
