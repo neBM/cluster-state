@@ -122,7 +122,7 @@ Postfix's in-flight message queue. Stored on the Postfix PVC.
 │    └─ hostPort 25/465/587                                           │
 │    └─ nodeSelector: hestia                                          │
 │    └─ configmap: postfix-config (virtual domains, alias maps)      │
-│    └─ secret: mail-tls (wildcard cert)                              │
+│    └─ secret: wildcard-brmartin-tls (wildcard cert)                │
 │    └─ pvc: postfix-spool (queue)                                    │
 │    └─ Service: postfix (ClusterIP for LMTP coordination)            │
 │                                                                     │
@@ -130,7 +130,7 @@ Postfix's in-flight message queue. Stored on the Postfix PVC.
 │    └─ hostPort 143/993/110/995/4190                                 │
 │    └─ nodeSelector: hestia                                          │
 │    └─ configmap: dovecot-ldap (LDAP bind config)                   │
-│    └─ secret: mail-tls (wildcard cert)                              │
+│    └─ secret: wildcard-brmartin-tls (wildcard cert)                │
 │    └─ pvc: dovecot-mailboxes (Maildir data)                        │
 │    └─ emptyDir: dovecot-indexes (rebuilt on restart)               │
 │    └─ Service: dovecot (ClusterIP for Postfix LMTP + SASL)         │
@@ -161,7 +161,7 @@ Postfix's in-flight message queue. Stored on the Postfix PVC.
 |-------------|-----------|----------|--------|
 | `lldap-secrets` | default | `LLDAP_JWT_SECRET`, `LLDAP_KEY_SEED` | Generated |
 | `lldap-db-secret` | default | `LLDAP_DATABASE_URL` (PostgreSQL DSN) | Generated |
-| `mail-tls` | default | `tls.crt`, `tls.key` (wildcard cert) | Copy of `traefik/wildcard-brmartin-tls` |
+| `wildcard-brmartin-tls` | default | `tls.crt`, `tls.key` (wildcard cert) | cert-manager `Certificate` |
 | `dkim-keys` | default | `brmartin.co.uk.dkim.key`, `martinilink.co.uk.dkim.key` | Extracted from mailcow Redis |
 | `postfix-ldap-secret` | default | LDAP bind password for Postfix LDAP lookups | Generated |
 | `dovecot-ldap-secret` | default | LDAP bind password for Dovecot auth | Generated |

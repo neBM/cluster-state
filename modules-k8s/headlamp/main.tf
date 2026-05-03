@@ -1,6 +1,37 @@
 locals {
   app_name  = var.app_name
   namespace = var.namespace
+  kubeconfig = yamlencode({
+    apiVersion = "v1"
+    kind       = "Config"
+    clusters = [
+      {
+        name = "in-cluster"
+        cluster = {
+          server                  = "https://kubernetes.default.svc"
+          "certificate-authority" = "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
+        }
+      }
+    ]
+    users = [
+      {
+        name = "headlamp"
+        user = {
+          tokenFile = "/var/run/secrets/kubernetes.io/serviceaccount/token"
+        }
+      }
+    ]
+    contexts = [
+      {
+        name = "service-account"
+        context = {
+          cluster = "in-cluster"
+          user    = "headlamp"
+        }
+      }
+    ]
+    "current-context" = "service-account"
+  })
 
   labels = {
     "app.kubernetes.io/name"       = local.app_name
@@ -12,6 +43,23 @@ locals {
   selector_labels = {
     "app.kubernetes.io/name"     = local.app_name
     "app.kubernetes.io/instance" = local.app_name
+  }
+}
+
+# -----------------------------------------------------------------------------
+# Kubeconfig
+# Keep Headlamp's Kubernetes client on the pod service account so browser OIDC
+# login only gates access to the UI and does not have to double as cluster auth.
+# -----------------------------------------------------------------------------
+resource "kubernetes_config_map" "headlamp_kubeconfig" {
+  metadata {
+    name      = "${local.app_name}-kubeconfig"
+    namespace = local.namespace
+    labels    = local.labels
+  }
+
+  data = {
+    config = local.kubeconfig
   }
 }
 
@@ -53,10 +101,14 @@ resource "kubernetes_deployment" "headlamp" {
           args = [
             "-in-cluster",
             "-plugins-dir=/headlamp/plugins",
+            "-kubeconfig=/home/headlamp/.config/Headlamp/kubeconfigs/config",
+            "-skipped-kube-contexts=service-account",
             "-oidc-client-id=${var.oidc_client_id}",
             "-oidc-client-secret=$(OIDC_CLIENT_SECRET)",
             "-oidc-idp-issuer-url=${var.oidc_issuer_url}",
             "-oidc-scopes=${var.oidc_scopes}",
+            "-oidc-validator-client-id=${var.oidc_client_id}",
+            "-oidc-validator-idp-issuer-url=${var.oidc_issuer_url}",
             "-oidc-callback-url=https://${var.ingress_hostname}/oidc-callback",
             "-log-level=debug",
           ]
@@ -126,10 +178,24 @@ resource "kubernetes_deployment" "headlamp" {
               drop = ["ALL"]
             }
           }
+
+          volume_mount {
+            name       = "kubeconfig"
+            mount_path = "/home/headlamp/.config/Headlamp/kubeconfigs/config"
+            sub_path   = "config"
+            read_only  = true
+          }
         }
 
         node_selector = {
           "kubernetes.io/os" = "linux"
+        }
+
+        volume {
+          name = "kubeconfig"
+          config_map {
+            name = kubernetes_config_map.headlamp_kubeconfig.metadata[0].name
+          }
         }
       }
     }

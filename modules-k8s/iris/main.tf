@@ -7,7 +7,7 @@
 # External dependencies (must exist before apply):
 #   PostgreSQL  — martinibar.lan:5433, database "iris", user "iris"
 #   Vault       — nomad/default/iris (DATABASE_URL, TMDB_API_KEY, TVDB_API_KEY)
-#   Keycloak    — prod realm, client "iris-api"
+#   OIDC        — prod realm, client "iris-api"
 #   NFS media   — var.media_nfs_server:var.media_nfs_path, mounted read-only at /media
 
 locals {
@@ -208,8 +208,8 @@ resource "kubectl_manifest" "iris" {
               { name = "REDIS_URL", value = "redis://iris-valkey.${var.namespace}.svc.cluster.local:6379/0" },
               { name = "AUTH_PROVIDERS", value = var.auth_providers },
               { name = "LOCAL_AUTH_SESSION_TTL_SECONDS", value = tostring(var.local_auth_session_ttl_seconds) },
-              { name = "KEYCLOAK_ISSUER_URL", value = var.keycloak_issuer_url },
-              { name = "KEYCLOAK_AUDIENCE", value = var.keycloak_audience },
+              { name = "OIDC_ISSUER_URL", value = var.oidc_issuer_url },
+              { name = "OIDC_AUDIENCE", value = var.oidc_audience },
               { name = "OIDC_ADMIN_CLAIM", value = var.oidc_admin_claim },
               { name = "OIDC_ADMIN_VALUE", value = var.oidc_admin_value },
               { name = "OIDC_CLIENT_ID", value = var.oidc_client_id },

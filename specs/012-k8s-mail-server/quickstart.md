@@ -14,7 +14,10 @@ This document is the operator runbook for deploying and migrating to the new Kub
 3. SSH access to Hestia: `/usr/bin/ssh 192.168.1.5`
 4. Keycloak admin access: https://sso.brmartin.co.uk
 5. lldap web UI will be at: https://ldap.brmartin.co.uk (after deploy)
-6. Wildcard TLS secret available in `default` namespace (verify: `kubectl get secret wildcard-brmartin-tls -n default`)
+6. cert-manager is installed, `cloudflare-api-token-secret` exists in the `cert-manager` namespace, and the wildcard certificate is Ready in `default` (and `kube-system` for Hubble UI / Headlamp). Verify with:
+   `kubectl get secret cloudflare-api-token-secret -n cert-manager`
+   `kubectl wait --for=condition=Ready certificate/wildcard-brmartin-tls -n default --timeout=300s`
+   and `kubectl get secret wildcard-brmartin-tls -n default`
 7. External PostgreSQL accessible: `192.168.1.10:5433` (verify: `psql -h 192.168.1.10 -p 5433 -U postgres`)
 
 ---

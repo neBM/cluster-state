@@ -87,6 +87,12 @@ module "k8s_ci_service_account" {
   service_account_name = "terraform-ci"
 }
 
+# cert-manager - ACME certificates for Kubernetes ingresses and mail TLS
+# Reloader restarts mail pods when the wildcard secret renews
+module "k8s_cert_manager" {
+  source = "./modules-k8s/cert-manager"
+}
+
 # Goldilocks - Automatic VPA creation and recommendations
 # Creates VPAs for all Deployments/StatefulSets in labeled namespaces
 # VPAs start in "Off" mode (recommendations only, no auto-scaling)
@@ -120,9 +126,7 @@ module "k8s_searxng" {
 
 # Hubble UI - Cilium network flow visualization
 # Protected by OAuth via external Traefik middleware
-# Note: TLS secret must be copied to kube-system namespace manually:
-#   kubectl get secret -n traefik wildcard-brmartin-tls -o yaml | \
-#     sed 's/namespace: traefik/namespace: kube-system/' | kubectl apply -f -
+# TLS secret is cert-manager-managed as wildcard-brmartin-tls in kube-system.
 module "k8s_hubble_ui" {
   source = "./modules-k8s/hubble-ui"
 
@@ -416,7 +420,8 @@ module "k8s_lldap" {
 # mail - Kubernetes-native mail stack (Postfix + Dovecot + Rspamd + Redis + SoGO)
 # Secrets pre-created with kubectl — see modules-k8s/mail/secrets.tf
 module "k8s_mail" {
-  source = "./modules-k8s/mail"
+  source     = "./modules-k8s/mail"
+  depends_on = [module.k8s_cert_manager]
 
   namespace    = "default"
   hostname     = "mail.brmartin.co.uk"

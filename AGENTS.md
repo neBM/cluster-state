@@ -255,13 +255,12 @@ kubectl exec -n default dovecot-0 -- doveadm log errors
 
 **Migrate a new mailbox** (if mailcow-encrypted source): Use the dovecot-decrypt container pattern — see TASK notes in `specs/012-k8s-mail-server/tasks.md`. Plain Maildir sources: `rsync -av --chown=5000:5000 <src>/Maildir/ /storage/v/glusterfs_dovecot_mailboxes/<domain>/<user>/Maildir/`
 
-**mail-tls secret renewal**: When the wildcard cert renews, re-copy to default namespace:
+**wildcard TLS renewal**: cert-manager manages `wildcard-brmartin-tls` in the `default` and `kube-system` namespaces. Reloader restarts mail pods when the secret changes.
 ```bash
-kubectl get secret wildcard-brmartin-tls -n traefik -o yaml \
-  | sed 's/namespace: traefik/namespace: default/' \
-  | kubectl apply -f -
-kubectl delete pod dovecot-0 -n default  # restart to reload TLS cert
-kubectl rollout restart deployment/postfix -n default
+kubectl get certificate wildcard-brmartin-tls -n default
+kubectl get certificate wildcard-brmartin-tls -n kube-system
+kubectl describe certificate wildcard-brmartin-tls -n default
+kubectl get secret wildcard-brmartin-tls -n default -o yaml
 ```
 
 ### Litestream Issues
@@ -547,7 +546,7 @@ glab api "projects/<id>/pipelines?ref=main&status=success&per_page=1"
 | plex | StatefulSet | Media server, NVIDIA GPU, sqlite3 .backup CronJob to MinIO |
 
 | lldap | Deployment | Lightweight LDAP — user/group store for mail stack; admin UI at ldap.brmartin.co.uk (local admin credentials); Keycloak federates users READ_ONLY |
-| mail | Multiple | Postfix (SMTP), Dovecot (IMAP/POP3/LMTP), Rspamd (spam+DKIM), SoGO (webmail), mail-redis; mailboxes on glusterfs-nfs PVC; DKIM keys in `dkim-keys` Secret; TLS via `mail-tls` Secret; mail ports via hostPort on Hestia |
+| mail | Multiple | Postfix (SMTP), Dovecot (IMAP/POP3/LMTP), Rspamd (spam+DKIM), SoGO (webmail), mail-redis; mailboxes on glusterfs-nfs PVC; DKIM keys in `dkim-keys` Secret; TLS via cert-manager-managed `wildcard-brmartin-tls` Secret; mail ports via hostPort on Hestia |
 | tautulli | Deployment | Plex monitoring/statistics |
 | loki | Deployment | Log aggregation backend (MinIO-backed S3 storage, 30-day retention) |
 | alloy | DaemonSet | Log collection — tails pod logs + journal + syslog on all 3 nodes, ships to Loki |

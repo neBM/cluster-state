@@ -1,4 +1,6 @@
 # Mail stack secrets must be created manually before applying this module.
+# The wildcard TLS cert is issued by cert-manager as `wildcard-brmartin-tls`
+# in the `default` namespace and is mounted directly by Postfix/Dovecot.
 #
 # ─── Cluster app SMTP service accounts ────────────────────────────────────────
 # Each cluster app that sends mail gets a dedicated lldap service account in the
@@ -72,13 +74,11 @@
 #   kubectl create secret generic sogo-ldap-secret -n default \
 #     --from-literal=LDAP_BIND_PW="<password>"
 #
-# Wildcard TLS cert (copy from traefik namespace):
-#   kubectl get secret wildcard-brmartin-tls -n traefik -o yaml \
-#     | sed 's/namespace: traefik/namespace: default/' \
-#     | kubectl apply -f - && \
-#   kubectl get secret wildcard-brmartin-tls -n default -o json \
-#     | jq '.metadata.name = "mail-tls"' \
-#     | kubectl apply -f -
+# Wildcard TLS cert:
+#   cert-manager keeps `wildcard-brmartin-tls` current automatically.
+#   Verify with:
+#     kubectl get certificate wildcard-brmartin-tls -n default
+#     kubectl get secret wildcard-brmartin-tls -n default
 
 data "kubernetes_secret" "dkim_keys" {
   metadata {

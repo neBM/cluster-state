@@ -41,38 +41,38 @@ variable "local_auth_session_ttl_seconds" {
   default     = 86400
 }
 
-variable "keycloak_issuer_url" {
-  description = "Keycloak OIDC issuer URL used for JWT validation. Required when auth_mode = 'oidc'."
+variable "oidc_issuer_url" {
+  description = "OIDC issuer URL used for JWT validation. Required when auth_providers includes 'oidc'."
   type        = string
   default     = "https://sso.brmartin.co.uk/realms/prod"
 }
 
-variable "keycloak_audience" {
-  description = "Expected JWT audience (Keycloak client ID). Required when auth_mode = 'oidc'."
+variable "oidc_audience" {
+  description = "Expected JWT audience (OIDC client ID). Required when auth_providers includes 'oidc'."
   type        = string
   default     = "iris-api"
 }
 
 variable "oidc_admin_claim" {
-  description = "JWT claim name used for OIDC admin role mapping (e.g. 'groups'). Only used when auth_mode = 'oidc'. If empty, all OIDC users receive the Viewer role."
+  description = "JWT claim name used for OIDC admin role mapping (e.g. 'groups'). Only used when auth_providers includes 'oidc'. If empty, all OIDC users receive the Viewer role."
   type        = string
   default     = "groups"
 }
 
 variable "oidc_admin_value" {
-  description = "Value within the OIDC admin claim that grants the Admin role (e.g. 'iris-admin'). Only used when auth_mode = 'oidc'."
+  description = "Value within the OIDC admin claim that grants the Admin role (e.g. 'iris-admin'). Only used when auth_providers includes 'oidc'."
   type        = string
   default     = "iris-admin"
 }
 
 variable "oidc_client_id" {
-  description = "OIDC client ID for the SPA frontend. Required when auth_mode = 'oidc'. Served via the dynamic /config.js endpoint."
+  description = "OIDC client ID for the SPA frontend. Required when auth_providers includes 'oidc'. Served via the dynamic /config.js endpoint."
   type        = string
   default     = "iris"
 }
 
 variable "oidc_redirect_uri" {
-  description = "OIDC redirect URI for the SPA frontend. Required when auth_mode = 'oidc'. Defaults to https://<hostname>/."
+  description = "OIDC redirect URI for the SPA frontend. Required when auth_providers includes 'oidc'. Defaults to https://<hostname>/."
   type        = string
   default     = ""
 }

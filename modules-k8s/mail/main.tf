@@ -11,6 +11,11 @@ locals {
     managed-by  = "terraform"
     environment = "prod"
   }
+  wildcard_tls_secret_name = "wildcard-brmartin-tls"
+  reloader_annotations = {
+    "reloader.stakater.com/auto"             = "true"
+    "reloader.stakater.com/rollout-strategy" = "restart"
+  }
   ldap_people_dn = "ou=people,${var.ldap_base_dn}"
 }
 
@@ -188,7 +193,8 @@ resource "kubernetes_deployment" "rspamd" {
 
     template {
       metadata {
-        labels = merge(local.labels, { app = "rspamd" })
+        annotations = local.reloader_annotations
+        labels      = merge(local.labels, { app = "rspamd" })
       }
 
       spec {
@@ -545,7 +551,8 @@ resource "kubernetes_deployment" "postfix" {
 
     template {
       metadata {
-        labels = merge(local.labels, { app = "postfix" })
+        annotations = local.reloader_annotations
+        labels      = merge(local.labels, { app = "postfix" })
       }
 
       spec {
@@ -684,7 +691,7 @@ resource "kubernetes_deployment" "postfix" {
           }
 
           volume_mount {
-            name       = "mail-tls"
+            name       = "tls"
             mount_path = "/etc/ssl/mail"
             read_only  = true
           }
@@ -740,9 +747,9 @@ resource "kubernetes_deployment" "postfix" {
         }
 
         volume {
-          name = "mail-tls"
+          name = "tls"
           secret {
-            secret_name = "mail-tls"
+            secret_name = local.wildcard_tls_secret_name
           }
         }
 
@@ -1004,7 +1011,8 @@ resource "kubernetes_deployment" "dovecot" {
 
     template {
       metadata {
-        labels = merge(local.labels, { app = "dovecot" })
+        annotations = local.reloader_annotations
+        labels      = merge(local.labels, { app = "dovecot" })
       }
 
       spec {
@@ -1132,7 +1140,7 @@ resource "kubernetes_deployment" "dovecot" {
           }
 
           volume_mount {
-            name       = "mail-tls"
+            name       = "tls"
             mount_path = "/etc/ssl/mail"
             read_only  = true
           }
@@ -1209,9 +1217,9 @@ resource "kubernetes_deployment" "dovecot" {
         }
 
         volume {
-          name = "mail-tls"
+          name = "tls"
           secret {
-            secret_name = "mail-tls"
+            secret_name = local.wildcard_tls_secret_name
           }
         }
 
@@ -1545,7 +1553,8 @@ resource "kubernetes_deployment" "sogo" {
 
     template {
       metadata {
-        labels = merge(local.labels, { app = "sogo" })
+        annotations = local.reloader_annotations
+        labels      = merge(local.labels, { app = "sogo" })
       }
 
       spec {
@@ -1721,7 +1730,7 @@ resource "kubernetes_ingress_v1" "sogo" {
 
     tls {
       hosts       = [var.hostname]
-      secret_name = "wildcard-brmartin-tls"
+      secret_name = local.wildcard_tls_secret_name
     }
 
     rule {

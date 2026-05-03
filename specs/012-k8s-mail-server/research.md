@@ -265,11 +265,12 @@ Index separation: `mail_location = maildir:/var/mail/%d/%n:INDEX=/tmp/indexes/%d
 
 ## 6. TLS Strategy
 
-The cluster uses cert-manager with a wildcard certificate (`wildcard-brmartin-tls`).
+The cluster uses cert-manager to issue wildcard certificates for `brmartin.co.uk`.
 
-- **SoGO webmail**: Traefik terminates TLS using `wildcard-brmartin-tls`. SoGO sees plain HTTP on port 20000.
-- **SMTP/IMAP/POP3**: TLS is terminated by Postfix/Dovecot themselves (not Traefik). The wildcard certificate (`cert.pem` / `key.pem`) must be mounted into both Postfix and Dovecot containers.
-- **Certificate access**: The wildcard TLS secret (`wildcard-brmartin-tls` in the `traefik` namespace) must be made available in the `default` namespace. Current pattern (seen in `kubernetes.tf` comment): copy via `kubectl get secret -n traefik wildcard-brmartin-tls | kubectl apply -n default`. This should be managed as a Kubernetes Secret resource in Terraform (copy or reference).
+- **Default namespace services**: Traefik terminates HTTPS using `wildcard-brmartin-tls` in `default`.
+- **kube-system services**: Hubble UI and Headlamp use the same wildcard secret in `kube-system`.
+- **SMTP/IMAP/POP3**: TLS is terminated by Postfix/Dovecot themselves. The wildcard certificate (`wildcard-brmartin-tls`) is mounted directly into both containers.
+- **Rotation**: cert-manager renews the secret automatically; Reloader restarts the mail pods when the secret changes.
 
 ---
 

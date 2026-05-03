@@ -134,7 +134,7 @@ All research complete. See `research.md` for full findings.
 | Port exposure | `hostPort` + `nodeSelector: hestia` | Matches existing mailcow pattern; no Traefik changes needed |
 | Auth integration | lldap primary → Keycloak READ_ONLY federation | lldap does not support Keycloak write-through (by design) |
 | Mailbox storage | Dovecot PVC on `glusterfs-nfs` | Constitution IV; `mmap_disable=yes` + `mail_fsync=always` |
-| TLS | Wildcard cert from `wildcard-brmartin-tls` (copied to `default` ns) | cert-manager already manages this |
+| TLS | Wildcard cert from `wildcard-brmartin-tls` in the consuming namespace | cert-manager already manages this |
 | DKIM keys | Kubernetes Secret (file-mounted) | Redis keys lost on restart; Secrets are durable |
 
 ## Phase 1: Design Outputs
