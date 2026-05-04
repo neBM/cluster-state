@@ -617,10 +617,12 @@ resource "kubernetes_config_map_v1" "alerting" {
           interval = "1m"
           rules = [
             {
-              uid       = "pod-crashloopbackoff"
-              title     = "PodCrashLoopBackOff"
-              condition = "C"
-              for       = "5m"
+              uid          = "pod-crashloopbackoff"
+              title        = "PodCrashLoopBackOff"
+              condition    = "C"
+              for          = "5m"
+              noDataState  = "OK"
+              execErrState = "OK"
               annotations = {
                 summary     = "Pod {{ $values.A.Labels.namespace }}/{{ $values.A.Labels.pod }} container {{ $values.A.Labels.container }} is in CrashLoopBackOff"
                 description = "Container {{ $values.A.Labels.container }} in pod {{ $values.A.Labels.namespace }}/{{ $values.A.Labels.pod }} has been in CrashLoopBackOff for more than 5 minutes."
@@ -757,6 +759,11 @@ resource "kubernetes_deployment_v1" "grafana" {
 
     template {
       metadata {
+        annotations = {
+          "checksum/datasources" = sha256(jsonencode(kubernetes_config_map_v1.datasources.data))
+          "checksum/dashboards"  = sha256(jsonencode(kubernetes_config_map_v1.dashboards.data))
+          "checksum/alerting"    = sha256(jsonencode(kubernetes_config_map_v1.alerting.data))
+        }
         labels = merge(local.labels, {
           "app.kubernetes.io/version" = var.image_tag
         })
