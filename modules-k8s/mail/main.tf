@@ -159,6 +159,29 @@ resource "kubernetes_config_map" "rspamd_config" {
         }
       }
     EOF
+
+    # The controller's /metrics endpoint only works reliably over loopback in
+    # this deployment. Expose a dedicated in-pod proxy on 11335 so
+    # VictoriaMetrics can scrape metrics without opening the full controller.
+    "metrics-proxy.conf" = <<-EOF
+      events {}
+
+      http {
+        server {
+          listen 11335;
+          access_log off;
+
+          location = /metrics {
+            proxy_pass http://127.0.0.1:11334/metrics;
+            proxy_set_header Password "q1";
+          }
+
+          location / {
+            return 404;
+          }
+        }
+      }
+    EOF
   }
 }
 
@@ -278,6 +301,55 @@ resource "kubernetes_deployment" "rspamd" {
           }
         }
 
+        container {
+          name = "metrics-proxy"
+          # renovate: datasource=docker depName=nginx
+          image = "nginx:1.27-alpine"
+
+          port {
+            container_port = 11335
+            name           = "metrics"
+          }
+
+          volume_mount {
+            name       = "config"
+            mount_path = "/etc/nginx/nginx.conf"
+            sub_path   = "metrics-proxy.conf"
+            read_only  = true
+          }
+
+          liveness_probe {
+            http_get {
+              path = "/metrics"
+              port = 11335
+            }
+            initial_delay_seconds = 10
+            period_seconds        = 30
+            timeout_seconds       = 5
+          }
+
+          readiness_probe {
+            http_get {
+              path = "/metrics"
+              port = 11335
+            }
+            initial_delay_seconds = 5
+            period_seconds        = 10
+            timeout_seconds       = 5
+          }
+
+          resources {
+            requests = {
+              cpu    = "10m"
+              memory = "16Mi"
+            }
+            limits = {
+              cpu    = "100m"
+              memory = "64Mi"
+            }
+          }
+        }
+
         volume {
           name = "dkim-keys"
           secret {
@@ -308,12 +380,6 @@ resource "kubernetes_service" "rspamd" {
     name      = "rspamd"
     namespace = var.namespace
     labels    = merge(local.labels, { app = "rspamd" })
-    annotations = {
-      # T052: Prometheus scraping for VictoriaMetrics
-      "prometheus.io/scrape" = "true"
-      "prometheus.io/port"   = "11334"
-      "prometheus.io/path"   = "/metrics"
-    }
   }
 
   spec {
@@ -330,6 +396,32 @@ resource "kubernetes_service" "rspamd" {
       name        = "web"
       port        = 11334
       target_port = 11334
+      protocol    = "TCP"
+    }
+
+    type = "ClusterIP"
+  }
+}
+
+resource "kubernetes_service" "rspamd_metrics" {
+  metadata {
+    name      = "rspamd-metrics"
+    namespace = var.namespace
+    labels    = merge(local.labels, { app = "rspamd" })
+    annotations = {
+      "prometheus.io/scrape" = "true"
+      "prometheus.io/port"   = "11335"
+      "prometheus.io/path"   = "/metrics"
+    }
+  }
+
+  spec {
+    selector = { app = "rspamd" }
+
+    port {
+      name        = "metrics"
+      port        = 11335
+      target_port = 11335
       protocol    = "TCP"
     }
 
@@ -1333,7 +1425,7 @@ resource "kubernetes_manifest" "np_mail_redis" {
   }
 }
 
-# Rspamd: Postfix milter (11332) + Traefik web UI (11334)
+# Rspamd: Postfix milter (11332) + Traefik web UI (11334) + metrics proxy (11335)
 resource "kubernetes_manifest" "np_rspamd" {
   manifest = {
     apiVersion = "cilium.io/v2"
@@ -1358,6 +1450,15 @@ resource "kubernetes_manifest" "np_rspamd" {
           }]
           toPorts = [{ ports = [{ port = "11334", protocol = "TCP" }] }]
         },
+        {
+          fromEndpoints = [{
+            matchLabels = {
+              "app.kubernetes.io/name"          = "victoriametrics"
+              "k8s:io.kubernetes.pod.namespace" = "default"
+            }
+          }]
+          toPorts = [{ ports = [{ port = "11335", protocol = "TCP" }] }]
+        }
       ]
     }
   }

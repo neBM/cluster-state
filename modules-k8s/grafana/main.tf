@@ -365,8 +365,8 @@ resource "kubernetes_config_map" "alerting" {
               noDataState  = "OK"
               execErrState = "OK"
               annotations = {
-                summary     = "Pod {{ $labels.namespace }}/{{ $labels.pod }} is crash-looping"
-                description = "Container {{ $labels.container }} in pod {{ $labels.namespace }}/{{ $labels.pod }} has restarted more than 3 times in 15 minutes."
+                summary     = "Pod {{ $values.A.Labels.namespace }}/{{ $values.A.Labels.pod }} is crash-looping"
+                description = "Container {{ $values.A.Labels.container }} in pod {{ $values.A.Labels.namespace }}/{{ $values.A.Labels.pod }} has restarted more than 3 times in 15 minutes."
               }
               labels = {
                 severity = "warning"
@@ -427,7 +427,6 @@ resource "kubernetes_config_map" "alerting" {
           interval = "1m"
           rules = [
             {
-              # Scalar count — no per-target labels available; classic_conditions is fine.
               uid          = "efbh0063gz1tsb"
               title        = "Prometheus Target Down"
               condition    = "threshold"
@@ -435,8 +434,8 @@ resource "kubernetes_config_map" "alerting" {
               noDataState  = "OK"
               execErrState = "OK"
               annotations = {
-                summary     = "Prometheus scrape target is down"
-                description = "One or more Prometheus scrape targets are unreachable."
+                summary     = "Prometheus scrape target {{ $values.A.Labels.job }}/{{ $values.A.Labels.instance }} is down"
+                description = "Scrape target {{ $values.A.Labels.job }}/{{ $values.A.Labels.instance }} has been unreachable for more than 5 minutes."
               }
               labels = {
                 severity = "warning"
@@ -454,7 +453,7 @@ resource "kubernetes_config_map" "alerting" {
                       type = "prometheus"
                       uid  = "prometheus"
                     }
-                    expr          = "count(up == 0) OR vector(0)"
+                    expr          = "up == 0"
                     instant       = true
                     intervalMs    = 1000
                     maxDataPoints = 43200
@@ -623,8 +622,8 @@ resource "kubernetes_config_map" "alerting" {
               condition = "C"
               for       = "5m"
               annotations = {
-                summary     = "Pod {{ $labels.namespace }}/{{ $labels.pod }} container {{ $labels.container }} is in CrashLoopBackOff"
-                description = "Container {{ $labels.container }} in pod {{ $labels.namespace }}/{{ $labels.pod }} has been in CrashLoopBackOff for more than 5 minutes."
+                summary     = "Pod {{ $values.A.Labels.namespace }}/{{ $values.A.Labels.pod }} container {{ $values.A.Labels.container }} is in CrashLoopBackOff"
+                description = "Container {{ $values.A.Labels.container }} in pod {{ $values.A.Labels.namespace }}/{{ $values.A.Labels.pod }} has been in CrashLoopBackOff for more than 5 minutes."
               }
               labels = {
                 severity = "warning"

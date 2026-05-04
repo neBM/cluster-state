@@ -365,6 +365,9 @@ resource "kubernetes_deployment" "victoriametrics" {
         annotations = {
           "prometheus.io/scrape" = "true"
           "prometheus.io/port"   = "8428"
+          # Force a rolling update whenever scrape.yml changes so target
+          # additions/removals don't linger in a long-running process.
+          "checksum/scrape-config" = sha256(jsonencode(kubernetes_config_map.scrape_config.data))
           # Force a rolling update whenever backup.sh / restore.sh change.
           # Without this, ConfigMap edits propagate to the pod's /scripts
           # volume mount via kubelet sync, but the already-running sh process
