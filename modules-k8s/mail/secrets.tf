@@ -1,4 +1,6 @@
-# Mail stack secrets must be created manually before applying this module.
+# Most mail stack secrets must be created manually before applying this module.
+# The Rspamd controller secret is managed by Terraform below so the metrics
+# proxy and the controller share the same rotated password.
 # The wildcard TLS cert is issued by cert-manager as `wildcard-brmartin-tls`
 # in the `default` namespace and is mounted directly by Postfix/Dovecot.
 #
@@ -79,6 +81,39 @@
 #   Verify with:
 #     kubectl get certificate wildcard-brmartin-tls -n default
 #     kubectl get secret wildcard-brmartin-tls -n default
+
+resource "random_password" "rspamd_controller" {
+  length  = 32
+  lower   = true
+  upper   = true
+  numeric = true
+  special = false
+
+  keepers = {
+    generation = tostring(var.rspamd_controller_password_generation)
+  }
+}
+
+resource "kubernetes_secret" "rspamd_controller" {
+  metadata {
+    name      = "rspamd-controller"
+    namespace = var.namespace
+    labels    = merge(local.labels, { app = "rspamd" })
+  }
+
+  data = {
+    "controller-password"   = random_password.rspamd_controller.result
+    "worker-controller.inc" = <<-EOF
+      bind_socket = "*:11334";
+      password = "${random_password.rspamd_controller.result}";
+      enable_password = "${random_password.rspamd_controller.result}";
+      secure_ip = "127.0.0.1";
+      secure_ip = "::1";
+    EOF
+  }
+
+  type = "Opaque"
+}
 
 data "kubernetes_secret" "dkim_keys" {
   metadata {

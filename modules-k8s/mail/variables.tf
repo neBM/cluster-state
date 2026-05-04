@@ -92,3 +92,8 @@ variable "mail_node_ip" {
   default     = "192.168.1.5"
 }
 
+variable "rspamd_controller_password_generation" {
+  description = "Bump this integer to rotate the Rspamd controller password."
+  type        = number
+  default     = 1
+}

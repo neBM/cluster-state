@@ -163,22 +163,18 @@ resource "kubernetes_config_map" "rspamd_config" {
     # The controller's /metrics endpoint only works reliably over loopback in
     # this deployment. Expose a dedicated in-pod proxy on 11335 so
     # VictoriaMetrics can scrape metrics without opening the full controller.
-    "metrics-proxy.conf" = <<-EOF
-      events {}
+    "metrics-proxy.conf.template" = <<-EOF
+      server {
+        listen 11335;
+        access_log off;
 
-      http {
-        server {
-          listen 11335;
-          access_log off;
+        location = /metrics {
+          proxy_pass http://127.0.0.1:11334/metrics;
+          proxy_set_header Password $${RSPAMD_CONTROLLER_PASSWORD};
+        }
 
-          location = /metrics {
-            proxy_pass http://127.0.0.1:11334/metrics;
-            proxy_set_header Password "q1";
-          }
-
-          location / {
-            return 404;
-          }
+        location / {
+          return 404;
         }
       }
     EOF
@@ -264,6 +260,13 @@ resource "kubernetes_deployment" "rspamd" {
           }
 
           volume_mount {
+            name       = "rspamd-controller"
+            mount_path = "/etc/rspamd/local.d/worker-controller.inc"
+            sub_path   = "worker-controller.inc"
+            read_only  = true
+          }
+
+          volume_mount {
             name              = "data"
             mount_path        = "/var/lib/rspamd"
             mount_propagation = "HostToContainer"
@@ -306,6 +309,36 @@ resource "kubernetes_deployment" "rspamd" {
           # renovate: datasource=docker depName=nginx
           image = "nginx:1.27-alpine"
 
+          env {
+            name = "RSPAMD_CONTROLLER_PASSWORD"
+            value_from {
+              secret_key_ref {
+                name = kubernetes_secret.rspamd_controller.metadata[0].name
+                key  = "controller-password"
+              }
+            }
+          }
+
+          env {
+            name  = "NGINX_ENVSUBST_TEMPLATE_DIR"
+            value = "/etc/nginx/conf.d"
+          }
+
+          env {
+            name  = "NGINX_ENVSUBST_TEMPLATE_SUFFIX"
+            value = ".template"
+          }
+
+          env {
+            name  = "NGINX_ENVSUBST_OUTPUT_DIR"
+            value = "/etc/nginx/conf.d"
+          }
+
+          env {
+            name  = "NGINX_ENVSUBST_FILTER"
+            value = "RSPAMD_CONTROLLER_PASSWORD"
+          }
+
           port {
             container_port = 11335
             name           = "metrics"
@@ -313,8 +346,8 @@ resource "kubernetes_deployment" "rspamd" {
 
           volume_mount {
             name       = "config"
-            mount_path = "/etc/nginx/nginx.conf"
-            sub_path   = "metrics-proxy.conf"
+            mount_path = "/etc/nginx/conf.d/rspamd-metrics.conf.template"
+            sub_path   = "metrics-proxy.conf.template"
             read_only  = true
           }
 
@@ -361,6 +394,13 @@ resource "kubernetes_deployment" "rspamd" {
           name = "config"
           config_map {
             name = kubernetes_config_map.rspamd_config.metadata[0].name
+          }
+        }
+
+        volume {
+          name = "rspamd-controller"
+          secret {
+            secret_name = kubernetes_secret.rspamd_controller.metadata[0].name
           }
         }
 
