@@ -25,7 +25,7 @@ locals {
 # Redis - Cache for WebSocket support
 # =============================================================================
 
-resource "kubernetes_deployment" "redis" {
+resource "kubernetes_deployment_v1" "redis" {
   metadata {
     name      = "athenaeum-redis"
     namespace = var.namespace
@@ -86,7 +86,7 @@ resource "kubernetes_deployment" "redis" {
   }
 }
 
-resource "kubernetes_service" "redis" {
+resource "kubernetes_service_v1" "redis" {
   metadata {
     name      = "athenaeum-redis"
     namespace = var.namespace
@@ -111,7 +111,7 @@ resource "kubernetes_service" "redis" {
 # Backend - FastAPI Application
 # =============================================================================
 
-resource "kubernetes_deployment" "backend" {
+resource "kubernetes_deployment_v1" "backend" {
   metadata {
     name      = "athenaeum-backend"
     namespace = var.namespace
@@ -147,7 +147,7 @@ resource "kubernetes_deployment" "backend" {
             name = "DATABASE_URL"
             value_from {
               secret_key_ref {
-                name = data.kubernetes_secret.athenaeum.metadata[0].name
+                name = data.kubernetes_secret_v1.athenaeum.metadata[0].name
                 key  = "DATABASE_URL"
               }
             }
@@ -157,7 +157,7 @@ resource "kubernetes_deployment" "backend" {
             name = "KEYCLOAK_URL"
             value_from {
               secret_key_ref {
-                name = data.kubernetes_secret.athenaeum.metadata[0].name
+                name = data.kubernetes_secret_v1.athenaeum.metadata[0].name
                 key  = "KEYCLOAK_URL"
               }
             }
@@ -167,7 +167,7 @@ resource "kubernetes_deployment" "backend" {
             name = "KEYCLOAK_REALM"
             value_from {
               secret_key_ref {
-                name = data.kubernetes_secret.athenaeum.metadata[0].name
+                name = data.kubernetes_secret_v1.athenaeum.metadata[0].name
                 key  = "KEYCLOAK_REALM"
               }
             }
@@ -177,7 +177,7 @@ resource "kubernetes_deployment" "backend" {
             name = "KEYCLOAK_CLIENT_ID"
             value_from {
               secret_key_ref {
-                name = data.kubernetes_secret.athenaeum.metadata[0].name
+                name = data.kubernetes_secret_v1.athenaeum.metadata[0].name
                 key  = "KEYCLOAK_CLIENT_ID"
               }
             }
@@ -187,7 +187,7 @@ resource "kubernetes_deployment" "backend" {
             name = "KEYCLOAK_CLIENT_SECRET"
             value_from {
               secret_key_ref {
-                name = data.kubernetes_secret.athenaeum.metadata[0].name
+                name = data.kubernetes_secret_v1.athenaeum.metadata[0].name
                 key  = "KEYCLOAK_CLIENT_SECRET"
               }
             }
@@ -208,7 +208,7 @@ resource "kubernetes_deployment" "backend" {
             name = "DATABASE_URL"
             value_from {
               secret_key_ref {
-                name = data.kubernetes_secret.athenaeum.metadata[0].name
+                name = data.kubernetes_secret_v1.athenaeum.metadata[0].name
                 key  = "DATABASE_URL"
               }
             }
@@ -218,7 +218,7 @@ resource "kubernetes_deployment" "backend" {
             name = "KEYCLOAK_URL"
             value_from {
               secret_key_ref {
-                name = data.kubernetes_secret.athenaeum.metadata[0].name
+                name = data.kubernetes_secret_v1.athenaeum.metadata[0].name
                 key  = "KEYCLOAK_URL"
               }
             }
@@ -228,7 +228,7 @@ resource "kubernetes_deployment" "backend" {
             name = "KEYCLOAK_REALM"
             value_from {
               secret_key_ref {
-                name = data.kubernetes_secret.athenaeum.metadata[0].name
+                name = data.kubernetes_secret_v1.athenaeum.metadata[0].name
                 key  = "KEYCLOAK_REALM"
               }
             }
@@ -238,7 +238,7 @@ resource "kubernetes_deployment" "backend" {
             name = "KEYCLOAK_CLIENT_ID"
             value_from {
               secret_key_ref {
-                name = data.kubernetes_secret.athenaeum.metadata[0].name
+                name = data.kubernetes_secret_v1.athenaeum.metadata[0].name
                 key  = "KEYCLOAK_CLIENT_ID"
               }
             }
@@ -248,7 +248,7 @@ resource "kubernetes_deployment" "backend" {
             name = "KEYCLOAK_CLIENT_SECRET"
             value_from {
               secret_key_ref {
-                name = data.kubernetes_secret.athenaeum.metadata[0].name
+                name = data.kubernetes_secret_v1.athenaeum.metadata[0].name
                 key  = "KEYCLOAK_CLIENT_SECRET"
               }
             }
@@ -258,7 +258,7 @@ resource "kubernetes_deployment" "backend" {
             name = "REDIS_URL"
             value_from {
               secret_key_ref {
-                name = data.kubernetes_secret.athenaeum.metadata[0].name
+                name = data.kubernetes_secret_v1.athenaeum.metadata[0].name
                 key  = "REDIS_URL"
               }
             }
@@ -268,7 +268,7 @@ resource "kubernetes_deployment" "backend" {
             name = "MINIO_URL"
             value_from {
               secret_key_ref {
-                name = data.kubernetes_secret.athenaeum.metadata[0].name
+                name = data.kubernetes_secret_v1.athenaeum.metadata[0].name
                 key  = "MINIO_URL"
               }
             }
@@ -278,7 +278,7 @@ resource "kubernetes_deployment" "backend" {
             name = "MINIO_ACCESS_KEY"
             value_from {
               secret_key_ref {
-                name = data.kubernetes_secret.athenaeum.metadata[0].name
+                name = data.kubernetes_secret_v1.athenaeum.metadata[0].name
                 key  = "MINIO_ACCESS_KEY"
               }
             }
@@ -288,7 +288,7 @@ resource "kubernetes_deployment" "backend" {
             name = "MINIO_SECRET_KEY"
             value_from {
               secret_key_ref {
-                name = data.kubernetes_secret.athenaeum.metadata[0].name
+                name = data.kubernetes_secret_v1.athenaeum.metadata[0].name
                 key  = "MINIO_SECRET_KEY"
               }
             }
@@ -298,7 +298,7 @@ resource "kubernetes_deployment" "backend" {
             name = "MINIO_BUCKET"
             value_from {
               secret_key_ref {
-                name = data.kubernetes_secret.athenaeum.metadata[0].name
+                name = data.kubernetes_secret_v1.athenaeum.metadata[0].name
                 key  = "MINIO_BUCKET"
               }
             }
@@ -355,7 +355,7 @@ resource "kubernetes_deployment" "backend" {
   }
 }
 
-resource "kubernetes_service" "backend" {
+resource "kubernetes_service_v1" "backend" {
   metadata {
     name      = "athenaeum-backend"
     namespace = var.namespace
@@ -381,7 +381,7 @@ resource "kubernetes_service" "backend" {
 # =============================================================================
 
 # Frontend runtime configuration (injected at page load)
-resource "kubernetes_config_map" "frontend_config" {
+resource "kubernetes_config_map_v1" "frontend_config" {
   metadata {
     name      = "athenaeum-frontend-config"
     namespace = var.namespace
@@ -405,7 +405,7 @@ resource "kubernetes_config_map" "frontend_config" {
   }
 }
 
-resource "kubernetes_deployment" "frontend" {
+resource "kubernetes_deployment_v1" "frontend" {
   metadata {
     name      = "athenaeum-frontend"
     namespace = var.namespace
@@ -482,7 +482,7 @@ resource "kubernetes_deployment" "frontend" {
         volume {
           name = "frontend-config"
           config_map {
-            name = kubernetes_config_map.frontend_config.metadata[0].name
+            name = kubernetes_config_map_v1.frontend_config.metadata[0].name
           }
         }
       }
@@ -490,7 +490,7 @@ resource "kubernetes_deployment" "frontend" {
   }
 }
 
-resource "kubernetes_service" "frontend" {
+resource "kubernetes_service_v1" "frontend" {
   metadata {
     name      = "athenaeum-frontend"
     namespace = var.namespace
@@ -543,7 +543,7 @@ resource "kubernetes_ingress_v1" "athenaeum" {
           path_type = "Prefix"
           backend {
             service {
-              name = kubernetes_service.frontend.metadata[0].name
+              name = kubernetes_service_v1.frontend.metadata[0].name
               port {
                 number = 80
               }
@@ -562,7 +562,7 @@ resource "kubernetes_ingress_v1" "athenaeum" {
           path_type = "Prefix"
           backend {
             service {
-              name = kubernetes_service.backend.metadata[0].name
+              name = kubernetes_service_v1.backend.metadata[0].name
               port {
                 number = 8000
               }
@@ -575,7 +575,7 @@ resource "kubernetes_ingress_v1" "athenaeum" {
           path_type = "Prefix"
           backend {
             service {
-              name = kubernetes_service.backend.metadata[0].name
+              name = kubernetes_service_v1.backend.metadata[0].name
               port {
                 number = 8000
               }
@@ -588,7 +588,7 @@ resource "kubernetes_ingress_v1" "athenaeum" {
           path_type = "Prefix"
           backend {
             service {
-              name = kubernetes_service.backend.metadata[0].name
+              name = kubernetes_service_v1.backend.metadata[0].name
               port {
                 number = 8000
               }

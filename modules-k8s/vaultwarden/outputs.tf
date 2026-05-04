@@ -1,6 +1,6 @@
 output "service_name" {
   description = "Name of the Kubernetes service"
-  value       = kubernetes_service.vaultwarden.metadata[0].name
+  value       = kubernetes_service_v1.vaultwarden.metadata[0].name
 }
 
 output "hostname" {

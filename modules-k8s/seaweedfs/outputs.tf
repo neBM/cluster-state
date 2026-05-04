@@ -15,5 +15,5 @@ output "master_endpoint" {
 
 output "storage_class_name" {
   description = "StorageClass name for PVCs"
-  value       = kubernetes_storage_class.seaweedfs.metadata[0].name
+  value       = kubernetes_storage_class_v1.seaweedfs.metadata[0].name
 }

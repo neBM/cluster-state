@@ -9,7 +9,7 @@ locals {
   }
 }
 
-resource "kubernetes_config_map" "scripts" {
+resource "kubernetes_config_map_v1" "scripts" {
   metadata {
     name      = "${local.app_name}-scripts"
     namespace = local.namespace
@@ -23,7 +23,7 @@ resource "kubernetes_config_map" "scripts" {
 
 # DaemonSet runs only on arm64 nodes (Heracles and Nyx — both Raspberry Pi 5).
 # Hestia is amd64 and has no VideoCore firmware, so vcgencmd is not available there.
-resource "kubernetes_daemonset" "monitor" {
+resource "kubernetes_daemon_set_v1" "monitor" {
   metadata {
     name      = local.app_name
     namespace = local.namespace
@@ -80,7 +80,7 @@ resource "kubernetes_daemonset" "monitor" {
         volume {
           name = "scripts"
           config_map {
-            name         = kubernetes_config_map.scripts.metadata[0].name
+            name         = kubernetes_config_map_v1.scripts.metadata[0].name
             default_mode = "0755"
           }
         }

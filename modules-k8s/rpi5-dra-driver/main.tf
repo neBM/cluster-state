@@ -3,7 +3,7 @@ locals {
   labels = { app = local.name, "managed-by" = "terraform" }
 }
 
-resource "kubernetes_service_account" "driver" {
+resource "kubernetes_service_account_v1" "driver" {
   metadata {
     name      = local.name
     namespace = "kube-system"
@@ -11,7 +11,7 @@ resource "kubernetes_service_account" "driver" {
   }
 }
 
-resource "kubernetes_cluster_role" "driver" {
+resource "kubernetes_cluster_role_v1" "driver" {
   metadata {
     name   = local.name
     labels = local.labels
@@ -28,7 +28,7 @@ resource "kubernetes_cluster_role" "driver" {
   }
 }
 
-resource "kubernetes_cluster_role_binding" "driver" {
+resource "kubernetes_cluster_role_binding_v1" "driver" {
   metadata {
     name   = local.name
     labels = local.labels
@@ -36,11 +36,11 @@ resource "kubernetes_cluster_role_binding" "driver" {
   role_ref {
     api_group = "rbac.authorization.k8s.io"
     kind      = "ClusterRole"
-    name      = kubernetes_cluster_role.driver.metadata[0].name
+    name      = kubernetes_cluster_role_v1.driver.metadata[0].name
   }
   subject {
     kind      = "ServiceAccount"
-    name      = kubernetes_service_account.driver.metadata[0].name
+    name      = kubernetes_service_account_v1.driver.metadata[0].name
     namespace = "kube-system"
   }
 }
@@ -59,7 +59,7 @@ resource "kubernetes_daemon_set_v1" "driver" {
       metadata { labels = local.labels }
 
       spec {
-        service_account_name = kubernetes_service_account.driver.metadata[0].name
+        service_account_name = kubernetes_service_account_v1.driver.metadata[0].name
         priority_class_name  = "system-node-critical"
 
         container {

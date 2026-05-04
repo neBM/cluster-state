@@ -9,7 +9,7 @@ locals {
   }
 }
 
-resource "kubernetes_deployment" "kube_state_metrics" {
+resource "kubernetes_deployment_v1" "kube_state_metrics" {
   metadata {
     name      = local.app_name
     namespace = local.namespace
@@ -34,7 +34,7 @@ resource "kubernetes_deployment" "kube_state_metrics" {
       }
 
       spec {
-        service_account_name = kubernetes_service_account.kube_state_metrics.metadata[0].name
+        service_account_name = kubernetes_service_account_v1.kube_state_metrics.metadata[0].name
 
         container {
           name  = local.app_name
@@ -105,7 +105,7 @@ resource "kubernetes_deployment" "kube_state_metrics" {
   }
 }
 
-resource "kubernetes_service" "kube_state_metrics" {
+resource "kubernetes_service_v1" "kube_state_metrics" {
   metadata {
     name      = local.app_name
     namespace = local.namespace

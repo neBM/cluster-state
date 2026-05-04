@@ -18,27 +18,27 @@ output "ssh_port" {
 # Service names for inter-module references
 output "webservice_service" {
   description = "Webservice service name"
-  value       = kubernetes_service.webservice.metadata[0].name
+  value       = kubernetes_service_v1.webservice.metadata[0].name
 }
 
 output "workhorse_service" {
   description = "Workhorse service name (main entry point)"
-  value       = kubernetes_service.workhorse.metadata[0].name
+  value       = kubernetes_service_v1.workhorse.metadata[0].name
 }
 
 output "gitaly_service" {
   description = "Gitaly service name"
-  value       = kubernetes_service.gitaly.metadata[0].name
+  value       = kubernetes_service_v1.gitaly.metadata[0].name
 }
 
 output "redis_service" {
   description = "Redis service name"
-  value       = kubernetes_service.redis.metadata[0].name
+  value       = kubernetes_service_v1.redis.metadata[0].name
 }
 
 output "registry_service" {
   description = "Registry service name"
-  value       = kubernetes_service.registry.metadata[0].name
+  value       = kubernetes_service_v1.registry.metadata[0].name
 }
 
 # Service endpoints (for debugging)

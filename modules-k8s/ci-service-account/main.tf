@@ -1,7 +1,7 @@
 # CI Service Account for Terraform
 # Provides limited RBAC permissions for GitLab CI pipelines
 
-resource "kubernetes_service_account" "ci" {
+resource "kubernetes_service_account_v1" "ci" {
   metadata {
     name      = var.service_account_name
     namespace = var.namespace
@@ -14,12 +14,12 @@ resource "kubernetes_service_account" "ci" {
 }
 
 # Long-lived token for the service account (K8s 1.24+)
-resource "kubernetes_secret" "ci_token" {
+resource "kubernetes_secret_v1" "ci_token" {
   metadata {
     name      = "${var.service_account_name}-token"
     namespace = var.namespace
     annotations = {
-      "kubernetes.io/service-account.name" = kubernetes_service_account.ci.metadata[0].name
+      "kubernetes.io/service-account.name" = kubernetes_service_account_v1.ci.metadata[0].name
     }
     labels = {
       "app.kubernetes.io/name"       = var.service_account_name
@@ -32,7 +32,7 @@ resource "kubernetes_secret" "ci_token" {
 }
 
 # ClusterRole with permissions needed for Terraform to manage K8s resources
-resource "kubernetes_cluster_role" "ci" {
+resource "kubernetes_cluster_role_v1" "ci" {
   metadata {
     name = var.service_account_name
     labels = {
@@ -160,7 +160,7 @@ resource "kubernetes_cluster_role" "ci" {
 }
 
 # Bind the ClusterRole to the ServiceAccount
-resource "kubernetes_cluster_role_binding" "ci" {
+resource "kubernetes_cluster_role_binding_v1" "ci" {
   metadata {
     name = var.service_account_name
     labels = {
@@ -173,12 +173,12 @@ resource "kubernetes_cluster_role_binding" "ci" {
   role_ref {
     api_group = "rbac.authorization.k8s.io"
     kind      = "ClusterRole"
-    name      = kubernetes_cluster_role.ci.metadata[0].name
+    name      = kubernetes_cluster_role_v1.ci.metadata[0].name
   }
 
   subject {
     kind      = "ServiceAccount"
-    name      = kubernetes_service_account.ci.metadata[0].name
+    name      = kubernetes_service_account_v1.ci.metadata[0].name
     namespace = var.namespace
   }
 }

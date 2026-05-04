@@ -23,7 +23,7 @@ locals {
 # Scrape Configuration (Prometheus-compatible format)
 # =============================================================================
 
-resource "kubernetes_config_map" "scrape_config" {
+resource "kubernetes_config_map_v1" "scrape_config" {
   metadata {
     name      = "${local.app_name}-config"
     namespace = local.namespace
@@ -218,7 +218,7 @@ resource "kubernetes_config_map" "scrape_config" {
 # Backup Script ConfigMap
 # =============================================================================
 
-resource "kubernetes_config_map" "backup_script" {
+resource "kubernetes_config_map_v1" "backup_script" {
   metadata {
     name      = "${local.app_name}-backup-script"
     namespace = local.namespace
@@ -310,7 +310,7 @@ resource "kubernetes_config_map" "backup_script" {
 #   - Node-local disk: survives pod restart, rollout, eviction
 #   - vmbackup sidecar → MinIO: survives node loss, disk loss (bounded RPO)
 
-resource "kubernetes_persistent_volume_claim" "data" {
+resource "kubernetes_persistent_volume_claim_v1" "data" {
   # Late-binding StorageClass — PVC stays Pending until the pod mounts it.
   wait_until_bound = false
 
@@ -336,7 +336,7 @@ resource "kubernetes_persistent_volume_claim" "data" {
 # VictoriaMetrics Deployment
 # =============================================================================
 
-resource "kubernetes_deployment" "victoriametrics" {
+resource "kubernetes_deployment_v1" "victoriametrics" {
   metadata {
     name      = local.app_name
     namespace = local.namespace
@@ -367,19 +367,19 @@ resource "kubernetes_deployment" "victoriametrics" {
           "prometheus.io/port"   = "8428"
           # Force a rolling update whenever scrape.yml changes so target
           # additions/removals don't linger in a long-running process.
-          "checksum/scrape-config" = sha256(jsonencode(kubernetes_config_map.scrape_config.data))
+          "checksum/scrape-config" = sha256(jsonencode(kubernetes_config_map_v1.scrape_config.data))
           # Force a rolling update whenever backup.sh / restore.sh change.
           # Without this, ConfigMap edits propagate to the pod's /scripts
           # volume mount via kubelet sync, but the already-running sh process
           # keeps executing the OLD script from memory — fixes silently fail
           # to take effect until someone manually rolls. Keyed to the full
           # ConfigMap data so any script edit triggers a new ReplicaSet.
-          "checksum/backup-script" = sha256(jsonencode(kubernetes_config_map.backup_script.data))
+          "checksum/backup-script" = sha256(jsonencode(kubernetes_config_map_v1.backup_script.data))
         }
       }
 
       spec {
-        service_account_name = kubernetes_service_account.victoriametrics.metadata[0].name
+        service_account_name = kubernetes_service_account_v1.victoriametrics.metadata[0].name
 
         # Give vmbackup time to finish an in-flight run before SIGKILL.
         # vmbackup (Run() in lib/backup/actions/backup.go) atomically swaps the
@@ -571,14 +571,14 @@ resource "kubernetes_deployment" "victoriametrics" {
         volume {
           name = "config"
           config_map {
-            name = kubernetes_config_map.scrape_config.metadata[0].name
+            name = kubernetes_config_map_v1.scrape_config.metadata[0].name
           }
         }
 
         volume {
           name = "scripts"
           config_map {
-            name         = kubernetes_config_map.backup_script.metadata[0].name
+            name         = kubernetes_config_map_v1.backup_script.metadata[0].name
             default_mode = "0755"
           }
         }
@@ -589,7 +589,7 @@ resource "kubernetes_deployment" "victoriametrics" {
         volume {
           name = "data"
           persistent_volume_claim {
-            claim_name = kubernetes_persistent_volume_claim.data.metadata[0].name
+            claim_name = kubernetes_persistent_volume_claim_v1.data.metadata[0].name
           }
         }
 
@@ -602,9 +602,9 @@ resource "kubernetes_deployment" "victoriametrics" {
   }
 
   depends_on = [
-    kubernetes_config_map.scrape_config,
-    kubernetes_config_map.backup_script,
-    kubernetes_persistent_volume_claim.data,
+    kubernetes_config_map_v1.scrape_config,
+    kubernetes_config_map_v1.backup_script,
+    kubernetes_persistent_volume_claim_v1.data,
   ]
 }
 
@@ -612,7 +612,7 @@ resource "kubernetes_deployment" "victoriametrics" {
 # Service
 # =============================================================================
 
-resource "kubernetes_service" "victoriametrics" {
+resource "kubernetes_service_v1" "victoriametrics" {
   metadata {
     name      = local.app_name
     namespace = local.namespace
@@ -667,7 +667,7 @@ resource "kubectl_manifest" "ingressroute" {
           ] : null
           services = [
             {
-              name = kubernetes_service.victoriametrics.metadata[0].name
+              name = kubernetes_service_v1.victoriametrics.metadata[0].name
               port = "http"
             }
           ]

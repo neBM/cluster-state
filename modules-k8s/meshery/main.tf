@@ -10,7 +10,7 @@ locals {
 }
 
 # Meshery Deployment
-resource "kubernetes_deployment" "meshery" {
+resource "kubernetes_deployment_v1" "meshery" {
   metadata {
     name      = local.app_name
     namespace = local.namespace
@@ -35,7 +35,7 @@ resource "kubernetes_deployment" "meshery" {
       }
 
       spec {
-        service_account_name = kubernetes_service_account.meshery.metadata[0].name
+        service_account_name = kubernetes_service_account_v1.meshery.metadata[0].name
 
         node_selector = {
           "kubernetes.io/arch" = "amd64"
@@ -122,7 +122,7 @@ resource "kubernetes_deployment" "meshery" {
 }
 
 # Meshery Service
-resource "kubernetes_service" "meshery" {
+resource "kubernetes_service_v1" "meshery" {
   metadata {
     name      = local.app_name
     namespace = local.namespace
@@ -170,7 +170,7 @@ resource "kubectl_manifest" "ingressroute" {
           ] : null
           services = [
             {
-              name = kubernetes_service.meshery.metadata[0].name
+              name = kubernetes_service_v1.meshery.metadata[0].name
               port = "http"
             }
           ]

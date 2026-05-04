@@ -46,5 +46,5 @@ resource "kubectl_manifest" "vpa" {
     }
   })
 
-  depends_on = [kubernetes_deployment.overseerr]
+  depends_on = [kubernetes_deployment_v1.overseerr]
 }

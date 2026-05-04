@@ -16,7 +16,7 @@ locals {
 # Master — Raft quorum (StatefulSet)
 # -----------------------------------------------------------------------------
 
-resource "kubernetes_service" "master_headless" {
+resource "kubernetes_service_v1" "master_headless" {
   metadata {
     name      = "seaweedfs-master"
     namespace = var.namespace
@@ -45,7 +45,7 @@ resource "kubernetes_service" "master_headless" {
 }
 
 # ClusterIP service for ingress (headless can't be used as IngressRoute backend)
-resource "kubernetes_service" "master" {
+resource "kubernetes_service_v1" "master" {
   count = var.master_ingress_hostname != "" ? 1 : 0
 
   metadata {
@@ -87,7 +87,7 @@ resource "kubectl_manifest" "master_ingressroute" {
           kind  = "Rule"
           services = [
             {
-              name = kubernetes_service.master[0].metadata[0].name
+              name = kubernetes_service_v1.master[0].metadata[0].name
               port = "http"
             }
           ]
@@ -100,7 +100,7 @@ resource "kubectl_manifest" "master_ingressroute" {
   })
 }
 
-resource "kubernetes_stateful_set" "master" {
+resource "kubernetes_stateful_set_v1" "master" {
   metadata {
     name      = "seaweedfs-master"
     namespace = var.namespace
@@ -108,7 +108,7 @@ resource "kubernetes_stateful_set" "master" {
   }
 
   spec {
-    service_name          = kubernetes_service.master_headless.metadata[0].name
+    service_name          = kubernetes_service_v1.master_headless.metadata[0].name
     replicas              = var.master_replicas
     pod_management_policy = "Parallel"
 

@@ -10,7 +10,7 @@ locals {
 }
 
 # ConfigMap for Prometheus datasource provisioning
-resource "kubernetes_config_map" "datasources" {
+resource "kubernetes_config_map_v1" "datasources" {
   metadata {
     name      = "${local.app_name}-datasources"
     namespace = local.namespace
@@ -56,7 +56,7 @@ resource "kubernetes_config_map" "datasources" {
 }
 
 # ConfigMap for dashboard provisioning configuration
-resource "kubernetes_config_map" "dashboards" {
+resource "kubernetes_config_map_v1" "dashboards" {
   metadata {
     name      = "${local.app_name}-dashboard-config"
     namespace = local.namespace
@@ -85,7 +85,7 @@ resource "kubernetes_config_map" "dashboards" {
 }
 
 # ConfigMap for alert rule provisioning
-resource "kubernetes_config_map" "alerting" {
+resource "kubernetes_config_map_v1" "alerting" {
   metadata {
     name      = "${local.app_name}-alerting"
     namespace = local.namespace
@@ -716,7 +716,7 @@ resource "kubernetes_config_map" "alerting" {
 }
 
 # PVC for Grafana data
-resource "kubernetes_persistent_volume_claim" "grafana_data" {
+resource "kubernetes_persistent_volume_claim_v1" "grafana_data" {
   metadata {
     name      = "${local.app_name}-data"
     namespace = local.namespace
@@ -738,7 +738,7 @@ resource "kubernetes_persistent_volume_claim" "grafana_data" {
 }
 
 # Grafana Deployment with OAuth
-resource "kubernetes_deployment" "grafana" {
+resource "kubernetes_deployment_v1" "grafana" {
   metadata {
     name      = local.app_name
     namespace = local.namespace
@@ -977,28 +977,28 @@ resource "kubernetes_deployment" "grafana" {
         volume {
           name = "data"
           persistent_volume_claim {
-            claim_name = kubernetes_persistent_volume_claim.grafana_data.metadata[0].name
+            claim_name = kubernetes_persistent_volume_claim_v1.grafana_data.metadata[0].name
           }
         }
 
         volume {
           name = "datasources"
           config_map {
-            name = kubernetes_config_map.datasources.metadata[0].name
+            name = kubernetes_config_map_v1.datasources.metadata[0].name
           }
         }
 
         volume {
           name = "dashboard-config"
           config_map {
-            name = kubernetes_config_map.dashboards.metadata[0].name
+            name = kubernetes_config_map_v1.dashboards.metadata[0].name
           }
         }
 
         volume {
           name = "alerting"
           config_map {
-            name = kubernetes_config_map.alerting.metadata[0].name
+            name = kubernetes_config_map_v1.alerting.metadata[0].name
           }
         }
       }
@@ -1007,7 +1007,7 @@ resource "kubernetes_deployment" "grafana" {
 }
 
 # Grafana Service
-resource "kubernetes_service" "grafana" {
+resource "kubernetes_service_v1" "grafana" {
   metadata {
     name      = local.app_name
     namespace = local.namespace
@@ -1055,7 +1055,7 @@ resource "kubectl_manifest" "ingressroute" {
           ] : null
           services = [
             {
-              name = kubernetes_service.grafana.metadata[0].name
+              name = kubernetes_service_v1.grafana.metadata[0].name
               port = "http"
             }
           ]

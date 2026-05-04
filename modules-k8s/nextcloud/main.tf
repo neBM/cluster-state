@@ -24,7 +24,7 @@ locals {
 # Persistent Volume Claims (glusterfs-nfs)
 # =============================================================================
 
-resource "kubernetes_persistent_volume_claim" "config" {
+resource "kubernetes_persistent_volume_claim_v1" "config" {
   metadata {
     name      = "nextcloud-config"
     namespace = var.namespace
@@ -40,7 +40,7 @@ resource "kubernetes_persistent_volume_claim" "config" {
   }
 }
 
-resource "kubernetes_persistent_volume_claim" "custom_apps" {
+resource "kubernetes_persistent_volume_claim_v1" "custom_apps" {
   metadata {
     name      = "nextcloud-custom-apps"
     namespace = var.namespace
@@ -56,7 +56,7 @@ resource "kubernetes_persistent_volume_claim" "custom_apps" {
   }
 }
 
-resource "kubernetes_persistent_volume_claim" "data" {
+resource "kubernetes_persistent_volume_claim_v1" "data" {
   metadata {
     name      = "nextcloud-data"
     namespace = var.namespace
@@ -83,7 +83,7 @@ resource "kubernetes_persistent_volume_claim" "data" {
 # https://github.com/nextcloud/helm/blob/main/charts/nextcloud/templates/_helpers.tpl
 # =============================================================================
 
-resource "kubernetes_config_map" "nextcloud_config" {
+resource "kubernetes_config_map_v1" "nextcloud_config" {
   metadata {
     name      = "nextcloud-config-override"
     namespace = var.namespace
@@ -146,7 +146,7 @@ resource "kubernetes_config_map" "nextcloud_config" {
 # Nextcloud Deployment (with Redis sidecar)
 # =============================================================================
 
-resource "kubernetes_deployment" "nextcloud" {
+resource "kubernetes_deployment_v1" "nextcloud" {
   metadata {
     name      = "nextcloud"
     namespace = var.namespace
@@ -466,28 +466,28 @@ resource "kubernetes_deployment" "nextcloud" {
         volume {
           name = "config"
           persistent_volume_claim {
-            claim_name = kubernetes_persistent_volume_claim.config.metadata[0].name
+            claim_name = kubernetes_persistent_volume_claim_v1.config.metadata[0].name
           }
         }
 
         volume {
           name = "custom-apps"
           persistent_volume_claim {
-            claim_name = kubernetes_persistent_volume_claim.custom_apps.metadata[0].name
+            claim_name = kubernetes_persistent_volume_claim_v1.custom_apps.metadata[0].name
           }
         }
 
         volume {
           name = "data"
           persistent_volume_claim {
-            claim_name = kubernetes_persistent_volume_claim.data.metadata[0].name
+            claim_name = kubernetes_persistent_volume_claim_v1.data.metadata[0].name
           }
         }
 
         volume {
           name = "config-override"
           config_map {
-            name = kubernetes_config_map.nextcloud_config.metadata[0].name
+            name = kubernetes_config_map_v1.nextcloud_config.metadata[0].name
           }
         }
 
@@ -500,13 +500,13 @@ resource "kubernetes_deployment" "nextcloud" {
   }
 
   depends_on = [
-    kubernetes_persistent_volume_claim.config,
-    kubernetes_persistent_volume_claim.custom_apps,
-    kubernetes_persistent_volume_claim.data,
+    kubernetes_persistent_volume_claim_v1.config,
+    kubernetes_persistent_volume_claim_v1.custom_apps,
+    kubernetes_persistent_volume_claim_v1.data,
   ]
 }
 
-resource "kubernetes_service" "nextcloud" {
+resource "kubernetes_service_v1" "nextcloud" {
   metadata {
     name      = "nextcloud"
     namespace = var.namespace
@@ -547,7 +547,7 @@ resource "kubectl_manifest" "ingressroute" {
           ]
           services = [
             {
-              name = kubernetes_service.nextcloud.metadata[0].name
+              name = kubernetes_service_v1.nextcloud.metadata[0].name
               port = 80
             }
           ]

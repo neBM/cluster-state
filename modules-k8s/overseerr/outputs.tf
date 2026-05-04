@@ -1,6 +1,6 @@
 output "service_name" {
   description = "Name of the Kubernetes service"
-  value       = kubernetes_service.overseerr.metadata[0].name
+  value       = kubernetes_service_v1.overseerr.metadata[0].name
 }
 
 output "hostname" {

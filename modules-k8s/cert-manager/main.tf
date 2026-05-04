@@ -14,18 +14,18 @@ locals {
 # Create it in the cert-manager namespace before applying this module:
 #   kubectl create secret generic cloudflare-api-token-secret -n cert-manager \
 #     --from-literal=api-token='<cloudflare-token>'
-data "kubernetes_secret" "cloudflare_api_token" {
+data "kubernetes_secret_v1" "cloudflare_api_token" {
   depends_on = [
-    kubernetes_namespace.cert_manager,
+    kubernetes_namespace_v1.cert_manager,
   ]
 
   metadata {
     name      = "cloudflare-api-token-secret"
-    namespace = kubernetes_namespace.cert_manager.metadata[0].name
+    namespace = kubernetes_namespace_v1.cert_manager.metadata[0].name
   }
 }
 
-resource "kubernetes_namespace" "cert_manager" {
+resource "kubernetes_namespace_v1" "cert_manager" {
   metadata {
     name = var.namespace
     labels = merge(local.labels, {
@@ -34,7 +34,7 @@ resource "kubernetes_namespace" "cert_manager" {
   }
 }
 
-resource "kubernetes_namespace" "reloader" {
+resource "kubernetes_namespace_v1" "reloader" {
   metadata {
     name = var.reloader_namespace
     labels = merge(local.labels, {
@@ -48,7 +48,7 @@ resource "helm_release" "cert_manager" {
   repository       = "https://charts.jetstack.io"
   chart            = "cert-manager"
   version          = "v1.20.2"
-  namespace        = kubernetes_namespace.cert_manager.metadata[0].name
+  namespace        = kubernetes_namespace_v1.cert_manager.metadata[0].name
   create_namespace = false
   wait             = true
   timeout          = 600
@@ -66,7 +66,7 @@ resource "helm_release" "reloader" {
   repository       = "https://stakater.github.io/stakater-charts"
   chart            = "reloader"
   version          = "2.2.9"
-  namespace        = kubernetes_namespace.reloader.metadata[0].name
+  namespace        = kubernetes_namespace_v1.reloader.metadata[0].name
   create_namespace = false
   wait             = true
   timeout          = 300
@@ -82,7 +82,7 @@ resource "helm_release" "reloader" {
 resource "kubectl_manifest" "cluster_issuer" {
   depends_on = [
     helm_release.cert_manager,
-    data.kubernetes_secret.cloudflare_api_token,
+    data.kubernetes_secret_v1.cloudflare_api_token,
   ]
 
   validate_schema = false
@@ -107,7 +107,7 @@ resource "kubectl_manifest" "cluster_issuer" {
             dns01 = {
               cloudflare = {
                 apiTokenSecretRef = {
-                  name = data.kubernetes_secret.cloudflare_api_token.metadata[0].name
+                  name = data.kubernetes_secret_v1.cloudflare_api_token.metadata[0].name
                   key  = "api-token"
                 }
               }

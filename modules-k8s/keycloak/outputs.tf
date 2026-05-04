@@ -1,6 +1,6 @@
 output "service_name" {
   description = "Name of the Keycloak service"
-  value       = kubernetes_service.keycloak.metadata[0].name
+  value       = kubernetes_service_v1.keycloak.metadata[0].name
 }
 
 output "namespace" {

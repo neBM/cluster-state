@@ -8,7 +8,7 @@ locals {
 }
 
 # ConfigMap for litestream configuration
-resource "kubernetes_config_map" "litestream" {
+resource "kubernetes_config_map_v1" "litestream" {
   metadata {
     name      = "${local.app_name}-litestream"
     namespace = var.namespace
@@ -41,7 +41,7 @@ resource "kubernetes_config_map" "litestream" {
 # Persistent Volume Claims (seaweedfs)
 # =============================================================================
 
-resource "kubernetes_persistent_volume_claim" "config" {
+resource "kubernetes_persistent_volume_claim_v1" "config" {
   metadata {
     name      = "overseerr-config-sw"
     namespace = var.namespace
@@ -61,7 +61,7 @@ resource "kubernetes_persistent_volume_claim" "config" {
 # Deployment with litestream sidecar.
 # Singleton — uses Recreate strategy so only one replica ever mounts the
 # shared-state volumes (config PVC, data emptyDir) at a time.
-resource "kubernetes_deployment" "overseerr" {
+resource "kubernetes_deployment_v1" "overseerr" {
   metadata {
     name      = local.app_name
     namespace = var.namespace
@@ -310,7 +310,7 @@ resource "kubernetes_deployment" "overseerr" {
         volume {
           name = "config"
           persistent_volume_claim {
-            claim_name = kubernetes_persistent_volume_claim.config.metadata[0].name
+            claim_name = kubernetes_persistent_volume_claim_v1.config.metadata[0].name
           }
         }
 
@@ -318,7 +318,7 @@ resource "kubernetes_deployment" "overseerr" {
         volume {
           name = "litestream-config"
           config_map {
-            name = kubernetes_config_map.litestream.metadata[0].name
+            name = kubernetes_config_map_v1.litestream.metadata[0].name
           }
         }
 
@@ -351,7 +351,7 @@ resource "kubernetes_deployment" "overseerr" {
   }
 }
 
-resource "kubernetes_service" "overseerr" {
+resource "kubernetes_service_v1" "overseerr" {
   metadata {
     name      = local.app_name
     namespace = var.namespace
@@ -400,7 +400,7 @@ resource "kubernetes_ingress_v1" "overseerr" {
           path_type = "Prefix"
           backend {
             service {
-              name = kubernetes_service.overseerr.metadata[0].name
+              name = kubernetes_service_v1.overseerr.metadata[0].name
               port {
                 number = 80
               }

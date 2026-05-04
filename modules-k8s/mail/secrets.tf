@@ -94,7 +94,7 @@ resource "random_password" "rspamd_controller" {
   }
 }
 
-resource "kubernetes_secret" "rspamd_controller" {
+resource "kubernetes_secret_v1" "rspamd_controller" {
   metadata {
     name      = "rspamd-controller"
     namespace = var.namespace
@@ -115,42 +115,42 @@ resource "kubernetes_secret" "rspamd_controller" {
   type = "Opaque"
 }
 
-data "kubernetes_secret" "dkim_keys" {
+data "kubernetes_secret_v1" "dkim_keys" {
   metadata {
     name      = "dkim-keys"
     namespace = var.namespace
   }
 }
 
-data "kubernetes_secret" "postfix_relay" {
+data "kubernetes_secret_v1" "postfix_relay" {
   metadata {
     name      = "postfix-relay-secret"
     namespace = var.namespace
   }
 }
 
-data "kubernetes_secret" "postfix_ldap" {
+data "kubernetes_secret_v1" "postfix_ldap" {
   metadata {
     name      = "postfix-ldap-secret"
     namespace = var.namespace
   }
 }
 
-data "kubernetes_secret" "dovecot_ldap" {
+data "kubernetes_secret_v1" "dovecot_ldap" {
   metadata {
     name      = "dovecot-ldap-secret"
     namespace = var.namespace
   }
 }
 
-data "kubernetes_secret" "sogo_db" {
+data "kubernetes_secret_v1" "sogo_db" {
   metadata {
     name      = "sogo-db-secret"
     namespace = var.namespace
   }
 }
 
-data "kubernetes_secret" "sogo_ldap" {
+data "kubernetes_secret_v1" "sogo_ldap" {
   metadata {
     name      = "sogo-ldap-secret"
     namespace = var.namespace

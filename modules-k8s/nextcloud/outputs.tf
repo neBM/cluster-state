@@ -10,5 +10,5 @@ output "namespace" {
 
 output "nextcloud_service" {
   description = "Nextcloud service name"
-  value       = kubernetes_service.nextcloud.metadata[0].name
+  value       = kubernetes_service_v1.nextcloud.metadata[0].name
 }

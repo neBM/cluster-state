@@ -52,7 +52,7 @@ locals {
 # Synapse ConfigMaps
 # =============================================================================
 
-resource "kubernetes_config_map" "synapse_config" {
+resource "kubernetes_config_map_v1" "synapse_config" {
   metadata {
     name      = "synapse-config"
     namespace = var.namespace
@@ -196,7 +196,7 @@ resource "kubernetes_config_map" "synapse_config" {
 # MAS ConfigMap (template rendered by init container)
 # =============================================================================
 
-resource "kubernetes_config_map" "mas_config" {
+resource "kubernetes_config_map_v1" "mas_config" {
   metadata {
     name      = "mas-config-template"
     namespace = var.namespace
@@ -301,7 +301,7 @@ resource "kubernetes_config_map" "mas_config" {
 # Persistent Volume Claims (glusterfs-nfs)
 # =============================================================================
 
-resource "kubernetes_persistent_volume_claim" "synapse_data" {
+resource "kubernetes_persistent_volume_claim_v1" "synapse_data" {
   metadata {
     name      = "matrix-synapse-data-sw"
     namespace = var.namespace
@@ -318,7 +318,7 @@ resource "kubernetes_persistent_volume_claim" "synapse_data" {
   }
 }
 
-resource "kubernetes_persistent_volume_claim" "media_store" {
+resource "kubernetes_persistent_volume_claim_v1" "media_store" {
   metadata {
     name      = "matrix-media-store-sw"
     namespace = var.namespace
@@ -335,7 +335,7 @@ resource "kubernetes_persistent_volume_claim" "media_store" {
   }
 }
 
-resource "kubernetes_persistent_volume_claim" "whatsapp_data" {
+resource "kubernetes_persistent_volume_claim_v1" "whatsapp_data" {
   metadata {
     name      = "matrix-whatsapp-data-sw"
     namespace = var.namespace
@@ -356,7 +356,7 @@ resource "kubernetes_persistent_volume_claim" "whatsapp_data" {
 # Synapse Deployment
 # =============================================================================
 
-resource "kubernetes_deployment" "synapse" {
+resource "kubernetes_deployment_v1" "synapse" {
   metadata {
     name      = "synapse"
     namespace = var.namespace
@@ -572,7 +572,7 @@ resource "kubernetes_deployment" "synapse" {
         volume {
           name = "config-template"
           config_map {
-            name = kubernetes_config_map.synapse_config.metadata[0].name
+            name = kubernetes_config_map_v1.synapse_config.metadata[0].name
           }
         }
         volume {
@@ -582,13 +582,13 @@ resource "kubernetes_deployment" "synapse" {
         volume {
           name = "data"
           persistent_volume_claim {
-            claim_name = kubernetes_persistent_volume_claim.synapse_data.metadata[0].name
+            claim_name = kubernetes_persistent_volume_claim_v1.synapse_data.metadata[0].name
           }
         }
         volume {
           name = "media-store"
           persistent_volume_claim {
-            claim_name = kubernetes_persistent_volume_claim.media_store.metadata[0].name
+            claim_name = kubernetes_persistent_volume_claim_v1.media_store.metadata[0].name
           }
         }
       }
@@ -596,12 +596,12 @@ resource "kubernetes_deployment" "synapse" {
   }
 
   depends_on = [
-    kubernetes_persistent_volume_claim.synapse_data,
-    kubernetes_persistent_volume_claim.media_store,
+    kubernetes_persistent_volume_claim_v1.synapse_data,
+    kubernetes_persistent_volume_claim_v1.media_store,
   ]
 }
 
-resource "kubernetes_service" "synapse" {
+resource "kubernetes_service_v1" "synapse" {
   metadata {
     name      = "synapse"
     namespace = var.namespace
@@ -621,7 +621,7 @@ resource "kubernetes_service" "synapse" {
 # MAS (Matrix Authentication Service) Deployment
 # =============================================================================
 
-resource "kubernetes_deployment" "mas" {
+resource "kubernetes_deployment_v1" "mas" {
   metadata {
     name      = "mas"
     namespace = var.namespace
@@ -780,7 +780,7 @@ resource "kubernetes_deployment" "mas" {
         volume {
           name = "config-template"
           config_map {
-            name = kubernetes_config_map.mas_config.metadata[0].name
+            name = kubernetes_config_map_v1.mas_config.metadata[0].name
           }
         }
         volume {
@@ -814,11 +814,11 @@ resource "kubernetes_deployment" "mas" {
   }
 
   depends_on = [
-    kubernetes_config_map.mas_config,
+    kubernetes_config_map_v1.mas_config,
   ]
 }
 
-resource "kubernetes_service" "mas" {
+resource "kubernetes_service_v1" "mas" {
   metadata {
     name      = "mas"
     namespace = var.namespace
@@ -838,7 +838,7 @@ resource "kubernetes_service" "mas" {
 # WhatsApp Bridge Deployment
 # =============================================================================
 
-resource "kubernetes_deployment" "whatsapp_bridge" {
+resource "kubernetes_deployment_v1" "whatsapp_bridge" {
   metadata {
     name      = "whatsapp-bridge"
     namespace = var.namespace
@@ -892,7 +892,7 @@ resource "kubernetes_deployment" "whatsapp_bridge" {
         volume {
           name = "data"
           persistent_volume_claim {
-            claim_name = kubernetes_persistent_volume_claim.whatsapp_data.metadata[0].name
+            claim_name = kubernetes_persistent_volume_claim_v1.whatsapp_data.metadata[0].name
           }
         }
       }
@@ -900,7 +900,7 @@ resource "kubernetes_deployment" "whatsapp_bridge" {
   }
 }
 
-resource "kubernetes_service" "whatsapp_bridge" {
+resource "kubernetes_service_v1" "whatsapp_bridge" {
   metadata {
     name      = "whatsapp-bridge"
     namespace = var.namespace
@@ -920,7 +920,7 @@ resource "kubernetes_service" "whatsapp_bridge" {
 # Nginx (Well-known endpoints) Deployment
 # =============================================================================
 
-resource "kubernetes_config_map" "nginx_config" {
+resource "kubernetes_config_map_v1" "nginx_config" {
   metadata {
     name      = "matrix-nginx-config"
     namespace = var.namespace
@@ -986,7 +986,7 @@ resource "kubernetes_config_map" "nginx_config" {
   }
 }
 
-resource "kubernetes_deployment" "nginx" {
+resource "kubernetes_deployment_v1" "nginx" {
   metadata {
     name      = "matrix-nginx"
     namespace = var.namespace
@@ -1065,7 +1065,7 @@ resource "kubernetes_deployment" "nginx" {
         volume {
           name = "config"
           config_map {
-            name = kubernetes_config_map.nginx_config.metadata[0].name
+            name = kubernetes_config_map_v1.nginx_config.metadata[0].name
           }
         }
       }
@@ -1073,7 +1073,7 @@ resource "kubernetes_deployment" "nginx" {
   }
 }
 
-resource "kubernetes_service" "nginx" {
+resource "kubernetes_service_v1" "nginx" {
   metadata {
     name      = "matrix-nginx"
     namespace = var.namespace
@@ -1093,7 +1093,7 @@ resource "kubernetes_service" "nginx" {
 # Element Web Client Deployment
 # =============================================================================
 
-resource "kubernetes_config_map" "element_config" {
+resource "kubernetes_config_map_v1" "element_config" {
   metadata {
     name      = "element-config"
     namespace = var.namespace
@@ -1148,7 +1148,7 @@ resource "kubernetes_config_map" "element_config" {
   }
 }
 
-resource "kubernetes_deployment" "element" {
+resource "kubernetes_deployment_v1" "element" {
   metadata {
     name      = "element"
     namespace = var.namespace
@@ -1215,7 +1215,7 @@ resource "kubernetes_deployment" "element" {
         volume {
           name = "config"
           config_map {
-            name = kubernetes_config_map.element_config.metadata[0].name
+            name = kubernetes_config_map_v1.element_config.metadata[0].name
           }
         }
       }
@@ -1223,7 +1223,7 @@ resource "kubernetes_deployment" "element" {
   }
 }
 
-resource "kubernetes_service" "element" {
+resource "kubernetes_service_v1" "element" {
   metadata {
     name      = "element"
     namespace = var.namespace
@@ -1243,7 +1243,7 @@ resource "kubernetes_service" "element" {
 # Cinny Web Client Deployment
 # =============================================================================
 
-resource "kubernetes_config_map" "cinny_config" {
+resource "kubernetes_config_map_v1" "cinny_config" {
   metadata {
     name      = "cinny-config"
     namespace = var.namespace
@@ -1282,7 +1282,7 @@ resource "kubernetes_config_map" "cinny_config" {
   }
 }
 
-resource "kubernetes_deployment" "cinny" {
+resource "kubernetes_deployment_v1" "cinny" {
   metadata {
     name      = "cinny"
     namespace = var.namespace
@@ -1349,7 +1349,7 @@ resource "kubernetes_deployment" "cinny" {
         volume {
           name = "config"
           config_map {
-            name = kubernetes_config_map.cinny_config.metadata[0].name
+            name = kubernetes_config_map_v1.cinny_config.metadata[0].name
           }
         }
       }
@@ -1357,7 +1357,7 @@ resource "kubernetes_deployment" "cinny" {
   }
 }
 
-resource "kubernetes_service" "cinny" {
+resource "kubernetes_service_v1" "cinny" {
   metadata {
     name      = "cinny"
     namespace = var.namespace
@@ -1399,7 +1399,7 @@ resource "kubectl_manifest" "synapse_ingressroute" {
           ]
           services = [
             {
-              name = kubernetes_service.synapse.metadata[0].name
+              name = kubernetes_service_v1.synapse.metadata[0].name
               port = 8008
             }
           ]
@@ -1434,7 +1434,7 @@ resource "kubectl_manifest" "mas_ingressroute" {
           ]
           services = [
             {
-              name = kubernetes_service.mas.metadata[0].name
+              name = kubernetes_service_v1.mas.metadata[0].name
               port = 8081
             }
           ]
@@ -1487,7 +1487,7 @@ resource "kubectl_manifest" "wellknown_ingressroute" {
           ]
           services = [
             {
-              name = kubernetes_service.nginx.metadata[0].name
+              name = kubernetes_service_v1.nginx.metadata[0].name
               port = 8080
             }
           ]
@@ -1518,7 +1518,7 @@ resource "kubectl_manifest" "element_ingressroute" {
           kind  = "Rule"
           services = [
             {
-              name = kubernetes_service.element.metadata[0].name
+              name = kubernetes_service_v1.element.metadata[0].name
               port = 80
             }
           ]
@@ -1549,7 +1549,7 @@ resource "kubectl_manifest" "cinny_ingressroute" {
           kind  = "Rule"
           services = [
             {
-              name = kubernetes_service.cinny.metadata[0].name
+              name = kubernetes_service_v1.cinny.metadata[0].name
               port = 80
             }
           ]
@@ -1620,7 +1620,7 @@ resource "kubectl_manifest" "wellknown_cors" {
 # Element Admin Deployment
 # =============================================================================
 
-resource "kubernetes_deployment" "element_admin" {
+resource "kubernetes_deployment_v1" "element_admin" {
   metadata {
     name      = "element-admin"
     namespace = var.namespace
@@ -1687,7 +1687,7 @@ resource "kubernetes_deployment" "element_admin" {
   }
 }
 
-resource "kubernetes_service" "element_admin" {
+resource "kubernetes_service_v1" "element_admin" {
   metadata {
     name      = "element-admin"
     namespace = var.namespace
@@ -1720,7 +1720,7 @@ resource "kubectl_manifest" "element_admin_ingressroute" {
           kind  = "Rule"
           services = [
             {
-              name = kubernetes_service.element_admin.metadata[0].name
+              name = kubernetes_service_v1.element_admin.metadata[0].name
               port = 8080
             }
           ]

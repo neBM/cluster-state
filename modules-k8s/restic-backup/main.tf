@@ -84,7 +84,7 @@ EOF
 # SeaweedFS filer root PV/PVC — mounts /buckets (all CSI-provisioned volumes)
 # =============================================================================
 
-resource "kubernetes_persistent_volume" "seaweedfs_filer" {
+resource "kubernetes_persistent_volume_v1" "seaweedfs_filer" {
   metadata {
     name   = "restic-seaweedfs-filer-root"
     labels = local.labels
@@ -109,7 +109,7 @@ resource "kubernetes_persistent_volume" "seaweedfs_filer" {
   }
 }
 
-resource "kubernetes_persistent_volume_claim" "seaweedfs_filer" {
+resource "kubernetes_persistent_volume_claim_v1" "seaweedfs_filer" {
   metadata {
     name      = "restic-seaweedfs-filer-root"
     namespace = var.namespace
@@ -119,7 +119,7 @@ resource "kubernetes_persistent_volume_claim" "seaweedfs_filer" {
   spec {
     access_modes       = ["ReadOnlyMany"]
     storage_class_name = "seaweedfs"
-    volume_name        = kubernetes_persistent_volume.seaweedfs_filer.metadata[0].name
+    volume_name        = kubernetes_persistent_volume_v1.seaweedfs_filer.metadata[0].name
 
     resources {
       requests = {
@@ -133,7 +133,7 @@ resource "kubernetes_persistent_volume_claim" "seaweedfs_filer" {
 # ConfigMap for scripts
 # =============================================================================
 
-resource "kubernetes_config_map" "backup_scripts" {
+resource "kubernetes_config_map_v1" "backup_scripts" {
   metadata {
     name      = "restic-backup-scripts"
     namespace = var.namespace
@@ -229,7 +229,7 @@ resource "kubernetes_cron_job_v1" "restic_backup" {
             volume {
               name = "data-seaweedfs"
               persistent_volume_claim {
-                claim_name = kubernetes_persistent_volume_claim.seaweedfs_filer.metadata[0].name
+                claim_name = kubernetes_persistent_volume_claim_v1.seaweedfs_filer.metadata[0].name
                 read_only  = true
               }
             }
@@ -245,7 +245,7 @@ resource "kubernetes_cron_job_v1" "restic_backup" {
             volume {
               name = "scripts"
               config_map {
-                name         = kubernetes_config_map.backup_scripts.metadata[0].name
+                name         = kubernetes_config_map_v1.backup_scripts.metadata[0].name
                 default_mode = "0755"
               }
             }

@@ -6,7 +6,7 @@
 #   docs/superpowers/specs/2026-04-08-seaweedfs-consumer-recycler-design.md
 # -----------------------------------------------------------------------------
 
-resource "kubernetes_service_account" "consumer_recycler" {
+resource "kubernetes_service_account_v1" "consumer_recycler" {
   metadata {
     name      = "seaweedfs-consumer-recycler"
     namespace = var.namespace
@@ -14,7 +14,7 @@ resource "kubernetes_service_account" "consumer_recycler" {
   }
 }
 
-resource "kubernetes_cluster_role" "consumer_recycler" {
+resource "kubernetes_cluster_role_v1" "consumer_recycler" {
   metadata {
     name   = "seaweedfs-consumer-recycler"
     labels = local.labels
@@ -51,7 +51,7 @@ resource "kubernetes_cluster_role" "consumer_recycler" {
   }
 }
 
-resource "kubernetes_cluster_role_binding" "consumer_recycler" {
+resource "kubernetes_cluster_role_binding_v1" "consumer_recycler" {
   metadata {
     name   = "seaweedfs-consumer-recycler"
     labels = local.labels
@@ -60,12 +60,12 @@ resource "kubernetes_cluster_role_binding" "consumer_recycler" {
   role_ref {
     api_group = "rbac.authorization.k8s.io"
     kind      = "ClusterRole"
-    name      = kubernetes_cluster_role.consumer_recycler.metadata[0].name
+    name      = kubernetes_cluster_role_v1.consumer_recycler.metadata[0].name
   }
 
   subject {
     kind      = "ServiceAccount"
-    name      = kubernetes_service_account.consumer_recycler.metadata[0].name
+    name      = kubernetes_service_account_v1.consumer_recycler.metadata[0].name
     namespace = var.namespace
   }
 }
@@ -97,7 +97,7 @@ resource "kubernetes_daemon_set_v1" "consumer_recycler" {
       }
 
       spec {
-        service_account_name = kubernetes_service_account.consumer_recycler.metadata[0].name
+        service_account_name = kubernetes_service_account_v1.consumer_recycler.metadata[0].name
 
         toleration {
           key      = "node-role.kubernetes.io/control-plane"
@@ -198,7 +198,7 @@ resource "kubernetes_daemon_set_v1" "consumer_recycler" {
   }
 }
 
-resource "kubernetes_service" "consumer_recycler_metrics" {
+resource "kubernetes_service_v1" "consumer_recycler_metrics" {
   metadata {
     name      = "seaweedfs-consumer-recycler-metrics"
     namespace = var.namespace

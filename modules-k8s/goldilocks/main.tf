@@ -34,7 +34,7 @@ resource "kubernetes_labels" "enable_goldilocks" {
 # ServiceAccount
 # =============================================================================
 
-resource "kubernetes_service_account" "goldilocks" {
+resource "kubernetes_service_account_v1" "goldilocks" {
   metadata {
     name      = "goldilocks"
     namespace = var.namespace
@@ -46,7 +46,7 @@ resource "kubernetes_service_account" "goldilocks" {
 # ClusterRole - needs to read deployments/statefulsets and manage VPAs
 # =============================================================================
 
-resource "kubernetes_cluster_role" "goldilocks" {
+resource "kubernetes_cluster_role_v1" "goldilocks" {
   metadata {
     name   = "goldilocks"
     labels = local.labels
@@ -88,7 +88,7 @@ resource "kubernetes_cluster_role" "goldilocks" {
   }
 }
 
-resource "kubernetes_cluster_role_binding" "goldilocks" {
+resource "kubernetes_cluster_role_binding_v1" "goldilocks" {
   metadata {
     name   = "goldilocks"
     labels = local.labels
@@ -97,12 +97,12 @@ resource "kubernetes_cluster_role_binding" "goldilocks" {
   role_ref {
     api_group = "rbac.authorization.k8s.io"
     kind      = "ClusterRole"
-    name      = kubernetes_cluster_role.goldilocks.metadata[0].name
+    name      = kubernetes_cluster_role_v1.goldilocks.metadata[0].name
   }
 
   subject {
     kind      = "ServiceAccount"
-    name      = kubernetes_service_account.goldilocks.metadata[0].name
+    name      = kubernetes_service_account_v1.goldilocks.metadata[0].name
     namespace = var.namespace
   }
 }
@@ -111,7 +111,7 @@ resource "kubernetes_cluster_role_binding" "goldilocks" {
 # Goldilocks Controller Deployment
 # =============================================================================
 
-resource "kubernetes_deployment" "goldilocks_controller" {
+resource "kubernetes_deployment_v1" "goldilocks_controller" {
   metadata {
     name      = "goldilocks-controller"
     namespace = var.namespace
@@ -138,7 +138,7 @@ resource "kubernetes_deployment" "goldilocks_controller" {
       }
 
       spec {
-        service_account_name = kubernetes_service_account.goldilocks.metadata[0].name
+        service_account_name = kubernetes_service_account_v1.goldilocks.metadata[0].name
 
         container {
           name  = "goldilocks"
@@ -181,7 +181,7 @@ resource "kubernetes_deployment" "goldilocks_controller" {
 # Goldilocks Dashboard (optional, for viewing recommendations)
 # =============================================================================
 
-resource "kubernetes_deployment" "goldilocks_dashboard" {
+resource "kubernetes_deployment_v1" "goldilocks_dashboard" {
   count = var.enable_dashboard ? 1 : 0
 
   metadata {
@@ -210,7 +210,7 @@ resource "kubernetes_deployment" "goldilocks_dashboard" {
       }
 
       spec {
-        service_account_name = kubernetes_service_account.goldilocks.metadata[0].name
+        service_account_name = kubernetes_service_account_v1.goldilocks.metadata[0].name
 
         container {
           name  = "goldilocks"
@@ -254,7 +254,7 @@ resource "kubernetes_deployment" "goldilocks_dashboard" {
   }
 }
 
-resource "kubernetes_service" "goldilocks_dashboard" {
+resource "kubernetes_service_v1" "goldilocks_dashboard" {
   count = var.enable_dashboard ? 1 : 0
 
   metadata {
@@ -297,7 +297,7 @@ resource "kubectl_manifest" "goldilocks_ingressroute" {
           kind  = "Rule"
           services = [
             {
-              name = kubernetes_service.goldilocks_dashboard[0].metadata[0].name
+              name = kubernetes_service_v1.goldilocks_dashboard[0].metadata[0].name
               port = 8080
             }
           ]

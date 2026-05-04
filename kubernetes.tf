@@ -34,7 +34,7 @@ provider "kubectl" {
 # local-path with Retain reclaim policy — node-local PV for stateful workloads
 # that need durability across pod restarts without network-FS latency (e.g.
 # TSDBs, SQLite). Late-binding so PVs are created on the node the pod lands on.
-resource "kubernetes_storage_class" "local_path_retain" {
+resource "kubernetes_storage_class_v1" "local_path_retain" {
   metadata {
     name = "local-path-retain"
   }

@@ -94,7 +94,7 @@ locals {
 # Persistent Volume Claims (seaweedfs)
 # =============================================================================
 
-resource "kubernetes_persistent_volume_claim" "code" {
+resource "kubernetes_persistent_volume_claim_v1" "code" {
   metadata {
     name      = "nginx-sites-code-sw"
     namespace = var.namespace
@@ -111,7 +111,7 @@ resource "kubernetes_persistent_volume_claim" "code" {
   }
 }
 
-resource "kubernetes_config_map" "nginx_config" {
+resource "kubernetes_config_map_v1" "nginx_config" {
   metadata {
     name      = "${local.app_name}-config"
     namespace = var.namespace
@@ -125,7 +125,7 @@ resource "kubernetes_config_map" "nginx_config" {
   }
 }
 
-resource "kubernetes_deployment" "nginx_sites" {
+resource "kubernetes_deployment_v1" "nginx_sites" {
   metadata {
     name      = local.app_name
     namespace = var.namespace
@@ -251,14 +251,14 @@ resource "kubernetes_deployment" "nginx_sites" {
         volume {
           name = "nginx-config"
           config_map {
-            name = kubernetes_config_map.nginx_config.metadata[0].name
+            name = kubernetes_config_map_v1.nginx_config.metadata[0].name
           }
         }
 
         volume {
           name = "code"
           persistent_volume_claim {
-            claim_name = kubernetes_persistent_volume_claim.code.metadata[0].name
+            claim_name = kubernetes_persistent_volume_claim_v1.code.metadata[0].name
           }
         }
 
@@ -281,7 +281,7 @@ resource "kubernetes_deployment" "nginx_sites" {
   }
 }
 
-resource "kubernetes_service" "nginx_sites" {
+resource "kubernetes_service_v1" "nginx_sites" {
   metadata {
     name      = local.app_name
     namespace = var.namespace
@@ -331,7 +331,7 @@ resource "kubernetes_ingress_v1" "brmartin" {
           path_type = "Prefix"
           backend {
             service {
-              name = kubernetes_service.nginx_sites.metadata[0].name
+              name = kubernetes_service_v1.nginx_sites.metadata[0].name
               port {
                 number = 80
               }
@@ -349,7 +349,7 @@ resource "kubernetes_ingress_v1" "brmartin" {
           path_type = "Prefix"
           backend {
             service {
-              name = kubernetes_service.nginx_sites.metadata[0].name
+              name = kubernetes_service_v1.nginx_sites.metadata[0].name
               port {
                 number = 80
               }
@@ -389,7 +389,7 @@ resource "kubernetes_ingress_v1" "martinilink" {
           path_type = "Prefix"
           backend {
             service {
-              name = kubernetes_service.nginx_sites.metadata[0].name
+              name = kubernetes_service_v1.nginx_sites.metadata[0].name
               port {
                 number = 80
               }

@@ -1,4 +1,4 @@
-resource "kubernetes_service_account" "headlamp" {
+resource "kubernetes_service_account_v1" "headlamp" {
   metadata {
     name      = local.app_name
     namespace = local.namespace
@@ -8,7 +8,7 @@ resource "kubernetes_service_account" "headlamp" {
 
 # Bind to the built-in cluster-admin ClusterRole
 # Headlamp needs broad access to display and manage all cluster resources
-resource "kubernetes_cluster_role_binding" "headlamp" {
+resource "kubernetes_cluster_role_binding_v1" "headlamp" {
   metadata {
     name   = local.app_name
     labels = local.labels
@@ -22,7 +22,7 @@ resource "kubernetes_cluster_role_binding" "headlamp" {
 
   subject {
     kind      = "ServiceAccount"
-    name      = kubernetes_service_account.headlamp.metadata[0].name
+    name      = kubernetes_service_account_v1.headlamp.metadata[0].name
     namespace = local.namespace
   }
 }

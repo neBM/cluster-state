@@ -23,7 +23,7 @@ locals {
 # Redis — Rspamd backend (T018)
 # =============================================================================
 
-resource "kubernetes_deployment" "mail_redis" {
+resource "kubernetes_deployment_v1" "mail_redis" {
   metadata {
     name      = "mail-redis"
     namespace = var.namespace
@@ -97,7 +97,7 @@ resource "kubernetes_deployment" "mail_redis" {
   }
 }
 
-resource "kubernetes_service" "mail_redis" {
+resource "kubernetes_service_v1" "mail_redis" {
   metadata {
     name      = "mail-redis"
     namespace = var.namespace
@@ -122,7 +122,7 @@ resource "kubernetes_service" "mail_redis" {
 # Rspamd — Spam filter + DKIM signing (T019)
 # =============================================================================
 
-resource "kubernetes_config_map" "rspamd_config" {
+resource "kubernetes_config_map_v1" "rspamd_config" {
   metadata {
     name      = "rspamd-config"
     namespace = var.namespace
@@ -181,7 +181,7 @@ resource "kubernetes_config_map" "rspamd_config" {
   }
 }
 
-resource "kubernetes_persistent_volume_claim" "rspamd_data" {
+resource "kubernetes_persistent_volume_claim_v1" "rspamd_data" {
   metadata {
     name      = "rspamd-data-sw"
     namespace = var.namespace
@@ -196,7 +196,7 @@ resource "kubernetes_persistent_volume_claim" "rspamd_data" {
   }
 }
 
-resource "kubernetes_deployment" "rspamd" {
+resource "kubernetes_deployment_v1" "rspamd" {
   metadata {
     name      = "rspamd"
     namespace = var.namespace
@@ -313,7 +313,7 @@ resource "kubernetes_deployment" "rspamd" {
             name = "RSPAMD_CONTROLLER_PASSWORD"
             value_from {
               secret_key_ref {
-                name = kubernetes_secret.rspamd_controller.metadata[0].name
+                name = kubernetes_secret_v1.rspamd_controller.metadata[0].name
                 key  = "controller-password"
               }
             }
@@ -386,28 +386,28 @@ resource "kubernetes_deployment" "rspamd" {
         volume {
           name = "dkim-keys"
           secret {
-            secret_name = data.kubernetes_secret.dkim_keys.metadata[0].name
+            secret_name = data.kubernetes_secret_v1.dkim_keys.metadata[0].name
           }
         }
 
         volume {
           name = "config"
           config_map {
-            name = kubernetes_config_map.rspamd_config.metadata[0].name
+            name = kubernetes_config_map_v1.rspamd_config.metadata[0].name
           }
         }
 
         volume {
           name = "rspamd-controller"
           secret {
-            secret_name = kubernetes_secret.rspamd_controller.metadata[0].name
+            secret_name = kubernetes_secret_v1.rspamd_controller.metadata[0].name
           }
         }
 
         volume {
           name = "data"
           persistent_volume_claim {
-            claim_name = kubernetes_persistent_volume_claim.rspamd_data.metadata[0].name
+            claim_name = kubernetes_persistent_volume_claim_v1.rspamd_data.metadata[0].name
           }
         }
       }
@@ -415,7 +415,7 @@ resource "kubernetes_deployment" "rspamd" {
   }
 }
 
-resource "kubernetes_service" "rspamd" {
+resource "kubernetes_service_v1" "rspamd" {
   metadata {
     name      = "rspamd"
     namespace = var.namespace
@@ -443,7 +443,7 @@ resource "kubernetes_service" "rspamd" {
   }
 }
 
-resource "kubernetes_service" "rspamd_metrics" {
+resource "kubernetes_service_v1" "rspamd_metrics" {
   metadata {
     name      = "rspamd-metrics"
     namespace = var.namespace
@@ -473,7 +473,7 @@ resource "kubernetes_service" "rspamd_metrics" {
 # Postfix — SMTP MTA (T020)
 # =============================================================================
 
-resource "kubernetes_config_map" "postfix_main" {
+resource "kubernetes_config_map_v1" "postfix_main" {
   metadata {
     name      = "postfix-main"
     namespace = var.namespace
@@ -606,7 +606,7 @@ resource "kubernetes_config_map" "postfix_main" {
   }
 }
 
-resource "kubernetes_config_map" "postfix_ldap" {
+resource "kubernetes_config_map_v1" "postfix_ldap" {
   metadata {
     name      = "postfix-ldap"
     namespace = var.namespace
@@ -627,7 +627,7 @@ resource "kubernetes_config_map" "postfix_ldap" {
   }
 }
 
-resource "kubernetes_config_map" "postfix_aliases" {
+resource "kubernetes_config_map_v1" "postfix_aliases" {
   metadata {
     name      = "postfix-aliases"
     namespace = var.namespace
@@ -648,7 +648,7 @@ resource "kubernetes_config_map" "postfix_aliases" {
   }
 }
 
-resource "kubernetes_persistent_volume_claim" "postfix_spool" {
+resource "kubernetes_persistent_volume_claim_v1" "postfix_spool" {
   metadata {
     name      = "postfix-spool-sw"
     namespace = var.namespace
@@ -663,7 +663,7 @@ resource "kubernetes_persistent_volume_claim" "postfix_spool" {
   }
 }
 
-resource "kubernetes_deployment" "postfix" {
+resource "kubernetes_deployment_v1" "postfix" {
   metadata {
     name      = "postfix"
     namespace = var.namespace
@@ -767,7 +767,7 @@ resource "kubernetes_deployment" "postfix" {
             name = "RELAY_HOST"
             value_from {
               secret_key_ref {
-                name = data.kubernetes_secret.postfix_relay.metadata[0].name
+                name = data.kubernetes_secret_v1.postfix_relay.metadata[0].name
                 key  = "RELAY_HOST"
               }
             }
@@ -777,7 +777,7 @@ resource "kubernetes_deployment" "postfix" {
             name = "RELAY_USERNAME"
             value_from {
               secret_key_ref {
-                name = data.kubernetes_secret.postfix_relay.metadata[0].name
+                name = data.kubernetes_secret_v1.postfix_relay.metadata[0].name
                 key  = "RELAY_USERNAME"
               }
             }
@@ -787,7 +787,7 @@ resource "kubernetes_deployment" "postfix" {
             name = "RELAY_PASSWORD"
             value_from {
               secret_key_ref {
-                name = data.kubernetes_secret.postfix_relay.metadata[0].name
+                name = data.kubernetes_secret_v1.postfix_relay.metadata[0].name
                 key  = "RELAY_PASSWORD"
               }
             }
@@ -867,14 +867,14 @@ resource "kubernetes_deployment" "postfix" {
         volume {
           name = "postfix-main"
           config_map {
-            name = kubernetes_config_map.postfix_main.metadata[0].name
+            name = kubernetes_config_map_v1.postfix_main.metadata[0].name
           }
         }
 
         volume {
           name = "postfix-aliases"
           config_map {
-            name = kubernetes_config_map.postfix_aliases.metadata[0].name
+            name = kubernetes_config_map_v1.postfix_aliases.metadata[0].name
           }
         }
 
@@ -888,7 +888,7 @@ resource "kubernetes_deployment" "postfix" {
         volume {
           name = "spool"
           persistent_volume_claim {
-            claim_name = kubernetes_persistent_volume_claim.postfix_spool.metadata[0].name
+            claim_name = kubernetes_persistent_volume_claim_v1.postfix_spool.metadata[0].name
           }
         }
       }
@@ -896,7 +896,7 @@ resource "kubernetes_deployment" "postfix" {
   }
 }
 
-resource "kubernetes_service" "postfix" {
+resource "kubernetes_service_v1" "postfix" {
   metadata {
     name      = "postfix"
     namespace = var.namespace
@@ -940,7 +940,7 @@ resource "kubernetes_service" "postfix" {
 # Dovecot — IMAP / POP3 / LMTP / SASL (T021)
 # =============================================================================
 
-resource "kubernetes_config_map" "dovecot_main" {
+resource "kubernetes_config_map_v1" "dovecot_main" {
   metadata {
     name      = "dovecot-main"
     namespace = var.namespace
@@ -1052,7 +1052,7 @@ resource "kubernetes_config_map" "dovecot_main" {
   }
 }
 
-resource "kubernetes_config_map" "dovecot_ldap" {
+resource "kubernetes_config_map_v1" "dovecot_ldap" {
   metadata {
     name      = "dovecot-ldap"
     namespace = var.namespace
@@ -1108,7 +1108,7 @@ resource "kubernetes_config_map" "dovecot_ldap" {
   }
 }
 
-resource "kubernetes_persistent_volume_claim" "dovecot_mailboxes" {
+resource "kubernetes_persistent_volume_claim_v1" "dovecot_mailboxes" {
   metadata {
     name      = "dovecot-mailboxes-sw"
     namespace = var.namespace
@@ -1123,7 +1123,7 @@ resource "kubernetes_persistent_volume_claim" "dovecot_mailboxes" {
   }
 }
 
-resource "kubernetes_deployment" "dovecot" {
+resource "kubernetes_deployment_v1" "dovecot" {
   metadata {
     name      = "dovecot"
     namespace = var.namespace
@@ -1168,7 +1168,7 @@ resource "kubernetes_deployment" "dovecot" {
             name = "LDAP_BIND_PW"
             value_from {
               secret_key_ref {
-                name = data.kubernetes_secret.dovecot_ldap.metadata[0].name
+                name = data.kubernetes_secret_v1.dovecot_ldap.metadata[0].name
                 key  = "LDAP_BIND_PW"
               }
             }
@@ -1322,7 +1322,7 @@ resource "kubernetes_deployment" "dovecot" {
         volume {
           name = "dovecot-main"
           config_map {
-            name = kubernetes_config_map.dovecot_main.metadata[0].name
+            name = kubernetes_config_map_v1.dovecot_main.metadata[0].name
           }
         }
 
@@ -1330,7 +1330,7 @@ resource "kubernetes_deployment" "dovecot" {
         volume {
           name = "dovecot-ldap"
           config_map {
-            name = kubernetes_config_map.dovecot_ldap.metadata[0].name
+            name = kubernetes_config_map_v1.dovecot_ldap.metadata[0].name
             items {
               key  = "dovecot-ldap.conf.ext.tmpl"
               path = "dovecot-ldap.conf.ext.tmpl"
@@ -1358,7 +1358,7 @@ resource "kubernetes_deployment" "dovecot" {
         volume {
           name = "mailboxes"
           persistent_volume_claim {
-            claim_name = kubernetes_persistent_volume_claim.dovecot_mailboxes.metadata[0].name
+            claim_name = kubernetes_persistent_volume_claim_v1.dovecot_mailboxes.metadata[0].name
           }
         }
 
@@ -1371,7 +1371,7 @@ resource "kubernetes_deployment" "dovecot" {
   }
 }
 
-resource "kubernetes_service" "dovecot" {
+resource "kubernetes_service_v1" "dovecot" {
   metadata {
     name      = "dovecot"
     namespace = var.namespace
@@ -1605,7 +1605,7 @@ resource "kubernetes_manifest" "np_postfix" {
 # Config is mounted at /srv/etc/sogo.conf via initContainer envsubst injection.
 # =============================================================================
 
-resource "kubernetes_config_map" "sogo_config" {
+resource "kubernetes_config_map_v1" "sogo_config" {
   metadata {
     name      = "sogo-config"
     namespace = var.namespace
@@ -1678,7 +1678,7 @@ resource "kubernetes_config_map" "sogo_config" {
   }
 }
 
-resource "kubernetes_deployment" "sogo" {
+resource "kubernetes_deployment_v1" "sogo" {
   metadata {
     name      = "sogo"
     namespace = var.namespace
@@ -1715,7 +1715,7 @@ resource "kubernetes_deployment" "sogo" {
             name = "SOGO_DB_URL"
             value_from {
               secret_key_ref {
-                name = data.kubernetes_secret.sogo_db.metadata[0].name
+                name = data.kubernetes_secret_v1.sogo_db.metadata[0].name
                 key  = "SOGO_DB_URL"
               }
             }
@@ -1725,7 +1725,7 @@ resource "kubernetes_deployment" "sogo" {
             name = "LDAP_BIND_PW"
             value_from {
               secret_key_ref {
-                name = data.kubernetes_secret.sogo_ldap.metadata[0].name
+                name = data.kubernetes_secret_v1.sogo_ldap.metadata[0].name
                 key  = "LDAP_BIND_PW"
               }
             }
@@ -1821,7 +1821,7 @@ resource "kubernetes_deployment" "sogo" {
         volume {
           name = "sogo-tmpl"
           config_map {
-            name = kubernetes_config_map.sogo_config.metadata[0].name
+            name = kubernetes_config_map_v1.sogo_config.metadata[0].name
             items {
               key  = "sogo.conf.tmpl"
               path = "sogo.conf.tmpl"
@@ -1833,7 +1833,7 @@ resource "kubernetes_deployment" "sogo" {
   }
 }
 
-resource "kubernetes_service" "sogo" {
+resource "kubernetes_service_v1" "sogo" {
   metadata {
     name      = "sogo"
     namespace = var.namespace
@@ -1882,7 +1882,7 @@ resource "kubernetes_ingress_v1" "sogo" {
           path_type = "Prefix"
           backend {
             service {
-              name = kubernetes_service.sogo.metadata[0].name
+              name = kubernetes_service_v1.sogo.metadata[0].name
               port {
                 number = 80
               }

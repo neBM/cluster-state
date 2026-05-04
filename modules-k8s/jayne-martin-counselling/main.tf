@@ -7,7 +7,7 @@ locals {
   }
 }
 
-resource "kubernetes_deployment" "jayne_martin_counselling" {
+resource "kubernetes_deployment_v1" "jayne_martin_counselling" {
   metadata {
     name      = local.app_name
     namespace = var.namespace
@@ -99,7 +99,7 @@ resource "kubernetes_deployment" "jayne_martin_counselling" {
   }
 }
 
-resource "kubernetes_service" "jayne_martin_counselling" {
+resource "kubernetes_service_v1" "jayne_martin_counselling" {
   metadata {
     name      = local.app_name
     namespace = var.namespace
@@ -148,7 +148,7 @@ resource "kubernetes_ingress_v1" "jayne_martin_counselling" {
           path_type = "Prefix"
           backend {
             service {
-              name = kubernetes_service.jayne_martin_counselling.metadata[0].name
+              name = kubernetes_service_v1.jayne_martin_counselling.metadata[0].name
               port {
                 number = 80
               }
@@ -195,5 +195,5 @@ resource "kubectl_manifest" "jayne_martin_counselling_vpa" {
     }
   })
 
-  depends_on = [kubernetes_deployment.jayne_martin_counselling]
+  depends_on = [kubernetes_deployment_v1.jayne_martin_counselling]
 }

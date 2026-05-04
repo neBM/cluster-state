@@ -8,7 +8,7 @@ locals {
 }
 
 # Deployment for Keycloak
-resource "kubernetes_deployment" "keycloak" {
+resource "kubernetes_deployment_v1" "keycloak" {
   metadata {
     name      = local.app_name
     namespace = var.namespace
@@ -170,7 +170,7 @@ resource "kubernetes_deployment" "keycloak" {
 
 }
 
-resource "kubernetes_service" "keycloak" {
+resource "kubernetes_service_v1" "keycloak" {
   metadata {
     name      = local.app_name
     namespace = var.namespace
@@ -232,7 +232,7 @@ resource "kubernetes_ingress_v1" "keycloak" {
           path_type = "Prefix"
           backend {
             service {
-              name = kubernetes_service.keycloak.metadata[0].name
+              name = kubernetes_service_v1.keycloak.metadata[0].name
               port {
                 number = 80
               }

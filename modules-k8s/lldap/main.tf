@@ -17,7 +17,7 @@ locals {
 # ConfigMap (T009)
 # =============================================================================
 
-resource "kubernetes_config_map" "lldap_config" {
+resource "kubernetes_config_map_v1" "lldap_config" {
   metadata {
     name      = "lldap-config"
     namespace = var.namespace
@@ -48,7 +48,7 @@ resource "kubernetes_config_map" "lldap_config" {
 # Deployment (T009)
 # =============================================================================
 
-resource "kubernetes_deployment" "lldap" {
+resource "kubernetes_deployment_v1" "lldap" {
   metadata {
     name      = local.app_name
     namespace = var.namespace
@@ -96,7 +96,7 @@ resource "kubernetes_deployment" "lldap" {
             name = "LLDAP_JWT_SECRET"
             value_from {
               secret_key_ref {
-                name = data.kubernetes_secret.lldap_secrets.metadata[0].name
+                name = data.kubernetes_secret_v1.lldap_secrets.metadata[0].name
                 key  = "LLDAP_JWT_SECRET"
               }
             }
@@ -106,7 +106,7 @@ resource "kubernetes_deployment" "lldap" {
             name = "LLDAP_KEY_SEED"
             value_from {
               secret_key_ref {
-                name = data.kubernetes_secret.lldap_secrets.metadata[0].name
+                name = data.kubernetes_secret_v1.lldap_secrets.metadata[0].name
                 key  = "LLDAP_KEY_SEED"
               }
             }
@@ -116,7 +116,7 @@ resource "kubernetes_deployment" "lldap" {
             name = "LLDAP_DATABASE_URL"
             value_from {
               secret_key_ref {
-                name = data.kubernetes_secret.lldap_db.metadata[0].name
+                name = data.kubernetes_secret_v1.lldap_db.metadata[0].name
                 key  = "LLDAP_DATABASE_URL"
               }
             }
@@ -126,7 +126,7 @@ resource "kubernetes_deployment" "lldap" {
             name = "LLDAP_LDAP_USER_PASS"
             value_from {
               secret_key_ref {
-                name = data.kubernetes_secret.lldap_admin.metadata[0].name
+                name = data.kubernetes_secret_v1.lldap_admin.metadata[0].name
                 key  = "LLDAP_LDAP_USER_PASS"
               }
             }
@@ -188,7 +188,7 @@ resource "kubernetes_deployment" "lldap" {
 # Service (T009)
 # =============================================================================
 
-resource "kubernetes_service" "lldap" {
+resource "kubernetes_service_v1" "lldap" {
   metadata {
     name      = local.app_name
     namespace = var.namespace
@@ -249,7 +249,7 @@ resource "kubernetes_ingress_v1" "lldap" {
           path_type = "Prefix"
           backend {
             service {
-              name = kubernetes_service.lldap.metadata[0].name
+              name = kubernetes_service_v1.lldap.metadata[0].name
               port {
                 number = 17170
               }

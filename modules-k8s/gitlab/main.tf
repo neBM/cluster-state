@@ -40,7 +40,7 @@ locals {
 # Persistent Volume Claims
 # =============================================================================
 
-resource "kubernetes_persistent_volume_claim" "repositories" {
+resource "kubernetes_persistent_volume_claim_v1" "repositories" {
   metadata {
     name      = "gitlab-repositories-sw"
     namespace = var.namespace
@@ -57,7 +57,7 @@ resource "kubernetes_persistent_volume_claim" "repositories" {
   }
 }
 
-resource "kubernetes_persistent_volume_claim" "uploads" {
+resource "kubernetes_persistent_volume_claim_v1" "uploads" {
   metadata {
     name      = "gitlab-uploads-sw"
     namespace = var.namespace
@@ -74,7 +74,7 @@ resource "kubernetes_persistent_volume_claim" "uploads" {
   }
 }
 
-resource "kubernetes_persistent_volume_claim" "shared" {
+resource "kubernetes_persistent_volume_claim_v1" "shared" {
   metadata {
     name      = "gitlab-shared-sw"
     namespace = var.namespace
@@ -91,7 +91,7 @@ resource "kubernetes_persistent_volume_claim" "shared" {
   }
 }
 
-resource "kubernetes_persistent_volume_claim" "registry" {
+resource "kubernetes_persistent_volume_claim_v1" "registry" {
   metadata {
     name      = "gitlab-registry-sw"
     namespace = var.namespace
@@ -118,7 +118,7 @@ resource "kubernetes_persistent_volume_claim" "registry" {
 # kubectl create secret generic gitlab-smtp-secret -n default \
 #   --from-literal=SMTP_USERNAME='svc-gitlab' \
 #   --from-literal=SMTP_PASSWORD='<generated>'
-resource "kubernetes_config_map" "gitlab_smtp" {
+resource "kubernetes_config_map_v1" "gitlab_smtp" {
   metadata {
     name      = "gitlab-smtp-config"
     namespace = var.namespace
@@ -145,14 +145,14 @@ resource "kubernetes_config_map" "gitlab_smtp" {
   }
 }
 
-data "kubernetes_secret" "gitlab_smtp" {
+data "kubernetes_secret_v1" "gitlab_smtp" {
   metadata {
     name      = "gitlab-smtp-secret"
     namespace = var.namespace
   }
 }
 
-resource "kubernetes_config_map" "gitlab_config" {
+resource "kubernetes_config_map_v1" "gitlab_config" {
   metadata {
     name      = "gitlab-config-templates"
     namespace = var.namespace
@@ -332,7 +332,7 @@ EOF
 }
 
 # Gitaly configuration
-resource "kubernetes_config_map" "gitaly_config" {
+resource "kubernetes_config_map_v1" "gitaly_config" {
   metadata {
     name      = "gitaly-config"
     namespace = var.namespace
@@ -380,7 +380,7 @@ EOF
 }
 
 # Workhorse configuration
-resource "kubernetes_config_map" "workhorse_config" {
+resource "kubernetes_config_map_v1" "workhorse_config" {
   metadata {
     name      = "workhorse-config"
     namespace = var.namespace
@@ -401,7 +401,7 @@ EOF
 }
 
 # Registry configuration
-resource "kubernetes_config_map" "registry_config" {
+resource "kubernetes_config_map_v1" "registry_config" {
   metadata {
     name      = "gitlab-registry-config"
     namespace = var.namespace
@@ -444,7 +444,7 @@ EOF
 # Redis Deployment and Service
 # =============================================================================
 
-resource "kubernetes_deployment" "redis" {
+resource "kubernetes_deployment_v1" "redis" {
   metadata {
     name      = "gitlab-redis"
     namespace = var.namespace
@@ -511,7 +511,7 @@ resource "kubernetes_deployment" "redis" {
   }
 }
 
-resource "kubernetes_service" "redis" {
+resource "kubernetes_service_v1" "redis" {
   metadata {
     name      = "gitlab-redis"
     namespace = var.namespace
@@ -533,7 +533,7 @@ resource "kubernetes_service" "redis" {
 # Gitaly Deployment and Service
 # =============================================================================
 
-resource "kubernetes_deployment" "gitaly" {
+resource "kubernetes_deployment_v1" "gitaly" {
   metadata {
     name      = "gitlab-gitaly"
     namespace = var.namespace
@@ -639,14 +639,14 @@ resource "kubernetes_deployment" "gitaly" {
         volume {
           name = "gitaly-config"
           config_map {
-            name = kubernetes_config_map.gitaly_config.metadata[0].name
+            name = kubernetes_config_map_v1.gitaly_config.metadata[0].name
           }
         }
 
         volume {
           name = "repositories"
           persistent_volume_claim {
-            claim_name = kubernetes_persistent_volume_claim.repositories.metadata[0].name
+            claim_name = kubernetes_persistent_volume_claim_v1.repositories.metadata[0].name
           }
         }
 
@@ -661,12 +661,12 @@ resource "kubernetes_deployment" "gitaly" {
   }
 
   depends_on = [
-    kubernetes_config_map.gitaly_config,
-    kubernetes_persistent_volume_claim.repositories,
+    kubernetes_config_map_v1.gitaly_config,
+    kubernetes_persistent_volume_claim_v1.repositories,
   ]
 }
 
-resource "kubernetes_service" "gitaly" {
+resource "kubernetes_service_v1" "gitaly" {
   metadata {
     name      = "gitlab-gitaly"
     namespace = var.namespace
@@ -694,7 +694,7 @@ resource "kubernetes_service" "gitaly" {
 # Webservice Deployment and Service
 # =============================================================================
 
-resource "kubernetes_deployment" "webservice" {
+resource "kubernetes_deployment_v1" "webservice" {
   metadata {
     name      = "gitlab-webservice"
     namespace = var.namespace
@@ -865,7 +865,7 @@ resource "kubernetes_deployment" "webservice" {
             name = "GITLAB_SMTP_USERNAME"
             value_from {
               secret_key_ref {
-                name = data.kubernetes_secret.gitlab_smtp.metadata[0].name
+                name = data.kubernetes_secret_v1.gitlab_smtp.metadata[0].name
                 key  = "SMTP_USERNAME"
               }
             }
@@ -875,7 +875,7 @@ resource "kubernetes_deployment" "webservice" {
             name = "GITLAB_SMTP_PASSWORD"
             value_from {
               secret_key_ref {
-                name = data.kubernetes_secret.gitlab_smtp.metadata[0].name
+                name = data.kubernetes_secret_v1.gitlab_smtp.metadata[0].name
                 key  = "SMTP_PASSWORD"
               }
             }
@@ -928,21 +928,21 @@ resource "kubernetes_deployment" "webservice" {
         volume {
           name = "config-templates"
           config_map {
-            name = kubernetes_config_map.gitlab_config.metadata[0].name
+            name = kubernetes_config_map_v1.gitlab_config.metadata[0].name
           }
         }
 
         volume {
           name = "uploads"
           persistent_volume_claim {
-            claim_name = kubernetes_persistent_volume_claim.uploads.metadata[0].name
+            claim_name = kubernetes_persistent_volume_claim_v1.uploads.metadata[0].name
           }
         }
 
         volume {
           name = "shared"
           persistent_volume_claim {
-            claim_name = kubernetes_persistent_volume_claim.shared.metadata[0].name
+            claim_name = kubernetes_persistent_volume_claim_v1.shared.metadata[0].name
           }
         }
 
@@ -988,7 +988,7 @@ resource "kubernetes_deployment" "webservice" {
         volume {
           name = "smtp-config"
           config_map {
-            name = kubernetes_config_map.gitlab_smtp.metadata[0].name
+            name = kubernetes_config_map_v1.gitlab_smtp.metadata[0].name
           }
         }
       }
@@ -996,16 +996,16 @@ resource "kubernetes_deployment" "webservice" {
   }
 
   depends_on = [
-    kubernetes_deployment.redis,
-    kubernetes_deployment.gitaly,
-    kubernetes_config_map.gitlab_config,
-    kubernetes_config_map.gitlab_smtp,
-    kubernetes_persistent_volume_claim.uploads,
-    kubernetes_persistent_volume_claim.shared,
+    kubernetes_deployment_v1.redis,
+    kubernetes_deployment_v1.gitaly,
+    kubernetes_config_map_v1.gitlab_config,
+    kubernetes_config_map_v1.gitlab_smtp,
+    kubernetes_persistent_volume_claim_v1.uploads,
+    kubernetes_persistent_volume_claim_v1.shared,
   ]
 }
 
-resource "kubernetes_service" "webservice" {
+resource "kubernetes_service_v1" "webservice" {
   metadata {
     name      = "gitlab-webservice"
     namespace = var.namespace
@@ -1033,7 +1033,7 @@ resource "kubernetes_service" "webservice" {
 # Workhorse Deployment and Service
 # =============================================================================
 
-resource "kubernetes_deployment" "workhorse" {
+resource "kubernetes_deployment_v1" "workhorse" {
   metadata {
     name      = "gitlab-workhorse"
     namespace = var.namespace
@@ -1146,7 +1146,7 @@ resource "kubernetes_deployment" "workhorse" {
         volume {
           name = "workhorse-config"
           config_map {
-            name = kubernetes_config_map.workhorse_config.metadata[0].name
+            name = kubernetes_config_map_v1.workhorse_config.metadata[0].name
           }
         }
 
@@ -1160,14 +1160,14 @@ resource "kubernetes_deployment" "workhorse" {
         volume {
           name = "uploads"
           persistent_volume_claim {
-            claim_name = kubernetes_persistent_volume_claim.uploads.metadata[0].name
+            claim_name = kubernetes_persistent_volume_claim_v1.uploads.metadata[0].name
           }
         }
 
         volume {
           name = "shared"
           persistent_volume_claim {
-            claim_name = kubernetes_persistent_volume_claim.shared.metadata[0].name
+            claim_name = kubernetes_persistent_volume_claim_v1.shared.metadata[0].name
           }
         }
       }
@@ -1175,12 +1175,12 @@ resource "kubernetes_deployment" "workhorse" {
   }
 
   depends_on = [
-    kubernetes_deployment.webservice,
-    kubernetes_config_map.workhorse_config,
+    kubernetes_deployment_v1.webservice,
+    kubernetes_config_map_v1.workhorse_config,
   ]
 }
 
-resource "kubernetes_service" "workhorse" {
+resource "kubernetes_service_v1" "workhorse" {
   metadata {
     name      = "gitlab-workhorse"
     namespace = var.namespace
@@ -1202,7 +1202,7 @@ resource "kubernetes_service" "workhorse" {
 # Sidekiq Deployment
 # =============================================================================
 
-resource "kubernetes_deployment" "sidekiq" {
+resource "kubernetes_deployment_v1" "sidekiq" {
   metadata {
     name      = "gitlab-sidekiq"
     namespace = var.namespace
@@ -1342,7 +1342,7 @@ resource "kubernetes_deployment" "sidekiq" {
             name = "GITLAB_SMTP_USERNAME"
             value_from {
               secret_key_ref {
-                name = data.kubernetes_secret.gitlab_smtp.metadata[0].name
+                name = data.kubernetes_secret_v1.gitlab_smtp.metadata[0].name
                 key  = "SMTP_USERNAME"
               }
             }
@@ -1352,7 +1352,7 @@ resource "kubernetes_deployment" "sidekiq" {
             name = "GITLAB_SMTP_PASSWORD"
             value_from {
               secret_key_ref {
-                name = data.kubernetes_secret.gitlab_smtp.metadata[0].name
+                name = data.kubernetes_secret_v1.gitlab_smtp.metadata[0].name
                 key  = "SMTP_PASSWORD"
               }
             }
@@ -1389,21 +1389,21 @@ resource "kubernetes_deployment" "sidekiq" {
         volume {
           name = "config-templates"
           config_map {
-            name = kubernetes_config_map.gitlab_config.metadata[0].name
+            name = kubernetes_config_map_v1.gitlab_config.metadata[0].name
           }
         }
 
         volume {
           name = "uploads"
           persistent_volume_claim {
-            claim_name = kubernetes_persistent_volume_claim.uploads.metadata[0].name
+            claim_name = kubernetes_persistent_volume_claim_v1.uploads.metadata[0].name
           }
         }
 
         volume {
           name = "shared"
           persistent_volume_claim {
-            claim_name = kubernetes_persistent_volume_claim.shared.metadata[0].name
+            claim_name = kubernetes_persistent_volume_claim_v1.shared.metadata[0].name
           }
         }
 
@@ -1442,7 +1442,7 @@ resource "kubernetes_deployment" "sidekiq" {
         volume {
           name = "smtp-config"
           config_map {
-            name = kubernetes_config_map.gitlab_smtp.metadata[0].name
+            name = kubernetes_config_map_v1.gitlab_smtp.metadata[0].name
           }
         }
       }
@@ -1450,10 +1450,10 @@ resource "kubernetes_deployment" "sidekiq" {
   }
 
   depends_on = [
-    kubernetes_deployment.redis,
-    kubernetes_deployment.gitaly,
-    kubernetes_config_map.gitlab_config,
-    kubernetes_config_map.gitlab_smtp,
+    kubernetes_deployment_v1.redis,
+    kubernetes_deployment_v1.gitaly,
+    kubernetes_config_map_v1.gitlab_config,
+    kubernetes_config_map_v1.gitlab_smtp,
   ]
 }
 
@@ -1461,7 +1461,7 @@ resource "kubernetes_deployment" "sidekiq" {
 # Registry Deployment and Service
 # =============================================================================
 
-resource "kubernetes_deployment" "registry" {
+resource "kubernetes_deployment_v1" "registry" {
   metadata {
     name      = "gitlab-registry"
     namespace = var.namespace
@@ -1553,14 +1553,14 @@ resource "kubernetes_deployment" "registry" {
         volume {
           name = "registry-config"
           config_map {
-            name = kubernetes_config_map.registry_config.metadata[0].name
+            name = kubernetes_config_map_v1.registry_config.metadata[0].name
           }
         }
 
         volume {
           name = "registry-data"
           persistent_volume_claim {
-            claim_name = kubernetes_persistent_volume_claim.registry.metadata[0].name
+            claim_name = kubernetes_persistent_volume_claim_v1.registry.metadata[0].name
           }
         }
 
@@ -1575,13 +1575,13 @@ resource "kubernetes_deployment" "registry" {
   }
 
   depends_on = [
-    kubernetes_deployment.webservice,
-    kubernetes_config_map.registry_config,
-    kubernetes_persistent_volume_claim.registry,
+    kubernetes_deployment_v1.webservice,
+    kubernetes_config_map_v1.registry_config,
+    kubernetes_persistent_volume_claim_v1.registry,
   ]
 }
 
-resource "kubernetes_service" "registry" {
+resource "kubernetes_service_v1" "registry" {
   metadata {
     name      = "gitlab-registry"
     namespace = var.namespace
@@ -1604,7 +1604,7 @@ resource "kubernetes_service" "registry" {
 # CI_REGISTRY includes :443, so buildah connects to port 443.
 # insecure=true in registries.conf makes buildah use plain HTTP on :443,
 # which this service accepts and forwards to the registry pod on 5000.
-resource "kubernetes_service" "registry_internal" {
+resource "kubernetes_service_v1" "registry_internal" {
   metadata {
     name      = "gitlab-registry-internal"
     namespace = var.namespace
@@ -1653,7 +1653,7 @@ resource "kubectl_manifest" "gitlab_ingressroute" {
           kind  = "Rule"
           services = [
             {
-              name = kubernetes_service.workhorse.metadata[0].name
+              name = kubernetes_service_v1.workhorse.metadata[0].name
               port = 8181
             }
           ]
@@ -1684,7 +1684,7 @@ resource "kubectl_manifest" "registry_ingressroute" {
           kind  = "Rule"
           services = [
             {
-              name = kubernetes_service.registry.metadata[0].name
+              name = kubernetes_service_v1.registry.metadata[0].name
               port = 5000
             }
           ]

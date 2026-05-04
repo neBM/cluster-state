@@ -11,7 +11,7 @@ locals {
 # Persistent Volume Claims (seaweedfs)
 # =============================================================================
 
-resource "kubernetes_persistent_volume_claim" "config" {
+resource "kubernetes_persistent_volume_claim_v1" "config" {
   metadata {
     name      = "searxng-config-sw"
     namespace = var.namespace
@@ -28,7 +28,7 @@ resource "kubernetes_persistent_volume_claim" "config" {
   }
 }
 
-resource "kubernetes_deployment" "searxng" {
+resource "kubernetes_deployment_v1" "searxng" {
   metadata {
     name      = local.app_name
     namespace = var.namespace
@@ -115,7 +115,7 @@ resource "kubernetes_deployment" "searxng" {
         volume {
           name = "config"
           persistent_volume_claim {
-            claim_name = kubernetes_persistent_volume_claim.config.metadata[0].name
+            claim_name = kubernetes_persistent_volume_claim_v1.config.metadata[0].name
           }
         }
 
@@ -145,7 +145,7 @@ resource "kubernetes_deployment" "searxng" {
   }
 }
 
-resource "kubernetes_service" "searxng" {
+resource "kubernetes_service_v1" "searxng" {
   metadata {
     name      = local.app_name
     namespace = var.namespace
@@ -194,7 +194,7 @@ resource "kubernetes_ingress_v1" "searxng" {
           path_type = "Prefix"
           backend {
             service {
-              name = kubernetes_service.searxng.metadata[0].name
+              name = kubernetes_service_v1.searxng.metadata[0].name
               port {
                 number = 80
               }

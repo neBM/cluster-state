@@ -22,7 +22,7 @@ resource "kubectl_manifest" "csi_driver" {
 # CSI Controller — Deployment (provisioner + attacher + resizer sidecars)
 # -----------------------------------------------------------------------------
 
-resource "kubernetes_deployment" "csi_controller" {
+resource "kubernetes_deployment_v1" "csi_controller" {
   metadata {
     name      = "seaweedfs-csi-controller"
     namespace = var.namespace
@@ -42,7 +42,7 @@ resource "kubernetes_deployment" "csi_controller" {
       }
 
       spec {
-        service_account_name = kubernetes_service_account.csi.metadata[0].name
+        service_account_name = kubernetes_service_account_v1.csi.metadata[0].name
 
         toleration {
           key      = "node-role.kubernetes.io/control-plane"
@@ -235,7 +235,7 @@ resource "kubernetes_daemon_set_v1" "csi_node" {
       }
 
       spec {
-        service_account_name = kubernetes_service_account.csi.metadata[0].name
+        service_account_name = kubernetes_service_account_v1.csi.metadata[0].name
 
         toleration {
           key      = "node-role.kubernetes.io/control-plane"
@@ -544,7 +544,7 @@ resource "kubernetes_daemon_set_v1" "seaweedfs_mount" {
       }
 
       spec {
-        service_account_name = kubernetes_service_account.csi.metadata[0].name
+        service_account_name = kubernetes_service_account_v1.csi.metadata[0].name
 
         toleration {
           key      = "node-role.kubernetes.io/control-plane"

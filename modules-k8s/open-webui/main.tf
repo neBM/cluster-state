@@ -20,7 +20,7 @@ locals {
 # Persistent Volume Claims (glusterfs-nfs)
 # =============================================================================
 
-resource "kubernetes_persistent_volume_claim" "data" {
+resource "kubernetes_persistent_volume_claim_v1" "data" {
   metadata {
     name      = "open-webui-data-sw"
     namespace = var.namespace
@@ -45,7 +45,7 @@ resource "kubernetes_persistent_volume_claim" "data" {
 # Open WebUI Deployment
 # =============================================================================
 
-resource "kubernetes_deployment" "open_webui" {
+resource "kubernetes_deployment_v1" "open_webui" {
   metadata {
     name      = "open-webui"
     namespace = var.namespace
@@ -204,7 +204,7 @@ resource "kubernetes_deployment" "open_webui" {
         volume {
           name = "data"
           persistent_volume_claim {
-            claim_name = kubernetes_persistent_volume_claim.data.metadata[0].name
+            claim_name = kubernetes_persistent_volume_claim_v1.data.metadata[0].name
           }
         }
       }
@@ -212,7 +212,7 @@ resource "kubernetes_deployment" "open_webui" {
   }
 
   depends_on = [
-    kubernetes_persistent_volume_claim.data,
+    kubernetes_persistent_volume_claim_v1.data,
   ]
 }
 
@@ -221,7 +221,7 @@ resource "kubernetes_deployment" "open_webui" {
 # Open WebUI Service and IngressRoute
 # =============================================================================
 
-resource "kubernetes_service" "open_webui" {
+resource "kubernetes_service_v1" "open_webui" {
   metadata {
     name      = "open-webui"
     namespace = var.namespace
@@ -255,7 +255,7 @@ resource "kubectl_manifest" "ingressroute" {
           kind  = "Rule"
           services = [
             {
-              name = kubernetes_service.open_webui.metadata[0].name
+              name = kubernetes_service_v1.open_webui.metadata[0].name
               port = 80
             }
           ]

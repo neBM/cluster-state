@@ -14,21 +14,21 @@
 #     --from-literal=LLDAP_OAUTH2__CLIENT_ID=lldap \
 #     --from-literal=LLDAP_OAUTH2__CLIENT_SECRET="<keycloak client secret>"
 
-data "kubernetes_secret" "lldap_secrets" {
+data "kubernetes_secret_v1" "lldap_secrets" {
   metadata {
     name      = "lldap-secrets"
     namespace = var.namespace
   }
 }
 
-data "kubernetes_secret" "lldap_db" {
+data "kubernetes_secret_v1" "lldap_db" {
   metadata {
     name      = "lldap-db-secret"
     namespace = var.namespace
   }
 }
 
-data "kubernetes_secret" "lldap_admin" {
+data "kubernetes_secret_v1" "lldap_admin" {
   metadata {
     name      = "lldap-admin-secret"
     namespace = var.namespace

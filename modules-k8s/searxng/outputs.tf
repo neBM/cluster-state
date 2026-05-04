@@ -1,6 +1,6 @@
 output "service_name" {
   description = "K8s Service name"
-  value       = kubernetes_service.searxng.metadata[0].name
+  value       = kubernetes_service_v1.searxng.metadata[0].name
 }
 
 output "hostname" {

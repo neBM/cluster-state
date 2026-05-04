@@ -20,7 +20,7 @@
 #   - VUE_APP_KEYCLOAK_REALM
 #   - VUE_APP_KEYCLOAK_CLIENT_ID
 
-data "kubernetes_secret" "athenaeum" {
+data "kubernetes_secret_v1" "athenaeum" {
   metadata {
     name      = "athenaeum-secrets"
     namespace = var.namespace

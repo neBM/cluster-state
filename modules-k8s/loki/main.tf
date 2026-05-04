@@ -10,7 +10,7 @@ locals {
 }
 
 # ConfigMap: loki.yaml configuration
-resource "kubernetes_config_map" "loki_config" {
+resource "kubernetes_config_map_v1" "loki_config" {
   metadata {
     name      = "${local.app_name}-config"
     namespace = local.namespace
@@ -107,7 +107,7 @@ resource "kubernetes_config_map" "loki_config" {
 #   - Loki's own docs explicitly recommend local SSD for the WAL path.
 #   - Chunks still land in SeaweedFS S3 (storage_config.aws) — this PVC is
 #     just the hot working set.
-resource "kubernetes_stateful_set" "loki" {
+resource "kubernetes_stateful_set_v1" "loki" {
   metadata {
     name      = local.app_name
     namespace = local.namespace
@@ -116,7 +116,7 @@ resource "kubernetes_stateful_set" "loki" {
 
   spec {
     replicas     = 1
-    service_name = kubernetes_service.loki.metadata[0].name
+    service_name = kubernetes_service_v1.loki.metadata[0].name
 
     selector {
       match_labels = {
@@ -261,7 +261,7 @@ resource "kubernetes_stateful_set" "loki" {
         volume {
           name = "config"
           config_map {
-            name = kubernetes_config_map.loki_config.metadata[0].name
+            name = kubernetes_config_map_v1.loki_config.metadata[0].name
           }
         }
 
@@ -277,7 +277,7 @@ resource "kubernetes_stateful_set" "loki" {
 # Service: Loki ClusterIP (also acts as the governing service for the
 # StatefulSet; single-replica doesn't need per-pod DNS so a regular ClusterIP
 # suffices instead of a headless service).
-resource "kubernetes_service" "loki" {
+resource "kubernetes_service_v1" "loki" {
   metadata {
     name      = local.app_name
     namespace = local.namespace

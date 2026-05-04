@@ -24,7 +24,7 @@ locals {
 # Image cache PVC  (seaweedfs, 10 Gi)
 # =============================================================================
 
-resource "kubernetes_persistent_volume_claim" "image_cache" {
+resource "kubernetes_persistent_volume_claim_v1" "image_cache" {
   metadata {
     name      = "iris-image-cache-sw"
     namespace = var.namespace
@@ -48,7 +48,7 @@ resource "kubernetes_persistent_volume_claim" "image_cache" {
 # the node's network stack. 'soft' returns EIO to the application instead.
 # =============================================================================
 
-resource "kubernetes_persistent_volume" "synology_media" {
+resource "kubernetes_persistent_volume_v1" "synology_media" {
   metadata {
     name = "iris-synology-media"
   }
@@ -70,7 +70,7 @@ resource "kubernetes_persistent_volume" "synology_media" {
   }
 }
 
-resource "kubernetes_persistent_volume_claim" "synology_media" {
+resource "kubernetes_persistent_volume_claim_v1" "synology_media" {
   metadata {
     name      = "iris-synology-media"
     namespace = var.namespace
@@ -79,7 +79,7 @@ resource "kubernetes_persistent_volume_claim" "synology_media" {
   spec {
     access_modes       = ["ReadOnlyMany"]
     storage_class_name = "synology-nfs-static"
-    volume_name        = kubernetes_persistent_volume.synology_media.metadata[0].name
+    volume_name        = kubernetes_persistent_volume_v1.synology_media.metadata[0].name
     resources {
       requests = {
         storage = "10Ti"
@@ -92,7 +92,7 @@ resource "kubernetes_persistent_volume_claim" "synology_media" {
 # Valkey  (in-cluster Redis-compatible cache, no auth)
 # =============================================================================
 
-resource "kubernetes_deployment" "valkey" {
+resource "kubernetes_deployment_v1" "valkey" {
   metadata {
     name      = "iris-valkey"
     namespace = var.namespace
@@ -131,7 +131,7 @@ resource "kubernetes_deployment" "valkey" {
   }
 }
 
-resource "kubernetes_service" "valkey" {
+resource "kubernetes_service_v1" "valkey" {
   metadata {
     name      = "iris-valkey"
     namespace = var.namespace
@@ -221,15 +221,15 @@ resource "kubectl_manifest" "iris" {
               { name = "TRUSTED_PROXIES", value = var.trusted_proxies },
               { name = "APP_ORIGIN", value = var.app_origin != "" ? var.app_origin : "https://${var.hostname}" },
               { name = "PLEX_CLIENT_ID", value = var.plex_client_id },
-              { name = "SECRET_KEY", valueFrom = { secretKeyRef = { name = data.kubernetes_secret.iris.metadata[0].name, key = "SECRET_KEY" } } },
-              { name = "DATABASE_URL", valueFrom = { secretKeyRef = { name = data.kubernetes_secret.iris.metadata[0].name, key = "DATABASE_URL" } } },
-              { name = "SENTRY_DSN", valueFrom = { secretKeyRef = { name = data.kubernetes_secret.iris_sentry.metadata[0].name, key = "dsn" } } },
-              { name = "SENTRY_WEB_DSN", valueFrom = { secretKeyRef = { name = data.kubernetes_secret.iris_sentry_web.metadata[0].name, key = "dsn" } } },
-              { name = "CSP_REPORT_URI", valueFrom = { secretKeyRef = { name = data.kubernetes_secret.iris_csp.metadata[0].name, key = "report_uri" } } },
-              { name = "TMDB_API_KEY", valueFrom = { secretKeyRef = { name = data.kubernetes_secret.iris.metadata[0].name, key = "TMDB_API_KEY", optional = true } } },
-              { name = "TVDB_API_KEY", valueFrom = { secretKeyRef = { name = data.kubernetes_secret.iris.metadata[0].name, key = "TVDB_API_KEY", optional = true } } },
-              { name = "TRAKT_CLIENT_ID", valueFrom = { secretKeyRef = { name = data.kubernetes_secret.iris.metadata[0].name, key = "TRAKT_CLIENT_ID", optional = true } } },
-              { name = "TRAKT_CLIENT_SECRET", valueFrom = { secretKeyRef = { name = data.kubernetes_secret.iris.metadata[0].name, key = "TRAKT_CLIENT_SECRET", optional = true } } },
+              { name = "SECRET_KEY", valueFrom = { secretKeyRef = { name = data.kubernetes_secret_v1.iris.metadata[0].name, key = "SECRET_KEY" } } },
+              { name = "DATABASE_URL", valueFrom = { secretKeyRef = { name = data.kubernetes_secret_v1.iris.metadata[0].name, key = "DATABASE_URL" } } },
+              { name = "SENTRY_DSN", valueFrom = { secretKeyRef = { name = data.kubernetes_secret_v1.iris_sentry.metadata[0].name, key = "dsn" } } },
+              { name = "SENTRY_WEB_DSN", valueFrom = { secretKeyRef = { name = data.kubernetes_secret_v1.iris_sentry_web.metadata[0].name, key = "dsn" } } },
+              { name = "CSP_REPORT_URI", valueFrom = { secretKeyRef = { name = data.kubernetes_secret_v1.iris_csp.metadata[0].name, key = "report_uri" } } },
+              { name = "TMDB_API_KEY", valueFrom = { secretKeyRef = { name = data.kubernetes_secret_v1.iris.metadata[0].name, key = "TMDB_API_KEY", optional = true } } },
+              { name = "TVDB_API_KEY", valueFrom = { secretKeyRef = { name = data.kubernetes_secret_v1.iris.metadata[0].name, key = "TVDB_API_KEY", optional = true } } },
+              { name = "TRAKT_CLIENT_ID", valueFrom = { secretKeyRef = { name = data.kubernetes_secret_v1.iris.metadata[0].name, key = "TRAKT_CLIENT_ID", optional = true } } },
+              { name = "TRAKT_CLIENT_SECRET", valueFrom = { secretKeyRef = { name = data.kubernetes_secret_v1.iris.metadata[0].name, key = "TRAKT_CLIENT_SECRET", optional = true } } },
             ]
             resources = {
               requests = { cpu = "100m", memory = "256Mi" }
@@ -258,9 +258,9 @@ resource "kubectl_manifest" "iris" {
             }
           }]
           volumes = [
-            { name = "image-cache", persistentVolumeClaim = { claimName = kubernetes_persistent_volume_claim.image_cache.metadata[0].name } },
+            { name = "image-cache", persistentVolumeClaim = { claimName = kubernetes_persistent_volume_claim_v1.image_cache.metadata[0].name } },
             { name = "hls-tmp", emptyDir = {} },
-            { name = "media", persistentVolumeClaim = { claimName = kubernetes_persistent_volume_claim.synology_media.metadata[0].name, readOnly = true } },
+            { name = "media", persistentVolumeClaim = { claimName = kubernetes_persistent_volume_claim_v1.synology_media.metadata[0].name, readOnly = true } },
           ]
         }
       }
@@ -269,11 +269,11 @@ resource "kubectl_manifest" "iris" {
 
   depends_on = [
     kubectl_manifest.iris_transcode_claim,
-    kubernetes_service.valkey,
+    kubernetes_service_v1.valkey,
   ]
 }
 
-resource "kubernetes_service" "iris" {
+resource "kubernetes_service_v1" "iris" {
   metadata {
     name      = "iris"
     namespace = var.namespace
@@ -321,7 +321,7 @@ resource "kubernetes_ingress_v1" "iris" {
           path_type = "Prefix"
           backend {
             service {
-              name = kubernetes_service.iris.metadata[0].name
+              name = kubernetes_service_v1.iris.metadata[0].name
               port { number = 8080 }
             }
           }

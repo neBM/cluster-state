@@ -2,7 +2,7 @@
 # CSI Driver RBAC
 # -----------------------------------------------------------------------------
 
-resource "kubernetes_service_account" "csi" {
+resource "kubernetes_service_account_v1" "csi" {
   metadata {
     name      = "seaweedfs-csi"
     namespace = var.namespace
@@ -11,7 +11,7 @@ resource "kubernetes_service_account" "csi" {
 }
 
 # Leader election requires namespaced Lease access
-resource "kubernetes_role" "csi_leader_election" {
+resource "kubernetes_role_v1" "csi_leader_election" {
   metadata {
     name      = "seaweedfs-csi-leader-election"
     namespace = var.namespace
@@ -25,7 +25,7 @@ resource "kubernetes_role" "csi_leader_election" {
   }
 }
 
-resource "kubernetes_role_binding" "csi_leader_election" {
+resource "kubernetes_role_binding_v1" "csi_leader_election" {
   metadata {
     name      = "seaweedfs-csi-leader-election"
     namespace = var.namespace
@@ -35,17 +35,17 @@ resource "kubernetes_role_binding" "csi_leader_election" {
   role_ref {
     api_group = "rbac.authorization.k8s.io"
     kind      = "Role"
-    name      = kubernetes_role.csi_leader_election.metadata[0].name
+    name      = kubernetes_role_v1.csi_leader_election.metadata[0].name
   }
 
   subject {
     kind      = "ServiceAccount"
-    name      = kubernetes_service_account.csi.metadata[0].name
+    name      = kubernetes_service_account_v1.csi.metadata[0].name
     namespace = var.namespace
   }
 }
 
-resource "kubernetes_cluster_role" "csi_provisioner" {
+resource "kubernetes_cluster_role_v1" "csi_provisioner" {
   metadata {
     name   = "seaweedfs-csi-provisioner"
     labels = local.labels
@@ -100,7 +100,7 @@ resource "kubernetes_cluster_role" "csi_provisioner" {
   }
 }
 
-resource "kubernetes_cluster_role_binding" "csi_provisioner" {
+resource "kubernetes_cluster_role_binding_v1" "csi_provisioner" {
   metadata {
     name   = "seaweedfs-csi-provisioner"
     labels = local.labels
@@ -109,17 +109,17 @@ resource "kubernetes_cluster_role_binding" "csi_provisioner" {
   role_ref {
     api_group = "rbac.authorization.k8s.io"
     kind      = "ClusterRole"
-    name      = kubernetes_cluster_role.csi_provisioner.metadata[0].name
+    name      = kubernetes_cluster_role_v1.csi_provisioner.metadata[0].name
   }
 
   subject {
     kind      = "ServiceAccount"
-    name      = kubernetes_service_account.csi.metadata[0].name
+    name      = kubernetes_service_account_v1.csi.metadata[0].name
     namespace = var.namespace
   }
 }
 
-resource "kubernetes_cluster_role" "csi_attacher" {
+resource "kubernetes_cluster_role_v1" "csi_attacher" {
   metadata {
     name   = "seaweedfs-csi-attacher"
     labels = local.labels
@@ -156,7 +156,7 @@ resource "kubernetes_cluster_role" "csi_attacher" {
   }
 }
 
-resource "kubernetes_cluster_role_binding" "csi_attacher" {
+resource "kubernetes_cluster_role_binding_v1" "csi_attacher" {
   metadata {
     name   = "seaweedfs-csi-attacher"
     labels = local.labels
@@ -165,17 +165,17 @@ resource "kubernetes_cluster_role_binding" "csi_attacher" {
   role_ref {
     api_group = "rbac.authorization.k8s.io"
     kind      = "ClusterRole"
-    name      = kubernetes_cluster_role.csi_attacher.metadata[0].name
+    name      = kubernetes_cluster_role_v1.csi_attacher.metadata[0].name
   }
 
   subject {
     kind      = "ServiceAccount"
-    name      = kubernetes_service_account.csi.metadata[0].name
+    name      = kubernetes_service_account_v1.csi.metadata[0].name
     namespace = var.namespace
   }
 }
 
-resource "kubernetes_cluster_role" "csi_node" {
+resource "kubernetes_cluster_role_v1" "csi_node" {
   metadata {
     name   = "seaweedfs-csi-node"
     labels = local.labels
@@ -224,7 +224,7 @@ resource "kubernetes_cluster_role" "csi_node" {
   }
 }
 
-resource "kubernetes_cluster_role_binding" "csi_node" {
+resource "kubernetes_cluster_role_binding_v1" "csi_node" {
   metadata {
     name   = "seaweedfs-csi-node"
     labels = local.labels
@@ -233,17 +233,17 @@ resource "kubernetes_cluster_role_binding" "csi_node" {
   role_ref {
     api_group = "rbac.authorization.k8s.io"
     kind      = "ClusterRole"
-    name      = kubernetes_cluster_role.csi_node.metadata[0].name
+    name      = kubernetes_cluster_role_v1.csi_node.metadata[0].name
   }
 
   subject {
     kind      = "ServiceAccount"
-    name      = kubernetes_service_account.csi.metadata[0].name
+    name      = kubernetes_service_account_v1.csi.metadata[0].name
     namespace = var.namespace
   }
 }
 
-resource "kubernetes_cluster_role" "csi_resizer" {
+resource "kubernetes_cluster_role_v1" "csi_resizer" {
   metadata {
     name   = "seaweedfs-csi-resizer"
     labels = local.labels
@@ -280,7 +280,7 @@ resource "kubernetes_cluster_role" "csi_resizer" {
   }
 }
 
-resource "kubernetes_cluster_role_binding" "csi_resizer" {
+resource "kubernetes_cluster_role_binding_v1" "csi_resizer" {
   metadata {
     name   = "seaweedfs-csi-resizer"
     labels = local.labels
@@ -289,12 +289,12 @@ resource "kubernetes_cluster_role_binding" "csi_resizer" {
   role_ref {
     api_group = "rbac.authorization.k8s.io"
     kind      = "ClusterRole"
-    name      = kubernetes_cluster_role.csi_resizer.metadata[0].name
+    name      = kubernetes_cluster_role_v1.csi_resizer.metadata[0].name
   }
 
   subject {
     kind      = "ServiceAccount"
-    name      = kubernetes_service_account.csi.metadata[0].name
+    name      = kubernetes_service_account_v1.csi.metadata[0].name
     namespace = var.namespace
   }
 }

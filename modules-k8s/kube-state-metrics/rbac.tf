@@ -1,4 +1,4 @@
-resource "kubernetes_service_account" "kube_state_metrics" {
+resource "kubernetes_service_account_v1" "kube_state_metrics" {
   metadata {
     name      = local.app_name
     namespace = local.namespace
@@ -6,7 +6,7 @@ resource "kubernetes_service_account" "kube_state_metrics" {
   }
 }
 
-resource "kubernetes_cluster_role" "kube_state_metrics" {
+resource "kubernetes_cluster_role_v1" "kube_state_metrics" {
   metadata {
     name   = local.app_name
     labels = local.labels
@@ -130,7 +130,7 @@ resource "kubernetes_cluster_role" "kube_state_metrics" {
   }
 }
 
-resource "kubernetes_cluster_role_binding" "kube_state_metrics" {
+resource "kubernetes_cluster_role_binding_v1" "kube_state_metrics" {
   metadata {
     name   = local.app_name
     labels = local.labels
@@ -139,12 +139,12 @@ resource "kubernetes_cluster_role_binding" "kube_state_metrics" {
   role_ref {
     api_group = "rbac.authorization.k8s.io"
     kind      = "ClusterRole"
-    name      = kubernetes_cluster_role.kube_state_metrics.metadata[0].name
+    name      = kubernetes_cluster_role_v1.kube_state_metrics.metadata[0].name
   }
 
   subject {
     kind      = "ServiceAccount"
-    name      = kubernetes_service_account.kube_state_metrics.metadata[0].name
+    name      = kubernetes_service_account_v1.kube_state_metrics.metadata[0].name
     namespace = local.namespace
   }
 }

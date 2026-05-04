@@ -1,4 +1,4 @@
-resource "kubernetes_storage_class" "seaweedfs" {
+resource "kubernetes_storage_class_v1" "seaweedfs" {
   metadata {
     name   = "seaweedfs"
     labels = local.labels

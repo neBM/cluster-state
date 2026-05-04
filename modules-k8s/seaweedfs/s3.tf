@@ -6,7 +6,7 @@
 # in filer metadata. No local config file needed — the S3 gateway reads
 # identities from the filer automatically. See secrets.tf for setup instructions.
 
-resource "kubernetes_service" "s3" {
+resource "kubernetes_service_v1" "s3" {
   metadata {
     name      = "seaweedfs-s3"
     namespace = var.namespace
@@ -27,7 +27,7 @@ resource "kubernetes_service" "s3" {
   }
 }
 
-resource "kubernetes_deployment" "s3" {
+resource "kubernetes_deployment_v1" "s3" {
   metadata {
     name      = "seaweedfs-s3"
     namespace = var.namespace

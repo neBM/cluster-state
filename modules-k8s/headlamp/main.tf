@@ -51,7 +51,7 @@ locals {
 # Keep Headlamp's Kubernetes client on the pod service account so browser OIDC
 # login only gates access to the UI and does not have to double as cluster auth.
 # -----------------------------------------------------------------------------
-resource "kubernetes_config_map" "headlamp_kubeconfig" {
+resource "kubernetes_config_map_v1" "headlamp_kubeconfig" {
   metadata {
     name      = "${local.app_name}-kubeconfig"
     namespace = local.namespace
@@ -70,7 +70,7 @@ resource "kubernetes_config_map" "headlamp_kubeconfig" {
 #     --namespace kube-system \
 #     --from-literal=client-secret=<YOUR_KEYCLOAK_CLIENT_SECRET>
 # -----------------------------------------------------------------------------
-resource "kubernetes_deployment" "headlamp" {
+resource "kubernetes_deployment_v1" "headlamp" {
   metadata {
     name      = local.app_name
     namespace = local.namespace
@@ -92,7 +92,7 @@ resource "kubernetes_deployment" "headlamp" {
       }
 
       spec {
-        service_account_name = kubernetes_service_account.headlamp.metadata[0].name
+        service_account_name = kubernetes_service_account_v1.headlamp.metadata[0].name
 
         container {
           name  = "headlamp"
@@ -194,7 +194,7 @@ resource "kubernetes_deployment" "headlamp" {
         volume {
           name = "kubeconfig"
           config_map {
-            name = kubernetes_config_map.headlamp_kubeconfig.metadata[0].name
+            name = kubernetes_config_map_v1.headlamp_kubeconfig.metadata[0].name
           }
         }
       }
@@ -205,7 +205,7 @@ resource "kubernetes_deployment" "headlamp" {
 # -----------------------------------------------------------------------------
 # Service
 # -----------------------------------------------------------------------------
-resource "kubernetes_service" "headlamp" {
+resource "kubernetes_service_v1" "headlamp" {
   metadata {
     name      = local.app_name
     namespace = local.namespace
@@ -247,7 +247,7 @@ resource "kubectl_manifest" "ingressroute" {
             kind  = "Rule"
             services = [
               {
-                name = kubernetes_service.headlamp.metadata[0].name
+                name = kubernetes_service_v1.headlamp.metadata[0].name
                 port = "http"
               }
             ]

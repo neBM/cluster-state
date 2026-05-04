@@ -209,7 +209,7 @@ EOF
 # RBAC - ServiceAccount, Role, RoleBinding
 # =============================================================================
 
-resource "kubernetes_service_account" "runner" {
+resource "kubernetes_service_account_v1" "runner" {
   metadata {
     name      = "gitlab-runner"
     namespace = var.namespace
@@ -218,7 +218,7 @@ resource "kubernetes_service_account" "runner" {
 }
 
 # Role for the runner to manage job pods
-resource "kubernetes_role" "runner" {
+resource "kubernetes_role_v1" "runner" {
   metadata {
     name      = "gitlab-runner"
     namespace = var.job_namespace
@@ -282,7 +282,7 @@ resource "kubernetes_role" "runner" {
   }
 }
 
-resource "kubernetes_role_binding" "runner" {
+resource "kubernetes_role_binding_v1" "runner" {
   metadata {
     name      = "gitlab-runner"
     namespace = var.job_namespace
@@ -292,12 +292,12 @@ resource "kubernetes_role_binding" "runner" {
   role_ref {
     api_group = "rbac.authorization.k8s.io"
     kind      = "Role"
-    name      = kubernetes_role.runner.metadata[0].name
+    name      = kubernetes_role_v1.runner.metadata[0].name
   }
 
   subject {
     kind      = "ServiceAccount"
-    name      = kubernetes_service_account.runner.metadata[0].name
+    name      = kubernetes_service_account_v1.runner.metadata[0].name
     namespace = var.namespace
   }
 }
@@ -306,7 +306,7 @@ resource "kubernetes_role_binding" "runner" {
 # ConfigMap for container registries.conf (in-cluster registry bypass)
 # =============================================================================
 
-resource "kubernetes_config_map" "registries_conf" {
+resource "kubernetes_config_map_v1" "registries_conf" {
   count = var.registry_hostname != "" ? 1 : 0
 
   metadata {
@@ -334,7 +334,7 @@ EOF
 # doesn't accumulate offline manager entries for every pod recreation.
 # =============================================================================
 
-resource "kubernetes_config_map" "system_id_amd64" {
+resource "kubernetes_config_map_v1" "system_id_amd64" {
   metadata {
     name      = "gitlab-runner-system-id-amd64"
     namespace = var.namespace
@@ -345,7 +345,7 @@ resource "kubernetes_config_map" "system_id_amd64" {
   }
 }
 
-resource "kubernetes_config_map" "system_id_arm64" {
+resource "kubernetes_config_map_v1" "system_id_arm64" {
   metadata {
     name      = "gitlab-runner-system-id-arm64"
     namespace = var.namespace
@@ -356,7 +356,7 @@ resource "kubernetes_config_map" "system_id_arm64" {
   }
 }
 
-resource "kubernetes_config_map" "system_id_any" {
+resource "kubernetes_config_map_v1" "system_id_any" {
   metadata {
     name      = "gitlab-runner-system-id-any"
     namespace = var.namespace
@@ -371,7 +371,7 @@ resource "kubernetes_config_map" "system_id_any" {
 # ConfigMaps for arch-specific config templates
 # =============================================================================
 
-resource "kubernetes_config_map" "config_template_amd64" {
+resource "kubernetes_config_map_v1" "config_template_amd64" {
   metadata {
     name      = "gitlab-runner-config-template-amd64"
     namespace = var.namespace
@@ -389,7 +389,7 @@ resource "kubernetes_config_map" "config_template_amd64" {
   }
 }
 
-resource "kubernetes_config_map" "config_template_arm64" {
+resource "kubernetes_config_map_v1" "config_template_arm64" {
   metadata {
     name      = "gitlab-runner-config-template-arm64"
     namespace = var.namespace
@@ -407,7 +407,7 @@ resource "kubernetes_config_map" "config_template_arm64" {
   }
 }
 
-resource "kubernetes_config_map" "config_template_any" {
+resource "kubernetes_config_map_v1" "config_template_any" {
   metadata {
     name      = "gitlab-runner-config-template-any"
     namespace = var.namespace
@@ -430,7 +430,7 @@ resource "kubernetes_config_map" "config_template_any" {
 # AMD64 Runner (runs on Hestia, spawns amd64 job pods)
 # =============================================================================
 
-resource "kubernetes_deployment" "runner_amd64" {
+resource "kubernetes_deployment_v1" "runner_amd64" {
   metadata {
     name      = "gitlab-runner-amd64"
     namespace = var.namespace
@@ -453,7 +453,7 @@ resource "kubernetes_deployment" "runner_amd64" {
       }
 
       spec {
-        service_account_name = kubernetes_service_account.runner.metadata[0].name
+        service_account_name = kubernetes_service_account_v1.runner.metadata[0].name
 
         node_selector = {
           "kubernetes.io/arch" = "amd64"
@@ -539,14 +539,14 @@ resource "kubernetes_deployment" "runner_amd64" {
         volume {
           name = "config-template"
           config_map {
-            name = kubernetes_config_map.config_template_amd64.metadata[0].name
+            name = kubernetes_config_map_v1.config_template_amd64.metadata[0].name
           }
         }
 
         volume {
           name = "system-id"
           config_map {
-            name = kubernetes_config_map.system_id_amd64.metadata[0].name
+            name = kubernetes_config_map_v1.system_id_amd64.metadata[0].name
           }
         }
 
@@ -565,7 +565,7 @@ resource "kubernetes_deployment" "runner_amd64" {
 # ARM64 Runner (runs on Heracles/Nyx, spawns arm64 job pods)
 # =============================================================================
 
-resource "kubernetes_deployment" "runner_arm64" {
+resource "kubernetes_deployment_v1" "runner_arm64" {
   metadata {
     name      = "gitlab-runner-arm64"
     namespace = var.namespace
@@ -588,7 +588,7 @@ resource "kubernetes_deployment" "runner_arm64" {
       }
 
       spec {
-        service_account_name = kubernetes_service_account.runner.metadata[0].name
+        service_account_name = kubernetes_service_account_v1.runner.metadata[0].name
 
         node_selector = {
           "kubernetes.io/arch" = "arm64"
@@ -674,14 +674,14 @@ resource "kubernetes_deployment" "runner_arm64" {
         volume {
           name = "config-template"
           config_map {
-            name = kubernetes_config_map.config_template_arm64.metadata[0].name
+            name = kubernetes_config_map_v1.config_template_arm64.metadata[0].name
           }
         }
 
         volume {
           name = "system-id"
           config_map {
-            name = kubernetes_config_map.system_id_arm64.metadata[0].name
+            name = kubernetes_config_map_v1.system_id_arm64.metadata[0].name
           }
         }
 
@@ -702,7 +702,7 @@ resource "kubernetes_deployment" "runner_arm64" {
 # in GitLab and only accept jobs explicitly tagged with "amd64" or "arm64".
 # =============================================================================
 
-resource "kubernetes_deployment" "runner_any" {
+resource "kubernetes_deployment_v1" "runner_any" {
   metadata {
     name      = "gitlab-runner-any"
     namespace = var.namespace
@@ -725,7 +725,7 @@ resource "kubernetes_deployment" "runner_any" {
       }
 
       spec {
-        service_account_name = kubernetes_service_account.runner.metadata[0].name
+        service_account_name = kubernetes_service_account_v1.runner.metadata[0].name
 
         # No node_selector on the runner process pod — let K8s place it anywhere.
 
@@ -809,14 +809,14 @@ resource "kubernetes_deployment" "runner_any" {
         volume {
           name = "config-template"
           config_map {
-            name = kubernetes_config_map.config_template_any.metadata[0].name
+            name = kubernetes_config_map_v1.config_template_any.metadata[0].name
           }
         }
 
         volume {
           name = "system-id"
           config_map {
-            name = kubernetes_config_map.system_id_any.metadata[0].name
+            name = kubernetes_config_map_v1.system_id_any.metadata[0].name
           }
         }
 

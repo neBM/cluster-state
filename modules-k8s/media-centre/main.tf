@@ -36,7 +36,7 @@ locals {
 # Persistent Volume Claims (glusterfs-nfs)
 # =============================================================================
 
-resource "kubernetes_persistent_volume_claim" "plex_config" {
+resource "kubernetes_persistent_volume_claim_v1" "plex_config" {
   metadata {
     name      = "plex-config"
     namespace = var.namespace
@@ -58,7 +58,7 @@ resource "kubernetes_persistent_volume_claim" "plex_config" {
 # Deployment. WaitForFirstConsumer on the local-path provisioner binds the
 # PV to whichever node the first consumer (the plex pod, pinned to hestia
 # via nodeSelector) schedules onto.
-resource "kubernetes_persistent_volume_claim" "plex_data" {
+resource "kubernetes_persistent_volume_claim_v1" "plex_data" {
   metadata {
     name      = "plex-data"
     namespace = var.namespace
@@ -86,7 +86,7 @@ resource "kubernetes_persistent_volume_claim" "plex_data" {
 # The app (plex) will fail to read the file — the node stays up.
 # =============================================================================
 
-resource "kubernetes_persistent_volume" "synology_docker" {
+resource "kubernetes_persistent_volume_v1" "synology_docker" {
   metadata {
     name = "media-synology-docker"
   }
@@ -109,7 +109,7 @@ resource "kubernetes_persistent_volume" "synology_docker" {
   }
 }
 
-resource "kubernetes_persistent_volume_claim" "synology_docker" {
+resource "kubernetes_persistent_volume_claim_v1" "synology_docker" {
   metadata {
     name      = "media-synology-docker"
     namespace = var.namespace
@@ -117,7 +117,7 @@ resource "kubernetes_persistent_volume_claim" "synology_docker" {
   spec {
     access_modes       = ["ReadWriteMany"]
     storage_class_name = "synology-nfs-static"
-    volume_name        = kubernetes_persistent_volume.synology_docker.metadata[0].name
+    volume_name        = kubernetes_persistent_volume_v1.synology_docker.metadata[0].name
     resources {
       requests = {
         storage = "10Ti"
@@ -126,7 +126,7 @@ resource "kubernetes_persistent_volume_claim" "synology_docker" {
   }
 }
 
-resource "kubernetes_persistent_volume" "synology_share" {
+resource "kubernetes_persistent_volume_v1" "synology_share" {
   metadata {
     name = "media-synology-share"
   }
@@ -147,7 +147,7 @@ resource "kubernetes_persistent_volume" "synology_share" {
   }
 }
 
-resource "kubernetes_persistent_volume_claim" "synology_share" {
+resource "kubernetes_persistent_volume_claim_v1" "synology_share" {
   metadata {
     name      = "media-synology-share"
     namespace = var.namespace
@@ -155,7 +155,7 @@ resource "kubernetes_persistent_volume_claim" "synology_share" {
   spec {
     access_modes       = ["ReadWriteMany"]
     storage_class_name = "synology-nfs-static"
-    volume_name        = kubernetes_persistent_volume.synology_share.metadata[0].name
+    volume_name        = kubernetes_persistent_volume_v1.synology_share.metadata[0].name
     resources {
       requests = {
         storage = "10Ti"
@@ -367,23 +367,23 @@ resource "kubectl_manifest" "plex" {
           volumes = [
             {
               name                  = "plex-config"
-              persistentVolumeClaim = { claimName = kubernetes_persistent_volume_claim.plex_config.metadata[0].name }
+              persistentVolumeClaim = { claimName = kubernetes_persistent_volume_claim_v1.plex_config.metadata[0].name }
             },
             { name = "transcode", emptyDir = {} },
             { name = "tmp", emptyDir = {} },
             # Synology NAS volumes — via PVs with soft mount option
             {
               name                  = "media-docker"
-              persistentVolumeClaim = { claimName = kubernetes_persistent_volume_claim.synology_docker.metadata[0].name }
+              persistentVolumeClaim = { claimName = kubernetes_persistent_volume_claim_v1.synology_docker.metadata[0].name }
             },
             {
               name                  = "media-share"
-              persistentVolumeClaim = { claimName = kubernetes_persistent_volume_claim.synology_share.metadata[0].name }
+              persistentVolumeClaim = { claimName = kubernetes_persistent_volume_claim_v1.synology_share.metadata[0].name }
             },
             # SQLite databases — standalone PVC on hestia's local-path.
             {
               name                  = "plex-data"
-              persistentVolumeClaim = { claimName = kubernetes_persistent_volume_claim.plex_data.metadata[0].name }
+              persistentVolumeClaim = { claimName = kubernetes_persistent_volume_claim_v1.plex_data.metadata[0].name }
             },
           ]
         }
@@ -392,12 +392,12 @@ resource "kubectl_manifest" "plex" {
   })
 
   depends_on = [
-    kubernetes_persistent_volume_claim.plex_config,
-    kubernetes_persistent_volume_claim.plex_data,
+    kubernetes_persistent_volume_claim_v1.plex_config,
+    kubernetes_persistent_volume_claim_v1.plex_data,
   ]
 }
 
-resource "kubernetes_service" "plex" {
+resource "kubernetes_service_v1" "plex" {
   metadata {
     name      = "plex"
     namespace = var.namespace
@@ -432,7 +432,7 @@ resource "kubectl_manifest" "plex_ingressroute" {
           kind  = "Rule"
           services = [
             {
-              name = kubernetes_service.plex.metadata[0].name
+              name = kubernetes_service_v1.plex.metadata[0].name
               port = 32400
             }
           ]
@@ -666,7 +666,7 @@ resource "kubernetes_cron_job_v1" "plex_db_backup" {
             volume {
               name = "plex-data"
               persistent_volume_claim {
-                claim_name = kubernetes_persistent_volume_claim.plex_data.metadata[0].name
+                claim_name = kubernetes_persistent_volume_claim_v1.plex_data.metadata[0].name
               }
             }
           }
@@ -680,7 +680,7 @@ resource "kubernetes_cron_job_v1" "plex_db_backup" {
 # Tautulli (Plex Monitoring)
 # =============================================================================
 
-resource "kubernetes_deployment" "tautulli" {
+resource "kubernetes_deployment_v1" "tautulli" {
   metadata {
     name      = "tautulli"
     namespace = var.namespace
@@ -774,7 +774,7 @@ resource "kubernetes_deployment" "tautulli" {
   }
 }
 
-resource "kubernetes_service" "tautulli" {
+resource "kubernetes_service_v1" "tautulli" {
   metadata {
     name      = "tautulli"
     namespace = var.namespace
@@ -809,7 +809,7 @@ resource "kubectl_manifest" "tautulli_ingressroute" {
           kind  = "Rule"
           services = [
             {
-              name = kubernetes_service.tautulli.metadata[0].name
+              name = kubernetes_service_v1.tautulli.metadata[0].name
               port = 8181
             }
           ]

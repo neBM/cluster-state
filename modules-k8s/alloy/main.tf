@@ -10,7 +10,7 @@ locals {
 }
 
 # ServiceAccount for Alloy
-resource "kubernetes_service_account" "alloy" {
+resource "kubernetes_service_account_v1" "alloy" {
   metadata {
     name      = local.app_name
     namespace = local.namespace
@@ -19,7 +19,7 @@ resource "kubernetes_service_account" "alloy" {
 }
 
 # ClusterRole: Alloy needs to discover pods/nodes via K8s API
-resource "kubernetes_cluster_role" "alloy" {
+resource "kubernetes_cluster_role_v1" "alloy" {
   metadata {
     name   = local.app_name
     labels = local.labels
@@ -39,7 +39,7 @@ resource "kubernetes_cluster_role" "alloy" {
 }
 
 # ClusterRoleBinding: bind ClusterRole to ServiceAccount
-resource "kubernetes_cluster_role_binding" "alloy" {
+resource "kubernetes_cluster_role_binding_v1" "alloy" {
   metadata {
     name   = local.app_name
     labels = local.labels
@@ -48,18 +48,18 @@ resource "kubernetes_cluster_role_binding" "alloy" {
   role_ref {
     api_group = "rbac.authorization.k8s.io"
     kind      = "ClusterRole"
-    name      = kubernetes_cluster_role.alloy.metadata[0].name
+    name      = kubernetes_cluster_role_v1.alloy.metadata[0].name
   }
 
   subject {
     kind      = "ServiceAccount"
-    name      = kubernetes_service_account.alloy.metadata[0].name
+    name      = kubernetes_service_account_v1.alloy.metadata[0].name
     namespace = local.namespace
   }
 }
 
 # ConfigMap: Alloy pipeline configuration
-resource "kubernetes_config_map" "alloy_config" {
+resource "kubernetes_config_map_v1" "alloy_config" {
   metadata {
     name      = "${local.app_name}-config"
     namespace = local.namespace
@@ -251,7 +251,7 @@ resource "kubernetes_daemon_set_v1" "alloy" {
       }
 
       spec {
-        service_account_name = kubernetes_service_account.alloy.metadata[0].name
+        service_account_name = kubernetes_service_account_v1.alloy.metadata[0].name
 
         toleration {
           key      = "node-role.kubernetes.io/control-plane"
@@ -341,7 +341,7 @@ resource "kubernetes_daemon_set_v1" "alloy" {
         volume {
           name = "config"
           config_map {
-            name = kubernetes_config_map.alloy_config.metadata[0].name
+            name = kubernetes_config_map_v1.alloy_config.metadata[0].name
           }
         }
 
@@ -390,7 +390,7 @@ resource "kubernetes_daemon_set_v1" "alloy" {
 }
 
 # Service: Alloy metrics endpoint
-resource "kubernetes_service" "alloy" {
+resource "kubernetes_service_v1" "alloy" {
   metadata {
     name      = local.app_name
     namespace = local.namespace

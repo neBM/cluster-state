@@ -2,7 +2,7 @@
 # Volume Server — DaemonSet on storage nodes only
 # -----------------------------------------------------------------------------
 
-resource "kubernetes_service" "volume" {
+resource "kubernetes_service_v1" "volume" {
   metadata {
     name      = "seaweedfs-volume"
     namespace = var.namespace

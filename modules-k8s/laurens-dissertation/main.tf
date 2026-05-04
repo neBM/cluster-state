@@ -22,7 +22,7 @@ locals {
 # Persistent Volume Claims
 # =============================================================================
 
-resource "kubernetes_persistent_volume_claim" "data" {
+resource "kubernetes_persistent_volume_claim_v1" "data" {
   # local-path-retain is late-binding: PVC stays Pending until a pod mounts it.
   # Don't wait for Bound status here — the deployment will trigger provisioning.
   wait_until_bound = false
@@ -48,7 +48,7 @@ resource "kubernetes_persistent_volume_claim" "data" {
   }
 }
 
-resource "kubernetes_persistent_volume_claim" "archive" {
+resource "kubernetes_persistent_volume_claim_v1" "archive" {
   metadata {
     name      = "laurens-dissertation-archive-sw"
     namespace = var.namespace
@@ -71,7 +71,7 @@ resource "kubernetes_persistent_volume_claim" "archive" {
 # Deployment
 # =============================================================================
 
-resource "kubernetes_deployment" "app" {
+resource "kubernetes_deployment_v1" "app" {
   metadata {
     name      = "laurens-dissertation"
     namespace = var.namespace
@@ -186,14 +186,14 @@ resource "kubernetes_deployment" "app" {
         volume {
           name = "data"
           persistent_volume_claim {
-            claim_name = kubernetes_persistent_volume_claim.data.metadata[0].name
+            claim_name = kubernetes_persistent_volume_claim_v1.data.metadata[0].name
           }
         }
 
         volume {
           name = "archive"
           persistent_volume_claim {
-            claim_name = kubernetes_persistent_volume_claim.archive.metadata[0].name
+            claim_name = kubernetes_persistent_volume_claim_v1.archive.metadata[0].name
           }
         }
 
@@ -211,7 +211,7 @@ resource "kubernetes_deployment" "app" {
 # Service
 # =============================================================================
 
-resource "kubernetes_service" "app" {
+resource "kubernetes_service_v1" "app" {
   metadata {
     name      = "laurens-dissertation"
     namespace = var.namespace
@@ -263,7 +263,7 @@ resource "kubernetes_ingress_v1" "app" {
           path_type = "Prefix"
           backend {
             service {
-              name = kubernetes_service.app.metadata[0].name
+              name = kubernetes_service_v1.app.metadata[0].name
               port {
                 number = 8000
               }

@@ -15,7 +15,7 @@ locals {
 # Persistent Volume Claims (glusterfs-nfs)
 # =============================================================================
 
-resource "kubernetes_persistent_volume_claim" "data" {
+resource "kubernetes_persistent_volume_claim_v1" "data" {
   metadata {
     name      = "vaultwarden-data-sw"
     namespace = var.namespace
@@ -32,7 +32,7 @@ resource "kubernetes_persistent_volume_claim" "data" {
   }
 }
 
-resource "kubernetes_deployment" "vaultwarden" {
+resource "kubernetes_deployment_v1" "vaultwarden" {
   metadata {
     name      = local.app_name
     namespace = var.namespace
@@ -179,7 +179,7 @@ resource "kubernetes_deployment" "vaultwarden" {
         volume {
           name = "data"
           persistent_volume_claim {
-            claim_name = kubernetes_persistent_volume_claim.data.metadata[0].name
+            claim_name = kubernetes_persistent_volume_claim_v1.data.metadata[0].name
           }
         }
 
@@ -202,11 +202,11 @@ resource "kubernetes_deployment" "vaultwarden" {
   }
 
   depends_on = [
-    kubernetes_persistent_volume_claim.data,
+    kubernetes_persistent_volume_claim_v1.data,
   ]
 }
 
-resource "kubernetes_service" "vaultwarden" {
+resource "kubernetes_service_v1" "vaultwarden" {
   metadata {
     name      = local.app_name
     namespace = var.namespace
@@ -255,7 +255,7 @@ resource "kubernetes_ingress_v1" "vaultwarden" {
           path_type = "Prefix"
           backend {
             service {
-              name = kubernetes_service.vaultwarden.metadata[0].name
+              name = kubernetes_service_v1.vaultwarden.metadata[0].name
               port {
                 number = 80
               }

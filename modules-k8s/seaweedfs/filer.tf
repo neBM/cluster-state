@@ -2,7 +2,7 @@
 # Filer — StatefulSet with embedded leveldb
 # -----------------------------------------------------------------------------
 
-resource "kubernetes_service" "filer" {
+resource "kubernetes_service_v1" "filer" {
   count = var.filer_ingress_hostname != "" ? 1 : 0
 
   metadata {
@@ -44,7 +44,7 @@ resource "kubectl_manifest" "filer_ingressroute" {
           kind  = "Rule"
           services = [
             {
-              name = kubernetes_service.filer[0].metadata[0].name
+              name = kubernetes_service_v1.filer[0].metadata[0].name
               port = "http"
             }
           ]
@@ -57,7 +57,7 @@ resource "kubectl_manifest" "filer_ingressroute" {
   })
 }
 
-resource "kubernetes_service" "filer_headless" {
+resource "kubernetes_service_v1" "filer_headless" {
   metadata {
     name      = "seaweedfs-filer"
     namespace = var.namespace
@@ -84,7 +84,7 @@ resource "kubernetes_service" "filer_headless" {
   }
 }
 
-resource "kubernetes_stateful_set" "filer" {
+resource "kubernetes_stateful_set_v1" "filer" {
   metadata {
     name      = "seaweedfs-filer"
     namespace = var.namespace
@@ -92,7 +92,7 @@ resource "kubernetes_stateful_set" "filer" {
   }
 
   spec {
-    service_name = kubernetes_service.filer_headless.metadata[0].name
+    service_name = kubernetes_service_v1.filer_headless.metadata[0].name
     replicas     = var.filer_replicas
 
     selector {

@@ -71,7 +71,7 @@ resource "kubectl_manifest" "ollama" {
   depends_on = []
 }
 
-resource "kubernetes_service" "ollama" {
+resource "kubernetes_service_v1" "ollama" {
   metadata {
     name      = local.app_name
     namespace = var.namespace

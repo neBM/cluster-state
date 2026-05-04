@@ -25,28 +25,28 @@
 #   kubectl create secret generic iris-csp \
 #     --from-literal=report_uri="<GlitchTip web project security endpoint URL>"
 
-data "kubernetes_secret" "iris" {
+data "kubernetes_secret_v1" "iris" {
   metadata {
     name      = "iris-secrets"
     namespace = var.namespace
   }
 }
 
-data "kubernetes_secret" "iris_sentry" {
+data "kubernetes_secret_v1" "iris_sentry" {
   metadata {
     name      = "iris-sentry"
     namespace = var.namespace
   }
 }
 
-data "kubernetes_secret" "iris_sentry_web" {
+data "kubernetes_secret_v1" "iris_sentry_web" {
   metadata {
     name      = "iris-sentry-web"
     namespace = var.namespace
   }
 }
 
-data "kubernetes_secret" "iris_csp" {
+data "kubernetes_secret_v1" "iris_csp" {
   metadata {
     name      = "iris-csp"
     namespace = var.namespace

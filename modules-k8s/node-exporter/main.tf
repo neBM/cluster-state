@@ -10,7 +10,7 @@ locals {
 }
 
 # DaemonSet to run on all nodes
-resource "kubernetes_daemonset" "node_exporter" {
+resource "kubernetes_daemon_set_v1" "node_exporter" {
   metadata {
     name      = local.app_name
     namespace = local.namespace
@@ -122,7 +122,7 @@ resource "kubernetes_daemonset" "node_exporter" {
 }
 
 # Service for discovery
-resource "kubernetes_service" "node_exporter" {
+resource "kubernetes_service_v1" "node_exporter" {
   metadata {
     name      = local.app_name
     namespace = local.namespace
