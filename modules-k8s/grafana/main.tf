@@ -359,13 +359,13 @@ resource "kubernetes_config_map_v1" "alerting" {
           rules = [
             {
               uid          = "afbh005pbjrb4b"
-              title        = "Pod CrashLooping"
+              title        = "Pod Restarting Frequently"
               condition    = "C"
               for          = "15m"
               noDataState  = "OK"
               execErrState = "OK"
               annotations = {
-                summary     = "Pod {{ $values.A.Labels.namespace }}/{{ $values.A.Labels.pod }} is crash-looping"
+                summary     = "Pod {{ $values.A.Labels.namespace }}/{{ $values.A.Labels.pod }} container {{ $values.A.Labels.container }} is restarting frequently"
                 description = "Container {{ $values.A.Labels.container }} in pod {{ $values.A.Labels.namespace }}/{{ $values.A.Labels.pod }} has restarted more than 3 times in 15 minutes."
               }
               labels = {
@@ -407,6 +407,67 @@ resource "kubernetes_config_map_v1" "alerting" {
                       {
                         evaluator = {
                           params = [3]
+                          type   = "gt"
+                        }
+                      }
+                    ]
+                    expression = "A"
+                    refId      = "C"
+                    type       = "threshold"
+                  }
+                }
+              ]
+            },
+            {
+              uid          = "pod-crashloopbackoff"
+              title        = "Pod CrashLoopBackOff"
+              condition    = "C"
+              for          = "5m"
+              noDataState  = "OK"
+              execErrState = "OK"
+              annotations = {
+                summary     = "Pod {{ $values.A.Labels.namespace }}/{{ $values.A.Labels.pod }} container {{ $values.A.Labels.container }} is in CrashLoopBackOff"
+                description = "Container {{ $values.A.Labels.container }} in pod {{ $values.A.Labels.namespace }}/{{ $values.A.Labels.pod }} has been in CrashLoopBackOff for more than 5 minutes."
+              }
+              labels = {
+                severity = "warning"
+              }
+              data = [
+                {
+                  refId         = "A"
+                  datasourceUid = "prometheus"
+                  relativeTimeRange = {
+                    from = 600
+                    to   = 0
+                  }
+                  model = {
+                    datasource = {
+                      type = "prometheus"
+                      uid  = "prometheus"
+                    }
+                    expr          = "kube_pod_container_status_waiting_reason{reason=\"CrashLoopBackOff\"} == 1"
+                    instant       = true
+                    intervalMs    = 1000
+                    maxDataPoints = 43200
+                    refId         = "A"
+                  }
+                },
+                {
+                  refId         = "C"
+                  datasourceUid = "__expr__"
+                  relativeTimeRange = {
+                    from = 0
+                    to   = 0
+                  }
+                  model = {
+                    datasource = {
+                      type = "__expr__"
+                      uid  = "__expr__"
+                    }
+                    conditions = [
+                      {
+                        evaluator = {
+                          params = [0]
                           type   = "gt"
                         }
                       }
@@ -602,81 +663,6 @@ resource "kubernetes_config_map_v1" "alerting" {
                 }
               ]
             },
-          ]
-        }
-      ]
-    })
-
-    "kubernetes.yaml" = yamlencode({
-      apiVersion = 1
-      groups = [
-        {
-          orgId    = 1
-          name     = "Kubernetes Pods"
-          folder   = "Kubernetes"
-          interval = "1m"
-          rules = [
-            {
-              uid          = "pod-crashloopbackoff"
-              title        = "PodCrashLoopBackOff"
-              condition    = "C"
-              for          = "5m"
-              noDataState  = "OK"
-              execErrState = "OK"
-              annotations = {
-                summary     = "Pod {{ $values.A.Labels.namespace }}/{{ $values.A.Labels.pod }} container {{ $values.A.Labels.container }} is in CrashLoopBackOff"
-                description = "Container {{ $values.A.Labels.container }} in pod {{ $values.A.Labels.namespace }}/{{ $values.A.Labels.pod }} has been in CrashLoopBackOff for more than 5 minutes."
-              }
-              labels = {
-                severity = "warning"
-              }
-              data = [
-                {
-                  refId         = "A"
-                  datasourceUid = "prometheus"
-                  relativeTimeRange = {
-                    from = 600
-                    to   = 0
-                  }
-                  model = {
-                    datasource = {
-                      type = "prometheus"
-                      uid  = "prometheus"
-                    }
-                    expr          = "kube_pod_container_status_waiting_reason{reason=\"CrashLoopBackOff\"} == 1"
-                    instant       = true
-                    intervalMs    = 1000
-                    maxDataPoints = 43200
-                    refId         = "A"
-                  }
-                },
-                {
-                  refId         = "C"
-                  datasourceUid = "__expr__"
-                  relativeTimeRange = {
-                    from = 0
-                    to   = 0
-                  }
-                  model = {
-                    datasource = {
-                      type = "__expr__"
-                      uid  = "__expr__"
-                    }
-                    conditions = [
-                      {
-                        evaluator = {
-                          params = [0]
-                          type   = "gt"
-                        }
-                      }
-                    ]
-                    expression = "A"
-                    refId      = "C"
-                    type       = "threshold"
-                  }
-                }
-              ]
-            }
           ]
         }
       ]
