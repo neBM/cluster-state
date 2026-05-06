@@ -13,5 +13,6 @@ spec:
     targetPort: 6379
   selector:
     app: valkey
+    managed-by: terraform
   sessionAffinity: None
   type: ClusterIP

@@ -12,12 +12,14 @@ spec:
   selector:
     matchLabels:
       app: clickhouse
+      managed-by: terraform
   strategy:
     type: Recreate
   template:
     metadata:
       labels:
         app: clickhouse
+        managed-by: terraform
     spec:
       automountServiceAccountToken: true
       containers:

@@ -15,5 +15,6 @@ spec:
   selector:
     app: langfuse
     component: web
+    managed-by: terraform
   sessionAffinity: None
   type: ClusterIP

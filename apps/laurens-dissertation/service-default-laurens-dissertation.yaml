@@ -14,5 +14,6 @@ spec:
     targetPort: 8000
   selector:
     app: laurens-dissertation
+    managed-by: terraform
   sessionAffinity: None
   type: ClusterIP

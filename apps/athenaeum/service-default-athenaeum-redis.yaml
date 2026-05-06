@@ -16,5 +16,6 @@ spec:
   selector:
     app: athenaeum
     component: redis
+    managed-by: terraform
   sessionAffinity: None
   type: ClusterIP

@@ -12,10 +12,12 @@ spec:
   selector:
     matchLabels:
       app: rpi5-dra-driver
+      managed-by: terraform
   template:
     metadata:
       labels:
         app: rpi5-dra-driver
+        managed-by: terraform
     spec:
       automountServiceAccountToken: true
       containers:

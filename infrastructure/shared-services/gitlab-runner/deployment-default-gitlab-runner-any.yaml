@@ -14,6 +14,7 @@ spec:
     matchLabels:
       app: gitlab-runner
       arch: any
+      managed-by: terraform
   strategy:
     type: Recreate
   template:
@@ -21,6 +22,7 @@ spec:
       labels:
         app: gitlab-runner
         arch: any
+        managed-by: terraform
     spec:
       automountServiceAccountToken: true
       containers:

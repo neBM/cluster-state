@@ -12,6 +12,7 @@ spec:
   selector:
     matchLabels:
       app: valkey
+      managed-by: terraform
   strategy:
     rollingUpdate:
       maxSurge: 25%
@@ -21,6 +22,7 @@ spec:
     metadata:
       labels:
         app: valkey
+        managed-by: terraform
     spec:
       automountServiceAccountToken: true
       containers:

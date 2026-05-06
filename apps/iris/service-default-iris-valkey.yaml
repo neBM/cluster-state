@@ -16,5 +16,6 @@ spec:
   selector:
     app: iris
     component: valkey
+    managed-by: terraform
   sessionAffinity: None
   type: ClusterIP

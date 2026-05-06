@@ -74,6 +74,11 @@ MANAGED_BY_LABEL_KEYS = {
     "app.kubernetes.io/managed-by",
 }
 
+RUNTIME_LABELS = {
+    "kustomize.toolkit.fluxcd.io/name",
+    "kustomize.toolkit.fluxcd.io/namespace",
+}
+
 STRING_REPLACEMENTS = {
     "Managed by Terraform": "Managed in cluster-state",
 }
@@ -134,29 +139,49 @@ def normalize_embedded_strings(value: Any) -> Any:
     return value
 
 
-def scrub_runtime_fields(value: Any) -> None:
+def requires_managed_by_labels(value: Any) -> bool:
+    if isinstance(value, dict):
+        for key, item in value.items():
+            if key in {"selector", "matchLabels"} and isinstance(item, dict):
+                if any(label_key in item for label_key in MANAGED_BY_LABEL_KEYS):
+                    return True
+            if requires_managed_by_labels(item):
+                return True
+    elif isinstance(value, list):
+        for item in value:
+            if requires_managed_by_labels(item):
+                return True
+    return False
+
+
+def scrub_runtime_fields(value: Any, preserve_managed_by: bool) -> None:
     if isinstance(value, dict):
         for key in list(value.keys()):
             item = value[key]
-            if key in MANAGED_BY_LABEL_KEYS and item == "terraform":
+            if key in RUNTIME_LABELS:
+                value.pop(key, None)
+                continue
+            if not preserve_managed_by and key in MANAGED_BY_LABEL_KEYS and item == "terraform":
                 value.pop(key, None)
                 continue
             if key in RUNTIME_ANNOTATIONS:
                 value.pop(key, None)
                 continue
 
-            scrub_runtime_fields(item)
+            scrub_runtime_fields(item, preserve_managed_by)
 
             if key in {"annotations", "labels", "matchLabels"} and isinstance(value.get(key), dict) and not value[key]:
                 value.pop(key, None)
     elif isinstance(value, list):
         for item in value:
-            scrub_runtime_fields(item)
+            scrub_runtime_fields(item, preserve_managed_by)
 
 
 def strip_resource(resource: dict[str, Any]) -> dict[str, Any]:
-    resource = normalize_embedded_strings(json.loads(json.dumps(resource)))
-    scrub_runtime_fields(resource)
+    resource = json.loads(json.dumps(resource))
+    preserve_managed_by = requires_managed_by_labels(resource)
+    resource = normalize_embedded_strings(resource)
+    scrub_runtime_fields(resource, preserve_managed_by)
     metadata = resource.setdefault("metadata", {})
     for key in RUNTIME_METADATA_KEYS:
         metadata.pop(key, None)

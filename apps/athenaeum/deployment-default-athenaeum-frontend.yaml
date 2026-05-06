@@ -14,6 +14,7 @@ spec:
     matchLabels:
       app: athenaeum
       component: frontend
+      managed-by: terraform
   strategy:
     rollingUpdate:
       maxSurge: 25%
@@ -24,6 +25,7 @@ spec:
       labels:
         app: athenaeum
         component: frontend
+        managed-by: terraform
     spec:
       automountServiceAccountToken: true
       containers:

@@ -16,5 +16,6 @@ spec:
   selector:
     app: athenaeum
     component: frontend
+    managed-by: terraform
   sessionAffinity: None
   type: ClusterIP

@@ -12,12 +12,14 @@ spec:
   selector:
     matchLabels:
       app: glitchtip
+      managed-by: terraform
   strategy:
     type: Recreate
   template:
     metadata:
       labels:
         app: glitchtip
+        managed-by: terraform
     spec:
       automountServiceAccountToken: true
       containers:

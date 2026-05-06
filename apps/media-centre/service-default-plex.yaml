@@ -16,5 +16,6 @@ spec:
   selector:
     app: media-centre
     component: plex
+    managed-by: terraform
   sessionAffinity: None
   type: ClusterIP

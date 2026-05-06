@@ -14,5 +14,6 @@ spec:
     targetPort: 8000
   selector:
     app: glitchtip
+    managed-by: terraform
   sessionAffinity: None
   type: ClusterIP

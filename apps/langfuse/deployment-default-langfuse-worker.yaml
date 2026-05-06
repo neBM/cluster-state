@@ -14,6 +14,7 @@ spec:
     matchLabels:
       app: langfuse
       component: worker
+      managed-by: terraform
   strategy:
     type: Recreate
   template:
@@ -21,6 +22,7 @@ spec:
       labels:
         app: langfuse
         component: worker
+        managed-by: terraform
     spec:
       automountServiceAccountToken: true
       containers:

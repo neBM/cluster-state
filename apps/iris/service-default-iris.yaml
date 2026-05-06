@@ -16,5 +16,6 @@ spec:
   selector:
     app: iris
     component: server
+    managed-by: terraform
   sessionAffinity: None
   type: ClusterIP

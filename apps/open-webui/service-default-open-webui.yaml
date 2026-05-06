@@ -15,5 +15,6 @@ spec:
   selector:
     app: open-webui
     component: app
+    managed-by: terraform
   sessionAffinity: None
   type: ClusterIP
