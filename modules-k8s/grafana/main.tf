@@ -103,18 +103,20 @@ resource "kubernetes_config_map_v1" "alerting" {
           interval = "1m"
           rules = [
             {
-              # Per-node query so $labels.instance is populated.
+              # Per-node query so $labels.node is populated.
+              # Encode the 2m continuity requirement in PromQL so a single
+              # missed scrape never creates a firing series.
               # noDataState=OK: empty result means all nodes are up (not an error).
               # Truly-gone nodes (stale series) are caught by Prometheus Target Down.
               uid          = "efbh005jfadxce"
               title        = "Node Down"
               condition    = "C"
-              for          = "2m"
+              for          = "0s"
               noDataState  = "OK"
-              execErrState = "Alerting"
+              execErrState = "OK"
               annotations = {
-                summary     = "Node {{ $labels.instance }} is down"
-                description = "node-exporter on {{ $labels.instance }} is reporting up=0."
+                summary     = "Node {{ $labels.node }} is down"
+                description = "node-exporter on {{ $labels.node }} ({{ $labels.instance }}) has had no successful scrapes for 2 minutes."
               }
               labels = {
                 severity = "critical"
@@ -132,7 +134,7 @@ resource "kubernetes_config_map_v1" "alerting" {
                       type = "prometheus"
                       uid  = "prometheus"
                     }
-                    expr          = "up{job=\"kubernetes-service-endpoints\",app_kubernetes_io_name=\"node-exporter\"} == 0"
+                    expr          = "(label_replace(max_over_time(up{job=\"kubernetes-service-endpoints\",app_kubernetes_io_name=\"node-exporter\"}[2m]), \"internal_ip\", \"$1\", \"instance\", \"([^:]+):.*\") * on(internal_ip) group_left(node) kube_node_info) < 1"
                     instant       = true
                     intervalMs    = 1000
                     maxDataPoints = 43200
@@ -174,8 +176,8 @@ resource "kubernetes_config_map_v1" "alerting" {
               noDataState  = "OK"
               execErrState = "OK"
               annotations = {
-                summary     = "High memory usage on {{ $labels.instance }}"
-                description = "Memory usage on {{ $labels.instance }} has exceeded 90% for more than 5 minutes."
+                summary     = "High memory usage on {{ $labels.node }}"
+                description = "Memory usage on {{ $labels.node }} ({{ $labels.instance }}) has exceeded 90% for more than 5 minutes."
               }
               labels = {
                 severity = "warning"
@@ -193,7 +195,7 @@ resource "kubernetes_config_map_v1" "alerting" {
                       type = "prometheus"
                       uid  = "prometheus"
                     }
-                    expr          = "(1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) * 100"
+                    expr          = "label_replace((1 - (node_memory_MemAvailable_bytes{job=\"kubernetes-service-endpoints\",app_kubernetes_io_name=\"node-exporter\"} / node_memory_MemTotal_bytes{job=\"kubernetes-service-endpoints\",app_kubernetes_io_name=\"node-exporter\"})) * 100, \"internal_ip\", \"$1\", \"instance\", \"([^:]+):.*\") * on(internal_ip) group_left(node) kube_node_info"
                     instant       = true
                     intervalMs    = 1000
                     maxDataPoints = 43200
@@ -235,8 +237,8 @@ resource "kubernetes_config_map_v1" "alerting" {
               noDataState  = "OK"
               execErrState = "OK"
               annotations = {
-                summary     = "High CPU usage on {{ $labels.instance }}"
-                description = "CPU usage on {{ $labels.instance }} has exceeded 85% for more than 10 minutes."
+                summary     = "High CPU usage on {{ $labels.node }}"
+                description = "CPU usage on {{ $labels.node }} ({{ $labels.instance }}) has exceeded 85% for more than 10 minutes."
               }
               labels = {
                 severity = "warning"
@@ -254,7 +256,7 @@ resource "kubernetes_config_map_v1" "alerting" {
                       type = "prometheus"
                       uid  = "prometheus"
                     }
-                    expr          = "100 - (avg by(instance) (rate(node_cpu_seconds_total{mode=\"idle\"}[5m])) * 100)"
+                    expr          = "label_replace(100 - (avg by(instance) (rate(node_cpu_seconds_total{job=\"kubernetes-service-endpoints\",app_kubernetes_io_name=\"node-exporter\",mode=\"idle\"}[5m])) * 100), \"internal_ip\", \"$1\", \"instance\", \"([^:]+):.*\") * on(internal_ip) group_left(node) kube_node_info"
                     instant       = true
                     intervalMs    = 1000
                     maxDataPoints = 43200
@@ -296,8 +298,8 @@ resource "kubernetes_config_map_v1" "alerting" {
               noDataState  = "OK"
               execErrState = "OK"
               annotations = {
-                summary     = "Low disk space on {{ $labels.instance }}"
-                description = "Root filesystem on {{ $labels.instance }} has less than 15% free space."
+                summary     = "Low disk space on {{ $labels.node }}"
+                description = "Root filesystem on {{ $labels.node }} ({{ $labels.instance }}) has less than 15% free space."
               }
               labels = {
                 severity = "critical"
@@ -315,7 +317,7 @@ resource "kubernetes_config_map_v1" "alerting" {
                       type = "prometheus"
                       uid  = "prometheus"
                     }
-                    expr          = "(node_filesystem_avail_bytes{mountpoint=\"/\",fstype!=\"tmpfs\"} / node_filesystem_size_bytes{mountpoint=\"/\",fstype!=\"tmpfs\"}) * 100"
+                    expr          = "label_replace((node_filesystem_avail_bytes{job=\"kubernetes-service-endpoints\",app_kubernetes_io_name=\"node-exporter\",mountpoint=\"/\",fstype!=\"tmpfs\"} / node_filesystem_size_bytes{job=\"kubernetes-service-endpoints\",app_kubernetes_io_name=\"node-exporter\",mountpoint=\"/\",fstype!=\"tmpfs\"}) * 100, \"internal_ip\", \"$1\", \"instance\", \"([^:]+):.*\") * on(internal_ip) group_left(node) kube_node_info"
                     instant       = true
                     intervalMs    = 1000
                     maxDataPoints = 43200
@@ -495,8 +497,8 @@ resource "kubernetes_config_map_v1" "alerting" {
               noDataState  = "OK"
               execErrState = "OK"
               annotations = {
-                summary     = "Prometheus scrape target {{ $values.A.Labels.job }}/{{ $values.A.Labels.instance }} is down"
-                description = "Scrape target {{ $values.A.Labels.job }}/{{ $values.A.Labels.instance }} has been unreachable for more than 5 minutes."
+                summary     = "Prometheus scrape target {{ $values.A.Labels.job }}/{{ if $values.A.Labels.node }}{{ $values.A.Labels.node }}{{ else if $values.A.Labels.kubernetes_io_hostname }}{{ $values.A.Labels.kubernetes_io_hostname }}{{ else }}{{ $values.A.Labels.instance }}{{ end }} is down"
+                description = "Scrape target {{ $values.A.Labels.job }}/{{ if $values.A.Labels.node }}{{ $values.A.Labels.node }}{{ else if $values.A.Labels.kubernetes_io_hostname }}{{ $values.A.Labels.kubernetes_io_hostname }}{{ else }}{{ $values.A.Labels.instance }}{{ end }} has been unreachable for more than 5 minutes."
               }
               labels = {
                 severity = "warning"
@@ -582,8 +584,8 @@ resource "kubernetes_config_map_v1" "alerting" {
               noDataState  = "OK"
               execErrState = "OK"
               annotations = {
-                summary     = "etcd leader changed on {{ $labels.instance }}"
-                description = "etcd has seen {{ $values.A }} leader change(s) in the last 5 minutes on {{ $labels.instance }}. This indicates raft disruption - check k3s logs on the node that was leader."
+                summary     = "etcd leader changed on {{ if $labels.kubernetes_io_hostname }}{{ $labels.kubernetes_io_hostname }}{{ else if $labels.node }}{{ $labels.node }}{{ else }}{{ $labels.instance }}{{ end }}"
+                description = "etcd has seen {{ $values.A }} leader change(s) in the last 5 minutes on {{ if $labels.kubernetes_io_hostname }}{{ $labels.kubernetes_io_hostname }}{{ else if $labels.node }}{{ $labels.node }}{{ else }}{{ $labels.instance }}{{ end }}. This indicates raft disruption - check k3s logs on the node that was leader."
               }
               labels = { severity = "warning" }
               data = [
@@ -627,8 +629,8 @@ resource "kubernetes_config_map_v1" "alerting" {
               noDataState  = "OK"
               execErrState = "OK"
               annotations = {
-                summary     = "etcd cluster has no leader on {{ $labels.instance }}"
-                description = "etcd on {{ $labels.instance }} reports no leader (etcd_server_has_leader=0) for more than 1 minute. The cluster is unavailable."
+                summary     = "etcd cluster has no leader on {{ if $labels.kubernetes_io_hostname }}{{ $labels.kubernetes_io_hostname }}{{ else if $labels.node }}{{ $labels.node }}{{ else }}{{ $labels.instance }}{{ end }}"
+                description = "etcd on {{ if $labels.kubernetes_io_hostname }}{{ $labels.kubernetes_io_hostname }}{{ else if $labels.node }}{{ $labels.node }}{{ else }}{{ $labels.instance }}{{ end }} reports no leader (etcd_server_has_leader=0) for more than 1 minute. The cluster is unavailable."
               }
               labels = { severity = "critical" }
               data = [

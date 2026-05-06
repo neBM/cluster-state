@@ -546,13 +546,16 @@ resource "kubernetes_deployment_v1" "victoriametrics" {
           }
 
           resources {
+            # vmbackup walks and uploads the full snapshot tree; 128Mi was
+            # insufficient once the TSDB reached multi-GB scale and caused the
+            # sidecar to OOMKill, which also made the VictoriaMetrics pod flap.
             requests = {
-              cpu    = "10m"
-              memory = "32Mi"
+              cpu    = var.backup_cpu_request
+              memory = var.backup_memory_request
             }
             limits = {
-              cpu    = "200m"
-              memory = "128Mi"
+              cpu    = var.backup_cpu_limit
+              memory = var.backup_memory_limit
             }
           }
 

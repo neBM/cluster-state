@@ -95,6 +95,30 @@ variable "backup_interval" {
   default     = "1h"
 }
 
+variable "backup_cpu_request" {
+  type        = string
+  description = "CPU request for the vmbackup sidecar"
+  default     = "10m"
+}
+
+variable "backup_cpu_limit" {
+  type        = string
+  description = "CPU limit for the vmbackup sidecar"
+  default     = "200m"
+}
+
+variable "backup_memory_request" {
+  type        = string
+  description = "Memory request for the vmbackup sidecar"
+  default     = "256Mi"
+}
+
+variable "backup_memory_limit" {
+  type        = string
+  description = "Memory limit for the vmbackup sidecar"
+  default     = "1Gi"
+}
+
 # Storage configuration (local PV)
 variable "storage_class_name" {
   type        = string
@@ -115,4 +139,3 @@ variable "node_selector" {
     "kubernetes.io/hostname" = "hestia"
   }
 }
-
