@@ -25,7 +25,7 @@ variable "image_name" {
 variable "image_tag" {
   type        = string
   description = "Container image tag"
-  default     = "11.4.0"
+  default     = "13.0.1"
 }
 
 variable "replicas" {
