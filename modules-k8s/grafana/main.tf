@@ -55,35 +55,6 @@ resource "kubernetes_config_map_v1" "datasources" {
   }
 }
 
-# ConfigMap for dashboard provisioning configuration
-resource "kubernetes_config_map_v1" "dashboards" {
-  metadata {
-    name      = "${local.app_name}-dashboard-config"
-    namespace = local.namespace
-    labels    = local.labels
-  }
-
-  data = {
-    "dashboards.yaml" = yamlencode({
-      apiVersion = 1
-      providers = [
-        {
-          name                  = "default"
-          orgId                 = 1
-          folder                = ""
-          type                  = "file"
-          disableDeletion       = false
-          updateIntervalSeconds = 10
-          allowUiUpdates        = false
-          options = {
-            path = "/var/lib/grafana/dashboards"
-          }
-        }
-      ]
-    })
-  }
-}
-
 # ConfigMap for alert rule provisioning
 resource "kubernetes_config_map_v1" "alerting" {
   metadata {
@@ -134,7 +105,7 @@ resource "kubernetes_config_map_v1" "alerting" {
                       type = "prometheus"
                       uid  = "prometheus"
                     }
-                    expr          = "(label_replace(max_over_time(up{job=\"kubernetes-service-endpoints\",app_kubernetes_io_name=\"node-exporter\"}[2m]), \"internal_ip\", \"$1\", \"instance\", \"([^:]+):.*\") * on(internal_ip) group_left(node) kube_node_info) < 1"
+                    expr          = "(label_replace(max_over_time(up{job=\"kubernetes-service-endpoints\",app_kubernetes_io_name=\"node-exporter\"}[2m]), \"internal_ip\", \"$1\", \"instance\", \"(.*):.*\") * on(internal_ip) group_left(node) kube_node_info) < 1"
                     instant       = true
                     intervalMs    = 1000
                     maxDataPoints = 43200
@@ -195,7 +166,7 @@ resource "kubernetes_config_map_v1" "alerting" {
                       type = "prometheus"
                       uid  = "prometheus"
                     }
-                    expr          = "label_replace((1 - (node_memory_MemAvailable_bytes{job=\"kubernetes-service-endpoints\",app_kubernetes_io_name=\"node-exporter\"} / node_memory_MemTotal_bytes{job=\"kubernetes-service-endpoints\",app_kubernetes_io_name=\"node-exporter\"})) * 100, \"internal_ip\", \"$1\", \"instance\", \"([^:]+):.*\") * on(internal_ip) group_left(node) kube_node_info"
+                    expr          = "label_replace((1 - (node_memory_MemAvailable_bytes{job=\"kubernetes-service-endpoints\",app_kubernetes_io_name=\"node-exporter\"} / node_memory_MemTotal_bytes{job=\"kubernetes-service-endpoints\",app_kubernetes_io_name=\"node-exporter\"})) * 100, \"internal_ip\", \"$1\", \"instance\", \"(.*):.*\") * on(internal_ip) group_left(node) kube_node_info"
                     instant       = true
                     intervalMs    = 1000
                     maxDataPoints = 43200
@@ -256,7 +227,7 @@ resource "kubernetes_config_map_v1" "alerting" {
                       type = "prometheus"
                       uid  = "prometheus"
                     }
-                    expr          = "label_replace(100 - (avg by(instance) (rate(node_cpu_seconds_total{job=\"kubernetes-service-endpoints\",app_kubernetes_io_name=\"node-exporter\",mode=\"idle\"}[5m])) * 100), \"internal_ip\", \"$1\", \"instance\", \"([^:]+):.*\") * on(internal_ip) group_left(node) kube_node_info"
+                    expr          = "label_replace(100 - (avg by(instance) (rate(node_cpu_seconds_total{job=\"kubernetes-service-endpoints\",app_kubernetes_io_name=\"node-exporter\",mode=\"idle\"}[5m])) * 100), \"internal_ip\", \"$1\", \"instance\", \"(.*):.*\") * on(internal_ip) group_left(node) kube_node_info"
                     instant       = true
                     intervalMs    = 1000
                     maxDataPoints = 43200
@@ -317,7 +288,7 @@ resource "kubernetes_config_map_v1" "alerting" {
                       type = "prometheus"
                       uid  = "prometheus"
                     }
-                    expr          = "label_replace((node_filesystem_avail_bytes{job=\"kubernetes-service-endpoints\",app_kubernetes_io_name=\"node-exporter\",mountpoint=\"/\",fstype!=\"tmpfs\"} / node_filesystem_size_bytes{job=\"kubernetes-service-endpoints\",app_kubernetes_io_name=\"node-exporter\",mountpoint=\"/\",fstype!=\"tmpfs\"}) * 100, \"internal_ip\", \"$1\", \"instance\", \"([^:]+):.*\") * on(internal_ip) group_left(node) kube_node_info"
+                    expr          = "label_replace((node_filesystem_avail_bytes{job=\"kubernetes-service-endpoints\",app_kubernetes_io_name=\"node-exporter\",mountpoint=\"/\",fstype!=\"tmpfs\"} / node_filesystem_size_bytes{job=\"kubernetes-service-endpoints\",app_kubernetes_io_name=\"node-exporter\",mountpoint=\"/\",fstype!=\"tmpfs\"}) * 100, \"internal_ip\", \"$1\", \"instance\", \"(.*):.*\") * on(internal_ip) group_left(node) kube_node_info"
                     instant       = true
                     intervalMs    = 1000
                     maxDataPoints = 43200
@@ -516,7 +487,72 @@ resource "kubernetes_config_map_v1" "alerting" {
                       type = "prometheus"
                       uid  = "prometheus"
                     }
-                    expr          = "up == 0"
+                    expr          = <<-EOT
+                      label_replace(
+                        up{job="kubernetes-nodes"} == bool 0,
+                        "node",
+                        "$1",
+                        "instance",
+                        "(.*)"
+                      )
+                      or
+                      (
+                        label_replace(
+                          up{job="kubernetes-apiservers"} == bool 0,
+                          "internal_ip",
+                          "$1",
+                          "instance",
+                          "(.*):.*"
+                        )
+                        * on(internal_ip) group_left(node) kube_node_info
+                      )
+                      or
+                      (
+                        label_replace(
+                          up{job="kubernetes-service-endpoints",app_kubernetes_io_name="node-exporter"} == bool 0,
+                          "internal_ip",
+                          "$1",
+                          "instance",
+                          "(.*):.*"
+                        )
+                        * on(internal_ip) group_left(node) kube_node_info
+                      )
+                      or
+                      (
+                        up == bool 0
+                        unless on(job, instance) (
+                          label_replace(
+                            up{job="kubernetes-nodes"} == bool 0,
+                            "node",
+                            "$1",
+                            "instance",
+                            "(.*)"
+                          )
+                          or
+                          (
+                            label_replace(
+                              up{job="kubernetes-apiservers"} == bool 0,
+                              "internal_ip",
+                              "$1",
+                              "instance",
+                              "(.*):.*"
+                            )
+                            * on(internal_ip) group_left(node) kube_node_info
+                          )
+                          or
+                          (
+                            label_replace(
+                              up{job="kubernetes-service-endpoints",app_kubernetes_io_name="node-exporter"} == bool 0,
+                              "internal_ip",
+                              "$1",
+                              "instance",
+                              "(.*):.*"
+                            )
+                            * on(internal_ip) group_left(node) kube_node_info
+                          )
+                        )
+                      )
+                    EOT
                     instant       = true
                     intervalMs    = 1000
                     maxDataPoints = 43200
@@ -575,17 +611,15 @@ resource "kubernetes_config_map_v1" "alerting" {
           interval = "1m"
           rules = [
             {
-              # Fires when etcd leader election happens - indicates a raft disruption.
-              # Any increase in leader_changes over 5 minutes is worth knowing about.
               uid          = "etcd-leader-changes"
-              title        = "etcd Leader Change"
+              title        = "etcd Request Errors"
               condition    = "C"
               for          = "0s"
               noDataState  = "OK"
               execErrState = "OK"
               annotations = {
-                summary     = "etcd leader changed on {{ if $labels.kubernetes_io_hostname }}{{ $labels.kubernetes_io_hostname }}{{ else if $labels.node }}{{ $labels.node }}{{ else }}{{ $labels.instance }}{{ end }}"
-                description = "etcd has seen {{ $values.A }} leader change(s) in the last 5 minutes on {{ if $labels.kubernetes_io_hostname }}{{ $labels.kubernetes_io_hostname }}{{ else if $labels.node }}{{ $labels.node }}{{ else }}{{ $labels.instance }}{{ end }}. This indicates raft disruption - check k3s logs on the node that was leader."
+                summary     = "etcd request errors on {{ if $labels.kubernetes_io_hostname }}{{ $labels.kubernetes_io_hostname }}{{ else if $labels.node }}{{ $labels.node }}{{ else }}{{ $labels.instance }}{{ end }}"
+                description = "etcd has reported {{ $values.A }} request error(s) in the last 15 minutes on {{ if $labels.kubernetes_io_hostname }}{{ $labels.kubernetes_io_hostname }}{{ else if $labels.node }}{{ $labels.node }}{{ else }}{{ $labels.instance }}{{ end }}. Check k3s and embedded etcd logs on that node for failed storage requests."
               }
               labels = { severity = "warning" }
               data = [
@@ -595,7 +629,7 @@ resource "kubernetes_config_map_v1" "alerting" {
                   relativeTimeRange = { from = 600, to = 0 }
                   model = {
                     datasource    = { type = "prometheus", uid = "prometheus" }
-                    expr          = "increase(etcd_server_leader_changes_seen_total[5m])"
+                    expr          = "sum by(instance, kubernetes_io_hostname) (increase(etcd_request_errors_total{job=\"kubernetes-nodes\"}[15m]))"
                     instant       = true
                     intervalMs    = 1000
                     maxDataPoints = 43200
@@ -621,16 +655,15 @@ resource "kubernetes_config_map_v1" "alerting" {
               ]
             },
             {
-              # Fires when an etcd member has no leader - cluster is unavailable.
               uid          = "etcd-no-leader"
-              title        = "etcd No Leader"
+              title        = "Storage Consistency Check Failure"
               condition    = "C"
-              for          = "1m"
+              for          = "0s"
               noDataState  = "OK"
               execErrState = "OK"
               annotations = {
-                summary     = "etcd cluster has no leader on {{ if $labels.kubernetes_io_hostname }}{{ $labels.kubernetes_io_hostname }}{{ else if $labels.node }}{{ $labels.node }}{{ else }}{{ $labels.instance }}{{ end }}"
-                description = "etcd on {{ if $labels.kubernetes_io_hostname }}{{ $labels.kubernetes_io_hostname }}{{ else if $labels.node }}{{ $labels.node }}{{ else }}{{ $labels.instance }}{{ end }} reports no leader (etcd_server_has_leader=0) for more than 1 minute. The cluster is unavailable."
+                summary     = "Storage consistency checks failed on {{ if $labels.kubernetes_io_hostname }}{{ $labels.kubernetes_io_hostname }}{{ else if $labels.node }}{{ $labels.node }}{{ else }}{{ $labels.instance }}{{ end }}"
+                description = "The apiserver on {{ if $labels.kubernetes_io_hostname }}{{ $labels.kubernetes_io_hostname }}{{ else if $labels.node }}{{ $labels.node }}{{ else }}{{ $labels.instance }}{{ end }} has reported {{ $values.A }} non-success storage consistency check(s) in the last 15 minutes. This indicates an apiserver/etcd consistency problem and should be treated as critical."
               }
               labels = { severity = "critical" }
               data = [
@@ -640,7 +673,7 @@ resource "kubernetes_config_map_v1" "alerting" {
                   relativeTimeRange = { from = 600, to = 0 }
                   model = {
                     datasource    = { type = "prometheus", uid = "prometheus" }
-                    expr          = "etcd_server_has_leader"
+                    expr          = "sum by(instance, kubernetes_io_hostname) (increase(apiserver_storage_consistency_checks_total{job=\"kubernetes-nodes\",status!=\"success\"}[15m]))"
                     instant       = true
                     intervalMs    = 1000
                     maxDataPoints = 43200
@@ -655,7 +688,7 @@ resource "kubernetes_config_map_v1" "alerting" {
                     datasource = { type = "__expr__", uid = "__expr__" }
                     conditions = [
                       {
-                        evaluator = { params = [1], type = "lt" }
+                        evaluator = { params = [0], type = "gt" }
                       }
                     ]
                     expression = "A"
@@ -749,7 +782,6 @@ resource "kubernetes_deployment_v1" "grafana" {
       metadata {
         annotations = {
           "checksum/datasources" = sha256(jsonencode(kubernetes_config_map_v1.datasources.data))
-          "checksum/dashboards"  = sha256(jsonencode(kubernetes_config_map_v1.dashboards.data))
           "checksum/alerting"    = sha256(jsonencode(kubernetes_config_map_v1.alerting.data))
         }
         labels = merge(local.labels, {
@@ -935,12 +967,6 @@ resource "kubernetes_deployment_v1" "grafana" {
           }
 
           volume_mount {
-            name       = "dashboard-config"
-            mount_path = "/etc/grafana/provisioning/dashboards"
-            read_only  = true
-          }
-
-          volume_mount {
             name       = "alerting"
             mount_path = "/etc/grafana/provisioning/alerting"
             read_only  = true
@@ -980,13 +1006,6 @@ resource "kubernetes_deployment_v1" "grafana" {
           name = "datasources"
           config_map {
             name = kubernetes_config_map_v1.datasources.metadata[0].name
-          }
-        }
-
-        volume {
-          name = "dashboard-config"
-          config_map {
-            name = kubernetes_config_map_v1.dashboards.metadata[0].name
           }
         }
 
