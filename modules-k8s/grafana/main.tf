@@ -611,7 +611,7 @@ resource "kubernetes_config_map_v1" "alerting" {
           interval = "1m"
           rules = [
             {
-              uid          = "etcd-leader-changes"
+              uid          = "etcd-request-errors"
               title        = "etcd Request Errors"
               condition    = "C"
               for          = "0s"
@@ -655,7 +655,7 @@ resource "kubernetes_config_map_v1" "alerting" {
               ]
             },
             {
-              uid          = "etcd-no-leader"
+              uid          = "storage-consistency-check-failure"
               title        = "Storage Consistency Check Failure"
               condition    = "C"
               for          = "0s"
