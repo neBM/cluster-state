@@ -25,4 +25,4 @@ spec:
     kind: GitRepository
     name: cluster-state
   timeout: 10m0s
-  wait: true
+  wait: false
