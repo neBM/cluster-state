@@ -63,6 +63,7 @@ RUNTIME_ANNOTATIONS = {
     "deployment.kubernetes.io/revision",
     "kubectl.kubernetes.io/last-applied-configuration",
     "kubectl.kubernetes.io/restartedAt",
+    "reloader.stakater.com/last-reloaded-from",
     "pv.kubernetes.io/bind-completed",
     "pv.kubernetes.io/bound-by-controller",
     "volume.beta.kubernetes.io/storage-provisioner",
@@ -154,6 +155,31 @@ def requires_managed_by_labels(value: Any) -> bool:
     return False
 
 
+def restore_statefulset_volume_claim_labels(resource: dict[str, Any], original: dict[str, Any]) -> None:
+    if resource.get("kind") != "StatefulSet":
+        return
+
+    original_templates = original.get("spec", {}).get("volumeClaimTemplates", [])
+    desired_templates = resource.get("spec", {}).get("volumeClaimTemplates", [])
+    original_by_name = {
+        template.get("metadata", {}).get("name"): {
+            key: value
+            for key, value in (template.get("metadata", {}).get("labels", {}) or {}).items()
+            if key in MANAGED_BY_LABEL_KEYS
+        }
+        for template in original_templates
+    }
+
+    for template in desired_templates:
+        metadata = template.setdefault("metadata", {})
+        name = metadata.get("name")
+        managed_by_labels = original_by_name.get(name, {})
+        if not managed_by_labels:
+            continue
+        labels = metadata.setdefault("labels", {})
+        labels.update(managed_by_labels)
+
+
 def scrub_runtime_fields(value: Any, preserve_managed_by: bool) -> None:
     if isinstance(value, dict):
         for key in list(value.keys()):
@@ -178,9 +204,9 @@ def scrub_runtime_fields(value: Any, preserve_managed_by: bool) -> None:
 
 
 def strip_resource(resource: dict[str, Any]) -> dict[str, Any]:
-    resource = json.loads(json.dumps(resource))
-    preserve_managed_by = requires_managed_by_labels(resource)
-    resource = normalize_embedded_strings(resource)
+    original = json.loads(json.dumps(resource))
+    preserve_managed_by = requires_managed_by_labels(original)
+    resource = normalize_embedded_strings(original)
     scrub_runtime_fields(resource, preserve_managed_by)
     metadata = resource.setdefault("metadata", {})
     for key in RUNTIME_METADATA_KEYS:
@@ -247,6 +273,8 @@ def strip_resource(resource: dict[str, Any]) -> dict[str, Any]:
                 "labels": desired_labels,
             },
         }
+
+    restore_statefulset_volume_claim_labels(resource, original)
 
     return resource
 
