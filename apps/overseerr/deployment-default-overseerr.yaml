@@ -1,0 +1,207 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app: overseerr
+    environment: prod
+  name: overseerr
+  namespace: default
+spec:
+  progressDeadlineSeconds: 600
+  replicas: 1
+  revisionHistoryLimit: 10
+  selector:
+    matchLabels:
+      app: overseerr
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app: overseerr
+        environment: prod
+    spec:
+      affinity:
+        nodeAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - preference:
+              matchExpressions:
+              - key: kubernetes.io/arch
+                operator: In
+                values:
+                - amd64
+            weight: 100
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: kubernetes.io/arch
+                operator: In
+                values:
+                - arm64
+                - amd64
+      automountServiceAccountToken: true
+      containers:
+      - env:
+        - name: TZ
+          value: Europe/London
+        image: sctx/overseerr:latest
+        imagePullPolicy: Always
+        livenessProbe:
+          failureThreshold: 3
+          httpGet:
+            path: /api/v1/status
+            port: 5055
+            scheme: HTTP
+          initialDelaySeconds: 30
+          periodSeconds: 30
+          successThreshold: 1
+          timeoutSeconds: 5
+        name: overseerr
+        ports:
+        - containerPort: 5055
+          name: http
+          protocol: TCP
+        readinessProbe:
+          failureThreshold: 3
+          httpGet:
+            path: /api/v1/status
+            port: 5055
+            scheme: HTTP
+          initialDelaySeconds: 10
+          periodSeconds: 10
+          successThreshold: 1
+          timeoutSeconds: 5
+        resources:
+          limits:
+            cpu: 500m
+            memory: 512Mi
+          requests:
+            cpu: 100m
+            memory: 350Mi
+        terminationMessagePath: /dev/termination-log
+        terminationMessagePolicy: File
+        volumeMounts:
+        - mountPath: /app/config
+          mountPropagation: HostToContainer
+          name: config
+        - mountPath: /app/config/db
+          mountPropagation: None
+          name: data
+          subPath: db
+      - args:
+        - replicate
+        - -config
+        - /etc/litestream.yml
+        env:
+        - name: LITESTREAM_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              key: MINIO_ACCESS_KEY
+              name: overseerr-secrets
+              optional: false
+        - name: LITESTREAM_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              key: MINIO_SECRET_KEY
+              name: overseerr-secrets
+              optional: false
+        image: litestream/litestream:0.5
+        imagePullPolicy: IfNotPresent
+        name: litestream
+        resources:
+          limits:
+            cpu: 200m
+            memory: 256Mi
+          requests:
+            cpu: 50m
+            memory: 64Mi
+        terminationMessagePath: /dev/termination-log
+        terminationMessagePolicy: File
+        volumeMounts:
+        - mountPath: /data
+          mountPropagation: None
+          name: data
+        - mountPath: /etc/litestream.yml
+          mountPropagation: None
+          name: litestream-config
+          subPath: litestream.yml
+      dnsPolicy: ClusterFirst
+      enableServiceLinks: true
+      initContainers:
+      - args:
+        - "set -e\nDB_DIR=\"/data/db\"\nDB_FILE=\"$DB_DIR/db.sqlite3\"\nmkdir -p \"\
+          $DB_DIR\"\n\n# Skip if database already exists\nif [ -f \"$DB_FILE\" ];\
+          \ then\n  echo \"Database already exists, skipping restore\"\n  exit 0\n\
+          fi\n\necho \"No local database found - attempting restore from S3...\"\n\
+          echo \"CRITICAL: Overseerr will NOT start if restore fails to prevent empty\
+          \ database creation\"\n\n# Restore from S3 (MinIO)\nif litestream restore\
+          \ -config /etc/litestream.yml -o \"$DB_FILE\" \"$DB_FILE\"; then\n  echo\
+          \ \"Database restored successfully from S3\"\nelse\n  echo \"ERROR: Database\
+          \ restore failed!\"\n  echo \"FATAL: No database available. Overseerr cannot\
+          \ start.\"\n  echo \"Please check MinIO connectivity and litestream backup\
+          \ status.\"\n  exit 1\nfi\n\n# Verify database exists after restore\nif\
+          \ [ ! -f \"$DB_FILE\" ]; then\n  echo \"FATAL: Database file does not exist\
+          \ after restore attempt!\"\n  exit 1\nfi\n\n# Verify database is not empty/corrupted\
+          \ (Overseerr DB is typically ~160KB+)\nDB_SIZE=$(stat -c%s \"$DB_FILE\"\
+          \ 2>/dev/null || echo \"0\")\nif [ \"$DB_SIZE\" -lt 50000 ]; then\n  echo\
+          \ \"FATAL: Database is too small ($DB_SIZE bytes) - likely corrupted or\
+          \ empty!\"\n  echo \"Expected at least 50KB for a valid Overseerr database.\"\
+          \n  rm -f \"$DB_FILE\"\n  exit 1\nfi\n\necho \"Restore complete - Database:\
+          \ ${DB_SIZE} bytes\"\n"
+        command:
+        - /bin/sh
+        - -c
+        env:
+        - name: LITESTREAM_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              key: MINIO_ACCESS_KEY
+              name: overseerr-secrets
+              optional: false
+        - name: LITESTREAM_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              key: MINIO_SECRET_KEY
+              name: overseerr-secrets
+              optional: false
+        envFrom:
+        - secretRef:
+            name: overseerr-secrets
+            optional: false
+        image: litestream/litestream:0.5
+        imagePullPolicy: IfNotPresent
+        name: litestream-restore
+        resources:
+          limits:
+            cpu: 200m
+            memory: 256Mi
+          requests:
+            cpu: 50m
+            memory: 128Mi
+        terminationMessagePath: /dev/termination-log
+        terminationMessagePolicy: File
+        volumeMounts:
+        - mountPath: /data
+          mountPropagation: None
+          name: data
+        - mountPath: /etc/litestream.yml
+          mountPropagation: None
+          name: litestream-config
+          subPath: litestream.yml
+      restartPolicy: Always
+      schedulerName: default-scheduler
+      securityContext: {}
+      shareProcessNamespace: false
+      terminationGracePeriodSeconds: 30
+      volumes:
+      - emptyDir:
+          sizeLimit: 500Mi
+        name: data
+      - name: config
+        persistentVolumeClaim:
+          claimName: overseerr-config-sw
+      - configMap:
+          defaultMode: 420
+          name: overseerr-litestream
+          optional: false
+        name: litestream-config

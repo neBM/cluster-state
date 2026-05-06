@@ -1,0 +1,31 @@
+apiVersion: autoscaling.k8s.io/v1
+kind: VerticalPodAutoscaler
+metadata:
+  labels:
+    app: overseerr
+    environment: prod
+  name: overseerr-vpa
+  namespace: default
+spec:
+  resourcePolicy:
+    containerPolicies:
+    - containerName: overseerr
+      maxAllowed:
+        cpu: '1'
+        memory: 1Gi
+      minAllowed:
+        cpu: 50m
+        memory: 128Mi
+    - containerName: litestream
+      maxAllowed:
+        cpu: 500m
+        memory: 512Mi
+      minAllowed:
+        cpu: 10m
+        memory: 32Mi
+  targetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: overseerr
+  updatePolicy:
+    updateMode: 'Off'

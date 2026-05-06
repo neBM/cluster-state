@@ -1,0 +1,19 @@
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  labels:
+    app: media-centre
+    component: tautulli
+  name: tautulli
+  namespace: default
+spec:
+  entryPoints:
+  - websecure
+  routes:
+  - kind: Rule
+    match: Host(`tautulli.brmartin.co.uk`)
+    services:
+    - name: tautulli
+      port: 8181
+  tls:
+    secretName: wildcard-brmartin-tls

@@ -1,0 +1,16 @@
+apiVersion: v1
+data:
+  litestream.yml: "\"dbs\":\n- \"path\": \"/data/db/db.sqlite3\"\n  \"replicas\":\n\
+    \  - \"bucket\": \"overseerr-litestream\"\n    \"endpoint\": \"http://seaweedfs-s3.default.svc.cluster.local:8333\"\
+    \n    \"force-path-style\": true\n    \"name\": \"overseerr\"\n    \"path\": \"\
+    db\"\n    \"retention\": \"168h\"\n    \"retention-check-interval\": \"1h\"\n\
+    \    \"snapshot-interval\": \"1h\"\n    \"sync-interval\": \"5m\"\n    \"type\"\
+    : \"s3\"\n"
+immutable: false
+kind: ConfigMap
+metadata:
+  labels:
+    app: overseerr
+    environment: prod
+  name: overseerr-litestream
+  namespace: default

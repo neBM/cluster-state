@@ -1,0 +1,21 @@
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  finalizers:
+  - kubernetes.io/pv-protection
+  name: media-synology-share
+spec:
+  accessModes:
+  - ReadWriteMany
+  capacity:
+    storage: 10Ti
+  mountOptions:
+  - soft
+  - timeo=150
+  - retrans=3
+  nfs:
+    path: /volume1/Share
+    server: 192.168.1.10
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: synology-nfs-static
+  volumeMode: Filesystem

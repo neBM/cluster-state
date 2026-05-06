@@ -1,0 +1,19 @@
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  labels:
+    app: media-centre
+    component: plex
+  name: plex
+  namespace: default
+spec:
+  entryPoints:
+  - websecure
+  routes:
+  - kind: Rule
+    match: Host(`plex.brmartin.co.uk`)
+    services:
+    - name: plex
+      port: 32400
+  tls:
+    secretName: wildcard-brmartin-tls

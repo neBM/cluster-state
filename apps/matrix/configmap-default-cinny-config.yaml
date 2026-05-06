@@ -1,0 +1,8 @@
+apiVersion: v1
+data:
+  config.json: '{"allowCustomHomeservers":false,"defaultHomeserver":0,"featuredCommunities":{"openAsDefault":false,"rooms":["#cinny:matrix.org","#freesoftware:matrix.org","#pcapdroid:matrix.org","#gentoo:matrix.org","#PrivSec.dev:arcticfoxes.net","#disroot:aria-net.org"],"servers":["envs.net","matrix.org","monero.social","mozilla.org"],"spaces":["#cinny-space:matrix.org","#community:matrix.org","#space:envs.net","#science-space:matrix.org","#libregaming-games:tchncs.de","#mathematics-on:matrix.org"]},"hashRouter":{"basename":"/","enabled":false},"homeserverList":["brmartin.co.uk"]}'
+immutable: false
+kind: ConfigMap
+metadata:
+  name: cinny-config
+  namespace: default

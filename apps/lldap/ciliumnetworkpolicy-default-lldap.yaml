@@ -1,0 +1,31 @@
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: lldap
+  namespace: default
+spec:
+  endpointSelector:
+    matchLabels:
+      app: lldap
+  ingress:
+  - fromEndpoints:
+    - matchLabels:
+        app: postfix
+    - matchLabels:
+        app: dovecot
+    - matchLabels:
+        app: sogo
+    - matchLabels:
+        app: keycloak
+    toPorts:
+    - ports:
+      - port: '3890'
+        protocol: TCP
+  - fromEndpoints:
+    - matchLabels:
+        app.kubernetes.io/name: traefik
+        k8s:io.kubernetes.pod.namespace: traefik
+    toPorts:
+    - ports:
+      - port: '17170'
+        protocol: TCP

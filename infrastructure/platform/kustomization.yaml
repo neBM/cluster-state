@@ -1,0 +1,12 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+- cert-manager
+- reloader
+- goldilocks
+- hubble-ui
+- headlamp
+- rpi5-dra-driver
+- nvidia-dra-driver
+- device-classes
+- rpi-throttle-monitor

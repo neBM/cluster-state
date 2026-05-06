@@ -1,0 +1,77 @@
+apiVersion: v1
+data:
+  config.toml.template: "concurrent = 2\ncheck_interval = 30\nshutdown_timeout = 0\n\
+    \n[session_server]\n  session_timeout = 1800\n\n[[runners]]\n  name = \"RUNNER_NAME_PLACEHOLDER\"\
+    \n  url = \"https://git.brmartin.co.uk\"\n  token = \"RUNNER_TOKEN_PLACEHOLDER\"\
+    \n  executor = \"kubernetes\"\n  # Node-local cache env vars \u2014 tools find\
+    \ their caches automatically, no .gitlab-ci.yml changes needed.\n  # Registry\
+    \ env vars \u2014 buildah/podman pick up /etc/containers/registries.conf mounted\
+    \ below,\n  # but pure-Go registry clients (trivy via go-containerregistry, syft\
+    \ via stereoscope) don't\n  # read that file. Mark the internal registry insecure\
+    \ here so .gitlab-ci.yml stays\n  # environment-agnostic: projects don't need\
+    \ to know whether they're running against a\n  # plaintext-on-443 in-cluster registry\
+    \ or a fully TLS-terminated external one.\n  environment = [\n    \"MAVEN_USER_HOME=/ci-cache/m2\"\
+    ,\n    \"GRADLE_USER_HOME=/ci-cache/gradle\",\n    \"UV_CACHE_DIR=/ci-cache/uv\"\
+    ,\n    \"PIP_CACHE_DIR=/ci-cache/pip\",\n    \"npm_config_cache=/ci-cache/npm\"\
+    ,\n    \"GOMODCACHE=/ci-cache/gomod\",\n    \"GOCACHE=/ci-cache/gobuild\",\n \
+    \   \"STORAGE_DRIVER=overlay\",\n    \"DOCKER_HOST=tcp://kubedock:2475\",\n  \
+    \  \"TESTCONTAINERS_RYUK_DISABLED=true\",\n    \"TESTCONTAINERS_CHECKS_DISABLE=true\"\
+    ,\n    \"TRIVY_INSECURE=true\",\n    \"SYFT_REGISTRY_INSECURE_USE_HTTP=true\"\
+    ,\n    \"SYFT_REGISTRY_INSECURE_SKIP_TLS_VERIFY=true\"\n  ]\n  \n  [runners.kubernetes]\n\
+    \    namespace = \"default\"\n    service_account = \"gitlab-runner\"\n    image\
+    \ = \"alpine:latest\"\n    privileged = true\n    \n    # Resource defaults for\
+    \ build containers.\n    # No cpu_limit: burstable QoS lets short-lived CI jobs\
+    \ use full node CPU\n    # (parallel go build, golangci-lint, eslint, vite build).\
+    \ cpu_request is\n    # kept small for scheduling; concurrency caps total pressure\
+    \ per node.\n    # Go 1.22+ and golangci-lint read the cgroup cpu.max for GOMAXPROCS\
+    \ /\n    # worker count, so removing the limit unblocks their parallelism.\n \
+    \   cpu_request = \"100m\"\n    memory_request = \"512Mi\"\n    memory_limit =\
+    \ \"6Gi\"\n\n    # Helper container resources\n    helper_cpu_request = \"50m\"\
+    \n    helper_memory_request = \"128Mi\"\n    helper_cpu_limit = \"500m\"\n   \
+    \ helper_memory_limit = \"256Mi\"\n\n    # Poll settings\n    poll_interval =\
+    \ 3\n    poll_timeout = 180\n\n    # Cleanup\n    cleanup_grace_period_seconds\
+    \ = 5\n    \n    # Pull policy: if-not-present by default, jobs can override\n\
+    \    pull_policy = [\"if-not-present\"]\n    allowed_pull_policies = [\"always\"\
+    , \"if-not-present\", \"never\"]\n\n    \n\n  # Label every CI job pod so the\
+    \ anti-affinity rule below can find them.\n  [runners.kubernetes.pod_labels]\n\
+    \    \"ci.brmartin.co.uk/job\" = \"true\"\n\n  # Soft anti-affinity: prefer scheduling\
+    \ each job pod on a node that doesn't\n  # already have another CI job pod. Spreads\
+    \ concurrent arm64 jobs across\n  # Heracles and Nyx instead of packing onto one.\
+    \ \"preferred\" (not required)\n  # so a single surviving node can still take\
+    \ both jobs if the other is down.\n  [runners.kubernetes.affinity]\n    [runners.kubernetes.affinity.pod_anti_affinity]\n\
+    \      [[runners.kubernetes.affinity.pod_anti_affinity.preferred_during_scheduling_ignored_during_execution]]\n\
+    \        weight = 100\n        [runners.kubernetes.affinity.pod_anti_affinity.preferred_during_scheduling_ignored_during_execution.pod_affinity_term]\n\
+    \          topology_key = \"kubernetes.io/hostname\"\n          [runners.kubernetes.affinity.pod_anti_affinity.preferred_during_scheduling_ignored_during_execution.pod_affinity_term.label_selector]\n\
+    \            match_labels = { \"ci.brmartin.co.uk/job\" = \"true\" }\n\n  # Kubedock:\
+    \ minimal Docker API that orchestrates containers as K8s pods.\n  # Injected into\
+    \ every job pod so testcontainers \"just works\" without any\n  # per-project\
+    \ CI config. DOCKER_HOST env var above points to this service.\n  [[runners.kubernetes.services]]\n\
+    \    name = \"joyrex2001/kubedock:0.20.3\"\n    alias = \"kubedock\"\n    command\
+    \ = [\"server\", \"--port-forward\"]\n\n# Node selector \u2014 pins job pods to\
+    \ the runner's architecture.\n[runners.kubernetes.node_selector]\n  \"kubernetes.io/arch\"\
+    \ = \"arm64\"\n\n# Persistent node-local cache for build tool dependencies (Maven,\
+    \ Gradle, pip, uv, npm)\n# Avoids zip/upload/download cycle of S3 cache for large,\
+    \ read-heavy dependency trees.\n# Env vars above point each tool at /ci-cache/<tool>\
+    \ \u2014 works automatically in all jobs.\n[[runners.kubernetes.volumes.host_path]]\n\
+    \  name = \"ci-cache\"\n  mount_path = \"/ci-cache\"\n  host_path = \"/var/lib/ci-cache\"\
+    \n  read_only = false\n\n# Persistent container storage for buildah/podman (base\
+    \ images, layers).\n# Caches pulled images and intermediate layers locally on\
+    \ each node,\n# avoiding re-pulls from registry on every job.\n[[runners.kubernetes.volumes.host_path]]\n\
+    \  name = \"containers-storage\"\n  mount_path = \"/var/lib/containers\"\n  host_path\
+    \ = \"/var/lib/ci-containers\"\n  read_only = false\n\n# In-cluster registry bypass:\
+    \ mount registries.conf marking the registry as insecure\n# so buildah uses plain\
+    \ HTTP on :443 when CoreDNS resolves the hostname to the internal service.\n[[runners.kubernetes.volumes.config_map]]\n\
+    \  name = \"gitlab-runner-registries-conf\"\n  mount_path = \"/etc/containers/registries.conf\"\
+    \n  sub_path = \"registries.conf\"\n  read_only = true\n\n# Shared cache via SeaweedFS\
+    \ S3\n[runners.cache]\n  Type = \"s3\"\n  Shared = true\n  [runners.cache.s3]\n\
+    \    ServerAddress = \"seaweedfs-s3.default.svc.cluster.local:8333\"\n    BucketName\
+    \ = \"gitlab-runner-cache\"\n    Insecure = true\n    AuthenticationType = \"\
+    access-key\"\n    AccessKey = \"MINIO_ACCESS_KEY_PLACEHOLDER\"\n    SecretKey\
+    \ = \"MINIO_SECRET_KEY_PLACEHOLDER\"\n"
+immutable: false
+kind: ConfigMap
+metadata:
+  labels:
+    app: gitlab-runner
+  name: gitlab-runner-config-template-arm64
+  namespace: default

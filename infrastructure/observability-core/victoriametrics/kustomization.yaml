@@ -1,0 +1,12 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+- clusterrole-victoriametrics-server.yaml
+- clusterrolebinding-victoriametrics-server.yaml
+- configmap-default-victoriametrics-backup-script.yaml
+- configmap-default-victoriametrics-config.yaml
+- deployment-default-victoriametrics.yaml
+- ingressroute-default-victoriametrics.yaml
+- persistentvolumeclaim-default-victoriametrics-data.yaml
+- service-default-victoriametrics.yaml
+- serviceaccount-default-victoriametrics.yaml

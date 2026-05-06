@@ -1,0 +1,19 @@
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  labels:
+    app: langfuse
+    component: web
+  name: langfuse
+  namespace: default
+spec:
+  entryPoints:
+  - websecure
+  routes:
+  - kind: Rule
+    match: Host(`langfuse.brmartin.co.uk`)
+    services:
+    - name: langfuse-web
+      port: 80
+  tls:
+    secretName: wildcard-brmartin-tls

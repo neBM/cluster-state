@@ -1,0 +1,25 @@
+apiVersion: v1
+data:
+  ldap-mailboxes.cf: 'server_host = ldap://lldap.default.svc.cluster.local:3890
+
+    bind = yes
+
+    bind_dn = uid=postfix,ou=people,dc=brmartin,dc=co,dc=uk
+
+    bind_pw = $LDAP_BIND_PW
+
+    search_base = ou=people,dc=brmartin,dc=co,dc=uk
+
+    query_filter = (&(objectClass=inetOrgPerson)(mail=%s))
+
+    result_attribute = mail
+
+    '
+immutable: false
+kind: ConfigMap
+metadata:
+  labels:
+    app: postfix
+    environment: prod
+  name: postfix-ldap
+  namespace: default

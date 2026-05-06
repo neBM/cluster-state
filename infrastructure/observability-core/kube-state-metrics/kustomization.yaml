@@ -1,0 +1,8 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+- clusterrole-kube-state-metrics.yaml
+- clusterrolebinding-kube-state-metrics.yaml
+- deployment-default-kube-state-metrics.yaml
+- service-default-kube-state-metrics.yaml
+- serviceaccount-default-kube-state-metrics.yaml

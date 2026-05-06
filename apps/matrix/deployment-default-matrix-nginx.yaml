@@ -1,0 +1,91 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app: matrix
+    component: nginx
+  name: matrix-nginx
+  namespace: default
+spec:
+  progressDeadlineSeconds: 600
+  replicas: 1
+  revisionHistoryLimit: 10
+  selector:
+    matchLabels:
+      app: matrix
+      component: nginx
+  strategy:
+    rollingUpdate:
+      maxSurge: 25%
+      maxUnavailable: 25%
+    type: RollingUpdate
+  template:
+    metadata:
+      annotations:
+        elastic.co/dataset: kubernetes.container_logs.matrix
+      labels:
+        app: matrix
+        component: nginx
+    spec:
+      automountServiceAccountToken: true
+      containers:
+      - image: docker.io/library/nginx:1.30.0-alpine
+        imagePullPolicy: IfNotPresent
+        livenessProbe:
+          failureThreshold: 3
+          httpGet:
+            path: /health
+            port: 8080
+            scheme: HTTP
+          initialDelaySeconds: 10
+          periodSeconds: 30
+          successThreshold: 1
+          timeoutSeconds: 5
+        name: nginx
+        ports:
+        - containerPort: 8080
+          protocol: TCP
+        readinessProbe:
+          failureThreshold: 3
+          httpGet:
+            path: /health
+            port: 8080
+            scheme: HTTP
+          initialDelaySeconds: 5
+          periodSeconds: 10
+          successThreshold: 1
+          timeoutSeconds: 5
+        resources:
+          limits:
+            memory: 64Mi
+          requests:
+            cpu: 50m
+            memory: 32Mi
+        terminationMessagePath: /dev/termination-log
+        terminationMessagePolicy: File
+        volumeMounts:
+        - mountPath: /etc/nginx/nginx.conf
+          mountPropagation: None
+          name: config
+          subPath: nginx.conf
+        - mountPath: /usr/share/nginx/html/.well-known/matrix/server
+          mountPropagation: None
+          name: config
+          subPath: server
+        - mountPath: /usr/share/nginx/html/.well-known/matrix/client
+          mountPropagation: None
+          name: config
+          subPath: client
+      dnsPolicy: ClusterFirst
+      enableServiceLinks: true
+      restartPolicy: Always
+      schedulerName: default-scheduler
+      securityContext: {}
+      shareProcessNamespace: false
+      terminationGracePeriodSeconds: 30
+      volumes:
+      - configMap:
+          defaultMode: 420
+          name: matrix-nginx-config
+          optional: false
+        name: config

@@ -1,0 +1,27 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    traefik.ingress.kubernetes.io/router.tls: 'true'
+  labels:
+    app: iris
+  name: iris
+  namespace: default
+spec:
+  ingressClassName: traefik
+  rules:
+  - host: iris.brmartin.co.uk
+    http:
+      paths:
+      - backend:
+          service:
+            name: iris
+            port:
+              number: 8080
+        path: /
+        pathType: Prefix
+  tls:
+  - hosts:
+    - iris.brmartin.co.uk
+    secretName: wildcard-brmartin-tls

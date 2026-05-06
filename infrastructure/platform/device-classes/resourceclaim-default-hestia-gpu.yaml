@@ -1,0 +1,15 @@
+apiVersion: resource.k8s.io/v1
+kind: ResourceClaim
+metadata:
+  finalizers:
+  - resource.kubernetes.io/delete-protection
+  name: hestia-gpu
+  namespace: default
+spec:
+  devices:
+    requests:
+    - exactly:
+        allocationMode: ExactCount
+        count: 1
+        deviceClassName: nvidia-gpu
+      name: gpu

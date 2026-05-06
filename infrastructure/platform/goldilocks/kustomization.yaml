@@ -1,0 +1,12 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+- clusterrole-goldilocks.yaml
+- clusterrolebinding-goldilocks.yaml
+- deployment-kube-system-goldilocks-controller.yaml
+- deployment-kube-system-goldilocks-dashboard.yaml
+- ingressroute-kube-system-goldilocks-dashboard.yaml
+- namespace-default.yaml
+- namespace-kube-system.yaml
+- service-kube-system-goldilocks-dashboard.yaml
+- serviceaccount-kube-system-goldilocks.yaml

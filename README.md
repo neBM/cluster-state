@@ -1,111 +1,84 @@
 # Home Lab Cluster State
 
-![Terraform Badge](https://img.shields.io/badge/Terraform-844FBA?logo=terraform&logoColor=fff&style=for-the-badge)
-![Kubernetes Badge](https://img.shields.io/badge/Kubernetes-326CE5?logo=kubernetes&logoColor=fff&style=for-the-badge)
+![Flux Badge](https://img.shields.io/badge/Flux-5468FF?logo=flux&logoColor=fff&style=for-the-badge)
+![Kustomize Badge](https://img.shields.io/badge/Kustomize-326CE5?logo=kubernetes&logoColor=fff&style=for-the-badge)
 ![K3s Badge](https://img.shields.io/badge/K3s-FFC61C?logo=k3s&logoColor=000&style=for-the-badge)
 
 ## Overview
 
-Infrastructure as Code for my home lab K3s cluster. Terraform manages Kubernetes resources with state stored in PostgreSQL.
+Git-tracked desired state for a home lab K3s cluster. Flux reconciles the cluster from this repository, and workloads are defined as plain Kubernetes manifests assembled with Kustomize.
 
-## Services
+## Layout
 
-| Category | Services |
-|----------|----------|
-| **Media** | Plex (GPU transcoding), Overseerr, PlexTraktSync |
-| **AI/ML** | Ollama, Open WebUI |
-| **Identity** | Keycloak |
-| **Communication** | Matrix |
-| **Storage** | MinIO, NFS Provisioner, Restic Backup |
-| **Git & CI** | GitLab, GitLab Runner |
-| **Monitoring** | ELK Stack, Elastic Agent, Goldilocks (VPA) |
-| **Web** | Nginx Sites, SearXNG, Vaultwarden |
-| **Other** | AppFlowy, Nextcloud, Renovate |
-
-## Architecture
-
-- **Cluster**: K3s on bare metal
-- **IaC**: Terraform with PostgreSQL backend
-- **Secrets**: External Secrets Operator + Vault
-- **Storage**: GlusterFS via NFS subdir provisioner
-- **Ingress**: Traefik (with OAuth middleware)
-- **Network**: Cilium (with Hubble UI)
-- **CI/CD**: GitLab pipelines (validate → plan → apply)
-
-## Project Structure
-
-```
-.
-├── main.tf                 # Root module (migration notes)
-├── kubernetes.tf           # K8s provider + all module calls
-├── provider.tf             # Provider versions
-├── variables.tf            # Input variables
-├── locals.tf               # Local values
-├── outputs.tf              # Output values
-├── k8s/
-│   └── core/               # Core K8s infrastructure
-├── modules-k8s/            # Service modules
-│   ├── media-centre/
-│   ├── ollama/
-│   ├── elk/
-│   └── ...
-├── specs/                  # SpecKit specifications
-├── .gitlab-ci.yml          # CI/CD pipeline
-├── renovate.json           # Automated dependency updates
-└── .pre-commit-config.yaml # Code quality hooks
+```text
+clusters/
+  k3s-homelab/
+    flux-system/            # Flux install + sync + ordered Kustomizations
+apps/                       # Application workloads
+infrastructure/             # Storage, platform, shared services, observability
+drivers/                    # Custom driver source trees and images
+scripts/                    # Bootstrap and operational helpers
+specs/                      # Historical design and migration specs
 ```
 
-## Getting Started
+## Bootstrap
 
-### Prerequisites
+Prerequisites:
 
-- Terraform >= 1.2.0
-- K3s cluster with kubeconfig at `~/.kube/k3s-config`
-- PostgreSQL database for Terraform state
-- NFS/GlusterFS storage
+- `kubectl` pointed at the target cluster
+- a GitLab deploy token for `https://git.brmartin.co.uk/ben/cluster-state.git`
+- a webhook token for Flux notifications
 
-### Setup
+Create the Flux Git credentials secret:
 
 ```bash
-# Clone
-git clone https://git.brmartin.co.uk/ben/cluster-state.git
-cd cluster-state
-
-# Configure
-cp .env.example .env
-cp terraform.tfvars.example terraform.tfvars
-# Edit both files with your values
-
-# Deploy
-terraform init
-terraform plan
-terraform apply
+kubectl create namespace flux-system --dry-run=client -o yaml | kubectl apply -f -
+kubectl create secret generic flux-system -n flux-system \
+  --from-literal=username='<deploy-token-username>' \
+  --from-literal=password='<deploy-token-password>' \
+  --dry-run=client -o yaml | kubectl apply -f -
 ```
 
-### Environment Variables
+Create the webhook token secret:
 
 ```bash
-PG_CONN_STR=postgres://user:password@host:port/database?sslmode=disable
+kubectl create secret generic webhook-token -n flux-system \
+  --from-literal=token='<random-webhook-token>' \
+  --dry-run=client -o yaml | kubectl apply -f -
 ```
 
-## Development
-
-### Pre-commit Hooks
+Install Flux and the repo sync objects:
 
 ```bash
-pip install pre-commit
-pre-commit install
+kubectl apply -k clusters/k3s-homelab/flux-system
 ```
 
-### CI/CD
+Then register a GitLab webhook that points at:
 
-The GitLab pipeline runs:
-- **validate**: `terraform fmt -check` + `terraform validate`
-- **plan**: generates plan on MRs
-- **apply**: applies on `main` (manual trigger)
+```text
+https://flux-webhook.brmartin.co.uk$(kubectl get receiver cluster-state -n flux-system -o jsonpath='{.status.webhookPath}')
+```
 
-CI uses a limited-RBAC service account (`terraform-ci`) for cluster access.
+## Validation
 
-## History
+```bash
+# Render every supported entrypoint
+./scripts/validate_kustomize.sh
 
-This repo originally managed a Nomad cluster. Migration to K3s was completed in January 2026.
+# Inspect a specific layer
+kubectl kustomize infrastructure/platform
+kubectl kustomize apps
+
+# Compare the Flux bootstrap path to the live cluster
+kubectl diff -k clusters/k3s-homelab/flux-system
+```
+
+## CI/CD
+
+GitLab CI validates the rendered manifests and builds driver artifacts. Flux is the deployer for cluster state; merging to `main` and delivering the GitLab webhook is the deployment path.
+
+## Notes
+
+- Secrets stay out of git. Manifests reference existing secret names only.
+- Flux source polling is set to a long interval and GitLab webhooks provide the fast path.
+- Initial Flux child `Kustomization` objects use `prune: false` to avoid accidental deletion during the cutover cleanup phase.

@@ -1,0 +1,33 @@
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: rspamd
+  namespace: default
+spec:
+  endpointSelector:
+    matchLabels:
+      app: rspamd
+  ingress:
+  - fromEndpoints:
+    - matchLabels:
+        app: postfix
+    toPorts:
+    - ports:
+      - port: '11332'
+        protocol: TCP
+  - fromEndpoints:
+    - matchLabels:
+        app.kubernetes.io/name: traefik
+        k8s:io.kubernetes.pod.namespace: traefik
+    toPorts:
+    - ports:
+      - port: '11334'
+        protocol: TCP
+  - fromEndpoints:
+    - matchLabels:
+        app.kubernetes.io/name: victoriametrics
+        k8s:io.kubernetes.pod.namespace: default
+    toPorts:
+    - ports:
+      - port: '11335'
+        protocol: TCP

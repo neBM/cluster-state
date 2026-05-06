@@ -1,0 +1,103 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app: lldap
+    environment: prod
+  name: lldap
+  namespace: default
+spec:
+  progressDeadlineSeconds: 600
+  replicas: 1
+  revisionHistoryLimit: 10
+  selector:
+    matchLabels:
+      app: lldap
+  strategy:
+    rollingUpdate:
+      maxSurge: 25%
+      maxUnavailable: 25%
+    type: RollingUpdate
+  template:
+    metadata:
+      labels:
+        app: lldap
+        environment: prod
+    spec:
+      automountServiceAccountToken: true
+      containers:
+      - env:
+        - name: LLDAP_JWT_SECRET
+          valueFrom:
+            secretKeyRef:
+              key: LLDAP_JWT_SECRET
+              name: lldap-secrets
+              optional: false
+        - name: LLDAP_KEY_SEED
+          valueFrom:
+            secretKeyRef:
+              key: LLDAP_KEY_SEED
+              name: lldap-secrets
+              optional: false
+        - name: LLDAP_DATABASE_URL
+          valueFrom:
+            secretKeyRef:
+              key: LLDAP_DATABASE_URL
+              name: lldap-db-secret
+              optional: false
+        - name: LLDAP_LDAP_USER_PASS
+          valueFrom:
+            secretKeyRef:
+              key: LLDAP_LDAP_USER_PASS
+              name: lldap-admin-secret
+              optional: false
+        - name: LLDAP_LDAP_BASE_DN
+          value: dc=brmartin,dc=co,dc=uk
+        - name: LLDAP_HTTP_URL
+          value: https://ldap.brmartin.co.uk/
+        image: lldap/lldap:stable
+        imagePullPolicy: IfNotPresent
+        livenessProbe:
+          failureThreshold: 3
+          httpGet:
+            path: /health
+            port: 17170
+            scheme: HTTP
+          initialDelaySeconds: 15
+          periodSeconds: 30
+          successThreshold: 1
+          timeoutSeconds: 5
+        name: lldap
+        ports:
+        - containerPort: 3890
+          name: ldap
+          protocol: TCP
+        - containerPort: 17170
+          name: http
+          protocol: TCP
+        readinessProbe:
+          failureThreshold: 3
+          httpGet:
+            path: /health
+            port: 17170
+            scheme: HTTP
+          initialDelaySeconds: 5
+          periodSeconds: 10
+          successThreshold: 1
+          timeoutSeconds: 5
+        resources:
+          limits:
+            cpu: 200m
+            memory: 512Mi
+          requests:
+            cpu: 50m
+            memory: 256Mi
+        terminationMessagePath: /dev/termination-log
+        terminationMessagePolicy: File
+      dnsPolicy: ClusterFirst
+      enableServiceLinks: true
+      restartPolicy: Always
+      schedulerName: default-scheduler
+      securityContext: {}
+      shareProcessNamespace: false
+      terminationGracePeriodSeconds: 30

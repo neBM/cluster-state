@@ -1,0 +1,69 @@
+apiVersion: v1
+data:
+  config.toml: '# Gitaly configuration for CNG deployment
+
+    bin_dir = "/usr/local/bin"
+
+    runtime_dir = "/home/git"
+
+
+    # TCP listener for inter-component communication
+
+    listen_addr = "0.0.0.0:8075"
+
+
+    # Prometheus metrics
+
+    prometheus_listen_addr = "0.0.0.0:9236"
+
+
+    [[storage]]
+
+    name = "default"
+
+    path = "/home/git/repositories"
+
+
+    [auth]
+
+    # Token read from environment variable GITALY_TOKEN
+
+    token = ""
+
+
+    [gitlab]
+
+    url = "http://gitlab-webservice:8080"
+
+    secret_file = "/etc/gitlab/gitlab-shell/.gitlab_shell_secret"
+
+
+    [gitlab-shell]
+
+    dir = "/srv/gitlab-shell"
+
+
+    [hooks]
+
+    custom_hooks_dir = "/home/git/repositories/hooks"
+
+
+    [logging]
+
+    format = "json"
+
+    level = "warn"
+
+
+    [git]
+
+    use_bundled_binaries = true
+
+    '
+immutable: false
+kind: ConfigMap
+metadata:
+  labels:
+    app: gitlab
+  name: gitaly-config
+  namespace: default

@@ -1,0 +1,20 @@
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app: iris
+    component: valkey
+  name: iris-valkey
+  namespace: default
+spec:
+  internalTrafficPolicy: Cluster
+  ports:
+  - name: valkey
+    port: 6379
+    protocol: TCP
+    targetPort: 6379
+  selector:
+    app: iris
+    component: valkey
+  sessionAffinity: None
+  type: ClusterIP

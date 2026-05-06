@@ -1,0 +1,45 @@
+apiVersion: v1
+data:
+  dovecot-ldap-passdb.conf.ext.tmpl: 'ldap_version = 3
+
+    hosts = lldap.default.svc.cluster.local:3890
+
+    dn = uid=dovecot,ou=people,dc=brmartin,dc=co,dc=uk
+
+    dnpass = ${LDAP_BIND_PW}
+
+    auth_bind = no
+
+
+    base = ou=groups,dc=brmartin,dc=co,dc=uk
+
+    scope = subtree
+
+
+    # Succeeds only if user is in mail-users group; returns no password (nopassword).
+
+    # mail-users: human mailbox accounts (IMAP + SMTP submission)
+
+    # mail-senders: cluster service accounts (SMTP submission only, no IMAP)
+
+    pass_filter = (&(objectClass=groupOfNames)(|(cn=mail-users)(cn=mail-senders))(member=uid=%n,ou=people,dc=brmartin,dc=co,dc=uk))
+
+    pass_attrs = =nopassword=y
+
+    '
+  dovecot-ldap.conf.ext.tmpl: "# Dovecot LDAP userdb configuration \u2014 used only\
+    \ for userdb (uid/gid/home lookup).\n# passdb uses dovecot-ldap-passdb.conf.ext\
+    \ which enforces mail-users group membership.\nldap_version = 3\nhosts = lldap.default.svc.cluster.local:3890\n\
+    dn = uid=dovecot,ou=people,dc=brmartin,dc=co,dc=uk\ndnpass = ${LDAP_BIND_PW}\n\
+    auth_bind = yes\nauth_bind_userdn = uid=%n,ou=people,dc=brmartin,dc=co,dc=uk\n\
+    \nbase = ou=people,dc=brmartin,dc=co,dc=uk\nscope = subtree\n\npass_filter = (&(objectClass=inetOrgPerson)(uid=%n))\n\
+    user_filter = (&(objectClass=inetOrgPerson)(uid=%n))\nuser_attrs = \\\n  =uid=5000,\
+    \ \\\n  =gid=5000, \\\n  =home=/var/mail/%Ld/%Ln, \\\n  =mail=maildir:~/Maildir\n"
+immutable: false
+kind: ConfigMap
+metadata:
+  labels:
+    app: dovecot
+    environment: prod
+  name: dovecot-ldap
+  namespace: default

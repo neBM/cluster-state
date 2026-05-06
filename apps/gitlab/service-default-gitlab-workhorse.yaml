@@ -1,0 +1,20 @@
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app: gitlab
+    component: workhorse
+  name: gitlab-workhorse
+  namespace: default
+spec:
+  internalTrafficPolicy: Cluster
+  ports:
+  - name: http
+    port: 8181
+    protocol: TCP
+    targetPort: 8181
+  selector:
+    app: gitlab
+    component: workhorse
+  sessionAffinity: None
+  type: ClusterIP

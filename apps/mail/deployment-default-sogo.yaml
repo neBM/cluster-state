@@ -1,0 +1,132 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app: sogo
+    environment: prod
+  name: sogo
+  namespace: default
+spec:
+  progressDeadlineSeconds: 600
+  replicas: 1
+  revisionHistoryLimit: 10
+  selector:
+    matchLabels:
+      app: sogo
+  strategy:
+    rollingUpdate:
+      maxSurge: 25%
+      maxUnavailable: 25%
+    type: RollingUpdate
+  template:
+    metadata:
+      annotations:
+        reloader.stakater.com/auto: 'true'
+        reloader.stakater.com/rollout-strategy: restart
+      labels:
+        app: sogo
+        environment: prod
+    spec:
+      automountServiceAccountToken: true
+      containers:
+      - env:
+        - name: DISABLE_CRON
+          value: '1'
+        image: salvoxia/sogo:latest
+        imagePullPolicy: Always
+        livenessProbe:
+          failureThreshold: 5
+          httpGet:
+            path: /SOGo
+            port: 80
+            scheme: HTTP
+          initialDelaySeconds: 30
+          periodSeconds: 30
+          successThreshold: 1
+          timeoutSeconds: 10
+        name: sogo
+        ports:
+        - containerPort: 80
+          name: http
+          protocol: TCP
+        readinessProbe:
+          failureThreshold: 3
+          httpGet:
+            path: /SOGo
+            port: 80
+            scheme: HTTP
+          initialDelaySeconds: 15
+          periodSeconds: 15
+          successThreshold: 1
+          timeoutSeconds: 5
+        resources:
+          limits:
+            cpu: 500m
+            memory: 512Mi
+          requests:
+            cpu: 100m
+            memory: 256Mi
+        terminationMessagePath: /dev/termination-log
+        terminationMessagePolicy: File
+        volumeMounts:
+        - mountPath: /srv/etc
+          mountPropagation: None
+          name: srv-etc
+      dnsPolicy: ClusterFirst
+      enableServiceLinks: true
+      initContainers:
+      - args:
+        - envsubst '$$SOGO_DB_URL $$LDAP_BIND_PW' < /tmpl/sogo.conf.tmpl > /srv/etc/sogo.conf
+          && echo 'sogo.conf written'
+        command:
+        - /bin/sh
+        - -c
+        env:
+        - name: SOGO_DB_URL
+          valueFrom:
+            secretKeyRef:
+              key: SOGO_DB_URL
+              name: sogo-db-secret
+              optional: false
+        - name: LDAP_BIND_PW
+          valueFrom:
+            secretKeyRef:
+              key: LDAP_BIND_PW
+              name: sogo-ldap-secret
+              optional: false
+        image: salvoxia/sogo:latest
+        imagePullPolicy: IfNotPresent
+        name: init-config
+        resources:
+          limits:
+            cpu: 50m
+            memory: 32Mi
+          requests:
+            cpu: 10m
+            memory: 16Mi
+        terminationMessagePath: /dev/termination-log
+        terminationMessagePolicy: File
+        volumeMounts:
+        - mountPath: /tmpl
+          mountPropagation: None
+          name: sogo-tmpl
+          readOnly: true
+        - mountPath: /srv/etc
+          mountPropagation: None
+          name: srv-etc
+      restartPolicy: Always
+      schedulerName: default-scheduler
+      securityContext: {}
+      shareProcessNamespace: false
+      terminationGracePeriodSeconds: 30
+      volumes:
+      - emptyDir: {}
+        name: srv-etc
+      - configMap:
+          defaultMode: 420
+          items:
+          - key: sogo.conf.tmpl
+            path: sogo.conf.tmpl
+          name: sogo-config
+          optional: false
+        name: sogo-tmpl

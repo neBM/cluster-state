@@ -1,0 +1,23 @@
+apiVersion: v1
+kind: Service
+metadata:
+  annotations:
+    prometheus.io/path: /metrics
+    prometheus.io/port: '11335'
+    prometheus.io/scrape: 'true'
+  labels:
+    app: rspamd
+    environment: prod
+  name: rspamd-metrics
+  namespace: default
+spec:
+  internalTrafficPolicy: Cluster
+  ports:
+  - name: metrics
+    port: 11335
+    protocol: TCP
+    targetPort: 11335
+  selector:
+    app: rspamd
+  sessionAffinity: None
+  type: ClusterIP

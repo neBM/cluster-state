@@ -1,0 +1,203 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app: iris
+    component: server
+  name: iris
+  namespace: default
+spec:
+  progressDeadlineSeconds: 600
+  replicas: 1
+  revisionHistoryLimit: 10
+  selector:
+    matchLabels:
+      app: iris
+      component: server
+  strategy:
+    rollingUpdate:
+      maxSurge: 25%
+      maxUnavailable: 25%
+    type: RollingUpdate
+  template:
+    metadata:
+      labels:
+        app: iris
+        component: server
+    spec:
+      automountServiceAccountToken: true
+      containers:
+      - env:
+        - name: REDIS_URL
+          value: redis://iris-valkey.default.svc.cluster.local:6379/0
+        - name: AUTH_PROVIDERS
+          value: oidc
+        - name: LOCAL_AUTH_SESSION_TTL_SECONDS
+          value: '86400'
+        - name: OIDC_ISSUER_URL
+          value: https://sso.brmartin.co.uk/realms/prod
+        - name: OIDC_AUDIENCE
+          value: iris-api
+        - name: OIDC_ADMIN_CLAIM
+          value: groups
+        - name: OIDC_ADMIN_VALUE
+          value: iris-admin
+        - name: OIDC_CLIENT_ID
+          value: iris
+        - name: OIDC_REDIRECT_URI
+          value: https://iris.brmartin.co.uk/
+        - name: OIDC_SILENT_REDIRECT_URI
+          value: https://iris.brmartin.co.uk/silent-renew.html
+        - name: OIDC_PROVIDER_NAME
+          value: SSO
+        - name: MEDIA_DIRS
+          value: Movies:/media/movies,TV:/media/tv
+        - name: IMAGE_CACHE_DIR
+          value: /data/iris/images
+        - name: HLS_TMP_BASE_DIR
+          value: /data/iris/hls-sessions
+        - name: DB_MAX_CONNS
+          value: '10'
+        - name: MAX_CONCURRENT_SESSIONS
+          value: '0'
+        - name: TRANSCODE_WORKERS
+          value: '1'
+        - name: SCANNER_PARALLELISM
+          value: '4'
+        - name: IMAGE_CACHE_MAX_SIZE
+          value: '0'
+        - name: TRUSTED_PROXIES
+          value: 10.42.0.0/16
+        - name: APP_ORIGIN
+          value: https://iris.brmartin.co.uk
+        - name: PLEX_CLIENT_ID
+        - name: SECRET_KEY
+          valueFrom:
+            secretKeyRef:
+              key: SECRET_KEY
+              name: iris-secrets
+              optional: false
+        - name: DATABASE_URL
+          valueFrom:
+            secretKeyRef:
+              key: DATABASE_URL
+              name: iris-secrets
+              optional: false
+        - name: SENTRY_DSN
+          valueFrom:
+            secretKeyRef:
+              key: dsn
+              name: iris-sentry
+        - name: SENTRY_WEB_DSN
+          valueFrom:
+            secretKeyRef:
+              key: dsn
+              name: iris-sentry-web
+        - name: CSP_REPORT_URI
+          valueFrom:
+            secretKeyRef:
+              key: report_uri
+              name: iris-csp
+        - name: TMDB_API_KEY
+          valueFrom:
+            secretKeyRef:
+              key: TMDB_API_KEY
+              name: iris-secrets
+              optional: true
+        - name: TVDB_API_KEY
+          valueFrom:
+            secretKeyRef:
+              key: TVDB_API_KEY
+              name: iris-secrets
+              optional: true
+        - name: TRAKT_CLIENT_ID
+          valueFrom:
+            secretKeyRef:
+              key: TRAKT_CLIENT_ID
+              name: iris-secrets
+              optional: true
+        - name: TRAKT_CLIENT_SECRET
+          valueFrom:
+            secretKeyRef:
+              key: TRAKT_CLIENT_SECRET
+              name: iris-secrets
+              optional: true
+        image: registry.brmartin.co.uk/ben/iris:latest
+        imagePullPolicy: Always
+        livenessProbe:
+          failureThreshold: 3
+          httpGet:
+            path: /healthz
+            port: 8080
+            scheme: HTTP
+          initialDelaySeconds: 10
+          periodSeconds: 10
+          successThreshold: 1
+          timeoutSeconds: 1
+        name: iris
+        ports:
+        - containerPort: 8080
+          name: http
+          protocol: TCP
+        readinessProbe:
+          failureThreshold: 3
+          httpGet:
+            path: /healthz
+            port: 8080
+            scheme: HTTP
+          initialDelaySeconds: 5
+          periodSeconds: 10
+          successThreshold: 1
+          timeoutSeconds: 1
+        resources:
+          claims:
+          - name: transcode
+          limits:
+            memory: 1Gi
+          requests:
+            cpu: 100m
+            memory: 256Mi
+        startupProbe:
+          failureThreshold: 30
+          httpGet:
+            path: /healthz
+            port: 8080
+            scheme: HTTP
+          periodSeconds: 10
+          successThreshold: 1
+          timeoutSeconds: 1
+        terminationMessagePath: /dev/termination-log
+        terminationMessagePolicy: File
+        volumeMounts:
+        - mountPath: /data/iris/images
+          mountPropagation: HostToContainer
+          name: image-cache
+        - mountPath: /data/iris/hls-sessions
+          mountPropagation: None
+          name: hls-tmp
+        - mountPath: /media
+          mountPropagation: None
+          name: media
+          readOnly: true
+      dnsPolicy: ClusterFirst
+      enableServiceLinks: true
+      imagePullSecrets:
+      - name: gitlab-registry
+      resourceClaims:
+      - name: transcode
+        resourceClaimName: iris-transcode
+      restartPolicy: Always
+      schedulerName: default-scheduler
+      securityContext: {}
+      shareProcessNamespace: false
+      terminationGracePeriodSeconds: 30
+      volumes:
+      - name: image-cache
+        persistentVolumeClaim:
+          claimName: iris-image-cache-sw
+      - emptyDir: {}
+        name: hls-tmp
+      - name: media
+        persistentVolumeClaim:
+          claimName: iris-synology-media
+          readOnly: true

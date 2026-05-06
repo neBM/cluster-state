@@ -1,0 +1,83 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  annotations:
+    deprecated.daemonset.template.generation: '7'
+  labels:
+    app: rpi5-dra-driver
+  name: rpi5-dra-driver
+  namespace: kube-system
+spec:
+  revisionHistoryLimit: 10
+  selector:
+    matchLabels:
+      app: rpi5-dra-driver
+  template:
+    metadata:
+      labels:
+        app: rpi5-dra-driver
+    spec:
+      automountServiceAccountToken: true
+      containers:
+      - env:
+        - name: NODE_NAME
+          valueFrom:
+            fieldRef:
+              apiVersion: v1
+              fieldPath: spec.nodeName
+        image: registry.brmartin.co.uk/ben/cluster-state/rpi5-dra-driver:latest
+        imagePullPolicy: Always
+        name: driver
+        resources: {}
+        securityContext:
+          allowPrivilegeEscalation: true
+          privileged: true
+          readOnlyRootFilesystem: false
+          runAsNonRoot: false
+        terminationMessagePath: /dev/termination-log
+        terminationMessagePolicy: File
+        volumeMounts:
+        - mountPath: /dev
+          mountPropagation: None
+          name: dev
+        - mountPath: /var/lib/kubelet/plugins
+          mountPropagation: None
+          name: kubelet-plugins
+        - mountPath: /var/lib/kubelet/plugins_registry
+          mountPropagation: None
+          name: kubelet-registry
+        - mountPath: /var/run/cdi
+          mountPropagation: None
+          name: cdi
+      dnsPolicy: ClusterFirst
+      enableServiceLinks: true
+      priorityClassName: system-node-critical
+      restartPolicy: Always
+      schedulerName: default-scheduler
+      securityContext: {}
+      serviceAccount: rpi5-dra-driver
+      serviceAccountName: rpi5-dra-driver
+      shareProcessNamespace: false
+      terminationGracePeriodSeconds: 30
+      volumes:
+      - hostPath:
+          path: /dev
+          type: ''
+        name: dev
+      - hostPath:
+          path: /var/lib/kubelet/plugins
+          type: ''
+        name: kubelet-plugins
+      - hostPath:
+          path: /var/lib/kubelet/plugins_registry
+          type: ''
+        name: kubelet-registry
+      - hostPath:
+          path: /var/run/cdi
+          type: DirectoryOrCreate
+        name: cdi
+  updateStrategy:
+    rollingUpdate:
+      maxSurge: 0
+      maxUnavailable: 1
+    type: RollingUpdate

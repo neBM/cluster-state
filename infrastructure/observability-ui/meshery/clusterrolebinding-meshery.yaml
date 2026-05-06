@@ -1,0 +1,16 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  labels:
+    app.kubernetes.io/component: service-mesh-management
+    app.kubernetes.io/instance: meshery
+    app.kubernetes.io/name: meshery
+  name: meshery
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: meshery
+subjects:
+- kind: ServiceAccount
+  name: meshery
+  namespace: default

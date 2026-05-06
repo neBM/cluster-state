@@ -1,0 +1,172 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app: glitchtip
+  name: glitchtip
+  namespace: default
+spec:
+  progressDeadlineSeconds: 600
+  replicas: 1
+  revisionHistoryLimit: 10
+  selector:
+    matchLabels:
+      app: glitchtip
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app: glitchtip
+    spec:
+      automountServiceAccountToken: true
+      containers:
+      - env:
+        - name: GLITCHTIP_DOMAIN
+          value: https://glitchtip.brmartin.co.uk
+        - name: ALLOWED_HOSTS
+          value: glitchtip.brmartin.co.uk
+        - name: CSRF_TRUSTED_ORIGINS
+          value: https://glitchtip.brmartin.co.uk
+        - name: GLITCHTIP_EMBED_WORKER
+          value: 'true'
+        - name: SKIP_INIT
+          value: 'true'
+        - name: VALKEY_URL
+          value: redis://valkey.default.svc.cluster.local:6379/0
+        - name: ENABLE_USER_REGISTRATION
+          value: 'false'
+        - name: ENABLE_SOCIAL_APPS_USER_REGISTRATION
+          value: 'true'
+        - name: LOG_LEVEL
+          value: INFO
+        - name: GLITCHTIP_ENABLE_MCP
+          value: 'true'
+        envFrom:
+        - secretRef:
+            name: glitchtip-oidc-secret
+            optional: false
+        - secretRef:
+            name: glitchtip-secrets
+            optional: false
+        image: glitchtip/glitchtip:6.1.5
+        imagePullPolicy: IfNotPresent
+        livenessProbe:
+          failureThreshold: 3
+          httpGet:
+            httpHeaders:
+            - name: Host
+              value: glitchtip.brmartin.co.uk
+            path: /
+            port: 8000
+            scheme: HTTP
+          initialDelaySeconds: 60
+          periodSeconds: 30
+          successThreshold: 1
+          timeoutSeconds: 5
+        name: glitchtip
+        ports:
+        - containerPort: 8000
+          name: http
+          protocol: TCP
+        readinessProbe:
+          failureThreshold: 3
+          httpGet:
+            httpHeaders:
+            - name: Host
+              value: glitchtip.brmartin.co.uk
+            path: /
+            port: 8000
+            scheme: HTTP
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          successThreshold: 1
+          timeoutSeconds: 5
+        resources:
+          limits:
+            cpu: 500m
+            memory: 1Gi
+          requests:
+            cpu: 100m
+            memory: 512Mi
+        terminationMessagePath: /dev/termination-log
+        terminationMessagePolicy: File
+        volumeMounts:
+        - mountPath: /code/uploads
+          mountPropagation: None
+          name: uploads
+      dnsPolicy: ClusterFirst
+      enableServiceLinks: true
+      initContainers:
+      - args:
+        - "set -eu\n\nuntil python manage.py migrate --noinput; do\n  echo \"Waiting\
+          \ for PostgreSQL...\"\n  sleep 5\ndone\n\npython -c 'import os; os.environ.setdefault(\"\
+          DJANGO_SETTINGS_MODULE\", \"glitchtip.settings\"); import django; django.setup();\
+          \ from django.contrib.auth import get_user_model; from allauth.socialaccount.models\
+          \ import SocialApp; superuser_name=os.environ[\"DJANGO_SUPERUSER_USERNAME\"\
+          ]; email=os.environ[\"DJANGO_SUPERUSER_EMAIL\"]; password=os.environ[\"\
+          DJANGO_SUPERUSER_PASSWORD\"]; oidc_server_url=os.environ[\"OIDC_SERVER_URL\"\
+          ]; User=get_user_model(); user, _=User.objects.get_or_create(email=email,\
+          \ defaults={\"name\": superuser_name, \"is_staff\": True, \"is_superuser\"\
+          : True}); user.name=superuser_name; user.email=email; user.is_staff=True;\
+          \ user.is_superuser=True; user.set_password(password); user.save(); SocialApp.objects.update_or_create(provider=\"\
+          openid_connect\", provider_id=\"keycloak\", defaults={\"name\": \"Keycloak\"\
+          , \"client_id\": os.environ[\"OIDC_CLIENT_ID\"], \"secret\": os.environ[\"\
+          OIDC_CLIENT_SECRET\"], \"settings\": {\"server_url\": oidc_server_url}})'\n"
+        command:
+        - /bin/sh
+        - -ec
+        env:
+        - name: GLITCHTIP_DOMAIN
+          value: https://glitchtip.brmartin.co.uk
+        - name: ALLOWED_HOSTS
+          value: glitchtip.brmartin.co.uk
+        - name: CSRF_TRUSTED_ORIGINS
+          value: https://glitchtip.brmartin.co.uk
+        - name: GLITCHTIP_EMBED_WORKER
+          value: 'true'
+        - name: SKIP_INIT
+          value: 'true'
+        - name: VALKEY_URL
+          value: redis://valkey.default.svc.cluster.local:6379/0
+        - name: ENABLE_USER_REGISTRATION
+          value: 'false'
+        - name: ENABLE_SOCIAL_APPS_USER_REGISTRATION
+          value: 'true'
+        - name: LOG_LEVEL
+          value: INFO
+        - name: GLITCHTIP_ENABLE_MCP
+          value: 'true'
+        - name: OIDC_SERVER_URL
+          value: https://sso.brmartin.co.uk/realms/prod/.well-known/openid-configuration
+        envFrom:
+        - secretRef:
+            name: glitchtip-oidc-secret
+            optional: false
+        - secretRef:
+            name: glitchtip-secrets
+            optional: false
+        image: glitchtip/glitchtip:6.1.5
+        imagePullPolicy: IfNotPresent
+        name: bootstrap
+        resources:
+          limits:
+            cpu: 100m
+            memory: 256Mi
+          requests:
+            cpu: 50m
+            memory: 128Mi
+        terminationMessagePath: /dev/termination-log
+        terminationMessagePolicy: File
+      restartPolicy: Always
+      schedulerName: default-scheduler
+      securityContext:
+        fsGroup: 5000
+        fsGroupChangePolicy: OnRootMismatch
+        runAsNonRoot: false
+      shareProcessNamespace: false
+      terminationGracePeriodSeconds: 30
+      volumes:
+      - name: uploads
+        persistentVolumeClaim:
+          claimName: glitchtip-uploads

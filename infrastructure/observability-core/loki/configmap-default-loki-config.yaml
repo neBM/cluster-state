@@ -1,0 +1,27 @@
+apiVersion: v1
+data:
+  loki.yaml: "\"auth_enabled\": false\n\"common\":\n  \"instance_addr\": \"127.0.0.1\"\
+    \n  \"path_prefix\": \"/loki\"\n  \"replication_factor\": 1\n  \"ring\":\n   \
+    \ \"kvstore\":\n      \"store\": \"inmemory\"\n\"compactor\":\n  \"compaction_interval\"\
+    : \"10m\"\n  \"delete_request_store\": \"s3\"\n  \"retention_delete_delay\": \"\
+    2h\"\n  \"retention_delete_worker_count\": 150\n  \"retention_enabled\": true\n\
+    \  \"working_directory\": \"/loki/compactor\"\n\"ingester\":\n  \"wal\":\n   \
+    \ \"dir\": \"/loki/wal\"\n    \"enabled\": true\n    \"flush_on_shutdown\": true\n\
+    \"limits_config\":\n  \"retention_period\": \"720h\"\n\"schema_config\":\n  \"\
+    configs\":\n  - \"from\": \"2024-01-01\"\n    \"index\":\n      \"period\": \"\
+    24h\"\n      \"prefix\": \"loki_index_\"\n    \"object_store\": \"s3\"\n    \"\
+    schema\": \"v13\"\n    \"store\": \"tsdb\"\n\"server\":\n  \"grpc_listen_port\"\
+    : 9095\n  \"http_listen_port\": 3100\n\"storage_config\":\n  \"aws\":\n    \"\
+    bucketnames\": \"loki\"\n    \"endpoint\": \"seaweedfs-s3.default.svc.cluster.local:8333\"\
+    \n    \"insecure\": true\n    \"region\": \"us-east-1\"\n    \"s3forcepathstyle\"\
+    : true\n  \"tsdb_shipper\":\n    \"active_index_directory\": \"/loki/index\"\n\
+    \    \"cache_location\": \"/loki/index_cache\"\n"
+immutable: false
+kind: ConfigMap
+metadata:
+  labels:
+    app.kubernetes.io/component: logging
+    app.kubernetes.io/instance: loki
+    app.kubernetes.io/name: loki
+  name: loki-config
+  namespace: default

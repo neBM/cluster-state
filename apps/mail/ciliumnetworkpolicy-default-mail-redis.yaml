@@ -1,0 +1,17 @@
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: mail-redis
+  namespace: default
+spec:
+  endpointSelector:
+    matchLabels:
+      app: mail-redis
+  ingress:
+  - fromEndpoints:
+    - matchLabels:
+        app: rspamd
+    toPorts:
+    - ports:
+      - port: '6379'
+        protocol: TCP

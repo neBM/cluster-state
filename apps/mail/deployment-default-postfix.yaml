@@ -1,0 +1,173 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app: postfix
+    environment: prod
+  name: postfix
+  namespace: default
+spec:
+  progressDeadlineSeconds: 600
+  replicas: 1
+  revisionHistoryLimit: 10
+  selector:
+    matchLabels:
+      app: postfix
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      annotations:
+        reloader.stakater.com/auto: 'true'
+        reloader.stakater.com/rollout-strategy: restart
+      labels:
+        app: postfix
+        environment: prod
+    spec:
+      automountServiceAccountToken: true
+      containers:
+      - env:
+        - name: RELAY_HOST
+          valueFrom:
+            secretKeyRef:
+              key: RELAY_HOST
+              name: postfix-relay-secret
+              optional: false
+        - name: RELAY_USERNAME
+          valueFrom:
+            secretKeyRef:
+              key: RELAY_USERNAME
+              name: postfix-relay-secret
+              optional: false
+        - name: RELAY_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              key: RELAY_PASSWORD
+              name: postfix-relay-secret
+              optional: false
+        image: tozd/postfix:ubuntu-noble
+        imagePullPolicy: IfNotPresent
+        livenessProbe:
+          exec:
+            command:
+            - sh
+            - -c
+            - postfix check && echo ok
+          failureThreshold: 3
+          initialDelaySeconds: 30
+          periodSeconds: 60
+          successThreshold: 1
+          timeoutSeconds: 10
+        name: postfix
+        ports:
+        - containerPort: 25
+          hostPort: 25
+          name: smtp
+          protocol: TCP
+        - containerPort: 465
+          hostPort: 465
+          name: smtps
+          protocol: TCP
+        - containerPort: 587
+          hostPort: 587
+          name: submission
+          protocol: TCP
+        readinessProbe:
+          failureThreshold: 3
+          initialDelaySeconds: 15
+          periodSeconds: 15
+          successThreshold: 1
+          tcpSocket:
+            port: 25
+          timeoutSeconds: 5
+        resources:
+          limits:
+            cpu: 500m
+            memory: 512Mi
+          requests:
+            cpu: 100m
+            memory: 256Mi
+        terminationMessagePath: /dev/termination-log
+        terminationMessagePolicy: File
+        volumeMounts:
+        - mountPath: /etc/service/postfix/run.config
+          mountPropagation: None
+          name: postfix-main
+          readOnly: true
+          subPath: run.config
+        - mountPath: /etc/postfix/master.cf
+          mountPropagation: None
+          name: postfix-main
+          readOnly: true
+          subPath: master.cf
+        - mountPath: /etc/postfix/vmailbox
+          mountPropagation: None
+          name: postfix-main
+          readOnly: true
+          subPath: vmailbox
+        - mountPath: /etc/postfix/virtual
+          mountPropagation: None
+          name: postfix-aliases
+          readOnly: true
+          subPath: virtual
+        - mountPath: /etc/ssl/mail
+          mountPropagation: None
+          name: tls
+          readOnly: true
+        - mountPath: /var/spool/postfix
+          mountPropagation: HostToContainer
+          name: spool
+      dnsPolicy: ClusterFirst
+      enableServiceLinks: true
+      initContainers:
+      - command:
+        - sh
+        - -c
+        - "# Postfix queue directories with required owner:group and mode\nfor dir\
+          \ in active bounce corrupt defer deferred flush hold incoming saved trace;\
+          \ do\n  mkdir -p /var/spool/postfix/$dir\n  chown postfix:root /var/spool/postfix/$dir\n\
+          \  chmod 0700 /var/spool/postfix/$dir\ndone\nmkdir -p /var/spool/postfix/maildrop\n\
+          chown postfix:postdrop /var/spool/postfix/maildrop\nchmod 0730 /var/spool/postfix/maildrop\n\
+          mkdir -p /var/spool/postfix/public\nchown postfix:postdrop /var/spool/postfix/public\n\
+          chmod 0710 /var/spool/postfix/public\nmkdir -p /var/spool/postfix/private\n\
+          chown postfix:postdrop /var/spool/postfix/private\nchmod 0700 /var/spool/postfix/private\n\
+          mkdir -p /var/spool/postfix/pid\nchown root:root /var/spool/postfix/pid\n\
+          chmod 0755 /var/spool/postfix/pid\n# Spool root must be owned by root\n\
+          chown root:root /var/spool/postfix\nchmod 0755 /var/spool/postfix\necho\
+          \ \"Spool permissions fixed\"\n"
+        image: tozd/postfix:ubuntu-noble
+        imagePullPolicy: IfNotPresent
+        name: fix-spool-permissions
+        resources: {}
+        terminationMessagePath: /dev/termination-log
+        terminationMessagePolicy: File
+        volumeMounts:
+        - mountPath: /var/spool/postfix
+          mountPropagation: HostToContainer
+          name: spool
+      nodeSelector:
+        kubernetes.io/hostname: hestia
+      restartPolicy: Always
+      schedulerName: default-scheduler
+      securityContext: {}
+      shareProcessNamespace: false
+      terminationGracePeriodSeconds: 30
+      volumes:
+      - configMap:
+          defaultMode: 420
+          name: postfix-main
+          optional: false
+        name: postfix-main
+      - configMap:
+          defaultMode: 420
+          name: postfix-aliases
+          optional: false
+        name: postfix-aliases
+      - name: tls
+        secret:
+          defaultMode: 420
+          optional: false
+          secretName: wildcard-brmartin-tls
+      - name: spool
+        persistentVolumeClaim:
+          claimName: postfix-spool-sw

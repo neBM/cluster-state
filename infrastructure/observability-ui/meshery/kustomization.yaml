@@ -1,0 +1,9 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+- clusterrole-meshery.yaml
+- clusterrolebinding-meshery.yaml
+- deployment-default-meshery.yaml
+- ingressroute-default-meshery.yaml
+- service-default-meshery.yaml
+- serviceaccount-default-meshery.yaml

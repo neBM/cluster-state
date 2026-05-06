@@ -1,0 +1,28 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    traefik.ingress.kubernetes.io/router.tls: 'true'
+  labels:
+    app: vaultwarden
+    environment: prod
+  name: vaultwarden
+  namespace: default
+spec:
+  ingressClassName: traefik
+  rules:
+  - host: bw.brmartin.co.uk
+    http:
+      paths:
+      - backend:
+          service:
+            name: vaultwarden
+            port:
+              number: 80
+        path: /
+        pathType: Prefix
+  tls:
+  - hosts:
+    - bw.brmartin.co.uk
+    secretName: wildcard-brmartin-tls

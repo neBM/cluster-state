@@ -1,0 +1,44 @@
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: dovecot
+  namespace: default
+spec:
+  endpointSelector:
+    matchLabels:
+      app: dovecot
+  ingress:
+  - fromEndpoints:
+    - matchLabels:
+        app: postfix
+    toPorts:
+    - ports:
+      - port: '24'
+        protocol: TCP
+    - ports:
+      - port: '12345'
+        protocol: TCP
+  - fromEndpoints:
+    - matchLabels:
+        app: sogo
+    toPorts:
+    - ports:
+      - port: '143'
+        protocol: TCP
+      - port: '993'
+        protocol: TCP
+  - fromEntities:
+    - world
+    - host
+    toPorts:
+    - ports:
+      - port: '143'
+        protocol: TCP
+      - port: '993'
+        protocol: TCP
+      - port: '110'
+        protocol: TCP
+      - port: '995'
+        protocol: TCP
+      - port: '4190'
+        protocol: TCP

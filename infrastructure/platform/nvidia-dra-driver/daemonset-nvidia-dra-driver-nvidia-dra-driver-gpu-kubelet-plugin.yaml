@@ -1,0 +1,259 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  annotations:
+    deprecated.daemonset.template.generation: '3'
+    meta.helm.sh/release-name: nvidia-dra-driver-gpu
+    meta.helm.sh/release-namespace: nvidia-dra-driver
+  labels:
+    app.kubernetes.io/instance: nvidia-dra-driver-gpu
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/name: nvidia-dra-driver-gpu
+    app.kubernetes.io/version: 25.12.0
+    helm.sh/chart: nvidia-dra-driver-gpu-25.12.0
+  name: nvidia-dra-driver-gpu-kubelet-plugin
+  namespace: nvidia-dra-driver
+spec:
+  revisionHistoryLimit: 10
+  selector:
+    matchLabels:
+      nvidia-dra-driver-gpu-component: kubelet-plugin
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/instance: nvidia-dra-driver-gpu
+        app.kubernetes.io/name: nvidia-dra-driver-gpu
+        nvidia-dra-driver-gpu-component: kubelet-plugin
+    spec:
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: feature.node.kubernetes.io/pci-10de.present
+                operator: In
+                values:
+                - 'true'
+            - matchExpressions:
+              - key: feature.node.kubernetes.io/cpu-model.vendor_id
+                operator: In
+                values:
+                - NVIDIA
+            - matchExpressions:
+              - key: nvidia.com/gpu.present
+                operator: In
+                values:
+                - 'true'
+      containers:
+      - args:
+        - "# Conditionally mask the params file to prevent this container from\n#\
+          \ recreating any missing GPU device nodes. This is necessary, for\n# example,\
+          \ when running under nvkind to limit the set GPUs governed\n# by the plugin\
+          \ even though it has cgroup access to all of them.\nif [ \"${MASK_NVIDIA_DRIVER_PARAMS}\"\
+          \ = \"true\" ]; then\n  cp /proc/driver/nvidia/params root/gpu-params\n\
+          \  sed -i 's/^ModifyDeviceFiles: 1$/ModifyDeviceFiles: 0/' root/gpu-params\n\
+          \  mount --bind root/gpu-params /proc/driver/nvidia/params\nfi\ncompute-domain-kubelet-plugin\
+          \ -v $(LOG_VERBOSITY)"
+        command:
+        - bash
+        - -c
+        env:
+        - name: LOG_VERBOSITY
+          value: '4'
+        - name: MASK_NVIDIA_DRIVER_PARAMS
+        - name: NVIDIA_DRIVER_ROOT
+          value: /
+        - name: NVIDIA_VISIBLE_DEVICES
+          value: void
+        - name: CDI_ROOT
+          value: /var/run/cdi
+        - name: NVIDIA_MIG_CONFIG_DEVICES
+          value: all
+        - name: NODE_NAME
+          valueFrom:
+            fieldRef:
+              apiVersion: v1
+              fieldPath: spec.nodeName
+        - name: NAMESPACE
+          valueFrom:
+            fieldRef:
+              apiVersion: v1
+              fieldPath: metadata.namespace
+        - name: KUBELET_REGISTRAR_DIRECTORY_PATH
+          value: /var/lib/kubelet/plugins_registry
+        - name: KUBELET_PLUGINS_DIRECTORY_PATH
+          value: /var/lib/kubelet/plugins
+        - name: HEALTHCHECK_PORT
+          value: '51515'
+        image: nvcr.io/nvidia/k8s-dra-driver-gpu:v25.12.0
+        imagePullPolicy: IfNotPresent
+        livenessProbe:
+          failureThreshold: 3
+          grpc:
+            port: 51515
+            service: liveness
+          periodSeconds: 10
+          successThreshold: 1
+          timeoutSeconds: 10
+        name: compute-domains
+        resources: {}
+        securityContext:
+          privileged: true
+        startupProbe:
+          failureThreshold: 60
+          grpc:
+            port: 51515
+            service: liveness
+          periodSeconds: 10
+          successThreshold: 1
+          timeoutSeconds: 10
+        terminationMessagePath: /dev/termination-log
+        terminationMessagePolicy: File
+        volumeMounts:
+        - mountPath: /var/lib/kubelet/plugins_registry
+          name: plugins-registry
+        - mountPath: /var/lib/kubelet/plugins
+          mountPropagation: Bidirectional
+          name: plugins
+        - mountPath: /var/run/cdi
+          name: cdi
+        - mountPath: /driver-root
+          mountPropagation: HostToContainer
+          name: driver-root
+          readOnly: true
+      - args:
+        - "# Conditionally mask the params file to prevent this container from\n#\
+          \ recreating any missing GPU device nodes. This is necessary, for\n# example,\
+          \ when running under nvkind to limit the set GPUs governed\n# by the plugin\
+          \ even though it has cgroup access to all of them.\nif [ \"${MASK_NVIDIA_DRIVER_PARAMS}\"\
+          \ = \"true\" ]; then\n  cp /proc/driver/nvidia/params root/gpu-params\n\
+          \  sed -i 's/^ModifyDeviceFiles: 1$/ModifyDeviceFiles: 0/' root/gpu-params\n\
+          \  mount --bind root/gpu-params /proc/driver/nvidia/params\nfi\ngpu-kubelet-plugin\
+          \ -v $(LOG_VERBOSITY)"
+        command:
+        - bash
+        - -c
+        env:
+        - name: LOG_VERBOSITY
+          value: '4'
+        - name: MASK_NVIDIA_DRIVER_PARAMS
+        - name: NVIDIA_DRIVER_ROOT
+          value: /
+        - name: NVIDIA_VISIBLE_DEVICES
+          value: void
+        - name: CDI_ROOT
+          value: /var/run/cdi
+        - name: NVIDIA_MIG_CONFIG_DEVICES
+          value: all
+        - name: NODE_NAME
+          valueFrom:
+            fieldRef:
+              apiVersion: v1
+              fieldPath: spec.nodeName
+        - name: NAMESPACE
+          valueFrom:
+            fieldRef:
+              apiVersion: v1
+              fieldPath: metadata.namespace
+        - name: IMAGE_NAME
+          value: nvcr.io/nvidia/k8s-dra-driver-gpu:v25.12.0
+        - name: KUBELET_REGISTRAR_DIRECTORY_PATH
+          value: /var/lib/kubelet/plugins_registry
+        - name: KUBELET_PLUGINS_DIRECTORY_PATH
+          value: /var/lib/kubelet/plugins
+        - name: HEALTHCHECK_PORT
+          value: '51516'
+        image: nvcr.io/nvidia/k8s-dra-driver-gpu:v25.12.0
+        imagePullPolicy: IfNotPresent
+        livenessProbe:
+          failureThreshold: 3
+          grpc:
+            port: 51516
+            service: liveness
+          periodSeconds: 30
+          successThreshold: 1
+          timeoutSeconds: 10
+        name: gpus
+        resources: {}
+        securityContext:
+          privileged: true
+        startupProbe:
+          failureThreshold: 60
+          grpc:
+            port: 51516
+            service: liveness
+          periodSeconds: 10
+          successThreshold: 1
+          timeoutSeconds: 10
+        terminationMessagePath: /dev/termination-log
+        terminationMessagePolicy: File
+        volumeMounts:
+        - mountPath: /var/lib/kubelet/plugins_registry
+          name: plugins-registry
+        - mountPath: /var/lib/kubelet/plugins
+          mountPropagation: Bidirectional
+          name: plugins
+        - mountPath: /var/run/cdi
+          name: cdi
+        - mountPath: /driver-root
+          mountPropagation: HostToContainer
+          name: driver-root
+      dnsPolicy: ClusterFirst
+      initContainers:
+      - command:
+        - bash
+        - /usr/bin/kubelet-plugin-prestart.sh
+        env:
+        - name: NVIDIA_DRIVER_ROOT
+          value: /
+        - name: NVIDIA_VISIBLE_DEVICES
+          value: void
+        - name: KUBELET_REGISTRAR_DIRECTORY_PATH
+          value: /var/lib/kubelet/plugins_registry
+        - name: KUBELET_PLUGINS_DIRECTORY_PATH
+          value: /var/lib/kubelet/plugins
+        image: nvcr.io/nvidia/k8s-dra-driver-gpu:v25.12.0
+        imagePullPolicy: IfNotPresent
+        name: init-container
+        resources: {}
+        securityContext:
+          privileged: true
+        terminationMessagePath: /dev/termination-log
+        terminationMessagePolicy: File
+        volumeMounts:
+        - mountPath: /driver-root-parent
+          name: driver-root-parent
+          readOnly: true
+      priorityClassName: system-node-critical
+      restartPolicy: Always
+      schedulerName: default-scheduler
+      securityContext: {}
+      serviceAccount: nvidia-dra-driver-gpu-service-account-kubeletplugin
+      serviceAccountName: nvidia-dra-driver-gpu-service-account-kubeletplugin
+      terminationGracePeriodSeconds: 30
+      volumes:
+      - hostPath:
+          path: /var/lib/kubelet/plugins_registry
+          type: ''
+        name: plugins-registry
+      - hostPath:
+          path: /var/lib/kubelet/plugins
+          type: ''
+        name: plugins
+      - hostPath:
+          path: /var/run/cdi
+          type: ''
+        name: cdi
+      - hostPath:
+          path: /
+          type: DirectoryOrCreate
+        name: driver-root-parent
+      - hostPath:
+          path: /
+          type: DirectoryOrCreate
+        name: driver-root
+  updateStrategy:
+    rollingUpdate:
+      maxSurge: 0
+      maxUnavailable: 100%
+    type: RollingUpdate

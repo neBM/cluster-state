@@ -1,0 +1,102 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  annotations:
+    deprecated.daemonset.template.generation: '13'
+  labels:
+    app: seaweedfs
+    component: seaweedfs-mount
+    environment: prod
+  name: seaweedfs-mount
+  namespace: default
+spec:
+  revisionHistoryLimit: 10
+  selector:
+    matchLabels:
+      app: seaweedfs
+      component: seaweedfs-mount
+  template:
+    metadata:
+      labels:
+        app: seaweedfs
+        component: seaweedfs-mount
+        environment: prod
+    spec:
+      automountServiceAccountToken: true
+      containers:
+      - args:
+        - --endpoint=$(MOUNT_ENDPOINT)
+        env:
+        - name: MOUNT_ENDPOINT
+          value: unix:///var/lib/seaweedfs-mount/seaweedfs-mount.sock
+        - name: GOMEMLIMIT
+          value: 1800MiB
+        image: registry.brmartin.co.uk/ben/seaweedfs-mount:v0.1.11
+        imagePullPolicy: IfNotPresent
+        name: seaweedfs-mount
+        resources:
+          limits:
+            cpu: 200m
+            memory: 2Gi
+          requests:
+            cpu: 50m
+            memory: 128Mi
+        securityContext:
+          allowPrivilegeEscalation: true
+          privileged: true
+          readOnlyRootFilesystem: false
+          runAsNonRoot: false
+        terminationMessagePath: /dev/termination-log
+        terminationMessagePolicy: File
+        volumeMounts:
+        - mountPath: /var/lib/kubelet/plugins
+          mountPropagation: Bidirectional
+          name: kubelet-plugins
+        - mountPath: /var/lib/kubelet/pods
+          mountPropagation: Bidirectional
+          name: kubelet-pods
+        - mountPath: /var/lib/seaweedfs-mount
+          mountPropagation: None
+          name: mount-socket
+        - mountPath: /var/cache/seaweedfs
+          mountPropagation: None
+          name: cache
+        - mountPath: /dev
+          mountPropagation: None
+          name: dev
+      dnsPolicy: ClusterFirst
+      enableServiceLinks: true
+      restartPolicy: Always
+      schedulerName: default-scheduler
+      securityContext: {}
+      serviceAccount: seaweedfs-csi
+      serviceAccountName: seaweedfs-csi
+      shareProcessNamespace: false
+      terminationGracePeriodSeconds: 30
+      tolerations:
+      - effect: NoSchedule
+        key: node-role.kubernetes.io/control-plane
+        operator: Exists
+      volumes:
+      - hostPath:
+          path: /var/lib/kubelet/plugins
+          type: Directory
+        name: kubelet-plugins
+      - hostPath:
+          path: /var/lib/kubelet/pods
+          type: Directory
+        name: kubelet-pods
+      - hostPath:
+          path: /var/lib/seaweedfs-mount
+          type: DirectoryOrCreate
+        name: mount-socket
+      - hostPath:
+          path: /var/cache/seaweedfs
+          type: DirectoryOrCreate
+        name: cache
+      - hostPath:
+          path: /dev
+          type: ''
+        name: dev
+  updateStrategy:
+    type: OnDelete

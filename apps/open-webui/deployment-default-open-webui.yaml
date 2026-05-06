@@ -1,0 +1,118 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app: open-webui
+    component: app
+  name: open-webui
+  namespace: default
+spec:
+  progressDeadlineSeconds: 600
+  replicas: 1
+  revisionHistoryLimit: 10
+  selector:
+    matchLabels:
+      app: open-webui
+      component: app
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app: open-webui
+        component: app
+    spec:
+      automountServiceAccountToken: true
+      containers:
+      - env:
+        - name: OLLAMA_BASE_URL
+          value: http://ollama.default.svc.cluster.local:11434
+        - name: ENABLE_OAUTH_SIGNUP
+          value: 'true'
+        - name: OAUTH_CLIENT_ID
+          value: open-webui
+        - name: OPENID_PROVIDER_URL
+          value: https://sso.brmartin.co.uk/realms/prod/.well-known/openid-configuration
+        - name: OAUTH_PROVIDER_NAME
+          value: Keycloak
+        - name: OPENID_REDIRECT_URI
+          value: https://chat.brmartin.co.uk/oauth/oidc/callback
+        - name: JWT_EXPIRES_IN
+          value: 1h
+        - name: WEBUI_SESSION_COOKIE_SECURE
+          value: 'true'
+        - name: VECTOR_DB
+          value: pgvector
+        - name: REDIS_URL
+          value: redis://valkey.default.svc.cluster.local:6379/0
+        - name: CORS_ALLOW_ORIGIN
+          value: https://chat.brmartin.co.uk
+        - name: RAG_EMBEDDING_ENGINE
+          value: ollama
+        - name: OAUTH_CLIENT_SECRET
+          valueFrom:
+            secretKeyRef:
+              key: OAUTH_CLIENT_SECRET
+              name: open-webui-secrets
+              optional: false
+        - name: WEBUI_SECRET_KEY
+          valueFrom:
+            secretKeyRef:
+              key: WEBUI_SECRET_KEY
+              name: open-webui-secrets
+              optional: false
+        - name: DATABASE_URL
+          valueFrom:
+            secretKeyRef:
+              key: DATABASE_URL
+              name: open-webui-secrets
+              optional: false
+        image: ghcr.io/open-webui/open-webui:v0.9.1
+        imagePullPolicy: IfNotPresent
+        livenessProbe:
+          failureThreshold: 3
+          httpGet:
+            path: /health
+            port: 8080
+            scheme: HTTP
+          initialDelaySeconds: 30
+          periodSeconds: 30
+          successThreshold: 1
+          timeoutSeconds: 1
+        name: open-webui
+        ports:
+        - containerPort: 8080
+          protocol: TCP
+        readinessProbe:
+          failureThreshold: 3
+          httpGet:
+            path: /health
+            port: 8080
+            scheme: HTTP
+          initialDelaySeconds: 10
+          periodSeconds: 10
+          successThreshold: 1
+          timeoutSeconds: 1
+        resources:
+          limits:
+            memory: 2Gi
+          requests:
+            cpu: 100m
+            memory: 800Mi
+        terminationMessagePath: /dev/termination-log
+        terminationMessagePolicy: File
+        volumeMounts:
+        - mountPath: /app/backend/data
+          mountPropagation: HostToContainer
+          name: data
+      dnsPolicy: ClusterFirst
+      enableServiceLinks: true
+      restartPolicy: Always
+      schedulerName: default-scheduler
+      securityContext: {}
+      shareProcessNamespace: false
+      terminationGracePeriodSeconds: 30
+      volumes:
+      - name: data
+        persistentVolumeClaim:
+          claimName: open-webui-data-sw

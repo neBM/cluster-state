@@ -1,0 +1,33 @@
+apiVersion: v1
+data:
+  sogo.conf.tmpl: "{\n  /* SoGO configuration \u2014 email-only mode\n     Managed\
+    \ in cluster-state \u2014 do not edit manually */\n\n  /* PostgreSQL session/profile/folder\
+    \ storage */\n  SOGoProfileURL = \"${SOGO_DB_URL}/sogo_user_profile\";\n  OCSFolderInfoURL\
+    \ = \"${SOGO_DB_URL}/sogo_folder_info\";\n  OCSSessionsFolderURL = \"${SOGO_DB_URL}/sogo_sessions_folder\"\
+    ;\n  OCSEMailAlarmsFolderURL = \"${SOGO_DB_URL}/sogo_alarms_folder\";\n  OCSAdminURL\
+    \ = \"${SOGO_DB_URL}/sogo_admin\";\n  OCSAclURL = \"${SOGO_DB_URL}/sogo_acl\"\
+    ;\n  OCSCacheFolderURL = \"${SOGO_DB_URL}/sogo_cache_folder\";\n  OCSStoreURL\
+    \ = \"${SOGO_DB_URL}/sogo_store\";\n\n  /* LDAP user source (lldap) */\n  SOGoUserSources\
+    \ = (\n    {\n      type = ldap;\n      CNFieldName = cn;\n      IDFieldName =\
+    \ uid;\n      UIDFieldName = uid;\n      IMAPLoginFieldName = mail;\n      bindDN\
+    \ = \"uid=sogo,ou=people,dc=brmartin,dc=co,dc=uk\";\n      bindPassword = \"${LDAP_BIND_PW}\"\
+    ;\n      baseDN = \"ou=people,dc=brmartin,dc=co,dc=uk\";\n      canAuthenticate\
+    \ = YES;\n      displayName = \"Users\";\n      hostname = \"ldap://lldap.default.svc.cluster.local:3890\"\
+    ;\n      id = ldap_users;\n      isAddressBook = NO;\n      filter = \"(objectClass=inetOrgPerson)\"\
+    ;\n    }\n  );\n\n  /* Mail protocols */\n  SOGoMailingMechanism = smtp;\n  SOGoIMAPServer\
+    \ = \"imap://dovecot.default.svc.cluster.local:143\";\n  SOGoSMTPServer = \"smtp://postfix.default.svc.cluster.local:587\"\
+    ;\n  SOGoSMTPAuthenticationType = PLAIN;\n\n  /* Email-only mode */\n  SOGoMailModuleEnabled\
+    \ = YES;\n  SOGoCalendarModuleEnabled = NO;\n  SOGoContactsModuleEnabled = NO;\n\
+    \n  /* UI */\n  SOGoPageTitle = \"Mail\";\n  SOGoLanguage = English;\n  SOGoSupportedLanguages\
+    \ = (\"English\");\n\n  /* Server binding \u2014 salvoxia/sogo uses Apache on\
+    \ port 80 proxying to sogod */\n  WOPort = \"0.0.0.0:20000\";\n  WOWorkersCount\
+    \ = 3;\n\n  /* Disable cron inside container (K8s CronJob handles it if needed)\
+    \ */\n  /* SOGoEnableEMailAlarms = NO; */\n}\n"
+immutable: false
+kind: ConfigMap
+metadata:
+  labels:
+    app: sogo
+    environment: prod
+  name: sogo-config
+  namespace: default

@@ -1,0 +1,106 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  labels:
+    app: seaweedfs
+    component: filer
+    environment: prod
+  name: seaweedfs-filer
+  namespace: default
+spec:
+  persistentVolumeClaimRetentionPolicy:
+    whenDeleted: Retain
+    whenScaled: Retain
+  podManagementPolicy: OrderedReady
+  replicas: 1
+  revisionHistoryLimit: 0
+  selector:
+    matchLabels:
+      app: seaweedfs
+      component: filer
+  serviceName: seaweedfs-filer
+  template:
+    metadata:
+      labels:
+        app: seaweedfs
+        component: filer
+        environment: prod
+    spec:
+      automountServiceAccountToken: true
+      containers:
+      - args:
+        - filer
+        - -master=seaweedfs-master:9333
+        - -port=8888
+        - -port.grpc=18888
+        - -defaultReplicaPlacement=000
+        - -ip=$(POD_NAME).seaweedfs-filer.default.svc.cluster.local
+        env:
+        - name: POD_NAME
+          valueFrom:
+            fieldRef:
+              apiVersion: v1
+              fieldPath: metadata.name
+        image: chrislusf/seaweedfs:4.18-nebm-2df29443
+        imagePullPolicy: IfNotPresent
+        livenessProbe:
+          failureThreshold: 3
+          httpGet:
+            path: /
+            port: 8888
+            scheme: HTTP
+          initialDelaySeconds: 30
+          periodSeconds: 30
+          successThreshold: 1
+          timeoutSeconds: 1
+        name: filer
+        ports:
+        - containerPort: 8888
+          name: http
+          protocol: TCP
+        - containerPort: 18888
+          name: grpc
+          protocol: TCP
+        readinessProbe:
+          failureThreshold: 3
+          httpGet:
+            path: /
+            port: 8888
+            scheme: HTTP
+          initialDelaySeconds: 15
+          periodSeconds: 15
+          successThreshold: 1
+          timeoutSeconds: 1
+        resources:
+          limits:
+            cpu: '1'
+            memory: 1Gi
+          requests:
+            cpu: 100m
+            memory: 256Mi
+        terminationMessagePath: /dev/termination-log
+        terminationMessagePolicy: File
+        volumeMounts:
+        - mountPath: /data
+          mountPropagation: None
+          name: data
+      dnsPolicy: ClusterFirst
+      enableServiceLinks: true
+      restartPolicy: Always
+      schedulerName: default-scheduler
+      securityContext: {}
+      shareProcessNamespace: false
+      terminationGracePeriodSeconds: 30
+      tolerations:
+      - effect: NoSchedule
+        key: node-role.kubernetes.io/control-plane
+        operator: Exists
+      volumes:
+      - hostPath:
+          path: /var/lib/seaweedfs/filer
+          type: DirectoryOrCreate
+        name: data
+  updateStrategy:
+    rollingUpdate:
+      partition: 0
+    type: RollingUpdate

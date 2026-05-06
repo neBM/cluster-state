@@ -1,0 +1,17 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+- deployment-default-grafana.yaml
+- ingressroute-default-grafana.yaml
+- persistentvolumeclaim-default-grafana-data.yaml
+- service-default-grafana.yaml
+configMapGenerator:
+- name: grafana-datasources
+  files:
+  - loki.yaml=files/loki.yaml
+  - prometheus.yaml=files/prometheus.yaml
+- name: grafana-alerting
+  files:
+  - contactpoints.yaml=files/contactpoints.yaml
+  - policies.yaml=files/policies.yaml
+  - rules.yaml=_grafana_alert_rules.yaml

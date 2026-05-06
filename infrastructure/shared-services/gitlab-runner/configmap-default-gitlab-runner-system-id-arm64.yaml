@@ -1,0 +1,11 @@
+apiVersion: v1
+data:
+  system_id: r_BzDQKMBlN6F3
+immutable: false
+kind: ConfigMap
+metadata:
+  labels:
+    app: gitlab-runner
+    arch: arm64
+  name: gitlab-runner-system-id-arm64
+  namespace: default

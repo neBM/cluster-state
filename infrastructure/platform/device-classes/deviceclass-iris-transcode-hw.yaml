@@ -1,0 +1,8 @@
+apiVersion: resource.k8s.io/v1
+kind: DeviceClass
+metadata:
+  name: iris-transcode-hw
+spec:
+  selectors:
+  - cel:
+      expression: device.driver in ["gpu.nvidia.com", "rpi5.brmartin.co.uk"]

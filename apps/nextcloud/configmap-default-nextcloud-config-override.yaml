@@ -1,0 +1,28 @@
+apiVersion: v1
+data:
+  zz-override.config.php: "<?php\n$CONFIG = array (\n  'installed' => true,\n  'dbtype'\
+    \ => 'pgsql',\n  'dbhost' => '192.168.1.10:5433',\n  'dbname' => 'nextcloud',\n\
+    \  'dbuser' => 'nextcloud',\n  'dbtableprefix' => 'oc_',\n  'datadirectory' =>\
+    \ '/var/www/html/data',\n  'overwriteprotocol' => 'https',\n  'overwrite.cli.url'\
+    \ => 'https://cloud.brmartin.co.uk',\n  'trusted_domains' => array (\n    0 =>\
+    \ 'cloud.brmartin.co.uk',\n    1 => '192.168.1.*',\n  ),\n  'trusted_proxies'\
+    \ => array (\n    0 => '172.26.0.0/16',\n    1 => '10.0.0.0/8',\n    2 => 'fd00::/24',\n\
+    \  ),\n  'upgrade.disable-web' => true,\n  'maintenance_window_start' => 1,\n\
+    \  'oidc_login_client_id' => 'nextcloud',\n  'oidc_login_provider_url' => 'https://sso.brmartin.co.uk/realms/prod',\n\
+    \  'oidc_login_end_session_redirect' => 'true',\n  'oidc_login_logout_url' =>\
+    \ 'https://cloud.brmartin.co.uk/apps/oidc_login/oidc',\n  'oidc_login_auto_redirect'\
+    \ => 'true',\n  'oidc_login_redir_fallback' => 'true',\n  'oidc_login_disable_registration'\
+    \ => 'false',\n  'oidc_login_attributes' => array (\n    'id' => 'preferred_username',\n\
+    \    'mail' => 'email',\n  ),\n  'mail_from_address' => 'services',\n  'mail_smtpmode'\
+    \ => 'smtp',\n  'mail_sendmailmode' => 'smtp',\n  'mail_domain' => 'brmartin.co.uk',\n\
+    \  'mail_smtphost' => 'mail.brmartin.co.uk',\n  'mail_smtpport' => '587',\n  'mail_smtpauth'\
+    \ => 1,\n  'mail_smtpname' => 'svc-nextcloud',\n  'app_install_overwrite' => array\
+    \ (\n    0 => 'oidc_login',\n  ),\n);\n"
+immutable: false
+kind: ConfigMap
+metadata:
+  labels:
+    app: nextcloud
+    component: nextcloud
+  name: nextcloud-config-override
+  namespace: default

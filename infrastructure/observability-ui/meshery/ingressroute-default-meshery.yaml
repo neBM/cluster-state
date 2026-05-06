@@ -1,0 +1,21 @@
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  labels:
+    app.kubernetes.io/component: service-mesh-management
+    app.kubernetes.io/instance: meshery
+    app.kubernetes.io/name: meshery
+  name: meshery
+  namespace: default
+spec:
+  entryPoints:
+  - websecure
+  routes:
+  - kind: Rule
+    match: Host(`meshery.brmartin.co.uk`)
+    middlewares: []
+    services:
+    - name: meshery
+      port: http
+  tls:
+    secretName: wildcard-brmartin-tls

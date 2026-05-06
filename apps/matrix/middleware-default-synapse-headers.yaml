@@ -1,0 +1,21 @@
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: synapse-headers
+  namespace: default
+spec:
+  headers:
+    accessControlAllowHeaders:
+    - Origin
+    - X-Requested-With
+    - Content-Type
+    - Accept
+    - Authorization
+    accessControlAllowMethods:
+    - GET
+    - POST
+    - PUT
+    - DELETE
+    - OPTIONS
+    accessControlAllowOriginList:
+    - '*'

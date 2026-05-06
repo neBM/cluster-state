@@ -1,0 +1,28 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    traefik.ingress.kubernetes.io/router.tls: 'true'
+  labels:
+    app: sogo
+    environment: prod
+  name: sogo
+  namespace: default
+spec:
+  ingressClassName: traefik
+  rules:
+  - host: mail.brmartin.co.uk
+    http:
+      paths:
+      - backend:
+          service:
+            name: sogo
+            port:
+              number: 80
+        path: /
+        pathType: Prefix
+  tls:
+  - hosts:
+    - mail.brmartin.co.uk
+    secretName: wildcard-brmartin-tls

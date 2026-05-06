@@ -7,10 +7,11 @@ Infrastructure-as-Code repository for a Kubernetes (K3s) cluster. All services h
 ## Architecture
 
 - **Kubernetes (K3s)** - Primary workload orchestration (all services)
+- **Flux** - GitOps reconciler for cluster state
+- **Kustomize** - Manifest composition and validation
 - **Cilium** - Kubernetes CNI with network policies
 - **Traefik** - Ingress controller (K8s IngressRoutes)
 - **External Secrets Operator** - Syncs secrets from Vault to K8s (legacy, no longer actively used for new services)
-- **Terraform** - Infrastructure provisioning (K8s resources)
 - **GlusterFS** - Distributed storage (hostPath mounts in K8s)
 - **NFS-Ganesha** - NFS server with FSAL_GLUSTER (stable fileids), built from source V9.4 on all nodes
 - **MinIO** - Object storage (backups, litestream)
@@ -27,12 +28,13 @@ See the `docs/` directory for detailed documentation:
 ## Project Structure
 
 ```
-modules-k8s/       # Kubernetes modules
-  ├── <service>/
-  │   ├── main.tf              # K8s deployments, services, ingress
-  │   └── variables.tf         # Module variables
-kubernetes.tf      # K8s module definitions
-main.tf            # Terraform config
+clusters/
+  k3s-homelab/
+    flux-system/              # Flux install, GitRepository, Receiver, ordered Kustomizations
+apps/                         # Application workloads
+infrastructure/               # Storage, platform, shared services, observability
+drivers/                      # Custom driver source trees and CI build inputs
+scripts/                      # Validation and operational helpers
 ```
 
 ## Cluster Nodes
@@ -55,7 +57,7 @@ main.tf            # Terraform config
 
 Hestia runs Fedora with `firewalld` active; heracles and nyx do not. Cilium-managed interfaces (`cilium_host`, `cilium_net`, `cilium_vxlan`, `lxc+`) must be in firewalld's `trusted` zone so pod→host same-node traffic bypasses the `FedoraServer` filter chain. Pod-network enforcement is handled by `CiliumNetworkPolicy`, not the host firewall.
 
-This is **not** currently in Terraform. Re-apply with the idempotent script after a host rebuild:
+This is **not** currently managed in cluster desired state. Re-apply with the idempotent script after a host rebuild:
 
 ```bash
 ssh 192.168.1.5 'bash -s' < scripts/hestia-firewalld-setup.sh
@@ -65,22 +67,23 @@ Symptom when this drifts: a new Cilium/Hubble component on hestia fails with `no
 
 ## Common Commands
 
-### Terraform
-
-Environment variables (Vault token, etc.) must be loaded before running Terraform:
+### Flux / Kustomize
 
 ```bash
-# REQUIRED before any terraform command
-# set -a exports all variables, set +a stops exporting
-set -a && source .env && set +a
+# Render every supported entrypoint
+./scripts/validate_kustomize.sh
 
-# Plan and apply all changes
-terraform plan -out=tfplan
-terraform apply tfplan
+# Render the full cluster state
+kubectl kustomize clusters/k3s-homelab > /dev/null
 
-# Target a specific module
-terraform plan -target='module.k8s_gitlab' -out=tfplan
-terraform apply tfplan
+# Bootstrap or refresh Flux system objects
+kubectl apply -k clusters/k3s-homelab/flux-system
+
+# Check Flux status
+kubectl get gitrepositories,kustomizations,receivers -n flux-system
+
+# Receiver webhook path for GitLab
+kubectl get receiver cluster-state -n flux-system -o jsonpath='{.status.webhookPath}'
 ```
 
 ### Kubernetes
@@ -160,53 +163,37 @@ Host logs additionally carry: `unit` (journal), `job="node/syslog"` or `job="nod
 
 **For new services, use PVCs with the `glusterfs-nfs` StorageClass:**
 
-```hcl
-# In modules-k8s/<service>/main.tf
-resource "kubernetes_persistent_volume_claim" "data" {
-  metadata {
-    name      = "${var.app_name}-data"
-    namespace = var.namespace
-    annotations = {
-      # Controls directory name: /storage/v/glusterfs_<value>
-      "volume-name" = "${var.app_name}_data"
-    }
-  }
-  spec {
-    storage_class_name = "glusterfs-nfs"
-    access_modes       = ["ReadWriteMany"]
-    resources {
-      requests = {
-        storage = "1Gi"  # Advisory only - no quota enforcement
-      }
-    }
-  }
-}
-
-# Reference in deployment
-volume {
-  name = "data"
-  persistent_volume_claim {
-    claim_name = kubernetes_persistent_volume_claim.data.metadata[0].name
-  }
-}
+```yaml
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: myapp-data
+  namespace: default
+  annotations:
+    volume-name: myapp_data
+spec:
+  storageClassName: glusterfs-nfs
+  accessModes:
+    - ReadWriteMany
+  resources:
+    requests:
+      storage: 1Gi
 ```
 
 **Existing services using hostPath continue to work:**
-```hcl
-volume {
-  name = "config"
-  host_path {
-    path = "/storage/v/glusterfs_myapp_config"
-    type = "Directory"
-  }
-}
+```yaml
+volumes:
+  - name: config
+    hostPath:
+      path: /storage/v/glusterfs_myapp_config
+      type: Directory
 ```
 
 **Key differences:**
 | Aspect | PVC (recommended) | hostPath (legacy) |
 |--------|-------------------|-------------------|
 | Directory creation | Automatic on PVC create | Manual SSH required |
-| Terraform visibility | PVC in state | No tracking |
+| Git visibility | PVC manifest in repo | No tracking |
 | Data on PVC delete | Retained (Retain policy) | N/A |
 | Migration effort | New services only | Existing unchanged |
 
@@ -214,8 +201,8 @@ volume {
 
 - **SQLite on Network Storage**: Use ephemeral disk with litestream for SQLite databases. Network filesystems cause locking issues.
 - **SQLite WAL Mode**: Litestream requires WAL mode. Empty WAL files need a write to initialize the header.
-- **Terraform lifecycle ignore_changes**: NEVER use `ignore_changes` in lifecycle blocks. It hides drift and creates confusing configs. Fix the root cause instead (e.g., remove unused fields, use `terraform state rm` to reset state).
-- **Traefik `allowEncodedSlash`**: Both Traefik instances have `encodedCharacters.allowEncodedSlash: true` set on the `websecure` entrypoint. This is required for GitLab's API (project slugs use `%2F` as a namespace separator). The setting is safe here because all routing is host-based — no path-based ACLs exist that `%2F` could bypass. If you ever add a Traefik rule using `Path`/`PathPrefix` to enforce access control, re-evaluate this. The K8s Traefik flag is on the Deployment directly (not in Helm values) and will be lost on a Helm upgrade.
+- **GitOps discipline**: Do not hand-edit live objects as a durable fix. Commit the manifest change here and let Flux reconcile it.
+- **Traefik `allowEncodedSlash`**: Both Traefik instances have `encodedCharacters.allowEncodedSlash: true` set on the `websecure` entrypoint. This is required for GitLab's API (project slugs use `%2F` as a namespace separator). The setting is safe here because all routing is host-based — no path-based ACLs exist that `%2F` could bypass. If you ever add a Traefik rule using `Path`/`PathPrefix` to enforce access control, re-evaluate this. Keep the flag when re-rendering or updating the Traefik manifests.
 
 ## Debugging Tips
 
@@ -457,16 +444,15 @@ increase(kube_pod_container_status_restarts_total[1h])
 
 To expose metrics from your service to Prometheus, add these annotations to your Kubernetes Service:
 
-```hcl
-resource "kubernetes_service" "myapp" {
-  metadata {
-    annotations = {
-      "prometheus.io/scrape" = "true"
-      "prometheus.io/port"   = "8080"      # Port where metrics are exposed
-      "prometheus.io/path"   = "/metrics"  # Path to metrics endpoint (default: /metrics)
-    }
-  }
-}
+```yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: myapp
+  annotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "8080"
+    prometheus.io/path: /metrics
 ```
 
 ## CI/CD
@@ -474,29 +460,25 @@ resource "kubernetes_service" "myapp" {
 ### ACT Toolchain Image
 
 The `ben/act` project in GitLab provides a multiarch CI toolchain image (`registry.brmartin.co.uk/ben/act:latest`) with:
-- Terraform, Node.js 20, Python 3, uv, Java 21, Maven, Gradle, Android SDK
-- Used by Athenaeum and cluster-state pipelines as the base CI image
+- Node.js 20, Python 3, uv, Java 21, Maven, Gradle, Android SDK, Go, and security tooling
+- Used for driver builds and general CI tasks; manifest validation installs `kubectl` explicitly during the job
 
 ### In-Cluster Registry Bypass
 
 CI jobs push/pull images to the GitLab registry without going through Traefik:
 
 1. **CoreDNS rewrite** (manual, in `coredns-custom` ConfigMap in `kube-system`): rewrites `registry.brmartin.co.uk` to the `gitlab-registry-internal` K8s service
-2. **Internal service** (`modules-k8s/gitlab/main.tf`): listens on port 443 (plain HTTP), forwards to registry pod on 5000. Port 443 because GitLab's `CI_REGISTRY` variable includes `:443`
-3. **registries.conf** (`modules-k8s/gitlab-runner/main.tf`): ConfigMap mounted into CI job pods at `/etc/containers/registries.conf`, marks the registry as `insecure` so buildah uses HTTP instead of TLS
+2. **Internal service** (`apps/gitlab/service-default-gitlab-registry-internal.yaml`): listens on port 443 (plain HTTP), forwards to registry pod on 5000. Port 443 because GitLab's `CI_REGISTRY` variable includes `:443`
+3. **registries.conf** (`infrastructure/shared-services/gitlab-runner/configmap-default-gitlab-runner-registries-conf.yaml`): mounted into CI job pods at `/etc/containers/registries.conf`, marks the registry as `insecure` so buildah uses HTTP instead of TLS
 
 ### Cluster-State Pipeline
 
 This repo has its own `.gitlab-ci.yml` with three stages:
-- **validate**: `terraform fmt -check` + `terraform validate` (runs on MRs and main)
-- **plan**: `terraform plan` (main only, requires PG backend connection)
-- **apply**: `terraform apply` (main only, manual trigger)
+- **compile**: build custom driver binaries when their source changes
+- **package**: publish driver images
+- **validate**: render the Flux/Kustomize entrypoints on merge requests and `main`
 
-**State lock gotcha**: Terraform uses a PostgreSQL backend. Concurrent or stuck pipelines can hold the state lock. Fix with:
-```bash
-set -a && source .env && set +a
-terraform force-unlock -force <lock-id>
-```
+Flux is the deployer for cluster state. Merging to `main` and delivering the GitLab webhook is the deployment path.
 
 ### GitLab CLI
 
@@ -562,7 +544,7 @@ glab api "projects/<id>/pipelines?ref=main&status=success&per_page=1"
 | goldilocks | Deployment | VPA recommendations dashboard, kube-system namespace |
 
 ## Active Technologies
-- HCL (Terraform 1.x), YAML (K8s manifests via Terraform kubernetes provider)
+- YAML (plain Kubernetes manifests), Kustomize, Flux v2
 - Kubernetes (K3s 1.34+), Cilium CNI, Traefik Ingress, External Secrets Operator
 - GlusterFS via NFS-Ganesha at `/storage/v/` on all nodes
 - NFS Subdir External Provisioner for dynamic PVC provisioning
@@ -571,7 +553,6 @@ glab api "projects/<id>/pipelines?ref=main&status=success&per_page=1"
 - Grafana Alloy 1.x DaemonSet (pod logs + systemd journal + syslog/auth collection)
 - GitLab CNG container images (registry.gitlab.com/gitlab-org/build/cng)
 - External PostgreSQL (192.168.1.10:5433) for GitLab
-- HCL (Terraform 1.x) — same as all other modules
 - External PostgreSQL (192.168.1.10:5433) for lldap and SoGO (mail stack)
 
 ## Recent Changes

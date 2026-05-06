@@ -1,0 +1,14 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+- gotk-components.yaml
+- gotk-sync.yaml
+- certificate-flux-system-wildcard-brmartin-tls.yaml
+- ingress-flux-webhook.yaml
+- receiver-cluster-state.yaml
+- kustomization-storage.yaml
+- kustomization-platform.yaml
+- kustomization-shared-services.yaml
+- kustomization-observability-core.yaml
+- kustomization-observability-ui.yaml
+- kustomization-apps.yaml

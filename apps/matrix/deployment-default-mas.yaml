@@ -1,0 +1,177 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app: matrix
+    component: mas
+  name: mas
+  namespace: default
+spec:
+  progressDeadlineSeconds: 600
+  replicas: 1
+  revisionHistoryLimit: 10
+  selector:
+    matchLabels:
+      app: matrix
+      component: mas
+  strategy:
+    rollingUpdate:
+      maxSurge: 25%
+      maxUnavailable: 25%
+    type: RollingUpdate
+  template:
+    metadata:
+      annotations:
+        elastic.co/dataset: kubernetes.container_logs.matrix
+      labels:
+        app: matrix
+        component: mas
+    spec:
+      automountServiceAccountToken: true
+      containers:
+      - env:
+        - name: MAS_CONFIG
+          value: /config/config.yaml
+        image: ghcr.io/element-hq/matrix-authentication-service:1.15.0
+        imagePullPolicy: IfNotPresent
+        livenessProbe:
+          failureThreshold: 3
+          httpGet:
+            path: /health
+            port: 8081
+            scheme: HTTP
+          initialDelaySeconds: 30
+          periodSeconds: 30
+          successThreshold: 1
+          timeoutSeconds: 5
+        name: mas
+        ports:
+        - containerPort: 8081
+          protocol: TCP
+        readinessProbe:
+          failureThreshold: 3
+          httpGet:
+            path: /health
+            port: 8081
+            scheme: HTTP
+          initialDelaySeconds: 10
+          periodSeconds: 10
+          successThreshold: 1
+          timeoutSeconds: 5
+        resources:
+          limits:
+            memory: 64Mi
+          requests:
+            cpu: 100m
+            memory: 32Mi
+        terminationMessagePath: /dev/termination-log
+        terminationMessagePolicy: File
+        volumeMounts:
+        - mountPath: /config
+          mountPropagation: None
+          name: config
+          readOnly: true
+        - mountPath: /keys
+          mountPropagation: None
+          name: keys
+          readOnly: true
+      dnsPolicy: ClusterFirst
+      enableServiceLinks: true
+      initContainers:
+      - args:
+        - 'cp /config-template/config.yaml /config/config.yaml
+
+          sed -i "s|MAS_DB_PASSWORD_PLACEHOLDER|$MAS_DB_PASSWORD|g" /config/config.yaml
+
+          sed -i "s|MAS_ADMIN_TOKEN_PLACEHOLDER|$MAS_ADMIN_TOKEN|g" /config/config.yaml
+
+          sed -i "s|MAS_SMTP_PASSWORD_PLACEHOLDER|$MAS_SMTP_PASSWORD|g" /config/config.yaml
+
+          sed -i "s|MAS_ENCRYPTION_PLACEHOLDER|$MAS_ENCRYPTION|g" /config/config.yaml
+
+          sed -i "s|MAS_CLIENT_SECRET_PLACEHOLDER|$MAS_CLIENT_SECRET|g" /config/config.yaml
+
+          sed -i "s|MAS_KEYCLOAK_CLIENT_SECRET_PLACEHOLDER|$MAS_KEYCLOAK_CLIENT_SECRET|g"
+          /config/config.yaml
+
+          '
+        command:
+        - /bin/sh
+        - -c
+        env:
+        - name: MAS_DB_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              key: mas_db_password
+              name: matrix-secrets
+              optional: false
+        - name: MAS_ADMIN_TOKEN
+          valueFrom:
+            secretKeyRef:
+              key: mas_admin_token
+              name: matrix-secrets
+              optional: false
+        - name: MAS_SMTP_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              key: mas_smtp_password
+              name: matrix-secrets
+              optional: false
+        - name: MAS_ENCRYPTION
+          valueFrom:
+            secretKeyRef:
+              key: mas_encryption_secret
+              name: matrix-secrets
+              optional: false
+        - name: MAS_CLIENT_SECRET
+          valueFrom:
+            secretKeyRef:
+              key: mas_client_secret
+              name: matrix-secrets
+              optional: false
+        - name: MAS_KEYCLOAK_CLIENT_SECRET
+          valueFrom:
+            secretKeyRef:
+              key: mas_keycloak_client_secret
+              name: matrix-secrets
+              optional: false
+        image: busybox:1.37
+        imagePullPolicy: IfNotPresent
+        name: config-processor
+        resources: {}
+        terminationMessagePath: /dev/termination-log
+        terminationMessagePolicy: File
+        volumeMounts:
+        - mountPath: /config-template
+          mountPropagation: None
+          name: config-template
+        - mountPath: /config
+          mountPropagation: None
+          name: config
+      restartPolicy: Always
+      schedulerName: default-scheduler
+      securityContext: {}
+      shareProcessNamespace: false
+      terminationGracePeriodSeconds: 30
+      volumes:
+      - configMap:
+          defaultMode: 420
+          name: mas-config-template
+          optional: false
+        name: config-template
+      - emptyDir: {}
+        name: config
+      - name: keys
+        secret:
+          defaultMode: 420
+          items:
+          - key: mas_key_rsa
+            path: mas_key_rsa
+          - key: mas_key_ec_p256
+            path: mas_key_ec_p256
+          - key: mas_key_ec_p384
+            path: mas_key_ec_p384
+          - key: mas_key_ec_k256
+            path: mas_key_ec_k256
+          optional: false
+          secretName: matrix-secrets

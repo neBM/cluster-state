@@ -1,0 +1,117 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  labels:
+    app: seaweedfs
+    component: master
+    environment: prod
+  name: seaweedfs-master
+  namespace: default
+spec:
+  persistentVolumeClaimRetentionPolicy:
+    whenDeleted: Retain
+    whenScaled: Retain
+  podManagementPolicy: Parallel
+  replicas: 3
+  revisionHistoryLimit: 0
+  selector:
+    matchLabels:
+      app: seaweedfs
+      component: master
+  serviceName: seaweedfs-master
+  template:
+    metadata:
+      labels:
+        app: seaweedfs
+        component: master
+        environment: prod
+    spec:
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - podAffinityTerm:
+              labelSelector:
+                matchLabels:
+                  app: seaweedfs
+                  component: master
+              topologyKey: kubernetes.io/hostname
+            weight: 100
+      automountServiceAccountToken: true
+      containers:
+      - args:
+        - master
+        - -mdir=/data
+        - -peers=seaweedfs-master-0.seaweedfs-master.default.svc.cluster.local:9333,seaweedfs-master-1.seaweedfs-master.default.svc.cluster.local:9333,seaweedfs-master-2.seaweedfs-master.default.svc.cluster.local:9333
+        - -port=9333
+        - -port.grpc=19333
+        - -defaultReplication=000
+        - -ip=$(POD_NAME).seaweedfs-master.default.svc.cluster.local
+        env:
+        - name: POD_NAME
+          valueFrom:
+            fieldRef:
+              apiVersion: v1
+              fieldPath: metadata.name
+        image: chrislusf/seaweedfs:4.18-nebm-2df29443
+        imagePullPolicy: IfNotPresent
+        livenessProbe:
+          failureThreshold: 3
+          httpGet:
+            path: /cluster/status
+            port: 9333
+            scheme: HTTP
+          initialDelaySeconds: 30
+          periodSeconds: 30
+          successThreshold: 1
+          timeoutSeconds: 1
+        name: master
+        ports:
+        - containerPort: 9333
+          name: http
+          protocol: TCP
+        - containerPort: 19333
+          name: grpc
+          protocol: TCP
+        readinessProbe:
+          failureThreshold: 3
+          httpGet:
+            path: /cluster/status
+            port: 9333
+            scheme: HTTP
+          initialDelaySeconds: 10
+          periodSeconds: 15
+          successThreshold: 1
+          timeoutSeconds: 1
+        resources:
+          limits:
+            cpu: 500m
+            memory: 256Mi
+          requests:
+            cpu: 100m
+            memory: 128Mi
+        terminationMessagePath: /dev/termination-log
+        terminationMessagePolicy: File
+        volumeMounts:
+        - mountPath: /data
+          mountPropagation: None
+          name: data
+      dnsPolicy: ClusterFirst
+      enableServiceLinks: true
+      restartPolicy: Always
+      schedulerName: default-scheduler
+      securityContext: {}
+      shareProcessNamespace: false
+      terminationGracePeriodSeconds: 30
+      tolerations:
+      - effect: NoSchedule
+        key: node-role.kubernetes.io/control-plane
+        operator: Exists
+      volumes:
+      - hostPath:
+          path: /var/lib/seaweedfs/master
+          type: DirectoryOrCreate
+        name: data
+  updateStrategy:
+    rollingUpdate:
+      partition: 0
+    type: RollingUpdate

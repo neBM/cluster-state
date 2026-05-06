@@ -1,0 +1,57 @@
+apiVersion: v1
+data:
+  config.alloy: "// =========================================================================\n\
+    // Pod log collection \u2014 tails /var/log/pods on the local node\n// =========================================================================\n\
+    \ndiscovery.kubernetes \"pods\" {\n  role = \"pod\"\n  selectors {\n    role \
+    \ = \"pod\"\n    field = \"spec.nodeName=\" + env(\"NODE_NAME\")\n  }\n}\n\ndiscovery.relabel\
+    \ \"pod_logs\" {\n  targets = discovery.kubernetes.pods.targets\n\n  // Keep only\
+    \ pods that have log files on disk\n  rule {\n    source_labels = [\"__meta_kubernetes_pod_uid\"\
+    , \"__meta_kubernetes_pod_container_name\"]\n    separator     = \"/\"\n    target_label\
+    \  = \"__path__\"\n    replacement   = \"/var/log/pods/*$1/*.log\"\n  }\n\n  //\
+    \ Extract namespace label\n  rule {\n    source_labels = [\"__meta_kubernetes_namespace\"\
+    ]\n    target_label  = \"namespace\"\n  }\n\n  // Extract pod label\n  rule {\n\
+    \    source_labels = [\"__meta_kubernetes_pod_name\"]\n    target_label  = \"\
+    pod\"\n  }\n\n  // Extract container label\n  rule {\n    source_labels = [\"\
+    __meta_kubernetes_pod_container_name\"]\n    target_label  = \"container\"\n \
+    \ }\n\n  // Node label from env var (set in DaemonSet)\n  rule {\n    target_label\
+    \ = \"node\"\n    replacement  = env(\"NODE_NAME\")\n  }\n\n  // Set job label\n\
+    \  rule {\n    target_label = \"job\"\n    replacement  = \"kubernetes/pods\"\n\
+    \  }\n\n  // Drop high-cardinality metadata\n  rule {\n    regex  = \"__meta_kubernetes_pod_uid|__meta_kubernetes_pod_ip|__meta_kubernetes_host_ip\"\
+    \n    action = \"labeldrop\"\n  }\n}\n\nlocal.file_match \"pod_logs\" {\n  path_targets\
+    \ = discovery.relabel.pod_logs.output\n}\n\nloki.source.file \"pod_logs\" {\n\
+    \  targets    = local.file_match.pod_logs.targets\n  forward_to = [loki.process.pod_logs.receiver]\n\
+    }\n\nloki.process \"pod_logs\" {\n  // Parse CRI log format (containerd/K3s):\
+    \ timestamp stream flags message\n  stage.cri {}\n\n  // Drop kube-probe noise\
+    \ (liveness/readiness probe user-agent)\n  stage.drop {\n    expression = \".*kube-probe.*\"\
+    \n  }\n\n  // Drop health check log noise\n  stage.drop {\n    expression = \"\
+    .*(GET|HEAD) /health.* 200\"\n  }\n\n    // Add cluster label\n    stage.static_labels\
+    \ {\n      values = {\n        cluster = \"k3s-homelab\",\n      }\n    }\n\n\
+    \  forward_to = [loki.write.loki.receiver]\n}\n\n// =========================================================================\n\
+    // Host log collection \u2014 systemd journal\n// =========================================================================\n\
+    \nloki.source.journal \"journal\" {\n  path          = \"/var/log/journal\"\n\
+    \  relabel_rules = discovery.relabel.journal_labels.rules\n  forward_to    = [loki.write.loki.receiver]\n\
+    \  labels = {\n    job     = \"journal\",\n    node    = env(\"NODE_NAME\"),\n\
+    \    cluster = \"k3s-homelab\",\n  }\n}\n\ndiscovery.relabel \"journal_labels\"\
+    \ {\n  targets = []\n\n  rule {\n    source_labels = [\"__journal__systemd_unit\"\
+    ]\n    target_label  = \"unit\"\n  }\n\n  rule {\n    source_labels = [\"__journal_priority_keyword\"\
+    ]\n    target_label  = \"level\"\n  }\n}\n\n// =========================================================================\n\
+    // Host log collection \u2014 syslog and auth.log\n// =========================================================================\n\
+    \nlocal.file_match \"host_logs\" {\n  path_targets = [\n    {\n      __path__\
+    \ = \"/var/log/syslog\",\n      job      = \"node/syslog\",\n      node     =\
+    \ env(\"NODE_NAME\"),\n      cluster  = \"k3s-homelab\",\n    },\n    {\n    \
+    \  __path__ = \"/var/log/auth.log\",\n      job      = \"node/auth\",\n      node\
+    \     = env(\"NODE_NAME\"),\n      cluster  = \"k3s-homelab\",\n    },\n  ]\n\
+    }\n\nloki.source.file \"host_logs\" {\n  targets    = local.file_match.host_logs.targets\n\
+    \  forward_to = [loki.write.loki.receiver]\n}\n\n// =========================================================================\n\
+    // Loki write endpoint\n// =========================================================================\n\
+    \nloki.write \"loki\" {\n  endpoint {\n    url = \"http://loki.default.svc.cluster.local:3100/loki/api/v1/push\"\
+    \n  }\n}\n"
+immutable: false
+kind: ConfigMap
+metadata:
+  labels:
+    app.kubernetes.io/component: logging
+    app.kubernetes.io/instance: alloy
+    app.kubernetes.io/name: alloy
+  name: alloy-config
+  namespace: default

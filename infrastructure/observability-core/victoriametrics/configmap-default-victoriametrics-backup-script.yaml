@@ -1,0 +1,42 @@
+apiVersion: v1
+data:
+  backup.sh: "#!/bin/sh\nset -e\n\nDATA_PATH=\"/victoria-metrics-data\"\nBACKUP_DEST=\"\
+    s3://victoriametrics/data\"\nMINIO_ENDPOINT=\"http://seaweedfs-s3.default.svc.cluster.local:8333\"\
+    \nSLEEP_SECONDS=3600\n\n# SIGTERM handling: /bin/sh as PID 1 ignores SIGTERM by\
+    \ default (the\n# kernel masks signals without handlers for PID 1), so without\
+    \ an\n# explicit trap the pod hangs until terminationGracePeriodSeconds\n# expires\
+    \ and kubelet SIGKILLs. The container preStop hook above has\n# already drained\
+    \ any in-flight vmbackup-prod before SIGTERM arrives,\n# so exiting immediately\
+    \ here is safe \u2014 the bucket is guaranteed\n# consistent at this point.\n\
+    trap 'echo \"Received SIGTERM/INT, exiting\"; exit 0' TERM INT\n\necho \"Starting\
+    \ vmbackup sidecar\"\necho \"  Data path: $DATA_PATH\"\necho \"  Backup destination:\
+    \ $BACKUP_DEST\"\necho \"  MinIO endpoint: $MINIO_ENDPOINT\"\necho \"  Backup\
+    \ interval: 1h ($SLEEP_SECONDS seconds)\"\n\nwhile true; do\n  echo \"$(date '+%Y-%m-%d\
+    \ %H:%M:%S') Starting incremental backup...\"\n        \n  /vmbackup-prod \\\n\
+    \    -storageDataPath=\"$DATA_PATH\" \\\n    -dst=\"$BACKUP_DEST\" \\\n    -customS3Endpoint=\"\
+    $MINIO_ENDPOINT\" \\\n    -snapshot.createURL=\"http://localhost:8428/snapshot/create\"\
+    \ \\\n    -snapshot.deleteURL=\"http://localhost:8428/snapshot/delete\" \\\n \
+    \   || echo \"Backup failed, will retry next interval\"\n        \n  echo \"$(date\
+    \ '+%Y-%m-%d %H:%M:%S') Backup complete, sleeping $SLEEP_SECONDS seconds\"\n \
+    \ # Background sleep + wait so the TERM trap above fires immediately\n  # on SIGTERM.\
+    \ A direct \"sleep $SLEEP_SECONDS\" would block signal\n  # delivery until sleep\
+    \ exits (up to the full interval).\n  sleep \"$SLEEP_SECONDS\" &\n  wait $!\n\
+    done\n"
+  restore.sh: "#!/bin/sh\nset -e\n      \nDATA_PATH=\"/victoria-metrics-data\"\nBACKUP_SRC=\"\
+    s3://victoriametrics/data\"\nMINIO_ENDPOINT=\"http://seaweedfs-s3.default.svc.cluster.local:8333\"\
+    \n      \necho \"Starting vmrestore\"\necho \"  Data path: $DATA_PATH\"\necho\
+    \ \"  Backup source: $BACKUP_SRC\"\necho \"  MinIO endpoint: $MINIO_ENDPOINT\"\
+    \n      \n# Check if backup exists in MinIO\nif /vmrestore-prod \\\n     -src=\"\
+    $BACKUP_SRC\" \\\n     -storageDataPath=\"$DATA_PATH\" \\\n     -customS3Endpoint=\"\
+    $MINIO_ENDPOINT\"; then\n  echo \"Restore complete\"\nelse\n  echo \"No backup\
+    \ found or restore failed - starting fresh\"\n  # Remove lock file left by vmrestore\
+    \ so VictoriaMetrics can start\n  rm -f \"$DATA_PATH/restore-in-progress\"\nfi\n"
+immutable: false
+kind: ConfigMap
+metadata:
+  labels:
+    app.kubernetes.io/component: monitoring
+    app.kubernetes.io/instance: victoriametrics
+    app.kubernetes.io/name: victoriametrics
+  name: victoriametrics-backup-script
+  namespace: default

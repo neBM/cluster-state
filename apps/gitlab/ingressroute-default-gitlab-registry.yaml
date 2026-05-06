@@ -1,0 +1,18 @@
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  labels:
+    app: gitlab
+  name: gitlab-registry
+  namespace: default
+spec:
+  entryPoints:
+  - websecure
+  routes:
+  - kind: Rule
+    match: Host(`registry.brmartin.co.uk`)
+    services:
+    - name: gitlab-registry
+      port: 5000
+  tls:
+    secretName: wildcard-brmartin-tls

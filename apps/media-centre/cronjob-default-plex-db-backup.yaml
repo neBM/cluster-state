@@ -1,0 +1,135 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  labels:
+    app: media-centre
+    component: plex-backup
+  name: plex-db-backup
+  namespace: default
+spec:
+  concurrencyPolicy: Forbid
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    metadata:
+      labels:
+        app: media-centre
+        component: plex-backup
+    spec:
+      backoffLimit: 2
+      completions: 1
+      manualSelector: false
+      parallelism: 1
+      template:
+        metadata:
+          labels:
+            app: media-centre
+            component: plex-backup
+        spec:
+          automountServiceAccountToken: true
+          containers:
+          - args:
+            - "set -e\necho \"=== Plex Database Backup - $(date -Iseconds) ===\"\n\
+              \                \n# Install required tools\napk add --no-cache sqlite\
+              \ curl\n                \nDB_DIR=\"/plex-data/Databases\"\nLIBRARY_DB=\"\
+              $DB_DIR/com.plexapp.plugins.library.db\"\nBLOBS_DB=\"$DB_DIR/com.plexapp.plugins.library.blobs.db\"\
+              \nTIMESTAMP=$(date +%Y%m%d-%H%M%S)\n                \n# Verify source\
+              \ databases exist\nif [ ! -f \"$LIBRARY_DB\" ]; then\n  echo \"ERROR:\
+              \ Library database not found at $LIBRARY_DB\"\n  exit 1\nfi\n      \
+              \          \nif [ ! -f \"$BLOBS_DB\" ]; then\n  echo \"ERROR: Blobs\
+              \ database not found at $BLOBS_DB\"\n  exit 1\nfi\n                \n\
+              # Function to backup a database\nbackup_db() {\n  local src=$1\n  local\
+              \ name=$2\n  local backup_file=\"/tmp/${name}-${TIMESTAMP}.db\"\n  local\
+              \ s3_key=\"$name/${name}-${TIMESTAMP}.db\"\n                  \n  echo\
+              \ \"Backing up $name...\"\n                  \n  # sqlite3 .backup is\
+              \ atomic and safe during writes\n  # It acquires a read lock and copies\
+              \ consistently\n  if ! sqlite3 \"$src\" \".backup '$backup_file'\";\
+              \ then\n    echo \"ERROR: sqlite3 backup failed for $name\"\n    return\
+              \ 1\n  fi\n                  \n  # sqlite3 .backup is atomic and reliable\
+              \ - just verify file size\n  # Skip integrity checks due to Plex custom\
+              \ FTS tokenizer issues\n  local size=$(stat -c%s \"$backup_file\")\n\
+              \  if [ \"$size\" -lt 10000 ]; then\n    echo \"ERROR: Backup too small\
+              \ ($size bytes) for $name\"\n    rm -f \"$backup_file\"\n    return\
+              \ 1\n  fi\n  echo \"Backup created: $size bytes\"\n                \
+              \  \n  # Upload to MinIO using S3 API with AWS SigV4\n  echo \"Uploading\
+              \ to MinIO: $s3_key\"\n  if ! curl -sf -X PUT \\\n    --aws-sigv4 \"\
+              aws:amz:us-east-1:s3\" \\\n    --user \"$MINIO_ACCESS_KEY:$MINIO_SECRET_KEY\"\
+              \ \\\n    -H \"Content-Type: application/octet-stream\" \\\n    --data-binary\
+              \ \"@$backup_file\" \\\n    \"$MINIO_ENDPOINT/$BACKUP_BUCKET/$s3_key\"\
+              ; then\n    echo \"ERROR: Upload failed for $name\"\n    rm -f \"$backup_file\"\
+              \n    return 1\n  fi\n                  \n  rm -f \"$backup_file\"\n\
+              \  echo \"$name backup complete: $s3_key\"\n  return 0\n}\n        \
+              \        \n# Function to cleanup old backups (keep last N)\ncleanup_old_backups()\
+              \ {\n  local prefix=$1\n  local keep=$2\n                  \n  echo\
+              \ \"Cleaning up old backups for $prefix (keeping last $keep)...\"\n\
+              \                  \n  # List all objects with prefix (use sed - busybox\
+              \ grep lacks -P)\n  OBJECTS=$(curl -sf \\\n    --aws-sigv4 \"aws:amz:us-east-1:s3\"\
+              \ \\\n    --user \"$MINIO_ACCESS_KEY:$MINIO_SECRET_KEY\" \\\n    \"\
+              $MINIO_ENDPOINT/$BACKUP_BUCKET?prefix=$prefix&list-type=2\" \\\n   \
+              \ 2>/dev/null | sed -n 's/.*<Key>\\([^<]*\\)<\\/Key>.*/\\1/p' | sort\
+              \ -r)\n                  \n  # Skip the first N (newest), delete the\
+              \ rest\n  echo \"$OBJECTS\" | tail -n +$((keep + 1)) | while read key;\
+              \ do\n    if [ -n \"$key\" ]; then\n      echo \"Deleting old backup:\
+              \ $key\"\n      curl -sf -X DELETE \\\n        --aws-sigv4 \"aws:amz:us-east-1:s3\"\
+              \ \\\n        --user \"$MINIO_ACCESS_KEY:$MINIO_SECRET_KEY\" \\\n  \
+              \      \"$MINIO_ENDPOINT/$BACKUP_BUCKET/$key\" || true\n    fi\n  done\n\
+              }\n                \n# Perform backups\nFAILED=0\n                \n\
+              backup_db \"$LIBRARY_DB\" \"library\" || FAILED=1\nbackup_db \"$BLOBS_DB\"\
+              \ \"blobs\" || FAILED=1\n                \nif [ \"$FAILED\" -eq 1 ];\
+              \ then\n  echo \"ERROR: One or more backups failed!\"\n  exit 1\nfi\n\
+              \                \n# Cleanup old backups (keep last 48 = 24 hours at\
+              \ 30-min intervals)\ncleanup_old_backups \"library/\" 48\ncleanup_old_backups\
+              \ \"blobs/\" 48\n                \necho \"=== Backup complete ===\"\n"
+            command:
+            - /bin/sh
+            - -c
+            env:
+            - name: MINIO_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  key: MINIO_ACCESS_KEY
+                  name: media-centre-secrets
+                  optional: false
+            - name: MINIO_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  key: MINIO_SECRET_KEY
+                  name: media-centre-secrets
+                  optional: false
+            - name: MINIO_ENDPOINT
+              value: http://seaweedfs-s3.default.svc.cluster.local:8333
+            - name: BACKUP_BUCKET
+              value: plex-backup
+            image: alpine:3.23
+            imagePullPolicy: IfNotPresent
+            name: backup
+            resources:
+              limits:
+                cpu: 500m
+                memory: 512Mi
+              requests:
+                cpu: 100m
+                memory: 128Mi
+            terminationMessagePath: /dev/termination-log
+            terminationMessagePolicy: File
+            volumeMounts:
+            - mountPath: /plex-data
+              mountPropagation: None
+              name: plex-data
+              readOnly: true
+          dnsPolicy: ClusterFirst
+          enableServiceLinks: true
+          nodeSelector:
+            kubernetes.io/hostname: hestia
+          restartPolicy: Never
+          schedulerName: default-scheduler
+          securityContext: {}
+          shareProcessNamespace: false
+          terminationGracePeriodSeconds: 30
+          volumes:
+          - name: plex-data
+            persistentVolumeClaim:
+              claimName: plex-data
+      ttlSecondsAfterFinished: 3600
+  schedule: '*/30 * * * *'
+  successfulJobsHistoryLimit: 3
+  suspend: false

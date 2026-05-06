@@ -1,0 +1,27 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+- ciliumnetworkpolicy-default-dovecot.yaml
+- ciliumnetworkpolicy-default-mail-redis.yaml
+- ciliumnetworkpolicy-default-postfix.yaml
+- ciliumnetworkpolicy-default-rspamd.yaml
+- ciliumnetworkpolicy-default-sogo.yaml
+- configmap-default-dovecot-ldap.yaml
+- configmap-default-dovecot-main.yaml
+- configmap-default-postfix-aliases.yaml
+- configmap-default-postfix-ldap.yaml
+- configmap-default-postfix-main.yaml
+- configmap-default-rspamd-config.yaml
+- configmap-default-sogo-config.yaml
+- deployment-default-dovecot.yaml
+- deployment-default-mail-redis.yaml
+- deployment-default-postfix.yaml
+- deployment-default-rspamd.yaml
+- deployment-default-sogo.yaml
+- ingress-default-sogo.yaml
+- service-default-dovecot.yaml
+- service-default-mail-redis.yaml
+- service-default-postfix.yaml
+- service-default-rspamd.yaml
+- service-default-rspamd-metrics.yaml
+- service-default-sogo.yaml

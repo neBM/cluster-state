@@ -1,0 +1,18 @@
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app: overseerr
+    environment: prod
+  name: overseerr
+  namespace: default
+spec:
+  internalTrafficPolicy: Cluster
+  ports:
+  - port: 80
+    protocol: TCP
+    targetPort: 5055
+  selector:
+    app: overseerr
+  sessionAffinity: None
+  type: ClusterIP

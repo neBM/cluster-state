@@ -1,0 +1,29 @@
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app: seaweedfs
+    component: master
+    environment: prod
+  name: seaweedfs-master
+  namespace: default
+spec:
+  clusterIP: None
+  clusterIPs:
+  - None
+  internalTrafficPolicy: Cluster
+  ports:
+  - name: http
+    port: 9333
+    protocol: TCP
+    targetPort: 9333
+  - name: grpc
+    port: 19333
+    protocol: TCP
+    targetPort: 19333
+  publishNotReadyAddresses: true
+  selector:
+    app: seaweedfs
+    component: master
+  sessionAffinity: None
+  type: ClusterIP

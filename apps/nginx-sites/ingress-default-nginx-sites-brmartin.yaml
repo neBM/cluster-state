@@ -1,0 +1,39 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    traefik.ingress.kubernetes.io/router.tls: 'true'
+  labels:
+    app: nginx-sites
+    environment: prod
+  name: nginx-sites-brmartin
+  namespace: default
+spec:
+  ingressClassName: traefik
+  rules:
+  - host: brmartin.co.uk
+    http:
+      paths:
+      - backend:
+          service:
+            name: nginx-sites
+            port:
+              number: 80
+        path: /
+        pathType: Prefix
+  - host: www.brmartin.co.uk
+    http:
+      paths:
+      - backend:
+          service:
+            name: nginx-sites
+            port:
+              number: 80
+        path: /
+        pathType: Prefix
+  tls:
+  - hosts:
+    - brmartin.co.uk
+    - www.brmartin.co.uk
+    secretName: wildcard-brmartin-tls

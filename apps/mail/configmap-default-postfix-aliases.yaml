@@ -1,0 +1,17 @@
+apiVersion: v1
+data:
+  virtual: 'ben@martinilink.co.uk      ben@brmartin.co.uk
+
+    services@brmartin.co.uk    ben@brmartin.co.uk
+
+    noreply@brmartin.co.uk     ben@brmartin.co.uk
+
+    '
+immutable: false
+kind: ConfigMap
+metadata:
+  labels:
+    app: postfix
+    environment: prod
+  name: postfix-aliases
+  namespace: default

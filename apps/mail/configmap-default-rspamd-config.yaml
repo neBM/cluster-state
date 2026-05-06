@@ -1,0 +1,23 @@
+apiVersion: v1
+data:
+  dkim_signing.conf: "enabled = true;\nallow_username_mismatch = true;\n\ndomain {\n\
+    \  brmartin.co.uk {\n    path = \"/etc/rspamd/dkim/brmartin.co.uk.dkim.key\";\n\
+    \    selector = \"dkim\";\n  }\n  martinilink.co.uk {\n    path = \"/etc/rspamd/dkim/martinilink.co.uk.dkim.key\"\
+    ;\n    selector = \"dkim\";\n  }\n}\n"
+  metrics-proxy.conf.template: "server {\n  listen 11335;\n  access_log off;\n\n \
+    \ location = /metrics {\n    proxy_pass http://127.0.0.1:11334/metrics;\n    proxy_set_header\
+    \ Password ${RSPAMD_CONTROLLER_PASSWORD};\n  }\n\n  location / {\n    return 404;\n\
+    \  }\n}\n"
+  redis.conf: 'servers = "mail-redis:6379";
+
+    '
+  worker-proxy.inc: "bind_socket = \"*:11332\";\nupstream \"local\" {\n  self_scan\
+    \ = yes;\n}\n"
+immutable: false
+kind: ConfigMap
+metadata:
+  labels:
+    app: rspamd
+    environment: prod
+  name: rspamd-config
+  namespace: default

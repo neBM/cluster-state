@@ -1,0 +1,51 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    traefik.ingress.kubernetes.io/router.tls: 'true'
+  labels:
+    app: athenaeum
+  name: athenaeum
+  namespace: default
+spec:
+  ingressClassName: traefik
+  rules:
+  - host: athenaeum.brmartin.co.uk
+    http:
+      paths:
+      - backend:
+          service:
+            name: athenaeum-frontend
+            port:
+              number: 80
+        path: /
+        pathType: Prefix
+  - host: athenaeum.brmartin.co.uk
+    http:
+      paths:
+      - backend:
+          service:
+            name: athenaeum-backend
+            port:
+              number: 8000
+        path: /api
+        pathType: Prefix
+      - backend:
+          service:
+            name: athenaeum-backend
+            port:
+              number: 8000
+        path: /mcp
+        pathType: Prefix
+      - backend:
+          service:
+            name: athenaeum-backend
+            port:
+              number: 8000
+        path: /socket.io
+        pathType: Prefix
+  tls:
+  - hosts:
+    - athenaeum.brmartin.co.uk
+    secretName: wildcard-brmartin-tls

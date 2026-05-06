@@ -1,0 +1,21 @@
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app: ollama
+    environment: prod
+  name: ollama
+  namespace: default
+spec:
+  externalTrafficPolicy: Cluster
+  internalTrafficPolicy: Cluster
+  ports:
+  - name: api
+    nodePort: 31434
+    port: 11434
+    protocol: TCP
+    targetPort: 11434
+  selector:
+    app: ollama
+  sessionAffinity: None
+  type: NodePort

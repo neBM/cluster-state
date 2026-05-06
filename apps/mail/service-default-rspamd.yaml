@@ -1,0 +1,23 @@
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app: rspamd
+    environment: prod
+  name: rspamd
+  namespace: default
+spec:
+  internalTrafficPolicy: Cluster
+  ports:
+  - name: milter
+    port: 11332
+    protocol: TCP
+    targetPort: 11332
+  - name: web
+    port: 11334
+    protocol: TCP
+    targetPort: 11334
+  selector:
+    app: rspamd
+  sessionAffinity: None
+  type: ClusterIP

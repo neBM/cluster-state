@@ -1,0 +1,37 @@
+apiVersion: v1
+data:
+  auth-ldap.conf.ext: "# passdb step 1: check user is member of mail-users group.\n\
+    # Searches ou=groups for the group entry with member=uid=%n,...\n# If user is\
+    \ NOT in the group, the search returns nothing \u2192 auth fails.\n# result_success=continue\
+    \ passes to step 2 for password verification.\npassdb {\n  driver = ldap\n  args\
+    \ = /etc/dovecot/dovecot-ldap-passdb.conf.ext\n  result_success = continue\n \
+    \ result_failure = return-fail\n  result_internalfail = return-fail\n}\n\n# passdb\
+    \ step 2: verify password via direct bind (auth_bind_userdn).\n# Only reached\
+    \ if group membership check passed.\npassdb {\n  driver = ldap\n  args = /etc/dovecot/dovecot-ldap.conf.ext\n\
+    }\n\n# userdb: resolves uid/gid/home for mail delivery.\nuserdb {\n  driver =\
+    \ ldap\n  args = /etc/dovecot/dovecot-ldap.conf.ext\n}\n"
+  dovecot.conf: "# Dovecot main configuration for K8s mail stack\n# Managed in cluster-state\
+    \ \u2014 do not edit manually\n\n# Protocols\nprotocols = imap pop3 lmtp sieve\n\
+    \n# Mail storage \u2014 NFS-safe settings (AGENTS.md)\nmail_location = maildir:/var/mail/%d/%n:INDEX=/var/indexes/%d/%n\n\
+    mmap_disable = yes\nmail_fsync = always\nmaildir_copy_with_hardlinks = no\n\n\
+    # User identity (static vmail uid/gid)\nmail_privileged_group = vmail\n\n# TLS\n\
+    ssl = yes\nssl_cert = </etc/ssl/mail/tls.crt\nssl_key = </etc/ssl/mail/tls.key\n\
+    ssl_min_protocol = TLSv1.2\n\n# Authentication\nauth_mechanisms = plain login\n\
+    # Allow plaintext auth on port 143 for internal SoGO connections\ndisable_plaintext_auth\
+    \ = no\n\n# LMTP listener (Postfix delivery)\nservice lmtp {\n  inet_listener\
+    \ lmtp {\n    address = 0.0.0.0\n    port = 24\n  }\n}\n\n# SASL listener (Postfix\
+    \ auth delegation)\nservice auth {\n  inet_listener {\n    port = 12345\n  }\n\
+    }\n\n# IMAP listener\nservice imap-login {\n  inet_listener imap {\n    port =\
+    \ 143\n  }\n  inet_listener imaps {\n    port = 993\n    ssl = yes\n  }\n}\n\n\
+    # POP3 listener\nservice pop3-login {\n  inet_listener pop3 {\n    port = 110\n\
+    \  }\n  inet_listener pop3s {\n    port = 995\n    ssl = yes\n  }\n}\n\n# ManageSieve\
+    \ listener\nservice managesieve-login {\n  inet_listener sieve {\n    port = 4190\n\
+    \  }\n}\n\n# Include LDAP auth config\n!include auth-ldap.conf.ext\n"
+immutable: false
+kind: ConfigMap
+metadata:
+  labels:
+    app: dovecot
+    environment: prod
+  name: dovecot-main
+  namespace: default

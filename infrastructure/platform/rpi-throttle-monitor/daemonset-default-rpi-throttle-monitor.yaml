@@ -1,0 +1,76 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  annotations:
+    deprecated.daemonset.template.generation: '1'
+  labels:
+    app.kubernetes.io/component: monitoring
+    app.kubernetes.io/instance: rpi-throttle-monitor
+    app.kubernetes.io/name: rpi-throttle-monitor
+  name: rpi-throttle-monitor
+  namespace: default
+spec:
+  revisionHistoryLimit: 10
+  selector:
+    matchLabels:
+      app.kubernetes.io/instance: rpi-throttle-monitor
+      app.kubernetes.io/name: rpi-throttle-monitor
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/component: monitoring
+        app.kubernetes.io/instance: rpi-throttle-monitor
+        app.kubernetes.io/name: rpi-throttle-monitor
+    spec:
+      automountServiceAccountToken: true
+      containers:
+      - command:
+        - /bin/bash
+        - /scripts/monitor-throttle.sh
+        image: ubuntu:24.04
+        imagePullPolicy: IfNotPresent
+        name: monitor
+        resources:
+          limits:
+            cpu: 50m
+            memory: 32Mi
+          requests:
+            cpu: 5m
+            memory: 16Mi
+        securityContext:
+          allowPrivilegeEscalation: true
+          privileged: true
+          readOnlyRootFilesystem: false
+          runAsNonRoot: false
+        terminationMessagePath: /dev/termination-log
+        terminationMessagePolicy: File
+        volumeMounts:
+        - mountPath: /scripts
+          mountPropagation: None
+          name: scripts
+      dnsPolicy: ClusterFirst
+      enableServiceLinks: true
+      hostPID: true
+      nodeSelector:
+        kubernetes.io/arch: arm64
+      restartPolicy: Always
+      schedulerName: default-scheduler
+      securityContext: {}
+      shareProcessNamespace: false
+      terminationGracePeriodSeconds: 30
+      tolerations:
+      - effect: NoSchedule
+        operator: Exists
+      - effect: NoExecute
+        operator: Exists
+      volumes:
+      - configMap:
+          defaultMode: 493
+          name: rpi-throttle-monitor-scripts
+          optional: false
+        name: scripts
+  updateStrategy:
+    rollingUpdate:
+      maxSurge: 0
+      maxUnavailable: 1
+    type: RollingUpdate

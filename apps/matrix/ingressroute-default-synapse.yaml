@@ -1,0 +1,24 @@
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  labels:
+    app: matrix
+    component: synapse
+  name: synapse
+  namespace: default
+spec:
+  entryPoints:
+  - websecure
+  routes:
+  - kind: Rule
+    match: Host(`matrix.brmartin.co.uk`)
+    middlewares:
+    - name: synapse-headers
+      namespace: default
+    - name: synapse-buffering
+      namespace: default
+    services:
+    - name: synapse
+      port: 8008
+  tls:
+    secretName: wildcard-brmartin-tls

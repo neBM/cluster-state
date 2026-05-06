@@ -1,0 +1,17 @@
+allowVolumeExpansion: true
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  labels:
+    app: seaweedfs
+    environment: prod
+  name: seaweedfs
+mountOptions:
+- concurrentWriters=8
+- chunkSizeLimitMB=2
+parameters:
+  collection: default
+  replication: '000'
+provisioner: seaweedfs-csi-driver
+reclaimPolicy: Retain
+volumeBindingMode: Immediate

@@ -1,0 +1,14 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+- daemonset-nvidia-dra-driver-nvidia-dra-driver-gpu-kubelet-plugin.yaml
+- deployment-nvidia-dra-driver-nvidia-dra-driver-gpu-controller.yaml
+- deviceclass-compute-domain-daemon.nvidia.com.yaml
+- deviceclass-compute-domain-default-channel.nvidia.com.yaml
+- deviceclass-gpu.nvidia.com.yaml
+- deviceclass-mig.nvidia.com.yaml
+- deviceclass-vfio.gpu.nvidia.com.yaml
+- namespace-nvidia-dra-driver.yaml
+- node-hestia.yaml
+- serviceaccount-nvidia-dra-driver-nvidia-dra-driver-gpu-service-account-controller.yaml
+- serviceaccount-nvidia-dra-driver-nvidia-dra-driver-gpu-service-account-kubeletplugin.yaml

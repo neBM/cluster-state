@@ -1,0 +1,191 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app.kubernetes.io/component: monitoring
+    app.kubernetes.io/instance: grafana
+    app.kubernetes.io/name: grafana
+  name: grafana
+  namespace: default
+spec:
+  progressDeadlineSeconds: 600
+  replicas: 1
+  revisionHistoryLimit: 10
+  selector:
+    matchLabels:
+      app.kubernetes.io/instance: grafana
+      app.kubernetes.io/name: grafana
+  strategy:
+    rollingUpdate:
+      maxSurge: 25%
+      maxUnavailable: 25%
+    type: RollingUpdate
+  template:
+    metadata:
+      annotations:
+        checksum/alerting: 1363d9f3ee9c5db022ba452b433183b4b65ec50ce4adbdf15ed28a09c266be78
+        checksum/datasources: b81bc0e894eb799a57b0a1243386c1b7d43bad3820bb567822c404c7c97aaf98
+      labels:
+        app.kubernetes.io/component: monitoring
+        app.kubernetes.io/instance: grafana
+        app.kubernetes.io/name: grafana
+        app.kubernetes.io/version: 13.0.1
+    spec:
+      automountServiceAccountToken: true
+      containers:
+      - env:
+        - name: GF_AUTH_GENERIC_OAUTH_ENABLED
+          value: 'true'
+        - name: GF_AUTH_GENERIC_OAUTH_NAME
+          value: Keycloak
+        - name: GF_AUTH_GENERIC_OAUTH_ALLOW_SIGN_UP
+          value: 'true'
+        - name: GF_AUTH_GENERIC_OAUTH_CLIENT_ID
+          value: grafana
+        - name: GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET
+          valueFrom:
+            secretKeyRef:
+              key: OAUTH_CLIENT_SECRET
+              name: grafana-secrets
+              optional: false
+        - name: GF_AUTH_GENERIC_OAUTH_SCOPES
+          value: openid email profile
+        - name: GF_AUTH_GENERIC_OAUTH_EMAIL_ATTRIBUTE_NAME
+          value: email
+        - name: GF_AUTH_GENERIC_OAUTH_EMAIL_ATTRIBUTE_PATH
+          value: email
+        - name: GF_AUTH_GENERIC_OAUTH_AUTH_URL
+          value: https://sso.brmartin.co.uk/realms/prod/protocol/openid-connect/auth
+        - name: GF_AUTH_GENERIC_OAUTH_TOKEN_URL
+          value: https://sso.brmartin.co.uk/realms/prod/protocol/openid-connect/token
+        - name: GF_AUTH_GENERIC_OAUTH_API_URL
+          value: https://sso.brmartin.co.uk/realms/prod/protocol/openid-connect/userinfo
+        - name: GF_AUTH_GENERIC_OAUTH_TLS_SKIP_VERIFY_INSECURE
+          value: 'false'
+        - name: GF_SERVER_ROOT_URL
+          value: https://grafana.brmartin.co.uk
+        - name: GF_SECURITY_ADMIN_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              key: GF_SECURITY_ADMIN_PASSWORD
+              name: grafana-secrets
+              optional: false
+        - name: GF_SMTP_ENABLED
+          value: 'true'
+        - name: GF_SMTP_HOST
+          value: mail.brmartin.co.uk:587
+        - name: GF_SMTP_FROM_ADDRESS
+          value: services@brmartin.co.uk
+        - name: GF_SMTP_FROM_NAME
+          value: Grafana
+        - name: GF_SMTP_STARTTLS_POLICY
+          value: MandatoryStartTLS
+        - name: GF_SMTP_USER
+          valueFrom:
+            secretKeyRef:
+              key: GF_SMTP_USER
+              name: grafana-smtp
+              optional: false
+        - name: GF_SMTP_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              key: GF_SMTP_PASSWORD
+              name: grafana-smtp
+              optional: false
+        - name: GF_ALERT_EMAIL_TO
+          valueFrom:
+            secretKeyRef:
+              key: GF_ALERT_EMAIL_TO
+              name: grafana-smtp
+              optional: false
+        - name: GF_PATHS_DATA
+          value: /var/lib/grafana
+        - name: GF_PATHS_LOGS
+          value: /var/log/grafana
+        - name: GF_PATHS_PLUGINS
+          value: /var/lib/grafana/plugins
+        - name: GF_PATHS_PROVISIONING
+          value: /etc/grafana/provisioning
+        - name: GF_PLUGINS_PREINSTALL_DISABLED
+          value: 'true'
+        image: grafana/grafana:13.0.1
+        imagePullPolicy: IfNotPresent
+        livenessProbe:
+          failureThreshold: 3
+          httpGet:
+            path: /api/health
+            port: http
+            scheme: HTTP
+          initialDelaySeconds: 30
+          periodSeconds: 30
+          successThreshold: 1
+          timeoutSeconds: 10
+        name: grafana
+        ports:
+        - containerPort: 3000
+          name: http
+          protocol: TCP
+        readinessProbe:
+          failureThreshold: 3
+          httpGet:
+            path: /api/health
+            port: http
+            scheme: HTTP
+          initialDelaySeconds: 10
+          periodSeconds: 10
+          successThreshold: 1
+          timeoutSeconds: 5
+        resources:
+          limits:
+            cpu: 500m
+            memory: 512Mi
+          requests:
+            cpu: 100m
+            memory: 325Mi
+        terminationMessagePath: /dev/termination-log
+        terminationMessagePolicy: File
+        volumeMounts:
+        - mountPath: /var/lib/grafana
+          mountPropagation: None
+          name: data
+        - mountPath: /etc/grafana/provisioning/datasources/prometheus.yaml
+          mountPropagation: None
+          name: datasources
+          readOnly: true
+          subPath: prometheus.yaml
+        - mountPath: /etc/grafana/provisioning/datasources/loki.yaml
+          mountPropagation: None
+          name: datasources
+          readOnly: true
+          subPath: loki.yaml
+        - mountPath: /etc/grafana/provisioning/alerting/contactpoints.yaml
+          mountPropagation: None
+          name: alerting
+          readOnly: true
+          subPath: contactpoints.yaml
+        - mountPath: /etc/grafana/provisioning/alerting/policies.yaml
+          mountPropagation: None
+          name: alerting
+          readOnly: true
+          subPath: policies.yaml
+      dnsPolicy: ClusterFirst
+      enableServiceLinks: true
+      restartPolicy: Always
+      schedulerName: default-scheduler
+      securityContext: {}
+      shareProcessNamespace: false
+      terminationGracePeriodSeconds: 30
+      volumes:
+      - name: data
+        persistentVolumeClaim:
+          claimName: grafana-data
+      - configMap:
+          defaultMode: 420
+          name: grafana-datasources
+          optional: false
+        name: datasources
+      - configMap:
+          defaultMode: 420
+          name: grafana-alerting
+          optional: false
+        name: alerting

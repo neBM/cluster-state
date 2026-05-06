@@ -1,0 +1,9 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+- clusterrolebinding-headlamp.yaml
+- configmap-kube-system-headlamp-kubeconfig.yaml
+- deployment-kube-system-headlamp.yaml
+- ingressroute-kube-system-headlamp.yaml
+- service-kube-system-headlamp.yaml
+- serviceaccount-kube-system-headlamp.yaml

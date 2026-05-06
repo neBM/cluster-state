@@ -1,0 +1,28 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    traefik.ingress.kubernetes.io/router.tls: 'true'
+  labels:
+    app: jayne-martin-counselling
+    environment: production
+  name: jayne-martin-counselling
+  namespace: default
+spec:
+  ingressClassName: traefik
+  rules:
+  - host: www.jaynemartincounselling.co.uk
+    http:
+      paths:
+      - backend:
+          service:
+            name: jayne-martin-counselling
+            port:
+              number: 80
+        path: /
+        pathType: Prefix
+  tls:
+  - hosts:
+    - www.jaynemartincounselling.co.uk
+    secretName: wildcard-brmartin-tls

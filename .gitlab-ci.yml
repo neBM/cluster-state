@@ -2,12 +2,10 @@ stages:
   - compile
   - package
   - validate
-  - plan
-  - apply
 
 variables:
-  TF_IN_AUTOMATION: "true"
   ACT_IMAGE: ${CI_REGISTRY}/ben/act:latest
+  KUBECTL_VERSION: v1.35.0
   RPI5_IMAGE: ${CI_REGISTRY_IMAGE}/rpi5-dra-driver
   RPI5_IMAGE_CACHE: ${CI_REGISTRY_IMAGE}/rpi5-dra-driver/cache
 
@@ -70,79 +68,46 @@ package:rpi5-dra-driver:
   rules:
     - *rules_rpi5
 
-.terraform-base:
-  image: ${ACT_IMAGE}
-  cache:
-    key: terraform-plugins
-    paths:
-      - .terraform/providers
-  before_script:
-    # Setup kubeconfig using ServiceAccount token (limited RBAC)
-    # Required CI variables: K8S_HOST, K8S_TOKEN, K8S_CA_CERT
-    # Write to ~/.kube/k3s-config to match provider config_path
-    - mkdir -p ~/.kube
-    - |
-      cat > ~/.kube/k3s-config << EOF
-      apiVersion: v1
-      kind: Config
-      clusters:
-      - name: k3s
-        cluster:
-          server: ${K8S_HOST}
-          certificate-authority-data: ${K8S_CA_CERT}
-      contexts:
-      - name: default
-        context:
-          cluster: k3s
-          user: terraform-ci
-      current-context: default
-      users:
-      - name: terraform-ci
-        user:
-          token: ${K8S_TOKEN}
-      EOF
-    - chmod 600 ~/.kube/k3s-config
+.kubectl_before: &kubectl_before
+  - export PATH="${CI_PROJECT_DIR}/.local/bin:${PATH}"
+  - mkdir -p "${CI_PROJECT_DIR}/.local/bin"
+  - |
+    case "$(uname -m)" in
+      x86_64) KUBECTL_ARCH=amd64 ;;
+      aarch64) KUBECTL_ARCH=arm64 ;;
+      *)
+        echo "Unsupported architecture: $(uname -m)"
+        exit 1
+        ;;
+    esac
+    curl -fsSLo "${CI_PROJECT_DIR}/.local/bin/kubectl" \
+      "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/${KUBECTL_ARCH}/kubectl"
+    chmod +x "${CI_PROJECT_DIR}/.local/bin/kubectl"
+  - kubectl version --client
 
-validate:
-  extends: .terraform-base
+.validate_rules: &validate_rules
+  - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+  - if: $CI_COMMIT_BRANCH == "main"
+
+validate:manifests:
+  image: ${ACT_IMAGE}
+  stage: validate
+  needs: []
+  before_script: *kubectl_before
+  script:
+    - ./scripts/validate_kustomize.sh
+  rules: *validate_rules
+
+validate:driver-sources:
+  image: ${ACT_IMAGE}
   stage: validate
   needs: []
   script:
-    - terraform fmt -check -recursive
-    - terraform init -backend=false
-    - terraform validate
-  rules:
-    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
-    - if: $CI_COMMIT_BRANCH == "main"
-
-plan:
-  extends: .terraform-base
-  stage: plan
-  needs:
-    - job: validate
-  script:
-    - terraform init -backend-config="conn_str=$PG_CONN_STR"
-    - terraform plan -out=tfplan
-  artifacts:
-    paths:
-      - tfplan
-      - .terraform
-      - .terraform.lock.hcl
-    expire_in: 1 hour
-  rules:
-    - if: $CI_COMMIT_BRANCH == "main"
-
-apply:
-  extends: .terraform-base
-  stage: apply
-  needs:
-    - job: plan
-      artifacts: true
-  script:
-    - terraform init -backend-config="conn_str=$PG_CONN_STR"
-    - terraform apply -auto-approve
-  rules:
-    - if: $CI_COMMIT_BRANCH == "main"
-      when: manual
-  environment:
-    name: production
+    - |
+      unformatted="$(find drivers -name '*.go' -type f -exec gofmt -l {} +)"
+      if [ -n "${unformatted}" ]; then
+        echo "Unformatted Go files:"
+        echo "${unformatted}"
+        exit 1
+      fi
+  rules: *validate_rules

@@ -1,0 +1,14 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  labels:
+    app: rpi5-dra-driver
+  name: rpi5-dra-driver
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: rpi5-dra-driver
+subjects:
+- kind: ServiceAccount
+  name: rpi5-dra-driver
+  namespace: kube-system

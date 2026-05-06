@@ -1,0 +1,11 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+- configmap-default-athenaeum-frontend-config.yaml
+- deployment-default-athenaeum-backend.yaml
+- deployment-default-athenaeum-frontend.yaml
+- deployment-default-athenaeum-redis.yaml
+- ingress-default-athenaeum.yaml
+- service-default-athenaeum-backend.yaml
+- service-default-athenaeum-frontend.yaml
+- service-default-athenaeum-redis.yaml

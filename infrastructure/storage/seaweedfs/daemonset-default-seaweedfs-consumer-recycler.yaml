@@ -1,0 +1,114 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  annotations:
+    deprecated.daemonset.template.generation: '5'
+  labels:
+    app: seaweedfs
+    app.kubernetes.io/name: seaweedfs-consumer-recycler
+    component: consumer-recycler
+    environment: prod
+  name: seaweedfs-consumer-recycler
+  namespace: default
+spec:
+  revisionHistoryLimit: 10
+  selector:
+    matchLabels:
+      app: seaweedfs
+      app.kubernetes.io/name: seaweedfs-consumer-recycler
+  template:
+    metadata:
+      labels:
+        app: seaweedfs
+        app.kubernetes.io/name: seaweedfs-consumer-recycler
+        component: consumer-recycler
+        environment: prod
+    spec:
+      automountServiceAccountToken: true
+      containers:
+      - args:
+        - --metrics-bind-address=:9090
+        - --health-probe-bind-address=:9808
+        - --proc-root=/host/proc
+        - --stat-path=/usr/bin/stat
+        env:
+        - name: NODE_NAME
+          valueFrom:
+            fieldRef:
+              apiVersion: v1
+              fieldPath: spec.nodeName
+        image: registry.brmartin.co.uk/ben/seaweedfs-consumer-recycler:v0.1.3
+        imagePullPolicy: IfNotPresent
+        livenessProbe:
+          failureThreshold: 3
+          httpGet:
+            path: /healthz
+            port: healthz
+            scheme: HTTP
+          initialDelaySeconds: 15
+          periodSeconds: 30
+          successThreshold: 1
+          timeoutSeconds: 1
+        name: recycler
+        ports:
+        - containerPort: 9090
+          name: metrics
+          protocol: TCP
+        - containerPort: 9808
+          name: healthz
+          protocol: TCP
+        readinessProbe:
+          failureThreshold: 3
+          httpGet:
+            path: /readyz
+            port: healthz
+            scheme: HTTP
+          initialDelaySeconds: 5
+          periodSeconds: 10
+          successThreshold: 1
+          timeoutSeconds: 1
+        resources:
+          limits:
+            cpu: 200m
+            memory: 128Mi
+          requests:
+            cpu: 20m
+            memory: 64Mi
+        terminationMessagePath: /dev/termination-log
+        terminationMessagePolicy: File
+        volumeMounts:
+        - mountPath: /host/proc
+          mountPropagation: None
+          name: host-proc
+          readOnly: true
+        - mountPath: /var/lib/kubelet/pods
+          mountPropagation: None
+          name: kubelet-pods
+          readOnly: true
+      dnsPolicy: ClusterFirst
+      enableServiceLinks: true
+      restartPolicy: Always
+      schedulerName: default-scheduler
+      securityContext: {}
+      serviceAccount: seaweedfs-consumer-recycler
+      serviceAccountName: seaweedfs-consumer-recycler
+      shareProcessNamespace: false
+      terminationGracePeriodSeconds: 30
+      tolerations:
+      - effect: NoSchedule
+        key: node-role.kubernetes.io/control-plane
+        operator: Exists
+      volumes:
+      - hostPath:
+          path: /proc
+          type: Directory
+        name: host-proc
+      - hostPath:
+          path: /var/lib/kubelet/pods
+          type: Directory
+        name: kubelet-pods
+  updateStrategy:
+    rollingUpdate:
+      maxSurge: 0
+      maxUnavailable: 1
+    type: RollingUpdate

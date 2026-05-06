@@ -1,0 +1,10 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+- clusterrole-reloader-reloader-role.yaml
+- clusterrolebinding-reloader-reloader-role-binding.yaml
+- deployment-reloader-reloader-reloader.yaml
+- namespace-reloader.yaml
+- role-reloader-reloader-reloader-metadata-role.yaml
+- rolebinding-reloader-reloader-reloader-metadata-role-binding.yaml
+- serviceaccount-reloader-reloader-reloader.yaml

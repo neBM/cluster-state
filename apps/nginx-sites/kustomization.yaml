@@ -1,0 +1,9 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+- configmap-default-nginx-sites-config.yaml
+- deployment-default-nginx-sites.yaml
+- ingress-default-nginx-sites-brmartin.yaml
+- ingress-default-nginx-sites-martinilink.yaml
+- persistentvolumeclaim-default-nginx-sites-code-sw.yaml
+- service-default-nginx-sites.yaml

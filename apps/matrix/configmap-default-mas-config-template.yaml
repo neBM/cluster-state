@@ -1,0 +1,39 @@
+apiVersion: v1
+data:
+  config.yaml: "http:\n  listeners:\n  - name: web\n    resources:\n    - name: health\n\
+    \    - name: discovery\n    - name: human\n    - name: oauth\n    - name: compat\n\
+    \    - name: graphql\n      playground: true\n    - name: assets\n    - name:\
+    \ adminapi\n    binds:\n    - host: 0.0.0.0\n      port: 8081\n    proxy_protocol:\
+    \ false\n  trusted_proxies:\n    - 10.42.0.0/16\n    - 0.0.0.0\n  public_base:\
+    \ https://mas.brmartin.co.uk/\n  issuer: https://mas.brmartin.co.uk/\ndatabase:\n\
+    \  username: mas_user\n  password: \"MAS_DB_PASSWORD_PLACEHOLDER\"\n  database:\
+    \ mas\n  host: 192.168.1.10\n  port: 5433\n  max_connections: 10\n  min_connections:\
+    \ 0\n  connect_timeout: 30\n  idle_timeout: 600\n  max_lifetime: 1800\nmatrix:\n\
+    \  homeserver: brmartin.co.uk\n  secret: \"MAS_ADMIN_TOKEN_PLACEHOLDER\"\n  endpoint:\
+    \ http://synapse.default.svc.cluster.local:8008\nemail:\n  from: '\"Authentication\
+    \ Service\" <services@brmartin.co.uk>'\n  reply_to: '\"Authentication Service\"\
+    \ <services@brmartin.co.uk>'\n  transport: smtp\n  mode: starttls\n  hostname:\
+    \ mail.brmartin.co.uk\n  port: 587\n  username: svc-matrix\n  password: \"MAS_SMTP_PASSWORD_PLACEHOLDER\"\
+    \nsecrets:\n  encryption: \"MAS_ENCRYPTION_PLACEHOLDER\"\n  keys:\n  - kid: TPieyaE3PM\n\
+    \    key_file: /keys/mas_key_rsa\n  - kid: OeZlPcc37E\n    key_file: /keys/mas_key_ec_p256\n\
+    \  - kid: XctwrElhF9\n    key_file: /keys/mas_key_ec_p384\n  - kid: Bjvh15mokX\n\
+    \    key_file: /keys/mas_key_ec_k256\npasswords:\n  enabled: false\nclients:\n\
+    \  - client_id: 0000000000000000000SYNAPSE\n    client_auth_method: client_secret_basic\n\
+    \    client_secret: \"MAS_CLIENT_SECRET_PLACEHOLDER\"\nupstream_oauth2:\n  providers:\n\
+    \    - id: \"01HVV3NYJQRY4Y15PWNQ6J2DXR\"\n      issuer: \"https://sso.brmartin.co.uk/realms/prod\"\
+    \n      human_name: \"brmartin SSO\"\n      token_endpoint_auth_method: client_secret_basic\n\
+    \      client_id: \"mas\"\n      client_secret: \"MAS_KEYCLOAK_CLIENT_SECRET_PLACEHOLDER\"\
+    \n      scope: \"openid profile email\"\n      discovery_mode: oidc\n      claims_imports:\n\
+    \        localpart:\n          action: require\n          template: \"{{ user.preferred_username\
+    \ }}\"\n        displayname:\n          action: suggest\n          template: \"\
+    {{ user.name }}\"\n        email:\n          action: suggest\n          template:\
+    \ \"{{ user.email }}\"\n          set_email_verification: always\npolicy:\n  data:\n\
+    \    admin_users:\n      - ben\n"
+immutable: false
+kind: ConfigMap
+metadata:
+  labels:
+    app: matrix
+    component: mas
+  name: mas-config-template
+  namespace: default

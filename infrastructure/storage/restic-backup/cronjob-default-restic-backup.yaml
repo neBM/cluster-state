@@ -1,0 +1,92 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  labels:
+    app: restic-backup
+  name: restic-backup
+  namespace: default
+spec:
+  concurrencyPolicy: Forbid
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    metadata:
+      labels:
+        app: restic-backup
+    spec:
+      backoffLimit: 2
+      completions: 1
+      manualSelector: false
+      parallelism: 1
+      template:
+        metadata:
+          labels:
+            app: restic-backup
+        spec:
+          automountServiceAccountToken: true
+          containers:
+          - command:
+            - /bin/sh
+            - /config/backup.sh
+            image: restic/restic:0.18.1
+            imagePullPolicy: IfNotPresent
+            name: restic
+            resources:
+              limits:
+                cpu: 1500m
+                memory: 2Gi
+              requests:
+                cpu: 500m
+                memory: 256Mi
+            terminationMessagePath: /dev/termination-log
+            terminationMessagePolicy: File
+            volumeMounts:
+            - mountPath: /data-seaweedfs
+              mountPropagation: None
+              name: data-seaweedfs
+              readOnly: true
+            - mountPath: /repo
+              mountPropagation: None
+              name: repo
+            - mountPath: /config
+              mountPropagation: None
+              name: scripts
+              readOnly: true
+            - mountPath: /secrets
+              mountPropagation: None
+              name: secrets
+              readOnly: true
+          dnsPolicy: ClusterFirst
+          enableServiceLinks: true
+          nodeSelector:
+            kubernetes.io/hostname: hestia
+          restartPolicy: OnFailure
+          schedulerName: default-scheduler
+          securityContext: {}
+          shareProcessNamespace: false
+          terminationGracePeriodSeconds: 30
+          volumes:
+          - name: data-seaweedfs
+            persistentVolumeClaim:
+              claimName: restic-seaweedfs-filer-root
+              readOnly: true
+          - hostPath:
+              path: /mnt/csi/backups/restic
+              type: Directory
+            name: repo
+          - configMap:
+              defaultMode: 493
+              name: restic-backup-scripts
+              optional: false
+            name: scripts
+          - name: secrets
+            secret:
+              defaultMode: 256
+              items:
+              - key: RESTIC_PASSWORD
+                path: password
+              optional: false
+              secretName: restic-backup-secrets
+  schedule: 0 3 * * *
+  successfulJobsHistoryLimit: 3
+  suspend: false
+  timeZone: Europe/London

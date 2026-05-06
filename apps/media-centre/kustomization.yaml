@@ -1,0 +1,12 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+- cronjob-default-plex-db-backup.yaml
+- deployment-default-plex.yaml
+- deployment-default-tautulli.yaml
+- ingressroute-default-plex.yaml
+- ingressroute-default-tautulli.yaml
+- persistentvolume-media-synology-docker.yaml
+- persistentvolume-media-synology-share.yaml
+- service-default-plex.yaml
+- service-default-tautulli.yaml

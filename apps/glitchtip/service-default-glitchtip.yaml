@@ -1,0 +1,18 @@
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app: glitchtip
+  name: glitchtip
+  namespace: default
+spec:
+  internalTrafficPolicy: Cluster
+  ports:
+  - name: http
+    port: 80
+    protocol: TCP
+    targetPort: 8000
+  selector:
+    app: glitchtip
+  sessionAffinity: None
+  type: ClusterIP

@@ -1,0 +1,19 @@
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  labels:
+    app: seaweedfs
+    environment: prod
+  name: seaweedfs-filer
+  namespace: default
+spec:
+  entryPoints:
+  - websecure
+  routes:
+  - kind: Rule
+    match: Host(`seaweedfs-filer.brmartin.co.uk`)
+    services:
+    - name: seaweedfs-filer-ui
+      port: http
+  tls:
+    secretName: wildcard-brmartin-tls

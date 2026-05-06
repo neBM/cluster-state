@@ -1,0 +1,53 @@
+apiVersion: v1
+data:
+  cable.yml: "production:\n  adapter: redis\n  url: redis://gitlab-redis:6379\n"
+  database.yml: "production:\n  main:\n    adapter: postgresql\n    encoding: unicode\n\
+    \    database: gitlabhq_production\n    host: 192.168.1.10\n    port: 5433\n \
+    \   username: gitlab\n    password: \"<%= File.read('/etc/gitlab/postgres/password').strip\
+    \ %>\"\n    pool: 10\n    prepared_statements: false\n  ci:\n    adapter: postgresql\n\
+    \    encoding: unicode\n    database: gitlabhq_production\n    host: 192.168.1.10\n\
+    \    port: 5433\n    username: gitlab\n    password: \"<%= File.read('/etc/gitlab/postgres/password').strip\
+    \ %>\"\n    pool: 10\n    prepared_statements: false\n    database_tasks: false\n"
+  gitlab.yml: "production:\n  gitlab:\n    host: git.brmartin.co.uk\n    port: 443\n\
+    \    https: true\n    ssh_host: git.brmartin.co.uk\n    ssh_port: 2222\n    relative_url_root:\
+    \ \"\"\n    email_enabled: true\n    email_from: gitlab@brmartin.co.uk\n    email_display_name:\
+    \ GitLab\n    email_reply_to: noreply@brmartin.co.uk\n    default_theme: 2\n \
+    \   default_projects_features:\n      issues: true\n      merge_requests: true\n\
+    \      wiki: true\n      snippets: true\n      builds: true\n      container_registry:\
+    \ true\n    trusted_proxies:\n      - \"127.0.0.0/8\"\n      - \"::1/128\"\n \
+    \     - \"10.42.0.0/16\"\n      - \"10.43.0.0/16\"\n    time_zone: \"Europe/London\"\
+    \n    action_cable_allowed_origins:\n      - \"https://git.brmartin.co.uk\"\n\
+    \    \n  artifacts:\n    enabled: true\n    path: /srv/gitlab/shared/artifacts\n\
+    \    \n  lfs:\n    enabled: true\n    storage_path: /srv/gitlab/shared/lfs-objects\n\
+    \    \n  uploads:\n    storage_path: /srv/gitlab/public/uploads\n    \n  repositories:\n\
+    \    storages:\n      default:\n        path: /srv/gitlab/shared\n        gitaly_address:\
+    \ tcp://gitlab-gitaly:8075\n        \n  gitaly:\n    client_path: /usr/local/bin\n\
+    \    token: \"\"\n    \n  gitlab_shell:\n    path: /srv/gitlab/gitlab-shell\n\
+    \    hooks_path: /srv/gitlab/gitlab-shell/hooks\n    secret_file: /etc/gitlab/gitlab-shell/.gitlab_shell_secret\n\
+    \    ssh_port: 2222\n    \n  workhorse:\n    secret_file: /etc/gitlab/gitlab-workhorse/secret\n\
+    \    \n  registry:\n    enabled: true\n    host: registry.brmartin.co.uk\n   \
+    \ port: 443\n    api_url: http://gitlab-registry:5000\n    issuer: gitlab-issuer\n\
+    \    key: /etc/gitlab/registry/gitlab-registry.key\n    \n  pages:\n    enabled:\
+    \ false\n    \n  mattermost:\n    enabled: false\n    \n  gravatar:\n    enabled:\
+    \ true\n    \n  cron_jobs:\n    stuck_ci_jobs_worker:\n      cron: \"0 * * * *\"\
+    \n    pipeline_schedule_worker:\n      cron: \"19 * * * *\"\n    expire_build_artifacts_worker:\n\
+    \      cron: \"50 * * * *\"\n    repository_archive_cache_worker:\n      cron:\
+    \ \"0 * * * *\"\n    repository_check_worker:\n      cron: \"20 * * * *\"\n  \
+    \  admin_email_worker:\n      cron: \"0 0 * * 0\"\n      \n  monitoring:\n   \
+    \ ip_whitelist:\n      - \"127.0.0.0/8\"\n      - \"::1/128\"\n      - \"10.42.0.0/16\"\
+    \n      - \"10.43.0.0/16\"\n    sidekiq_exporter:\n      enabled: true\n     \
+    \ address: 0.0.0.0\n      port: 8082\n"
+  redis.cache.yml: "production:\n  url: redis://gitlab-redis:6379/1\n"
+  redis.queues.yml: "production:\n  url: redis://gitlab-redis:6379/2\n"
+  redis.rate_limiting.yml: "production:\n  url: redis://gitlab-redis:6379/5\n"
+  redis.sessions.yml: "production:\n  url: redis://gitlab-redis:6379/6\n"
+  redis.shared_state.yml: "production:\n  url: redis://gitlab-redis:6379/3\n"
+  redis.trace_chunks.yml: "production:\n  url: redis://gitlab-redis:6379/4\n"
+  resque.yml: "production:\n  url: redis://gitlab-redis:6379\n"
+immutable: false
+kind: ConfigMap
+metadata:
+  labels:
+    app: gitlab
+  name: gitlab-config-templates
+  namespace: default

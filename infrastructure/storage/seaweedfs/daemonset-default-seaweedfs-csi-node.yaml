@@ -1,0 +1,215 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  annotations:
+    deprecated.daemonset.template.generation: '32'
+  labels:
+    app: seaweedfs
+    component: csi-node
+    environment: prod
+  name: seaweedfs-csi-node
+  namespace: default
+spec:
+  revisionHistoryLimit: 10
+  selector:
+    matchLabels:
+      app: seaweedfs
+      component: csi-node
+  template:
+    metadata:
+      annotations:
+        prometheus.io/path: /metrics
+        prometheus.io/port: '9810'
+        prometheus.io/scrape: 'true'
+      labels:
+        app: seaweedfs
+        component: csi-node
+        environment: prod
+    spec:
+      automountServiceAccountToken: true
+      containers:
+      - args:
+        - --endpoint=$(CSI_ENDPOINT)
+        - --filer=$(SEAWEEDFS_FILER)
+        - --nodeid=$(NODE_ID)
+        - --driverName=seaweedfs-csi-driver
+        - --mountEndpoint=$(MOUNT_ENDPOINT)
+        - --cacheDir=/var/cache/seaweedfs
+        - --components=node
+        env:
+        - name: CSI_ENDPOINT
+          value: unix:///csi/csi.sock
+        - name: SEAWEEDFS_FILER
+          value: seaweedfs-filer:8888
+        - name: NODE_ID
+          valueFrom:
+            fieldRef:
+              apiVersion: v1
+              fieldPath: spec.nodeName
+        - name: MOUNT_ENDPOINT
+          value: unix:///var/lib/seaweedfs-mount/seaweedfs-mount.sock
+        - name: POD_NAME
+          valueFrom:
+            fieldRef:
+              apiVersion: v1
+              fieldPath: metadata.name
+        - name: POD_NAMESPACE
+          valueFrom:
+            fieldRef:
+              apiVersion: v1
+              fieldPath: metadata.namespace
+        image: registry.brmartin.co.uk/ben/seaweedfs-csi-driver:v0.1.12
+        imagePullPolicy: IfNotPresent
+        livenessProbe:
+          failureThreshold: 5
+          httpGet:
+            path: /healthz
+            port: healthz
+            scheme: HTTP
+          initialDelaySeconds: 10
+          periodSeconds: 30
+          successThreshold: 1
+          timeoutSeconds: 1
+        name: csi-seaweedfs
+        ports:
+        - containerPort: 9808
+          name: healthz
+          protocol: TCP
+        - containerPort: 9810
+          name: metrics
+          protocol: TCP
+        resources:
+          limits:
+            cpu: 200m
+            memory: 128Mi
+          requests:
+            cpu: 50m
+            memory: 64Mi
+        securityContext:
+          allowPrivilegeEscalation: true
+          privileged: true
+          readOnlyRootFilesystem: false
+          runAsNonRoot: false
+        terminationMessagePath: /dev/termination-log
+        terminationMessagePolicy: File
+        volumeMounts:
+        - mountPath: /csi
+          mountPropagation: None
+          name: plugin-dir
+        - mountPath: /var/lib/kubelet/plugins
+          mountPropagation: Bidirectional
+          name: kubelet-plugins
+        - mountPath: /var/lib/kubelet/pods
+          mountPropagation: Bidirectional
+          name: kubelet-pods
+        - mountPath: /dev
+          mountPropagation: None
+          name: dev
+        - mountPath: /var/cache/seaweedfs
+          mountPropagation: None
+          name: cache
+        - mountPath: /var/lib/seaweedfs-mount
+          mountPropagation: None
+          name: mount-socket
+      - args:
+        - --csi-address=$(ADDRESS)
+        - --kubelet-registration-path=$(DRIVER_REG_SOCK_PATH)
+        - --http-endpoint=:9809
+        env:
+        - name: ADDRESS
+          value: /csi/csi.sock
+        - name: DRIVER_REG_SOCK_PATH
+          value: /var/lib/kubelet/plugins/seaweedfs-csi-driver/csi.sock
+        - name: KUBE_NODE_NAME
+          valueFrom:
+            fieldRef:
+              apiVersion: v1
+              fieldPath: spec.nodeName
+        image: registry.k8s.io/sig-storage/csi-node-driver-registrar:v2.16.0
+        imagePullPolicy: IfNotPresent
+        name: node-driver-registrar
+        resources:
+          limits:
+            cpu: 50m
+            memory: 32Mi
+          requests:
+            cpu: 10m
+            memory: 16Mi
+        terminationMessagePath: /dev/termination-log
+        terminationMessagePolicy: File
+        volumeMounts:
+        - mountPath: /csi
+          mountPropagation: None
+          name: plugin-dir
+        - mountPath: /registration
+          mountPropagation: None
+          name: registration-dir
+      - args:
+        - --csi-address=$(ADDRESS)
+        - --http-endpoint=:9808
+        env:
+        - name: ADDRESS
+          value: /csi/csi.sock
+        image: registry.k8s.io/sig-storage/livenessprobe:v2.18.0
+        imagePullPolicy: IfNotPresent
+        name: liveness-probe
+        resources:
+          limits:
+            cpu: 50m
+            memory: 32Mi
+          requests:
+            cpu: 10m
+            memory: 16Mi
+        terminationMessagePath: /dev/termination-log
+        terminationMessagePolicy: File
+        volumeMounts:
+        - mountPath: /csi
+          mountPropagation: None
+          name: plugin-dir
+      dnsPolicy: ClusterFirst
+      enableServiceLinks: true
+      restartPolicy: Always
+      schedulerName: default-scheduler
+      securityContext: {}
+      serviceAccount: seaweedfs-csi
+      serviceAccountName: seaweedfs-csi
+      shareProcessNamespace: false
+      terminationGracePeriodSeconds: 30
+      tolerations:
+      - effect: NoSchedule
+        key: node-role.kubernetes.io/control-plane
+        operator: Exists
+      volumes:
+      - hostPath:
+          path: /var/lib/kubelet/plugins/seaweedfs-csi-driver
+          type: DirectoryOrCreate
+        name: plugin-dir
+      - hostPath:
+          path: /var/lib/kubelet/plugins
+          type: Directory
+        name: kubelet-plugins
+      - hostPath:
+          path: /var/lib/kubelet/pods
+          type: Directory
+        name: kubelet-pods
+      - hostPath:
+          path: /var/lib/kubelet/plugins_registry
+          type: Directory
+        name: registration-dir
+      - hostPath:
+          path: /dev
+          type: ''
+        name: dev
+      - hostPath:
+          path: /var/cache/seaweedfs
+          type: DirectoryOrCreate
+        name: cache
+      - hostPath:
+          path: /var/lib/seaweedfs-mount
+          type: DirectoryOrCreate
+        name: mount-socket
+  updateStrategy:
+    rollingUpdate:
+      maxSurge: 0
+      maxUnavailable: 1
+    type: RollingUpdate

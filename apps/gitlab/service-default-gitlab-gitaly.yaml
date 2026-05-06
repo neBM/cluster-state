@@ -1,0 +1,24 @@
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app: gitlab
+    component: gitaly
+  name: gitlab-gitaly
+  namespace: default
+spec:
+  internalTrafficPolicy: Cluster
+  ports:
+  - name: grpc
+    port: 8075
+    protocol: TCP
+    targetPort: 8075
+  - name: metrics
+    port: 9236
+    protocol: TCP
+    targetPort: 9236
+  selector:
+    app: gitlab
+    component: gitaly
+  sessionAffinity: None
+  type: ClusterIP

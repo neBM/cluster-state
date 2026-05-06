@@ -1,0 +1,30 @@
+apiVersion: v1
+data:
+  brmartin.conf: "server {\n  listen 80;\n  server_name brmartin.co.uk;\n  return\
+    \ 301 https://www.$host$request_uri;\n}\n\nserver {\n  listen 80;\n  server_name\
+    \ www.brmartin.co.uk;\n\n  add_header Access-Control-Allow-Origin \"https://www.brmartin.co.uk\"\
+    ;\n  add_header X-XSS-Protection \"1; mode=block\";\n  add_header Strict-Transport-Security\
+    \ \"max-age=31536000; includeSubDomains\";\n  add_header X-Frame-Options \"SAMEORIGIN\"\
+    ;\n\n  root /code/brmartin.co.uk;\n  index index.php index.html;\n\n  location\
+    \ / {\n    try_files $uri $uri/ /index.php;\n  }\n\n  location ~* \\.php$ {\n\
+    \    try_files $uri =404;\n    fastcgi_pass php;\n    fastcgi_index index.php;\n\
+    \    include /etc/nginx/fastcgi.conf;\n  }\n}\n"
+  default.conf: "upstream php {\n  server 127.0.0.1:9000;\n}\n\nserver {\n  listen\
+    \ 80 default_server;\n\n  root /code/martinilink.co.uk.catall;\n  index index.php;\n\
+    \n  location / {\n    try_files $uri $uri/ /index.php;\n  }\n\n  location ~ \\\
+    .php$ {\n    fastcgi_pass php;\n    fastcgi_index index.php;\n    include /etc/nginx/fastcgi.conf;\n\
+    \  }\n\n  location = /health {\n    access_log off;\n    return 200 \"OK\";\n\
+    \    add_header Content-Type text/plain;\n  }\n}\n"
+  nginx.conf: "user  nginx nginx;\nworker_processes  auto;\n\nerror_log  stderr notice;\n\
+    pid        /var/run/nginx.pid;\n\nevents {\n    worker_connections  1024;\n}\n\
+    \nhttp {\n    include       /etc/nginx/mime.types;\n    default_type  application/octet-stream;\n\
+    \    access_log    off;\n    sendfile      on;\n    keepalive_timeout  65;\n\n\
+    \    include /etc/nginx/conf.d/*.conf;\n}\n"
+immutable: false
+kind: ConfigMap
+metadata:
+  labels:
+    app: nginx-sites
+    environment: prod
+  name: nginx-sites-config
+  namespace: default

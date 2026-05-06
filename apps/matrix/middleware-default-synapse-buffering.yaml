@@ -1,0 +1,8 @@
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: synapse-buffering
+  namespace: default
+spec:
+  buffering:
+    maxRequestBodyBytes: 1000000000

@@ -1,0 +1,188 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app: matrix
+    component: synapse
+  name: synapse
+  namespace: default
+spec:
+  progressDeadlineSeconds: 600
+  replicas: 1
+  revisionHistoryLimit: 10
+  selector:
+    matchLabels:
+      app: matrix
+      component: synapse
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      annotations:
+        elastic.co/dataset: kubernetes.container_logs.matrix
+      labels:
+        app: matrix
+        component: synapse
+    spec:
+      automountServiceAccountToken: true
+      containers:
+      - env:
+        - name: SYNAPSE_CONFIG_PATH
+          value: /config/homeserver.yaml
+        - name: SYNAPSE_WORKER
+          value: synapse.app.homeserver
+        image: ghcr.io/element-hq/synapse:v1.151.0
+        imagePullPolicy: IfNotPresent
+        livenessProbe:
+          failureThreshold: 3
+          httpGet:
+            path: /health
+            port: 8008
+            scheme: HTTP
+          initialDelaySeconds: 30
+          periodSeconds: 20
+          successThreshold: 1
+          timeoutSeconds: 5
+        name: synapse
+        ports:
+        - containerPort: 8008
+          protocol: TCP
+        readinessProbe:
+          failureThreshold: 3
+          httpGet:
+            path: /health
+            port: 8008
+            scheme: HTTP
+          initialDelaySeconds: 15
+          periodSeconds: 10
+          successThreshold: 1
+          timeoutSeconds: 5
+        resources:
+          limits:
+            memory: 512Mi
+          requests:
+            cpu: 100m
+            memory: 256Mi
+        terminationMessagePath: /dev/termination-log
+        terminationMessagePolicy: File
+        volumeMounts:
+        - mountPath: /config
+          mountPropagation: None
+          name: config
+        - mountPath: /data
+          mountPropagation: HostToContainer
+          name: data
+        - mountPath: /media_store
+          mountPropagation: HostToContainer
+          name: media-store
+      dnsPolicy: ClusterFirst
+      enableServiceLinks: true
+      initContainers:
+      - args:
+        - "# Copy config files and substitute secrets\ncp /config-template/homeserver.yaml\
+          \ /config/homeserver.yaml\ncp /config-template/log_config.yaml /config/log_config.yaml\n\
+          cp /config-template/whatsapp-registration.yaml /config/whatsapp-registration.yaml\n\
+          \            \n# Substitute placeholders with actual secrets\nsed -i \"\
+          s/SYNAPSE_DB_PASSWORD_PLACEHOLDER/$DB_PASSWORD/g\" /config/homeserver.yaml\n\
+          sed -i \"s/REGISTRATION_SHARED_SECRET_PLACEHOLDER/$REGISTRATION_SHARED_SECRET/g\"\
+          \ /config/homeserver.yaml\nsed -i \"s/MACAROON_SECRET_KEY_PLACEHOLDER/$MACAROON_SECRET_KEY/g\"\
+          \ /config/homeserver.yaml\nsed -i \"s/FORM_SECRET_PLACEHOLDER/$FORM_SECRET/g\"\
+          \ /config/homeserver.yaml\nsed -i \"s/TURN_SHARED_SECRET_PLACEHOLDER/$TURN_SHARED_SECRET/g\"\
+          \ /config/homeserver.yaml\nsed -i \"s/MAS_CLIENT_SECRET_PLACEHOLDER/$MAS_CLIENT_SECRET/g\"\
+          \ /config/homeserver.yaml\nsed -i \"s/MAS_ADMIN_TOKEN_PLACEHOLDER/$MAS_ADMIN_TOKEN/g\"\
+          \ /config/homeserver.yaml\nsed -i \"s/AS_TOKEN_PLACEHOLDER/$AS_TOKEN/g\"\
+          \ /config/whatsapp-registration.yaml\nsed -i \"s/HS_TOKEN_PLACEHOLDER/$HS_TOKEN/g\"\
+          \ /config/whatsapp-registration.yaml\n"
+        command:
+        - /bin/sh
+        - -c
+        env:
+        - name: DB_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              key: db_password
+              name: matrix-secrets
+              optional: false
+        - name: REGISTRATION_SHARED_SECRET
+          valueFrom:
+            secretKeyRef:
+              key: registration_shared_secret
+              name: matrix-secrets
+              optional: false
+        - name: MACAROON_SECRET_KEY
+          valueFrom:
+            secretKeyRef:
+              key: macaroon_secret_key
+              name: matrix-secrets
+              optional: false
+        - name: FORM_SECRET
+          valueFrom:
+            secretKeyRef:
+              key: form_secret
+              name: matrix-secrets
+              optional: false
+        - name: TURN_SHARED_SECRET
+          valueFrom:
+            secretKeyRef:
+              key: turn_shared_secret
+              name: matrix-secrets
+              optional: false
+        - name: MAS_CLIENT_SECRET
+          valueFrom:
+            secretKeyRef:
+              key: mas_client_secret
+              name: matrix-secrets
+              optional: false
+        - name: MAS_ADMIN_TOKEN
+          valueFrom:
+            secretKeyRef:
+              key: mas_admin_token
+              name: matrix-secrets
+              optional: false
+        - name: AS_TOKEN
+          valueFrom:
+            secretKeyRef:
+              key: as_token
+              name: matrix-secrets
+              optional: false
+        - name: HS_TOKEN
+          valueFrom:
+            secretKeyRef:
+              key: hs_token
+              name: matrix-secrets
+              optional: false
+        image: busybox:1.37
+        imagePullPolicy: IfNotPresent
+        name: config-processor
+        resources: {}
+        terminationMessagePath: /dev/termination-log
+        terminationMessagePolicy: File
+        volumeMounts:
+        - mountPath: /config-template
+          mountPropagation: None
+          name: config-template
+        - mountPath: /config
+          mountPropagation: None
+          name: config
+      restartPolicy: Always
+      schedulerName: default-scheduler
+      securityContext:
+        fsGroup: 991
+        fsGroupChangePolicy: OnRootMismatch
+        runAsNonRoot: false
+      shareProcessNamespace: false
+      terminationGracePeriodSeconds: 30
+      volumes:
+      - configMap:
+          defaultMode: 420
+          name: synapse-config
+          optional: false
+        name: config-template
+      - emptyDir: {}
+        name: config
+      - name: data
+        persistentVolumeClaim:
+          claimName: matrix-synapse-data-sw
+      - name: media-store
+        persistentVolumeClaim:
+          claimName: matrix-media-store-sw

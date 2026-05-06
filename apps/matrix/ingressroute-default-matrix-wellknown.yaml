@@ -1,0 +1,23 @@
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  labels:
+    app: matrix
+    component: nginx
+  name: matrix-wellknown
+  namespace: default
+spec:
+  entryPoints:
+  - websecure
+  routes:
+  - kind: Rule
+    match: PathPrefix(`/.well-known/matrix`)
+    middlewares:
+    - name: wellknown-cors
+      namespace: default
+    priority: 50
+    services:
+    - name: matrix-nginx
+      port: 8080
+  tls:
+    secretName: wildcard-brmartin-tls

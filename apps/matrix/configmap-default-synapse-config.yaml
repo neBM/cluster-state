@@ -1,0 +1,49 @@
+apiVersion: v1
+data:
+  homeserver.yaml: "server_name: \"brmartin.co.uk\"\npublic_baseurl: https://matrix.brmartin.co.uk/\n\
+    pid_file: /data/homeserver.pid\nworker_app: synapse.app.homeserver\nlisteners:\n\
+    \  - bind_addresses: ['0.0.0.0']\n    port: 8008\n    type: http\n    x_forwarded:\
+    \ true\n    resources:\n      - names: [client, federation]\nmax_upload_size:\
+    \ 500M\nevent_cache_size: 15K\ncaches:\n  cache_autotuning:\n    max_cache_memory_usage:\
+    \ 512M\n    target_cache_memory_usage: 256M\n    min_cache_ttl: 5m\ndatabase:\n\
+    \  name: psycopg2\n  args:\n    user: synapse_user\n    password: \"SYNAPSE_DB_PASSWORD_PLACEHOLDER\"\
+    \n    database: synapse\n    host: 192.168.1.10\n    port: 5433\n    cp_min: 5\n\
+    \    cp_max: 10\nlog_config: \"/config/log_config.yaml\"\nregistration_shared_secret:\
+    \ \"REGISTRATION_SHARED_SECRET_PLACEHOLDER\"\nreport_stats: true\nmacaroon_secret_key:\
+    \ \"MACAROON_SECRET_KEY_PLACEHOLDER\"\nform_secret: \"FORM_SECRET_PLACEHOLDER\"\
+    \nsigning_key_path: \"/data/brmartin.co.uk.signing.key\"\nsuppress_key_server_warning:\
+    \ true\ntrusted_key_servers:\n  - server_name: \"matrix.org\"\napp_service_config_files:\n\
+    \  - /config/whatsapp-registration.yaml\nturn_uris: [ \"turn:turn.brmartin.co.uk?transport=udp\"\
+    , \"turn:turn.brmartin.co.uk?transport=tcp\" ]\nturn_shared_secret: \"TURN_SHARED_SECRET_PLACEHOLDER\"\
+    \nturn_user_lifetime: 86400000\nturn_allow_guests: true\nforgotten_room_retention_period:\
+    \ 1d\nretention:\n  enabled: true\n  default_policy:\n    min_lifetime: 1d\n \
+    \   max_lifetime: 1y\n  allowed_lifetime_min: 1d\n  allowed_lifetime_max: 1y\n\
+    media_retention:\n  local_media_lifetime: 1y\n  remote_media_lifetime: 1y\ndynamic_thumbnails:\
+    \ true\nrc_message:\n  per_second: 1\n  burst_count: 50\nurl_preview_enabled:\
+    \ true\nurl_preview_ip_range_blacklist:\n  - '127.0.0.0/8'\n  - '10.0.0.0/8'\n\
+    \  - '172.16.0.0/12'\n  - '192.168.0.0/16'\n  - '100.64.0.0/10'\n  - '192.0.0.0/24'\n\
+    \  - '169.254.0.0/16'\n  - '192.88.99.0/24'\n  - '198.18.0.0/15'\n  - '192.0.2.0/24'\n\
+    \  - '198.51.100.0/24'\n  - '203.0.113.0/24'\n  - '224.0.0.0/4'\n  - '::1/128'\n\
+    \  - 'fe80::/10'\n  - 'fc00::/7'\n  - '2001:db8::/32'\n  - 'ff00::/8'\n  - 'fec0::/10'\n\
+    experimental_features:\n  msc3861:\n    enabled: true\n    issuer: https://mas.brmartin.co.uk\n\
+    \    client_id: 0000000000000000000SYNAPSE\n    client_auth_method: client_secret_basic\n\
+    \    client_secret: \"MAS_CLIENT_SECRET_PLACEHOLDER\"\n    admin_token: \"MAS_ADMIN_TOKEN_PLACEHOLDER\"\
+    \n    account_management_url: \"https://sso.brmartin.co.uk/settings\"\n    introspection_endpoint:\
+    \ \"http://mas.default.svc.cluster.local:8081/oauth2/introspect\"\n"
+  log_config.yaml: "version: 1\nformatters:\n  structured:\n    class: synapse.logging.TerseJsonFormatter\n\
+    handlers:\n  console:\n    class: logging.StreamHandler\n    formatter: structured\n\
+    loggers:\n  synapse.federation.transport.server.federation:\n    level: WARN\n\
+    \  synapse.access.http.8008:\n    level: WARN\n  synapse.util.caches.response_cache:\n\
+    \    level: WARN\nroot:\n  level: WARN\n  handlers: [console]\ndisable_existing_loggers:\
+    \ false\n"
+  whatsapp-registration.yaml: "id: whatsapp\nurl: http://whatsapp-bridge.default.svc.cluster.local:8082\n\
+    as_token: AS_TOKEN_PLACEHOLDER\nhs_token: HS_TOKEN_PLACEHOLDER\nsender_localpart:\
+    \ ctvppZV8epjY9iUtTt0nR29e92V4nIJb\nrate_limited: false\nnamespaces:\n  users:\n\
+    \    - regex: ^@whatsappbot:brmartin\\.co\\.uk$\n      exclusive: true\n    -\
+    \ regex: ^@whatsapp_.*:brmartin\\.co\\.uk$\n      exclusive: true\nde.sorunome.msc2409.push_ephemeral:\
+    \ true\nreceive_ephemeral: true\n"
+immutable: false
+kind: ConfigMap
+metadata:
+  name: synapse-config
+  namespace: default

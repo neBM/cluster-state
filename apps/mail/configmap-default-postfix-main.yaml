@@ -1,0 +1,75 @@
+apiVersion: v1
+data:
+  master.cf: "# Postfix master process configuration for Postfix 3.8\nsmtp      inet\
+    \  n       -       n       -       1       postscreen\nsmtpd     pass  -     \
+    \  -       n       -       -       smtpd\ndnsblog   unix  -       -       n  \
+    \     -       0       dnsblog\ntlsproxy  unix  -       -       n       -     \
+    \  0       tlsproxy\nsubmission inet n       -       n       -       -       smtpd\n\
+    \  -o syslog_name=postfix/submission\n  -o smtpd_tls_security_level=encrypt\n\
+    \  -o smtpd_sasl_auth_enable=yes\n  -o smtpd_reject_unlisted_recipient=no\n  -o\
+    \ smtpd_recipient_restrictions=permit_sasl_authenticated,reject\n  -o milter_macro_daemon_name=ORIGINATING\n\
+    smtps     inet  n       -       n       -       -       smtpd\n  -o syslog_name=postfix/smtps\n\
+    \  -o smtpd_tls_wrappermode=yes\n  -o smtpd_sasl_auth_enable=yes\n  -o smtpd_reject_unlisted_recipient=no\n\
+    \  -o smtpd_recipient_restrictions=permit_sasl_authenticated,reject\n  -o milter_macro_daemon_name=ORIGINATING\n\
+    pickup    unix  n       -       n       60      1       pickup\ncleanup   unix\
+    \  n       -       n       -       0       cleanup\nqmgr      unix  n       -\
+    \       n       300     1       qmgr\ntlsmgr    unix  -       -       n      \
+    \ 1000?   1       tlsmgr\nrewrite   unix  -       -       n       -       -  \
+    \     trivial-rewrite\nbounce    unix  -       -       n       -       0     \
+    \  bounce\ndefer     unix  -       -       n       -       0       bounce\ntrace\
+    \     unix  -       -       n       -       0       bounce\nverify    unix  -\
+    \       -       n       -       1       verify\nflush     unix  n       -    \
+    \   n       1000?   0       flush\nproxymap  unix  -       -       n       - \
+    \      -       proxymap\nproxywrite unix -       -       n       -       1   \
+    \    proxymap\nsmtp      unix  -       -       n       -       -       smtp\n\
+    relay     unix  -       -       n       -       -       smtp\nshowq     unix \
+    \ n       -       n       -       -       showq\nerror     unix  -       -   \
+    \    n       -       -       error\nretry     unix  -       -       n       -\
+    \       -       error\ndiscard   unix  -       -       n       -       -     \
+    \  discard\nlocal     unix  -       n       n       -       -       local\nvirtual\
+    \   unix  -       n       n       -       -       virtual\nlmtp      unix  - \
+    \      -       n       -       -       lmtp\nanvil     unix  -       -       n\
+    \       -       1       anvil\nscache    unix  -       -       n       -     \
+    \  1       scache\npostlog   unix-dgram n  -       n       -       1       postlogd\n"
+  run.config: "# Identity\npostconf -e \"myhostname=mail.brmartin.co.uk\"\npostconf\
+    \ -e \"myorigin=\\$myhostname\"\npostconf -e \"mydestination=\"\n\n# Virtual domains\n\
+    postconf -e \"virtual_mailbox_domains=brmartin.co.uk, martinilink.co.uk\"\npostconf\
+    \ -e \"virtual_mailbox_maps=hash:/etc/postfix/vmailbox\"\npostconf -e \"virtual_alias_maps=hash:/etc/postfix/virtual\"\
+    \n\n# Local delivery via Dovecot LMTP (FQDN required: Postfix's own DNS resolver\n\
+    # does not use the pod's search domain list)\npostconf -e \"virtual_transport=lmtp:inet:dovecot.default.svc.cluster.local:24\"\
+    \n\n# TLS (inbound)\npostconf -e \"smtpd_tls_cert_file=/etc/ssl/mail/tls.crt\"\
+    \npostconf -e \"smtpd_tls_key_file=/etc/ssl/mail/tls.key\"\npostconf -e \"smtpd_use_tls=yes\"\
+    \npostconf -e \"smtpd_tls_security_level=may\"\npostconf -e \"smtpd_tls_loglevel=1\"\
+    \n\n# TLS (outbound)\npostconf -e \"smtp_tls_security_level=may\"\npostconf -e\
+    \ \"smtp_tls_loglevel=1\"\n\n# SASL authentication \u2014 delegated to Dovecot\n\
+    postconf -e \"smtpd_sasl_type=dovecot\"\npostconf -e \"smtpd_sasl_path=inet:dovecot.default.svc.cluster.local:12345\"\
+    \npostconf -e \"smtpd_sasl_auth_enable=yes\"\npostconf -e \"smtpd_sasl_security_options=noanonymous\"\
+    \npostconf -e \"smtpd_sasl_tls_security_options=noanonymous\"\npostconf -e \"\
+    broken_sasl_auth_clients=yes\"\n\n# Submission restrictions\npostconf -e \"smtpd_recipient_restrictions=permit_sasl_authenticated,\
+    \ permit_mynetworks, reject_unauth_destination\"\n\n# Milter (Rspamd) \u2014 accept\
+    \ mail even if Rspamd unreachable\npostconf -e \"milter_default_action=accept\"\
+    \npostconf -e \"milter_protocol=6\"\npostconf -e \"smtpd_milters=inet:rspamd.default.svc.cluster.local:11332\"\
+    \npostconf -e \"non_smtpd_milters=inet:rspamd.default.svc.cluster.local:11332\"\
+    \npostconf -e \"milter_mail_macros=i {mail_addr} {client_addr} {client_name} {auth_authen}\"\
+    \n\n # Outbound relay (Mailgun) \u2014 credentials injected from postfix-relay-secret\n\
+    \ postconf -e \"relayhost=$RELAY_HOST\"\n postconf -e \"smtp_sasl_auth_enable=yes\"\
+    \n postconf -e \"smtp_sasl_security_options=noanonymous\"\n postconf -e \"smtp_sasl_tls_security_options=noanonymous\"\
+    \n postconf -e \"smtp_tls_security_level=encrypt\"\n postconf -e \"smtp_sasl_password_maps=hash:/etc/postfix/sasl_passwd\"\
+    \n echo \"$RELAY_HOST $RELAY_USERNAME:$RELAY_PASSWORD\" > /tmp/sasl_passwd\n postmap\
+    \ /tmp/sasl_passwd\n cp /tmp/sasl_passwd.db /etc/postfix/sasl_passwd.db\n rm -f\
+    \ /tmp/sasl_passwd\n\n # Misc\n postconf -e \"inet_interfaces=all\"\n postconf\
+    \ -e \"inet_protocols=ipv4\"\n postconf -e \"compatibility_level=3.8\"\n\n # Build\
+    \ hash tables for virtual mailbox and alias maps\ncp /etc/postfix/vmailbox /tmp/vmailbox\n\
+    cp /etc/postfix/virtual /tmp/virtual_alias\npostmap /tmp/vmailbox\npostmap /tmp/virtual_alias\n\
+    cp /tmp/vmailbox.db /etc/postfix/vmailbox.db\ncp /tmp/virtual_alias.db /etc/postfix/virtual.db\n"
+  vmailbox: 'ben@brmartin.co.uk    brmartin.co.uk/ben/
+
+    '
+immutable: false
+kind: ConfigMap
+metadata:
+  labels:
+    app: postfix
+    environment: prod
+  name: postfix-main
+  namespace: default

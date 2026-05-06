@@ -1,0 +1,21 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+- athenaeum
+- glitchtip
+- jayne-martin-counselling
+- keycloak
+- langfuse
+- laurens-dissertation
+- lldap
+- mail
+- matrix
+- media-centre
+- nextcloud
+- nginx-sites
+- open-webui
+- overseerr
+- searxng
+- vaultwarden
+- gitlab
+- iris

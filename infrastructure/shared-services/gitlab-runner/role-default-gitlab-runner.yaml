@@ -1,0 +1,76 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  labels:
+    app: gitlab-runner
+  name: gitlab-runner
+  namespace: default
+rules:
+- apiGroups:
+  - ''
+  resources:
+  - pods
+  verbs:
+  - list
+  - watch
+  - create
+  - get
+  - delete
+- apiGroups:
+  - ''
+  resources:
+  - pods/portforward
+  - pods/attach
+  - pods/exec
+  verbs:
+  - create
+  - patch
+  - get
+  - delete
+- apiGroups:
+  - ''
+  resources:
+  - pods/log
+  verbs:
+  - list
+  - get
+- apiGroups:
+  - ''
+  resources:
+  - secrets
+  verbs:
+  - create
+  - update
+  - get
+  - delete
+- apiGroups:
+  - ''
+  resources:
+  - services
+  verbs:
+  - list
+  - create
+  - get
+  - delete
+- apiGroups:
+  - ''
+  resources:
+  - configmaps
+  verbs:
+  - list
+  - create
+  - get
+  - delete
+- apiGroups:
+  - ''
+  resources:
+  - serviceaccounts
+  verbs:
+  - get
+- apiGroups:
+  - ''
+  resources:
+  - events
+  verbs:
+  - list
+  - watch

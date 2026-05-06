@@ -1,0 +1,9 @@
+apiVersion: 1
+datasources:
+- access: proxy
+  editable: false
+  isDefault: true
+  name: Prometheus
+  type: prometheus
+  uid: prometheus
+  url: http://victoriametrics.default.svc.cluster.local:8428

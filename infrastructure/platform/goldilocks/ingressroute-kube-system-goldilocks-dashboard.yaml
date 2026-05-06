@@ -1,0 +1,19 @@
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  labels:
+    app: goldilocks
+  name: goldilocks-dashboard
+  namespace: kube-system
+spec:
+  entryPoints:
+  - websecure
+  routes:
+  - kind: Rule
+    match: Host(`goldilocks.brmartin.co.uk`)
+    middlewares: []
+    services:
+    - name: goldilocks-dashboard
+      port: 8080
+  tls:
+    secretName: wildcard-brmartin-tls

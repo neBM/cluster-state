@@ -1,0 +1,183 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app: athenaeum
+    component: backend
+  name: athenaeum-backend
+  namespace: default
+spec:
+  progressDeadlineSeconds: 600
+  replicas: 1
+  revisionHistoryLimit: 10
+  selector:
+    matchLabels:
+      app: athenaeum
+      component: backend
+  strategy:
+    rollingUpdate:
+      maxSurge: 25%
+      maxUnavailable: 25%
+    type: RollingUpdate
+  template:
+    metadata:
+      labels:
+        app: athenaeum
+        component: backend
+    spec:
+      automountServiceAccountToken: true
+      containers:
+      - env:
+        - name: DATABASE_URL
+          valueFrom:
+            secretKeyRef:
+              key: DATABASE_URL
+              name: athenaeum-secrets
+              optional: false
+        - name: KEYCLOAK_URL
+          valueFrom:
+            secretKeyRef:
+              key: KEYCLOAK_URL
+              name: athenaeum-secrets
+              optional: false
+        - name: KEYCLOAK_REALM
+          valueFrom:
+            secretKeyRef:
+              key: KEYCLOAK_REALM
+              name: athenaeum-secrets
+              optional: false
+        - name: KEYCLOAK_CLIENT_ID
+          valueFrom:
+            secretKeyRef:
+              key: KEYCLOAK_CLIENT_ID
+              name: athenaeum-secrets
+              optional: false
+        - name: KEYCLOAK_CLIENT_SECRET
+          valueFrom:
+            secretKeyRef:
+              key: KEYCLOAK_CLIENT_SECRET
+              name: athenaeum-secrets
+              optional: false
+        - name: REDIS_URL
+          valueFrom:
+            secretKeyRef:
+              key: REDIS_URL
+              name: athenaeum-secrets
+              optional: false
+        - name: MINIO_URL
+          valueFrom:
+            secretKeyRef:
+              key: MINIO_URL
+              name: athenaeum-secrets
+              optional: false
+        - name: MINIO_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              key: MINIO_ACCESS_KEY
+              name: athenaeum-secrets
+              optional: false
+        - name: MINIO_SECRET_KEY
+          valueFrom:
+            secretKeyRef:
+              key: MINIO_SECRET_KEY
+              name: athenaeum-secrets
+              optional: false
+        - name: MINIO_BUCKET
+          valueFrom:
+            secretKeyRef:
+              key: MINIO_BUCKET
+              name: athenaeum-secrets
+              optional: false
+        - name: OLLAMA_URL
+          value: http://ollama.default.svc.cluster.local:11434
+        - name: OLLAMA_MODEL
+          value: gemma3:4b
+        - name: CORS_ORIGINS
+          value: https://athenaeum.brmartin.co.uk
+        image: registry.brmartin.co.uk/ben/athenaeum/backend:5d0414d5
+        imagePullPolicy: IfNotPresent
+        livenessProbe:
+          failureThreshold: 3
+          httpGet:
+            path: /health
+            port: 8000
+            scheme: HTTP
+          initialDelaySeconds: 10
+          periodSeconds: 30
+          successThreshold: 1
+          timeoutSeconds: 5
+        name: backend
+        ports:
+        - containerPort: 8000
+          name: http
+          protocol: TCP
+        readinessProbe:
+          failureThreshold: 3
+          httpGet:
+            path: /health
+            port: 8000
+            scheme: HTTP
+          initialDelaySeconds: 5
+          periodSeconds: 10
+          successThreshold: 1
+          timeoutSeconds: 5
+        resources:
+          limits:
+            cpu: '1'
+            memory: 1500Mi
+          requests:
+            cpu: 200m
+            memory: 1125Mi
+        terminationMessagePath: /dev/termination-log
+        terminationMessagePolicy: File
+      dnsPolicy: ClusterFirst
+      enableServiceLinks: true
+      imagePullSecrets:
+      - name: gitlab-registry
+      initContainers:
+      - command:
+        - /app/.venv/bin/alembic
+        - upgrade
+        - head
+        env:
+        - name: DATABASE_URL
+          valueFrom:
+            secretKeyRef:
+              key: DATABASE_URL
+              name: athenaeum-secrets
+              optional: false
+        - name: KEYCLOAK_URL
+          valueFrom:
+            secretKeyRef:
+              key: KEYCLOAK_URL
+              name: athenaeum-secrets
+              optional: false
+        - name: KEYCLOAK_REALM
+          valueFrom:
+            secretKeyRef:
+              key: KEYCLOAK_REALM
+              name: athenaeum-secrets
+              optional: false
+        - name: KEYCLOAK_CLIENT_ID
+          valueFrom:
+            secretKeyRef:
+              key: KEYCLOAK_CLIENT_ID
+              name: athenaeum-secrets
+              optional: false
+        - name: KEYCLOAK_CLIENT_SECRET
+          valueFrom:
+            secretKeyRef:
+              key: KEYCLOAK_CLIENT_SECRET
+              name: athenaeum-secrets
+              optional: false
+        image: registry.brmartin.co.uk/ben/athenaeum/backend:5d0414d5
+        imagePullPolicy: IfNotPresent
+        name: migrations
+        resources: {}
+        terminationMessagePath: /dev/termination-log
+        terminationMessagePolicy: File
+      restartPolicy: Always
+      schedulerName: default-scheduler
+      securityContext: {}
+      shareProcessNamespace: false
+      terminationGracePeriodSeconds: 30

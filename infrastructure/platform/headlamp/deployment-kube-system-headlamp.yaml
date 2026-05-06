@@ -1,0 +1,123 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app.kubernetes.io/component: dashboard
+    app.kubernetes.io/instance: headlamp
+    app.kubernetes.io/name: headlamp
+  name: headlamp
+  namespace: kube-system
+spec:
+  progressDeadlineSeconds: 600
+  replicas: 1
+  revisionHistoryLimit: 10
+  selector:
+    matchLabels:
+      app.kubernetes.io/instance: headlamp
+      app.kubernetes.io/name: headlamp
+  strategy:
+    rollingUpdate:
+      maxSurge: 25%
+      maxUnavailable: 25%
+    type: RollingUpdate
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/component: dashboard
+        app.kubernetes.io/instance: headlamp
+        app.kubernetes.io/name: headlamp
+        version: v0.41.0
+    spec:
+      automountServiceAccountToken: true
+      containers:
+      - args:
+        - -in-cluster
+        - -plugins-dir=/headlamp/plugins
+        - -kubeconfig=/home/headlamp/.config/Headlamp/kubeconfigs/config
+        - -skipped-kube-contexts=service-account
+        - -oidc-client-id=headlamp
+        - -oidc-client-secret=$(OIDC_CLIENT_SECRET)
+        - -oidc-idp-issuer-url=https://sso.brmartin.co.uk/realms/prod
+        - -oidc-scopes=openid,profile,email
+        - -oidc-validator-client-id=headlamp
+        - -oidc-validator-idp-issuer-url=https://sso.brmartin.co.uk/realms/prod
+        - -oidc-callback-url=https://headlamp.brmartin.co.uk/oidc-callback
+        - -log-level=debug
+        env:
+        - name: OIDC_CLIENT_SECRET
+          valueFrom:
+            secretKeyRef:
+              key: client-secret
+              name: headlamp-oidc
+              optional: false
+        - name: GODEBUG
+          value: http2client=0
+        image: ghcr.io/headlamp-k8s/headlamp:v0.41.0
+        imagePullPolicy: IfNotPresent
+        livenessProbe:
+          failureThreshold: 3
+          httpGet:
+            path: /
+            port: 4466
+            scheme: HTTP
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          successThreshold: 1
+          timeoutSeconds: 10
+        name: headlamp
+        ports:
+        - containerPort: 4466
+          name: http
+          protocol: TCP
+        readinessProbe:
+          failureThreshold: 3
+          httpGet:
+            path: /
+            port: 4466
+            scheme: HTTP
+          initialDelaySeconds: 10
+          periodSeconds: 10
+          successThreshold: 1
+          timeoutSeconds: 10
+        resources:
+          limits:
+            cpu: 250m
+            memory: 256Mi
+          requests:
+            cpu: 50m
+            memory: 128Mi
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+          privileged: false
+          readOnlyRootFilesystem: false
+          runAsGroup: 101
+          runAsNonRoot: true
+          runAsUser: 100
+        terminationMessagePath: /dev/termination-log
+        terminationMessagePolicy: File
+        volumeMounts:
+        - mountPath: /home/headlamp/.config/Headlamp/kubeconfigs/config
+          mountPropagation: None
+          name: kubeconfig
+          readOnly: true
+          subPath: config
+      dnsPolicy: ClusterFirst
+      enableServiceLinks: true
+      nodeSelector:
+        kubernetes.io/os: linux
+      restartPolicy: Always
+      schedulerName: default-scheduler
+      securityContext: {}
+      serviceAccount: headlamp
+      serviceAccountName: headlamp
+      shareProcessNamespace: false
+      terminationGracePeriodSeconds: 30
+      volumes:
+      - configMap:
+          defaultMode: 420
+          name: headlamp-kubeconfig
+          optional: false
+        name: kubeconfig

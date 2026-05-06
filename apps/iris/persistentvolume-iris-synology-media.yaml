@@ -1,0 +1,23 @@
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  finalizers:
+  - kubernetes.io/pv-protection
+  name: iris-synology-media
+spec:
+  accessModes:
+  - ReadOnlyMany
+  capacity:
+    storage: 10Ti
+  mountOptions:
+  - soft
+  - ro
+  - timeo=150
+  - retrans=3
+  nfs:
+    path: /volume1/docker
+    readOnly: true
+    server: 192.168.1.10
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: synology-nfs-static
+  volumeMode: Filesystem

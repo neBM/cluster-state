@@ -1,0 +1,40 @@
+apiVersion: v1
+data:
+  monitor-throttle.sh: "#!/bin/bash\n# Periodically reads the Raspberry Pi 5 throttle/undervoltage\
+    \ flags via\n# vcgencmd (run on the host via nsenter) and logs them to stdout.\n\
+    #\n# Logs are collected by Grafana Alloy and shipped to Loki. Create a Grafana\n\
+    # alert on container=\"rpi-throttle-monitor\" with log line |= \"throttle_warning\"\
+    \n# to get notified of power supply issues before they cause an unclean reboot.\n\
+    #\n# Throttle flag bits (Pi 4 and Pi 5):\n#   0x00001  Under-voltage detected\
+    \ (currently)\n#   0x00002  ARM frequency capped (currently)\n#   0x00004  Currently\
+    \ throttled\n#   0x00008  Soft temperature limit active (currently)\n#   0x10000\
+    \  Under-voltage has occurred since last reboot\n#   0x20000  ARM frequency capping\
+    \ has occurred since last reboot\n#   0x40000  Throttling has occurred since last\
+    \ reboot\n#   0x80000  Soft temperature limit has occurred since last reboot\n\
+    \nset -uo pipefail\n\nINTERVAL=60\n\nlog() {\n  echo \"[$(date -u +%Y-%m-%dT%H:%M:%SZ)]\
+    \ $*\"\n}\n\ndecode_flags() {\n  local val=$1\n  local events=\"\"\n  [ $(( val\
+    \ & 0x00001 )) -ne 0 ] && events=\"${events} under-voltage-now\"\n  [ $(( val\
+    \ & 0x00002 )) -ne 0 ] && events=\"${events} freq-capped-now\"\n  [ $(( val &\
+    \ 0x00004 )) -ne 0 ] && events=\"${events} throttled-now\"\n  [ $(( val & 0x00008\
+    \ )) -ne 0 ] && events=\"${events} temp-limit-now\"\n  [ $(( val & 0x10000 ))\
+    \ -ne 0 ] && events=\"${events} under-voltage-occurred\"\n  [ $(( val & 0x20000\
+    \ )) -ne 0 ] && events=\"${events} freq-cap-occurred\"\n  [ $(( val & 0x40000\
+    \ )) -ne 0 ] && events=\"${events} throttled-occurred\"\n  [ $(( val & 0x80000\
+    \ )) -ne 0 ] && events=\"${events} temp-limit-occurred\"\n  echo \"${events:-none}\"\
+    \n}\n\nlog \"Starting RPi throttle monitor (interval=${INTERVAL}s)\"\n\nwhile\
+    \ true; do\n  raw=$(nsenter -t 1 -m -u -i -n -- vcgencmd get_throttled 2>&1) ||\
+    \ {\n    log \"throttle_error: vcgencmd failed: ${raw}\"\n    sleep \"${INTERVAL}\"\
+    \n    continue\n  }\n\n  # raw is \"throttled=0xXXXXX\"; strip the key to get\
+    \ the hex value\n  flags=\"${raw#throttled=}\"\n  val=$(( flags ))\n\n  if [ \"\
+    ${val}\" -eq 0 ]; then\n    log \"throttle_ok flags=0x0\"\n  else\n    events=$(decode_flags\
+    \ \"${val}\")\n    log \"throttle_warning flags=${flags} events=${events}\"\n\
+    \  fi\n\n  sleep \"${INTERVAL}\"\ndone\n"
+immutable: false
+kind: ConfigMap
+metadata:
+  labels:
+    app.kubernetes.io/component: monitoring
+    app.kubernetes.io/instance: rpi-throttle-monitor
+    app.kubernetes.io/name: rpi-throttle-monitor
+  name: rpi-throttle-monitor-scripts
+  namespace: default

@@ -1,0 +1,28 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    traefik.ingress.kubernetes.io/router.tls: 'true'
+  labels:
+    app: keycloak
+    environment: prod
+  name: keycloak
+  namespace: default
+spec:
+  ingressClassName: traefik
+  rules:
+  - host: sso.brmartin.co.uk
+    http:
+      paths:
+      - backend:
+          service:
+            name: keycloak
+            port:
+              number: 80
+        path: /
+        pathType: Prefix
+  tls:
+  - hosts:
+    - sso.brmartin.co.uk
+    secretName: wildcard-brmartin-tls

@@ -1,0 +1,107 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app: gitlab
+    component: gitaly
+  name: gitlab-gitaly
+  namespace: default
+spec:
+  progressDeadlineSeconds: 600
+  replicas: 1
+  revisionHistoryLimit: 10
+  selector:
+    matchLabels:
+      app: gitlab
+      component: gitaly
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      annotations:
+        elastic.co/dataset: kubernetes.container_logs.gitlab
+      labels:
+        app: gitlab
+        component: gitaly
+    spec:
+      automountServiceAccountToken: true
+      containers:
+      - env:
+        - name: GITALY_CONFIG_FILE
+          value: /etc/gitaly/config.toml
+        - name: GITALY_TOKEN
+          valueFrom:
+            secretKeyRef:
+              key: token
+              name: gitlab-gitaly
+              optional: false
+        image: registry.gitlab.com/gitlab-org/build/cng/gitaly:v18.11.1
+        imagePullPolicy: IfNotPresent
+        livenessProbe:
+          failureThreshold: 3
+          initialDelaySeconds: 30
+          periodSeconds: 30
+          successThreshold: 1
+          tcpSocket:
+            port: 8075
+          timeoutSeconds: 1
+        name: gitaly
+        ports:
+        - containerPort: 8075
+          name: grpc
+          protocol: TCP
+        - containerPort: 9236
+          name: metrics
+          protocol: TCP
+        readinessProbe:
+          failureThreshold: 3
+          initialDelaySeconds: 10
+          periodSeconds: 10
+          successThreshold: 1
+          tcpSocket:
+            port: 8075
+          timeoutSeconds: 1
+        resources:
+          limits:
+            memory: 512Mi
+          requests:
+            cpu: 50m
+            memory: 300Mi
+        terminationMessagePath: /dev/termination-log
+        terminationMessagePolicy: File
+        volumeMounts:
+        - mountPath: /etc/gitaly
+          mountPropagation: None
+          name: gitaly-config
+        - mountPath: /home/git/repositories
+          mountPropagation: HostToContainer
+          name: repositories
+        - mountPath: /etc/gitlab/gitlab-shell
+          mountPropagation: None
+          name: shell-secret
+          readOnly: true
+      dnsPolicy: ClusterFirst
+      enableServiceLinks: true
+      restartPolicy: Always
+      schedulerName: default-scheduler
+      securityContext:
+        fsGroup: 1000
+        runAsGroup: 1000
+        runAsNonRoot: false
+        runAsUser: 1000
+      shareProcessNamespace: false
+      terminationGracePeriodSeconds: 30
+      volumes:
+      - configMap:
+          defaultMode: 420
+          name: gitaly-config
+          optional: false
+        name: gitaly-config
+      - name: repositories
+        persistentVolumeClaim:
+          claimName: gitlab-repositories-sw
+      - name: shell-secret
+        secret:
+          defaultMode: 420
+          optional: false
+          secretName: gitlab-shell

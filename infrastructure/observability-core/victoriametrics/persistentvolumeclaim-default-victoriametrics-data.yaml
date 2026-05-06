@@ -1,0 +1,21 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  annotations:
+    volume.kubernetes.io/selected-node: hestia
+  finalizers:
+  - kubernetes.io/pvc-protection
+  labels:
+    app.kubernetes.io/component: monitoring
+    app.kubernetes.io/instance: victoriametrics
+    app.kubernetes.io/name: victoriametrics
+  name: victoriametrics-data
+  namespace: default
+spec:
+  accessModes:
+  - ReadWriteOnce
+  resources:
+    requests:
+      storage: 20Gi
+  storageClassName: local-path-retain
+  volumeMode: Filesystem

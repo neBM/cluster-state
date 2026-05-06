@@ -12,24 +12,39 @@
   ],
   "packageRules": [
     {
-      "description": "Group all Terraform provider updates",
-      "matchDatasources": [
-        "terraform-provider"
+      "description": "Group Flux controller image updates from the bootstrap manifests",
+      "matchManagers": [
+        "kubernetes"
       ],
-      "groupName": "terraform-providers",
+      "matchFileNames": [
+        "clusters/k3s-homelab/flux-system/gotk-components.yaml"
+      ],
+      "groupName": "flux-controllers",
       "labels": [
-        "terraform",
+        "flux",
+        "kubernetes",
         "dependencies"
       ]
     },
     {
-      "description": "Group all K8s module Docker image updates",
-      "matchFileNames": [
-        "modules-k8s/**/*.tf"
+      "description": "Group Kubernetes manifest image updates",
+      "matchManagers": [
+        "kubernetes"
       ],
       "groupName": "k8s-images",
       "labels": [
         "kubernetes",
+        "docker",
+        "dependencies"
+      ]
+    },
+    {
+      "description": "Group Dockerfile base image updates",
+      "matchManagers": [
+        "dockerfile"
+      ],
+      "groupName": "build-images",
+      "labels": [
         "docker",
         "dependencies"
       ]
@@ -50,26 +65,6 @@
         "patch"
       ],
       "automerge": true
-    },
-    {
-      "description": "Pin Terraform version updates",
-      "matchDatasources": [
-        "terraform-version"
-      ],
-      "groupName": "terraform-version"
-    }
-  ],
-  "customManagers": [
-    {
-      "customType": "regex",
-      "description": "Update Docker image tags in Terraform variables",
-      "datasourceTemplate": "docker",
-      "managerFilePatterns": [
-        "/.*\\.tf$/"
-      ],
-      "matchStrings": [
-        "#\\s*renovate:\\s*datasource=docker\\s+depName=(?<depName>[^\\s]+)\\n\\s*default\\s*=\\s*\"(?<currentValue>[^\"]+)\""
-      ]
     }
   ],
   "ignoreDeps": [],

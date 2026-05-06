@@ -1,0 +1,28 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    traefik.ingress.kubernetes.io/router.tls: 'true'
+  labels:
+    app: hubble-ui
+    environment: poc
+  name: hubble-ui
+  namespace: kube-system
+spec:
+  ingressClassName: traefik
+  rules:
+  - host: hubble.brmartin.co.uk
+    http:
+      paths:
+      - backend:
+          service:
+            name: hubble-ui
+            port:
+              number: 80
+        path: /
+        pathType: Prefix
+  tls:
+  - hosts:
+    - hubble.brmartin.co.uk
+    secretName: wildcard-brmartin-tls

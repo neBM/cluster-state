@@ -1,0 +1,19 @@
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app: sogo
+    environment: prod
+  name: sogo
+  namespace: default
+spec:
+  internalTrafficPolicy: Cluster
+  ports:
+  - name: http
+    port: 80
+    protocol: TCP
+    targetPort: 80
+  selector:
+    app: sogo
+  sessionAffinity: None
+  type: ClusterIP

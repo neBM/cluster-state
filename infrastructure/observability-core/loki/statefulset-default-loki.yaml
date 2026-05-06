@@ -1,0 +1,138 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  labels:
+    app.kubernetes.io/component: logging
+    app.kubernetes.io/instance: loki
+    app.kubernetes.io/name: loki
+  name: loki
+  namespace: default
+spec:
+  persistentVolumeClaimRetentionPolicy:
+    whenDeleted: Retain
+    whenScaled: Retain
+  podManagementPolicy: OrderedReady
+  replicas: 1
+  revisionHistoryLimit: 0
+  selector:
+    matchLabels:
+      app.kubernetes.io/instance: loki
+      app.kubernetes.io/name: loki
+  serviceName: loki
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/component: logging
+        app.kubernetes.io/instance: loki
+        app.kubernetes.io/name: loki
+    spec:
+      automountServiceAccountToken: true
+      containers:
+      - args:
+        - -config.file=/etc/loki/loki.yaml
+        - -target=all
+        env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              key: MINIO_ACCESS_KEY
+              name: loki-s3
+              optional: false
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              key: MINIO_SECRET_KEY
+              name: loki-s3
+              optional: false
+        image: grafana/loki:3.4.1
+        imagePullPolicy: IfNotPresent
+        livenessProbe:
+          failureThreshold: 3
+          httpGet:
+            path: /ready
+            port: http
+            scheme: HTTP
+          periodSeconds: 30
+          successThreshold: 1
+          timeoutSeconds: 10
+        name: loki
+        ports:
+        - containerPort: 3100
+          name: http
+          protocol: TCP
+        - containerPort: 9095
+          name: grpc
+          protocol: TCP
+        readinessProbe:
+          failureThreshold: 3
+          httpGet:
+            path: /ready
+            port: http
+            scheme: HTTP
+          periodSeconds: 10
+          successThreshold: 1
+          timeoutSeconds: 5
+        resources:
+          limits:
+            cpu: '1'
+            memory: 1Gi
+          requests:
+            cpu: 100m
+            memory: 512Mi
+        startupProbe:
+          failureThreshold: 60
+          httpGet:
+            path: /ready
+            port: http
+            scheme: HTTP
+          periodSeconds: 10
+          successThreshold: 1
+          timeoutSeconds: 5
+        terminationMessagePath: /dev/termination-log
+        terminationMessagePolicy: File
+        volumeMounts:
+        - mountPath: /etc/loki/loki.yaml
+          mountPropagation: None
+          name: config
+          readOnly: true
+          subPath: loki.yaml
+        - mountPath: /loki
+          mountPropagation: None
+          name: data
+      dnsPolicy: ClusterFirst
+      enableServiceLinks: true
+      nodeSelector:
+        kubernetes.io/hostname: hestia
+      restartPolicy: Always
+      schedulerName: default-scheduler
+      securityContext: {}
+      shareProcessNamespace: false
+      terminationGracePeriodSeconds: 300
+      volumes:
+      - configMap:
+          defaultMode: 420
+          name: loki-config
+          optional: false
+        name: config
+  updateStrategy:
+    type: RollingUpdate
+  volumeClaimTemplates:
+  - apiVersion: v1
+    kind: PersistentVolumeClaim
+    metadata:
+      labels:
+        app.kubernetes.io/component: logging
+        app.kubernetes.io/instance: loki
+        app.kubernetes.io/name: loki
+      name: data
+      namespace: default
+    spec:
+      accessModes:
+      - ReadWriteOnce
+      resources:
+        requests:
+          storage: 20Gi
+      storageClassName: local-path-retain
+      volumeMode: Filesystem
+    status:
+      phase: Pending

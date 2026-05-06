@@ -1,0 +1,277 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app: nextcloud
+    component: nextcloud
+  name: nextcloud
+  namespace: default
+spec:
+  progressDeadlineSeconds: 600
+  replicas: 1
+  revisionHistoryLimit: 10
+  selector:
+    matchLabels:
+      app: nextcloud
+      component: nextcloud
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      annotations:
+        elastic.co/dataset: kubernetes.container_logs.nextcloud
+      labels:
+        app: nextcloud
+        component: nextcloud
+    spec:
+      automountServiceAccountToken: true
+      containers:
+      - args:
+        - --save
+        - ''
+        image: redis:8-alpine
+        imagePullPolicy: IfNotPresent
+        livenessProbe:
+          exec:
+            command:
+            - redis-cli
+            - ping
+          failureThreshold: 3
+          initialDelaySeconds: 10
+          periodSeconds: 10
+          successThreshold: 1
+          timeoutSeconds: 1
+        name: redis
+        ports:
+        - containerPort: 6379
+          protocol: TCP
+        resources:
+          limits:
+            memory: 256Mi
+          requests:
+            cpu: 100m
+            memory: 128Mi
+        terminationMessagePath: /dev/termination-log
+        terminationMessagePolicy: File
+      - env:
+        - name: POSTGRES_HOST
+          value: 192.168.1.10:5433
+        - name: POSTGRES_DB
+          value: nextcloud
+        - name: POSTGRES_USER
+          value: nextcloud
+        - name: POSTGRES_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              key: db_password
+              name: nextcloud-secrets
+              optional: false
+        - name: NEXTCLOUD_TRUSTED_DOMAINS
+          value: cloud.brmartin.co.uk
+        - name: OVERWRITEPROTOCOL
+          value: https
+        - name: TRUSTED_PROXIES
+          value: 172.26.0.0/16 10.0.0.0/8
+        - name: REDIS_HOST
+          value: 127.0.0.1
+        image: nextcloud:33
+        imagePullPolicy: IfNotPresent
+        livenessProbe:
+          failureThreshold: 3
+          httpGet:
+            httpHeaders:
+            - name: Host
+              value: cloud.brmartin.co.uk
+            path: /status.php
+            port: 80
+            scheme: HTTP
+          initialDelaySeconds: 60
+          periodSeconds: 30
+          successThreshold: 1
+          timeoutSeconds: 10
+        name: nextcloud
+        ports:
+        - containerPort: 80
+          protocol: TCP
+        readinessProbe:
+          failureThreshold: 3
+          httpGet:
+            httpHeaders:
+            - name: Host
+              value: cloud.brmartin.co.uk
+            path: /status.php
+            port: 80
+            scheme: HTTP
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          successThreshold: 1
+          timeoutSeconds: 5
+        resources:
+          limits:
+            memory: 1Gi
+          requests:
+            cpu: 25m
+            memory: 256Mi
+        terminationMessagePath: /dev/termination-log
+        terminationMessagePolicy: File
+        volumeMounts:
+        - mountPath: /var/www/html/config
+          mountPropagation: HostToContainer
+          name: config
+        - mountPath: /var/www/html/custom_apps
+          mountPropagation: HostToContainer
+          name: custom-apps
+        - mountPath: /var/www/html/data
+          mountPropagation: HostToContainer
+          name: data
+        - mountPath: /var/www/html/config/zz-override.config.php
+          mountPropagation: None
+          name: config-override
+          readOnly: true
+          subPath: zz-override.config.php
+        - mountPath: /var/www/html/config/zz-secrets.config.php
+          mountPropagation: None
+          name: config-secrets
+          readOnly: true
+          subPath: zz-secrets.config.php
+      - command:
+        - /cron.sh
+        env:
+        - name: REDIS_HOST
+          value: 127.0.0.1
+        image: nextcloud:33
+        imagePullPolicy: IfNotPresent
+        name: cron
+        resources:
+          limits:
+            memory: 512Mi
+          requests:
+            cpu: 100m
+            memory: 128Mi
+        terminationMessagePath: /dev/termination-log
+        terminationMessagePolicy: File
+        volumeMounts:
+        - mountPath: /var/www/html/config
+          mountPropagation: HostToContainer
+          name: config
+        - mountPath: /var/www/html/custom_apps
+          mountPropagation: HostToContainer
+          name: custom-apps
+        - mountPath: /var/www/html/data
+          mountPropagation: HostToContainer
+          name: data
+        - mountPath: /var/www/html/config/zz-override.config.php
+          mountPropagation: None
+          name: config-override
+          readOnly: true
+          subPath: zz-override.config.php
+        - mountPath: /var/www/html/config/zz-secrets.config.php
+          mountPropagation: None
+          name: config-secrets
+          readOnly: true
+          subPath: zz-secrets.config.php
+      dnsPolicy: ClusterFirst
+      enableServiceLinks: true
+      initContainers:
+      - command:
+        - sh
+        - -c
+        - chown 33:33 /nc-data && chmod 0770 /nc-data && chown 33:33 /nc-config /nc-custom-apps
+        image: busybox:1
+        imagePullPolicy: IfNotPresent
+        name: fix-data-perms
+        resources: {}
+        terminationMessagePath: /dev/termination-log
+        terminationMessagePolicy: File
+        volumeMounts:
+        - mountPath: /nc-config
+          mountPropagation: HostToContainer
+          name: config
+        - mountPath: /nc-custom-apps
+          mountPropagation: HostToContainer
+          name: custom-apps
+        - mountPath: /nc-data
+          mountPropagation: HostToContainer
+          name: data
+      - command:
+        - sh
+        - -c
+        - "cat > /out/zz-secrets.config.php <<'EOPHP'\n<?php\n$CONFIG = array (\n\
+          EOPHP\nfor pair in \\\n  \"instanceid:$NC_INSTANCEID\" \\\n  \"passwordsalt:$NC_PASSWORDSALT\"\
+          \ \\\n  \"secret:$NC_SECRET\" \\\n  \"dbpassword:$NC_DBPASSWORD\" \\\n \
+          \ \"oidc_login_client_secret:$NC_OIDC_CLIENT_SECRET\" \\\n  \"mail_smtppassword:$NC_MAIL_SMTP_PASSWORD\"\
+          ; do\n  key=${pair%%:*}\n  val=${pair#*:}\n  printf \"  '%s' => '%s',\\\
+          n\" \"$key\" \"$val\" >> /out/zz-secrets.config.php\ndone\necho ');' >>\
+          \ /out/zz-secrets.config.php\n"
+        env:
+        - name: NC_DBPASSWORD
+          valueFrom:
+            secretKeyRef:
+              key: db_password
+              name: nextcloud-secrets
+              optional: false
+        - name: NC_INSTANCEID
+          valueFrom:
+            secretKeyRef:
+              key: instanceid
+              name: nextcloud-secrets
+              optional: false
+        - name: NC_MAIL_SMTP_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              key: mail_smtp_password
+              name: nextcloud-secrets
+              optional: false
+        - name: NC_OIDC_CLIENT_SECRET
+          valueFrom:
+            secretKeyRef:
+              key: oidc_client_secret
+              name: nextcloud-secrets
+              optional: false
+        - name: NC_PASSWORDSALT
+          valueFrom:
+            secretKeyRef:
+              key: passwordsalt
+              name: nextcloud-secrets
+              optional: false
+        - name: NC_SECRET
+          valueFrom:
+            secretKeyRef:
+              key: secret
+              name: nextcloud-secrets
+              optional: false
+        image: busybox:1
+        imagePullPolicy: IfNotPresent
+        name: generate-secrets-config
+        resources: {}
+        terminationMessagePath: /dev/termination-log
+        terminationMessagePolicy: File
+        volumeMounts:
+        - mountPath: /out
+          mountPropagation: None
+          name: config-secrets
+      restartPolicy: Always
+      schedulerName: default-scheduler
+      securityContext:
+        fsGroup: 33
+        fsGroupChangePolicy: OnRootMismatch
+        runAsNonRoot: false
+      shareProcessNamespace: false
+      terminationGracePeriodSeconds: 30
+      volumes:
+      - name: config
+        persistentVolumeClaim:
+          claimName: nextcloud-config
+      - name: custom-apps
+        persistentVolumeClaim:
+          claimName: nextcloud-custom-apps
+      - name: data
+        persistentVolumeClaim:
+          claimName: nextcloud-data
+      - configMap:
+          defaultMode: 420
+          name: nextcloud-config-override
+          optional: false
+        name: config-override
+      - emptyDir: {}
+        name: config-secrets

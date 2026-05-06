@@ -1,0 +1,46 @@
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app: dovecot
+    environment: prod
+  name: dovecot
+  namespace: default
+spec:
+  externalIPs:
+  - 192.168.1.5
+  externalTrafficPolicy: Cluster
+  internalTrafficPolicy: Cluster
+  ports:
+  - name: lmtp
+    port: 24
+    protocol: TCP
+    targetPort: 24
+  - name: sasl
+    port: 12345
+    protocol: TCP
+    targetPort: 12345
+  - name: imap
+    port: 143
+    protocol: TCP
+    targetPort: 143
+  - name: imaps
+    port: 993
+    protocol: TCP
+    targetPort: 993
+  - name: pop3
+    port: 110
+    protocol: TCP
+    targetPort: 110
+  - name: pop3s
+    port: 995
+    protocol: TCP
+    targetPort: 995
+  - name: sieve
+    port: 4190
+    protocol: TCP
+    targetPort: 4190
+  selector:
+    app: dovecot
+  sessionAffinity: None
+  type: ClusterIP

@@ -1,0 +1,37 @@
+apiVersion: v1
+data:
+  lldap_config.toml: '## lldap configuration
+
+    ## Database URL is provided via LLDAP_DATABASE_URL env var.
+
+    ## JWT secret and key seed are provided via LLDAP_JWT_SECRET / LLDAP_KEY_SEED
+    env vars.
+
+
+    [ldap]
+
+    ldap_port = 3890
+
+    base_dn = "dc=brmartin,dc=co,dc=uk"
+
+
+    [http]
+
+    http_port = 17170
+
+    http_url = "https://ldap.brmartin.co.uk/"
+
+
+    [verbose]
+
+    verbose = false
+
+    '
+immutable: false
+kind: ConfigMap
+metadata:
+  labels:
+    app: lldap
+    environment: prod
+  name: lldap-config
+  namespace: default

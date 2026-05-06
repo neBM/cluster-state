@@ -1,0 +1,23 @@
+apiVersion: v1
+data:
+  workhorse-config.toml: '# GitLab Workhorse configuration
+
+    [redis]
+
+    URL = "redis://gitlab-redis:6379"
+
+
+    [[listeners]]
+
+    network = "tcp"
+
+    addr = "0.0.0.0:8181"
+
+    '
+immutable: false
+kind: ConfigMap
+metadata:
+  labels:
+    app: gitlab
+  name: workhorse-config
+  namespace: default
