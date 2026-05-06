@@ -673,7 +673,7 @@ resource "kubernetes_config_map_v1" "alerting" {
                   relativeTimeRange = { from = 600, to = 0 }
                   model = {
                     datasource    = { type = "prometheus", uid = "prometheus" }
-                    expr          = "sum by(instance, kubernetes_io_hostname) (increase(apiserver_storage_consistency_checks_total{job=\"kubernetes-nodes\",status!=\"success\"}[15m]))"
+                    expr          = "sum by(instance, kubernetes_io_hostname) (increase(apiserver_storage_consistency_checks_total{job=\"kubernetes-nodes\",status!=\"success\"}[15m])) or sum by(instance, kubernetes_io_hostname) (0 * up{job=\"kubernetes-nodes\"})"
                     instant       = true
                     intervalMs    = 1000
                     maxDataPoints = 43200
@@ -962,13 +962,43 @@ resource "kubernetes_deployment_v1" "grafana" {
 
           volume_mount {
             name       = "datasources"
-            mount_path = "/etc/grafana/provisioning/datasources"
+            mount_path = "/etc/grafana/provisioning/datasources/prometheus.yaml"
+            sub_path   = "prometheus.yaml"
+            read_only  = true
+          }
+
+          volume_mount {
+            name       = "datasources"
+            mount_path = "/etc/grafana/provisioning/datasources/loki.yaml"
+            sub_path   = "loki.yaml"
             read_only  = true
           }
 
           volume_mount {
             name       = "alerting"
-            mount_path = "/etc/grafana/provisioning/alerting"
+            mount_path = "/etc/grafana/provisioning/alerting/infrastructure-alerts.yaml"
+            sub_path   = "infrastructure-alerts.yaml"
+            read_only  = true
+          }
+
+          volume_mount {
+            name       = "alerting"
+            mount_path = "/etc/grafana/provisioning/alerting/etcd-alerts.yaml"
+            sub_path   = "etcd-alerts.yaml"
+            read_only  = true
+          }
+
+          volume_mount {
+            name       = "alerting"
+            mount_path = "/etc/grafana/provisioning/alerting/contactpoints.yaml"
+            sub_path   = "contactpoints.yaml"
+            read_only  = true
+          }
+
+          volume_mount {
+            name       = "alerting"
+            mount_path = "/etc/grafana/provisioning/alerting/policies.yaml"
+            sub_path   = "policies.yaml"
             read_only  = true
           }
 
