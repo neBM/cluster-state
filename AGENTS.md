@@ -524,7 +524,6 @@ glab api "projects/<id>/pipelines?ref=main&status=success&per_page=1"
 | nextcloud | Deployment | File sync |
 | matrix | Multiple | 6 components (synapse, mas, whatsapp-bridge, nginx, element, cinny) |
 | gitlab | Multiple | CNG multi-container (webservice, workhorse, sidekiq, gitaly, redis, registry), SSH via NodePort 30022, external PostgreSQL |
-| renovate | CronJob | Dependency updates (hourly) |
 | restic-backup | CronJob | GlusterFS backup (daily 3am) |
 | gitlab-runner | Deployment | CI runners (amd64 + arm64) |
 | open-webui | Deployment | LLM chat UI, with valkey + postgres sidecars |

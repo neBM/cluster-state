@@ -19,11 +19,13 @@ As of 2026-05-07:
 
 - `23` live `pvc-*` filer directories matched `23` `Bound` SeaweedFS PV
   handles.
+- `1` additional bound SeaweedFS handle, `/buckets`, remained outside the
+  `pvc-*` comparison and is reported separately by the helper.
 - `0` orphaned live `pvc-*` directories remained after the same-day scrub.
-- `8` named buckets existed.
+- `7` named buckets existed.
 - `7` named buckets had current consumers.
-- `1` named bucket, `renovate-cache`, had no current consumer and is an
-  abandoned-data candidate.
+- `0` named buckets remained without a current consumer after the same-day
+  cleanup of `renovate-cache`.
 
 ## Durable Rules
 
@@ -38,31 +40,48 @@ As of 2026-05-07:
 
 ## Commands
 
-List the filer entries:
+Preferred audit path:
+
+```bash
+python3 scripts/audit_seaweedfs_buckets.py
+```
+
+Machine-readable output:
+
+```bash
+python3 scripts/audit_seaweedfs_buckets.py --json
+```
+
+Fail the command when orphaned PVC dirs, missing live PVC dirs, or abandoned
+named buckets are present:
+
+```bash
+python3 scripts/audit_seaweedfs_buckets.py --fail-on-findings
+```
+
+Manual filer listing:
 
 ```bash
 kubectl exec -n default seaweedfs-master-0 -- sh -lc \
   "printf 'fs.ls /buckets\n' | weed shell -master=seaweedfs-master:9333"
 ```
 
-List the live `Bound` SeaweedFS volume handles:
+Manual live `Bound` SeaweedFS volume-handle listing:
 
 ```bash
-kubectl get pv -o json | python3 - <<'PY'
+python3 - <<'PY'
 import json
-import sys
+import subprocess
 
-data = json.load(sys.stdin)
-handles = sorted(
-    item["spec"]["csi"]["volumeHandle"]
-    for item in data["items"]
-    if item.get("status", {}).get("phase") == "Bound"
-    and item.get("spec", {}).get("storageClassName") == "seaweedfs"
-    and item.get("spec", {}).get("csi", {}).get("volumeHandle")
-)
-
-for handle in handles:
-    print(handle)
+data = json.loads(subprocess.check_output(["kubectl", "get", "pv", "-o", "json"]))
+for item in sorted(data["items"], key=lambda entry: entry["metadata"]["name"]):
+    if item.get("status", {}).get("phase") != "Bound":
+        continue
+    if item.get("spec", {}).get("storageClassName") != "seaweedfs":
+        continue
+    handle = item.get("spec", {}).get("csi", {}).get("volumeHandle")
+    if handle:
+        print(handle)
 PY
 ```
 
@@ -107,6 +126,16 @@ The point-in-time 2026-05-07 cleanup of released SeaweedFS PVs is recorded in
    distinguish an abandoned cache from meaningful retained data.
 4. Only after that classify it as either active or a cleanup candidate.
 
+The helper script automates those checks by:
+
+- comparing `/buckets/pvc-*` against the live `Bound` SeaweedFS PV handles
+- searching the repo for named-bucket references in `apps/`,
+  `infrastructure/`, and `clusters/`
+- searching live `ConfigMap`, `Secret`, `Deployment`, `StatefulSet`,
+  `DaemonSet`, `CronJob`, and `Job` objects for named-bucket references
+- flagging any named bucket with no current repo or live consumer as an
+  abandoned-data candidate
+
 ## Current Named Bucket Baseline
 
 | Bucket | Status | Current consumer evidence |
@@ -118,19 +147,15 @@ The point-in-time 2026-05-07 cleanup of released SeaweedFS PVs is recorded in
 | `overseerr-litestream` | Active | `apps/overseerr/configmap-default-overseerr-litestream.yaml` points Litestream at bucket `overseerr-litestream` for the live `Deployment/overseerr` |
 | `plex-backup` | Active | `apps/media-centre/cronjob-default-plex-db-backup.yaml` writes rolling backups to `plex-backup`, and `apps/media-centre/deployment-default-plex.yaml` reads the same bucket for restore |
 | `victoriametrics` | Active | `infrastructure/observability-core/victoriametrics/deployment-default-victoriametrics.yaml` runs `vmbackup`/`vmrestore` against bucket `victoriametrics` |
-| `renovate-cache` | Abandoned-data candidate | No checked-in manifest or live workload references `renovate` or `renovate-cache`; only `default/renovate-secrets` remains. The bucket still holds about `1.2 MiB` and its last observed filer mtime was `2026-04-22T15:29:37Z`, so treat it as explicit cleanup rather than silent drift. |
 
-## Current `renovate-cache` Evidence
+## Removed Named Buckets
 
-The 2026-05-07 audit found:
+The 2026-05-07 audit and cleanup pass removed one abandoned named bucket:
 
-- no `Deployment`, `StatefulSet`, `DaemonSet`, `CronJob`, `Job`, `Pod`,
-  `Service`, `Ingress`, `IngressRoute`, or checked-in manifest using
-  `renovate`, `renovate-secrets`, or `renovate-cache`
-- one leftover live `Secret`, `default/renovate-secrets`, created on
-  `2026-01-24T21:51:44Z` and still labeled `app=renovate`
-- about `1.2 MiB` of filer content under `/buckets/renovate-cache`
-- a top-level path of `gitlab/`, with nested project cache paths below it
-
-That is enough to treat the bucket and secret as cleanup candidates, but not to
-delete them automatically without an explicit operator decision.
+- `renovate-cache`
+  - No checked-in manifest or live workload references remained.
+  - The only live object left was `Secret/default/renovate-secrets`.
+  - The bucket held about `1.2 MiB` of stale cache data with top-level path
+    `gitlab/`.
+  - `Secret/default/renovate-secrets` and `/buckets/renovate-cache` were both
+    deleted on 2026-05-07.
