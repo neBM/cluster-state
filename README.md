@@ -82,3 +82,5 @@ GitLab CI validates the rendered manifests and builds driver artifacts. Flux is 
 - Secrets stay out of git. Manifests reference existing secret names only.
 - Flux source polling is set to a long interval and GitLab webhooks provide the fast path.
 - Initial Flux child `Kustomization` objects use `prune: false` to avoid accidental deletion during the cutover cleanup phase.
+- `apps/gitlab/kustomization.yaml` owns the GitLab upgrade flow. Set `migrationVersion` to the target GitLab release first and wait for the versioned migrations `Job` to complete, then set `appVersion` to the same value so the GitLab deployments roll after the schema is ready.
+- If you re-run GitLab migrations at the current app version, restart `gitlab-webservice` and `gitlab-sidekiq` after the job completes so Rails reloads any post-migrate schema changes.

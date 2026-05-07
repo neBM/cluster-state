@@ -1,0 +1,149 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: gitlab-migrations-placeholder
+  namespace: default
+  labels:
+    app: gitlab
+    component: migrations
+spec:
+  backoffLimit: 6
+  template:
+    metadata:
+      annotations:
+        elastic.co/dataset: kubernetes.container_logs.gitlab
+      labels:
+        app: gitlab
+        component: migrations
+    spec:
+      automountServiceAccountToken: true
+      containers:
+      - name: migrations
+        image: registry.gitlab.com/gitlab-org/build/cng/gitlab-webservice-ce:placeholder
+        imagePullPolicy: IfNotPresent
+        args:
+        - /scripts/db-migrate
+        env:
+        - name: CONFIG_TEMPLATE_DIRECTORY
+          value: /var/opt/gitlab/config/templates
+        - name: CONFIG_DIRECTORY
+          value: /srv/gitlab/config
+        - name: GITLAB_HOST
+          value: git.brmartin.co.uk
+        - name: GITLAB_PORT
+          value: '443'
+        - name: GITLAB_HTTPS
+          value: 'true'
+        - name: ENABLE_BOOTSNAP
+          value: '1'
+        - name: ACTION_CABLE_IN_APP
+          value: 'true'
+        - name: GITALY_TOKEN
+          valueFrom:
+            secretKeyRef:
+              key: token
+              name: gitlab-gitaly
+              optional: false
+        - name: GITLAB_SMTP_USERNAME
+          valueFrom:
+            secretKeyRef:
+              key: SMTP_USERNAME
+              name: gitlab-smtp-secret
+              optional: false
+        - name: GITLAB_SMTP_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              key: SMTP_PASSWORD
+              name: gitlab-smtp-secret
+              optional: false
+        resources:
+          limits:
+            memory: 3Gi
+          requests:
+            cpu: 75m
+            memory: 2100Mi
+        volumeMounts:
+        - mountPath: /var/opt/gitlab/config/templates
+          name: config-templates
+        - mountPath: /srv/gitlab/public/uploads
+          mountPropagation: HostToContainer
+          name: uploads
+        - mountPath: /srv/gitlab/shared
+          mountPropagation: HostToContainer
+          name: shared
+        - mountPath: /etc/gitlab/postgres
+          name: db-password
+          readOnly: true
+        - mountPath: /srv/gitlab/config/secrets.yml
+          name: rails-secret
+          readOnly: true
+          subPath: secrets.yml
+        - mountPath: /etc/gitlab/gitlab-workhorse
+          name: workhorse-secret
+          readOnly: true
+        - mountPath: /etc/gitlab/gitlab-shell
+          name: shell-secret
+          readOnly: true
+        - mountPath: /etc/gitlab/registry
+          name: registry-auth
+          readOnly: true
+        - mountPath: /srv/gitlab/config/initializers/smtp_settings.rb
+          name: smtp-config
+          readOnly: true
+          subPath: smtp_settings.rb
+      dnsPolicy: ClusterFirst
+      enableServiceLinks: true
+      restartPolicy: OnFailure
+      schedulerName: default-scheduler
+      securityContext:
+        fsGroup: 1000
+        runAsGroup: 1000
+        runAsNonRoot: false
+        runAsUser: 1000
+      shareProcessNamespace: false
+      terminationGracePeriodSeconds: 30
+      volumes:
+      - configMap:
+          defaultMode: 420
+          name: gitlab-config-templates
+          optional: false
+        name: config-templates
+      - name: uploads
+        persistentVolumeClaim:
+          claimName: gitlab-uploads-sw
+      - name: shared
+        persistentVolumeClaim:
+          claimName: gitlab-shared-sw
+      - name: db-password
+        secret:
+          defaultMode: 420
+          items:
+          - key: db_password
+            path: password
+          optional: false
+          secretName: gitlab-secrets
+      - name: rails-secret
+        secret:
+          defaultMode: 420
+          optional: false
+          secretName: gitlab-rails-secret
+      - name: workhorse-secret
+        secret:
+          defaultMode: 420
+          optional: false
+          secretName: gitlab-workhorse
+      - name: shell-secret
+        secret:
+          defaultMode: 420
+          optional: false
+          secretName: gitlab-shell
+      - name: registry-auth
+        secret:
+          defaultMode: 420
+          optional: false
+          secretName: gitlab-registry-auth
+      - configMap:
+          defaultMode: 420
+          name: gitlab-smtp-config
+          optional: false
+        name: smtp-config

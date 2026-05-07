@@ -24,3 +24,79 @@ resources:
 - service-default-gitlab-registry-internal.yaml
 - service-default-gitlab-webservice.yaml
 - service-default-gitlab-workhorse.yaml
+- job-default-gitlab-migrations.yaml
+namespace: default
+generatorOptions:
+  disableNameSuffixHash: true
+configMapGenerator:
+- name: gitlab-release
+  literals:
+  - appVersion=v18.11.1
+  - migrationVersion=v18.11.1
+replacements:
+- source:
+    kind: ConfigMap
+    name: gitlab-release
+    fieldPath: data.migrationVersion
+  targets:
+  - select:
+      kind: Job
+      labelSelector: app=gitlab,component=migrations
+    fieldPaths:
+    - metadata.name
+    options:
+      delimiter: '-'
+      index: 2
+  - select:
+      kind: Job
+      labelSelector: app=gitlab,component=migrations
+    fieldPaths:
+    - spec.template.spec.containers.0.image
+    options:
+      delimiter: ':'
+      index: 1
+- source:
+    kind: ConfigMap
+    name: gitlab-release
+    fieldPath: data.appVersion
+  targets:
+  - select:
+      kind: Deployment
+      name: gitlab-gitaly
+    fieldPaths:
+    - spec.template.spec.containers.0.image
+    options:
+      delimiter: ':'
+      index: 1
+  - select:
+      kind: Deployment
+      name: gitlab-registry
+    fieldPaths:
+    - spec.template.spec.containers.0.image
+    options:
+      delimiter: ':'
+      index: 1
+  - select:
+      kind: Deployment
+      name: gitlab-sidekiq
+    fieldPaths:
+    - spec.template.spec.containers.0.image
+    options:
+      delimiter: ':'
+      index: 1
+  - select:
+      kind: Deployment
+      name: gitlab-webservice
+    fieldPaths:
+    - spec.template.spec.containers.0.image
+    options:
+      delimiter: ':'
+      index: 1
+  - select:
+      kind: Deployment
+      name: gitlab-workhorse
+    fieldPaths:
+    - spec.template.spec.containers.0.image
+    options:
+      delimiter: ':'
+      index: 1

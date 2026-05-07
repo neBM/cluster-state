@@ -84,6 +84,14 @@ STRING_REPLACEMENTS = {
     "Managed by Terraform": "Managed in cluster-state",
 }
 
+GITLAB_CNG_IMAGES = {
+    "gitlab-gitaly": "registry.gitlab.com/gitlab-org/build/cng/gitaly",
+    "gitlab-registry": "registry.gitlab.com/gitlab-org/build/cng/gitlab-container-registry",
+    "gitlab-sidekiq": "registry.gitlab.com/gitlab-org/build/cng/gitlab-sidekiq-ce",
+    "gitlab-webservice": "registry.gitlab.com/gitlab-org/build/cng/gitlab-webservice-ce",
+    "gitlab-workhorse": "registry.gitlab.com/gitlab-org/build/cng/gitlab-workhorse-ce",
+}
+
 
 @dataclass
 class ExplicitResource:
@@ -303,6 +311,17 @@ def dump_yaml(doc: dict[str, Any]) -> str:
     return yaml.safe_dump(doc, sort_keys=False)
 
 
+def split_image_tag(image: str) -> tuple[str, str]:
+    if "@" in image:
+        raise RuntimeError(f"image digests are not supported for GitLab CNG version management: {image}")
+
+    name, sep, tag = image.rpartition(":")
+    if not sep or not name or not tag:
+        raise RuntimeError(f"image is missing a tag: {image}")
+
+    return name, tag
+
+
 def write_component(component: Component, resources: list[dict[str, Any]]) -> None:
     path = REPO_ROOT / component.path
     path.mkdir(parents=True, exist_ok=True)
@@ -322,6 +341,8 @@ def write_component(component: Component, resources: list[dict[str, Any]]) -> No
 
     if component.postprocess == "grafana":
         write_grafana_files(path)
+    elif component.postprocess == "gitlab":
+        write_gitlab_files(path, resources)
 
 
 def write_aggregate(path_str: str, children: list[str]) -> None:
@@ -466,7 +487,21 @@ def write_grafana_files(grafana_dir: Path) -> None:
         raise RuntimeError(f"failed to export Grafana alert rules: {rules.stderr.strip()}")
     (grafana_dir / "_grafana_alert_rules.yaml").write_text(rules.stdout)
 
+    deployment_path = grafana_dir / "deployment-default-grafana.yaml"
+    deployment = yaml.safe_load(deployment_path.read_text())
+    for volume in deployment.get("spec", {}).get("template", {}).get("spec", {}).get("volumes", []):
+        config_map = volume.get("configMap")
+        if not config_map:
+            continue
+        name = config_map.get("name", "")
+        if name.startswith("grafana-datasources"):
+            config_map["name"] = "grafana-datasources"
+        elif name.startswith("grafana-alerting"):
+            config_map["name"] = "grafana-alerting"
+    deployment_path.write_text(dump_yaml(deployment))
+
     kustomization = yaml.safe_load((grafana_dir / "kustomization.yaml").read_text())
+    kustomization["namespace"] = "default"
     kustomization["configMapGenerator"] = [
         {
             "name": "grafana-datasources",
@@ -485,6 +520,414 @@ def write_grafana_files(grafana_dir: Path) -> None:
         },
     ]
     (grafana_dir / "kustomization.yaml").write_text(dump_yaml(kustomization))
+
+
+def write_gitlab_files(gitlab_dir: Path, resources: list[dict[str, Any]]) -> None:
+    deployments = {
+        resource["metadata"]["name"]: resource
+        for resource in resources
+        if resource.get("kind") == "Deployment"
+    }
+
+    versions: dict[str, str] = {}
+    for deployment_name, expected_image in GITLAB_CNG_IMAGES.items():
+        deployment = deployments.get(deployment_name)
+        if deployment is None:
+            raise RuntimeError(f"missing GitLab deployment for migrations postprocess: {deployment_name}")
+
+        containers = deployment.get("spec", {}).get("template", {}).get("spec", {}).get("containers", [])
+        if len(containers) != 1:
+            raise RuntimeError(f"expected a single container in {deployment_name}, found {len(containers)}")
+
+        image_name, image_tag = split_image_tag(containers[0]["image"])
+        if image_name != expected_image:
+            raise RuntimeError(
+                f"unexpected image for {deployment_name}: expected {expected_image}, found {image_name}"
+            )
+        versions[deployment_name] = image_tag
+
+    unique_versions = sorted(set(versions.values()))
+    if len(unique_versions) != 1:
+        raise RuntimeError(f"GitLab CNG images do not share a single version: {versions}")
+
+    gitlab_version = unique_versions[0]
+    job_filename = "job-default-gitlab-migrations.yaml"
+    job = {
+        "apiVersion": "batch/v1",
+        "kind": "Job",
+        "metadata": {
+            "name": "gitlab-migrations-placeholder",
+            "namespace": "default",
+            "labels": {
+                "app": "gitlab",
+                "component": "migrations",
+            },
+        },
+        "spec": {
+            "backoffLimit": 6,
+            "template": {
+                "metadata": {
+                    "annotations": {
+                        "elastic.co/dataset": "kubernetes.container_logs.gitlab",
+                    },
+                    "labels": {
+                        "app": "gitlab",
+                        "component": "migrations",
+                    },
+                },
+                "spec": {
+                    "automountServiceAccountToken": True,
+                    "containers": [
+                        {
+                            "name": "migrations",
+                            "image": f"{GITLAB_CNG_IMAGES['gitlab-webservice']}:placeholder",
+                            "imagePullPolicy": "IfNotPresent",
+                            "args": [
+                                "/scripts/db-migrate",
+                            ],
+                            "env": [
+                                {
+                                    "name": "CONFIG_TEMPLATE_DIRECTORY",
+                                    "value": "/var/opt/gitlab/config/templates",
+                                },
+                                {
+                                    "name": "CONFIG_DIRECTORY",
+                                    "value": "/srv/gitlab/config",
+                                },
+                                {
+                                    "name": "GITLAB_HOST",
+                                    "value": "git.brmartin.co.uk",
+                                },
+                                {
+                                    "name": "GITLAB_PORT",
+                                    "value": "443",
+                                },
+                                {
+                                    "name": "GITLAB_HTTPS",
+                                    "value": "true",
+                                },
+                                {
+                                    "name": "ENABLE_BOOTSNAP",
+                                    "value": "1",
+                                },
+                                {
+                                    "name": "ACTION_CABLE_IN_APP",
+                                    "value": "true",
+                                },
+                                {
+                                    "name": "GITALY_TOKEN",
+                                    "valueFrom": {
+                                        "secretKeyRef": {
+                                            "key": "token",
+                                            "name": "gitlab-gitaly",
+                                            "optional": False,
+                                        }
+                                    },
+                                },
+                                {
+                                    "name": "GITLAB_SMTP_USERNAME",
+                                    "valueFrom": {
+                                        "secretKeyRef": {
+                                            "key": "SMTP_USERNAME",
+                                            "name": "gitlab-smtp-secret",
+                                            "optional": False,
+                                        }
+                                    },
+                                },
+                                {
+                                    "name": "GITLAB_SMTP_PASSWORD",
+                                    "valueFrom": {
+                                        "secretKeyRef": {
+                                            "key": "SMTP_PASSWORD",
+                                            "name": "gitlab-smtp-secret",
+                                            "optional": False,
+                                        }
+                                    },
+                                },
+                            ],
+                            "resources": {
+                                "limits": {
+                                    "memory": "3Gi",
+                                },
+                                "requests": {
+                                    "cpu": "75m",
+                                    "memory": "2100Mi",
+                                },
+                            },
+                            "volumeMounts": [
+                                {
+                                    "mountPath": "/var/opt/gitlab/config/templates",
+                                    "name": "config-templates",
+                                },
+                                {
+                                    "mountPath": "/srv/gitlab/public/uploads",
+                                    "mountPropagation": "HostToContainer",
+                                    "name": "uploads",
+                                },
+                                {
+                                    "mountPath": "/srv/gitlab/shared",
+                                    "mountPropagation": "HostToContainer",
+                                    "name": "shared",
+                                },
+                                {
+                                    "mountPath": "/etc/gitlab/postgres",
+                                    "name": "db-password",
+                                    "readOnly": True,
+                                },
+                                {
+                                    "mountPath": "/srv/gitlab/config/secrets.yml",
+                                    "name": "rails-secret",
+                                    "readOnly": True,
+                                    "subPath": "secrets.yml",
+                                },
+                                {
+                                    "mountPath": "/etc/gitlab/gitlab-workhorse",
+                                    "name": "workhorse-secret",
+                                    "readOnly": True,
+                                },
+                                {
+                                    "mountPath": "/etc/gitlab/gitlab-shell",
+                                    "name": "shell-secret",
+                                    "readOnly": True,
+                                },
+                                {
+                                    "mountPath": "/etc/gitlab/registry",
+                                    "name": "registry-auth",
+                                    "readOnly": True,
+                                },
+                                {
+                                    "mountPath": "/srv/gitlab/config/initializers/smtp_settings.rb",
+                                    "name": "smtp-config",
+                                    "readOnly": True,
+                                    "subPath": "smtp_settings.rb",
+                                },
+                            ],
+                        }
+                    ],
+                    "dnsPolicy": "ClusterFirst",
+                    "enableServiceLinks": True,
+                    "restartPolicy": "OnFailure",
+                    "schedulerName": "default-scheduler",
+                    "securityContext": {
+                        "fsGroup": 1000,
+                        "runAsGroup": 1000,
+                        "runAsNonRoot": False,
+                        "runAsUser": 1000,
+                    },
+                    "shareProcessNamespace": False,
+                    "terminationGracePeriodSeconds": 30,
+                    "volumes": [
+                        {
+                            "configMap": {
+                                "defaultMode": 420,
+                                "name": "gitlab-config-templates",
+                                "optional": False,
+                            },
+                            "name": "config-templates",
+                        },
+                        {
+                            "name": "uploads",
+                            "persistentVolumeClaim": {
+                                "claimName": "gitlab-uploads-sw",
+                            },
+                        },
+                        {
+                            "name": "shared",
+                            "persistentVolumeClaim": {
+                                "claimName": "gitlab-shared-sw",
+                            },
+                        },
+                        {
+                            "name": "db-password",
+                            "secret": {
+                                "defaultMode": 420,
+                                "items": [
+                                    {
+                                        "key": "db_password",
+                                        "path": "password",
+                                    }
+                                ],
+                                "optional": False,
+                                "secretName": "gitlab-secrets",
+                            },
+                        },
+                        {
+                            "name": "rails-secret",
+                            "secret": {
+                                "defaultMode": 420,
+                                "optional": False,
+                                "secretName": "gitlab-rails-secret",
+                            },
+                        },
+                        {
+                            "name": "workhorse-secret",
+                            "secret": {
+                                "defaultMode": 420,
+                                "optional": False,
+                                "secretName": "gitlab-workhorse",
+                            },
+                        },
+                        {
+                            "name": "shell-secret",
+                            "secret": {
+                                "defaultMode": 420,
+                                "optional": False,
+                                "secretName": "gitlab-shell",
+                            },
+                        },
+                        {
+                            "name": "registry-auth",
+                            "secret": {
+                                "defaultMode": 420,
+                                "optional": False,
+                                "secretName": "gitlab-registry-auth",
+                            },
+                        },
+                        {
+                            "configMap": {
+                                "defaultMode": 420,
+                                "name": "gitlab-smtp-config",
+                                "optional": False,
+                            },
+                            "name": "smtp-config",
+                        },
+                    ],
+                },
+            },
+        },
+    }
+    (gitlab_dir / job_filename).write_text(dump_yaml(job))
+
+    kustomization = yaml.safe_load((gitlab_dir / "kustomization.yaml").read_text())
+    kustomization["namespace"] = "default"
+    resources = kustomization.setdefault("resources", [])
+    if job_filename not in resources:
+        resources.append(job_filename)
+
+    kustomization["generatorOptions"] = {
+        "disableNameSuffixHash": True,
+    }
+    kustomization["configMapGenerator"] = [
+        {
+            "name": "gitlab-release",
+            "literals": [
+                f"appVersion={gitlab_version}",
+                f"migrationVersion={gitlab_version}",
+            ],
+        }
+    ]
+    kustomization["replacements"] = [
+        {
+            "source": {
+                "kind": "ConfigMap",
+                "name": "gitlab-release",
+                "fieldPath": "data.migrationVersion",
+            },
+            "targets": [
+                {
+                    "select": {
+                        "kind": "Job",
+                        "labelSelector": "app=gitlab,component=migrations",
+                    },
+                    "fieldPaths": [
+                        "metadata.name",
+                    ],
+                    "options": {
+                        "delimiter": "-",
+                        "index": 2,
+                    },
+                },
+                {
+                    "select": {
+                        "kind": "Job",
+                        "labelSelector": "app=gitlab,component=migrations",
+                    },
+                    "fieldPaths": [
+                        "spec.template.spec.containers.0.image",
+                    ],
+                    "options": {
+                        "delimiter": ":",
+                        "index": 1,
+                    },
+                },
+            ],
+        },
+        {
+            "source": {
+                "kind": "ConfigMap",
+                "name": "gitlab-release",
+                "fieldPath": "data.appVersion",
+            },
+            "targets": [
+                {
+                    "select": {
+                        "kind": "Deployment",
+                        "name": "gitlab-gitaly",
+                    },
+                    "fieldPaths": [
+                        "spec.template.spec.containers.0.image",
+                    ],
+                    "options": {
+                        "delimiter": ":",
+                        "index": 1,
+                    },
+                },
+                {
+                    "select": {
+                        "kind": "Deployment",
+                        "name": "gitlab-registry",
+                    },
+                    "fieldPaths": [
+                        "spec.template.spec.containers.0.image",
+                    ],
+                    "options": {
+                        "delimiter": ":",
+                        "index": 1,
+                    },
+                },
+                {
+                    "select": {
+                        "kind": "Deployment",
+                        "name": "gitlab-sidekiq",
+                    },
+                    "fieldPaths": [
+                        "spec.template.spec.containers.0.image",
+                    ],
+                    "options": {
+                        "delimiter": ":",
+                        "index": 1,
+                    },
+                },
+                {
+                    "select": {
+                        "kind": "Deployment",
+                        "name": "gitlab-webservice",
+                    },
+                    "fieldPaths": [
+                        "spec.template.spec.containers.0.image",
+                    ],
+                    "options": {
+                        "delimiter": ":",
+                        "index": 1,
+                    },
+                },
+                {
+                    "select": {
+                        "kind": "Deployment",
+                        "name": "gitlab-workhorse",
+                    },
+                    "fieldPaths": [
+                        "spec.template.spec.containers.0.image",
+                    ],
+                    "options": {
+                        "delimiter": ":",
+                        "index": 1,
+                    },
+                },
+            ],
+        }
+    ]
+    (gitlab_dir / "kustomization.yaml").write_text(dump_yaml(kustomization))
 
 
 def clean_outputs() -> None:
@@ -673,6 +1116,7 @@ def main() -> int:
         Component(
             "apps/gitlab",
             selectors={"default": "app=gitlab"},
+            postprocess="gitlab",
         ),
         Component(
             "apps/iris",

@@ -15,6 +15,7 @@ k3s-config
 
 # Tool artifacts
 /.opencode/
+__pycache__/
 
 # CSI driver build outputs
 /drivers/seaweedfs-csi-driver/_output/

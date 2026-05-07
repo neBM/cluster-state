@@ -553,6 +553,15 @@ glab api "projects/<id>/pipelines?ref=main&status=success&per_page=1"
 - Grafana Alloy 1.x DaemonSet (pod logs + systemd journal + syslog/auth collection)
 - GitLab CNG container images (registry.gitlab.com/gitlab-org/build/cng)
 - External PostgreSQL (192.168.1.10:5433) for GitLab
+
+## GitLab Upgrades
+
+GitLab CNG image tags and the schema-migrations trigger live in `apps/gitlab/kustomization.yaml`.
+
+- GitLab upgrades are two-step in GitOps: bump `migrationVersion` first and wait for the versioned migrations `Job` to complete, then bump `appVersion` to roll the GitLab deployments.
+- The GitLab component images are re-tagged from `appVersion` at Kustomize build time.
+- The migrations `Job` image and versioned name are driven by `migrationVersion`, so a migration bump creates a fresh one-shot job instead of trying to mutate a completed `Job`.
+- If migrations are run against the current live app version, restart `gitlab-webservice` and `gitlab-sidekiq` after the job completes so Rails reloads post-migrate schema changes.
 - External PostgreSQL (192.168.1.10:5433) for lldap and SoGO (mail stack)
 
 ## Recent Changes
