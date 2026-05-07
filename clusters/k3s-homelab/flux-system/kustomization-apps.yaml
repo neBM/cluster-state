@@ -10,7 +10,7 @@ spec:
   - name: shared-services
   interval: 10m0s
   path: ./apps
-  prune: false
+  prune: true
   retryInterval: 1m0s
   sourceRef:
     kind: GitRepository

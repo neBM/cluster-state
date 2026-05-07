@@ -6,7 +6,7 @@ metadata:
 spec:
   interval: 10m0s
   path: ./infrastructure/platform
-  prune: false
+  prune: true
   retryInterval: 1m0s
   sourceRef:
     kind: GitRepository

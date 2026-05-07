@@ -83,6 +83,6 @@ GitLab CI validates the rendered manifests and builds driver artifacts. Flux is 
 - Avoid `kubectl apply` for live Secrets. It stores a copy of the payload in `kubectl.kubernetes.io/last-applied-configuration` metadata.
 - SeaweedFS S3 is the live object-storage endpoint. Some workloads still use legacy `MINIO_*` secret key names for compatibility, and there is no active External Secrets controller in the cluster; see `docs/seaweedfs-s3-identities.md` for current mappings and manual rotation/repair steps.
 - Flux source polling is set to a long interval and GitLab webhooks provide the fast path.
-- Initial Flux child `Kustomization` objects use `prune: false` to avoid accidental deletion during the cutover cleanup phase.
+- Flux child `Kustomization` objects are authoritative with `prune: true` except for `storage`, which stays non-pruning until PVC/PV deletion semantics are reviewed explicitly.
 - `apps/gitlab/kustomization.yaml` owns the GitLab upgrade flow. Set `migrationVersion` to the target GitLab release first and wait for the versioned migrations `Job` to complete, then set `appVersion` to the same value so the GitLab deployments roll after the schema is ready.
 - If you re-run GitLab migrations at the current app version, restart `gitlab-webservice` and `gitlab-sidekiq` after the job completes so Rails reloads any post-migrate schema changes.
