@@ -50,6 +50,36 @@
       ]
     },
     {
+      "description": "Group Go module updates for the SeaweedFS CSI driver",
+      "matchManagers": [
+        "gomod"
+      ],
+      "matchFileNames": [
+        "drivers/seaweedfs-csi-driver/**"
+      ],
+      "groupName": "seaweedfs csi driver go modules",
+      "groupSlug": "seaweedfs-csi-driver-go-modules",
+      "labels": [
+        "go",
+        "dependencies"
+      ]
+    },
+    {
+      "description": "Group Go module updates for the RPi5 DRA driver",
+      "matchManagers": [
+        "gomod"
+      ],
+      "matchFileNames": [
+        "drivers/rpi5-dra-driver/**"
+      ],
+      "groupName": "rpi5 dra driver go modules",
+      "groupSlug": "rpi5-dra-driver-go-modules",
+      "labels": [
+        "go",
+        "dependencies"
+      ]
+    },
+    {
       "description": "Separate major updates from minor/patch",
       "matchUpdateTypes": [
         "major"

@@ -108,9 +108,9 @@ func TestDoPost_RecoversAfterDelay(t *testing.T) {
 
 	// Start a goroutine that creates the listener after 30ms.
 	var (
-		srvMu  sync.Mutex
-		srv    *http.Server
-		srvWG  sync.WaitGroup
+		srvMu sync.Mutex
+		srv   *http.Server
+		srvWG sync.WaitGroup
 	)
 	srvWG.Add(1)
 	go func() {

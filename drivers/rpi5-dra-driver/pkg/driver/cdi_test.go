@@ -45,9 +45,9 @@ func TestWriteCDISpecNoHEVC(t *testing.T) {
 	t.Cleanup(func() { cdiDir = "/var/run/cdi" })
 
 	devices := &Devices{
-		VideoH264:  "/dev/video11",
-		RenderNode: "/dev/dri/renderD128",
-		HasH264:    true,
+		VideoH264:     "/dev/video11",
+		RenderNode:    "/dev/dri/renderD128",
+		HasH264:       true,
 		HasRenderNode: true,
 	}
 

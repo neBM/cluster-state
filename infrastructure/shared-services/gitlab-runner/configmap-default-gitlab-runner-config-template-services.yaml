@@ -1,7 +1,7 @@
 apiVersion: v1
 data:
   config.toml.template: |
-    concurrent = 3
+    concurrent = 1
     check_interval = 30
     shutdown_timeout = 0
 
@@ -24,6 +24,9 @@ data:
         "GOMODCACHE=/ci-cache/gomod",
         "GOCACHE=/ci-cache/gobuild",
         "STORAGE_DRIVER=overlay",
+        "DOCKER_HOST=tcp://kubedock:2475",
+        "TESTCONTAINERS_RYUK_DISABLED=true",
+        "TESTCONTAINERS_CHECKS_DISABLE=true",
         "TRIVY_INSECURE=true",
         "SYFT_REGISTRY_INSECURE_USE_HTTP=true",
         "SYFT_REGISTRY_INSECURE_SKIP_TLS_VERIFY=true"
@@ -75,6 +78,13 @@ data:
               [runners.kubernetes.affinity.pod_anti_affinity.preferred_during_scheduling_ignored_during_execution.pod_affinity_term.label_selector]
                 match_labels = { "ci.brmartin.co.uk/job" = "true" }
 
+      # Kubedock-backed Docker API for jobs that rely on Testcontainers or
+      # other Docker clients.
+      [[runners.kubernetes.services]]
+        name = "joyrex2001/kubedock:0.20.3"
+        alias = "kubedock"
+        command = ["server", "--port-forward"]
+
     # No node_selector — job pods float to whichever node has available resources.
 
     # Persistent node-local cache for build tool dependencies (Maven, Gradle, pip, uv, npm).
@@ -114,6 +124,6 @@ kind: ConfigMap
 metadata:
   labels:
     app: gitlab-runner
-    arch: any
-  name: gitlab-runner-config-template-any
+    pool: services
+  name: gitlab-runner-config-template-services
   namespace: default
