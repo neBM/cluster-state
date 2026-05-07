@@ -1,21 +1,24 @@
 # SeaweedFS Released PV Audit
 
 This note records the live audit completed on 2026-05-07 for `PersistentVolume`
-objects in `status.phase=Released` with `storageClassName=seaweedfs`, and the
-subsequent purge of those PV objects on the same date.
+objects in `status.phase=Released` with `storageClassName=seaweedfs`, the
+subsequent purge of those PV objects, and the filer-path scrub for the matching
+orphaned `/buckets/pvc-*` directories on the same date.
 
 ## Summary
 
 - `9` SeaweedFS PVs were in `Released`.
 - All `9` PV objects were deleted on 2026-05-07.
+- All `9` matching orphaned filer paths were confirmed absent after scrub on
+  2026-05-07.
 - Current ClickHouse does **not** use any of these PVs. Its live claim is
   `default/clickhouse-data` on `storageClassName=local-path`.
-- Because all `9` used `persistentVolumeReclaimPolicy: Retain`, deleting the
-  PV objects did **not** scrub the underlying SeaweedFS filer paths.
 
 ## Deleted PVs
 
-These PV objects were removed from Kubernetes on 2026-05-07.
+These PV objects were removed from Kubernetes on 2026-05-07. The corresponding
+orphaned filer paths were then scrubbed with `weed shell fs.rm -rf`; four test
+paths were already absent before the scrub.
 
 | PV | Former claim | Observed state before deletion |
 | --- | --- | --- |
@@ -58,4 +61,5 @@ leaving the decision implicit.
 
 When the reclaim policy is `Retain`, deleting the PV object only removes the
 Kubernetes control-plane record. Scrub the corresponding filer path separately
-if you want the underlying SeaweedFS data gone as well.
+if you want the underlying SeaweedFS data gone as well. This audit completed
+both steps for the 2026-05-07 SeaweedFS released-PV set.
