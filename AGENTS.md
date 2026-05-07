@@ -463,8 +463,8 @@ metadata:
 ### ACT Toolchain Image
 
 The `ben/act` project in GitLab provides a multiarch CI toolchain image (`registry.brmartin.co.uk/ben/act:latest`) with:
-- Node.js 20, Python 3, uv, Java 21, Maven, Gradle, Android SDK, Go, and security tooling
-- Used for driver builds and general CI tasks; manifest validation installs `kubectl` explicitly during the job
+- Node.js 20, Python 3, uv, Java 21, Maven, Gradle, Android SDK, Go, `kubectl`, `kustomize`, and security tooling
+- Used for driver builds, manifest validation, and general CI tasks
 
 ### In-Cluster Registry Bypass
 

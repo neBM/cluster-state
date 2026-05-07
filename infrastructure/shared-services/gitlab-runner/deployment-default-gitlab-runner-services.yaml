@@ -3,8 +3,8 @@ kind: Deployment
 metadata:
   labels:
     app: gitlab-runner
-    arch: any
-  name: gitlab-runner-any
+    pool: services
+  name: gitlab-runner-services
   namespace: default
 spec:
   progressDeadlineSeconds: 600
@@ -13,7 +13,7 @@ spec:
   selector:
     matchLabels:
       app: gitlab-runner
-      arch: any
+      pool: services
       managed-by: terraform
   strategy:
     type: Recreate
@@ -21,7 +21,7 @@ spec:
     metadata:
       labels:
         app: gitlab-runner
-        arch: any
+        pool: services
         managed-by: terraform
     spec:
       automountServiceAccountToken: true
@@ -50,7 +50,7 @@ spec:
       enableServiceLinks: true
       initContainers:
       - args:
-        - sed -e "s/RUNNER_NAME_PLACEHOLDER/k8s-any/" -e "s/RUNNER_TOKEN_PLACEHOLDER/$RUNNER_TOKEN/"
+        - sed -e "s/RUNNER_NAME_PLACEHOLDER/k8s-services/" -e "s/RUNNER_TOKEN_PLACEHOLDER/$RUNNER_TOKEN/"
           -e "s/MINIO_ACCESS_KEY_PLACEHOLDER/$MINIO_ACCESS_KEY/" -e "s/MINIO_SECRET_KEY_PLACEHOLDER/$MINIO_SECRET_KEY/"
           /template/config.toml.template > /config/config.toml && cp /system-id/system_id
           /config/.runner_system_id
@@ -61,7 +61,7 @@ spec:
         - name: RUNNER_TOKEN
           valueFrom:
             secretKeyRef:
-              key: runner_token_any
+              key: runner_token_services
               name: gitlab-runner-secrets
               optional: false
         - name: MINIO_ACCESS_KEY
@@ -102,12 +102,12 @@ spec:
       volumes:
       - configMap:
           defaultMode: 420
-          name: gitlab-runner-config-template-any
+          name: gitlab-runner-config-template-services
           optional: false
         name: config-template
       - configMap:
           defaultMode: 420
-          name: gitlab-runner-system-id-any
+          name: gitlab-runner-system-id-services
           optional: false
         name: system-id
       - emptyDir: {}
