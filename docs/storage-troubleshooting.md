@@ -238,38 +238,20 @@ database disk image is malformed
 decode error on restore
 ```
 
-**Cause:** WAL/database mismatch, often from improper shutdown or NFS issues
+**Cause:** For the current cluster, this usually means either:
 
-**Solution:** Restore from restic backup
+1. the SeaweedFS S3 bucket/prefix is missing or corrupted
+2. Litestream cannot read the bucket due to S3 credential drift
+3. the `seaweedfs-s3` gateway has stale internal routing state
+
+**Solution:** Follow [litestream-recovery.md](litestream-recovery.md).
+
+Fast path before a full restore:
 
 ```bash
-# 1. Stop affected job
-nomad job stop <job-name>
-
-# 2. Wipe corrupted litestream backup from MinIO
-ssh 192.168.1.5 "docker run --rm --network host \
-  -e MC_HOST_minio=http://<user>:<pass>@127.0.0.1:9000 \
-  minio/mc rm --recursive --force minio/<bucket>/"
-
-# 3. Find restic snapshot
-source .env && RESTIC_PW=$(vault kv get -format=json nomad/default/restic-backup | jq -r '.data.data.RESTIC_PASSWORD')
-ssh 192.168.1.5 "docker run --rm -v /mnt/csi/backups/restic:/repo \
-  -e RESTIC_REPOSITORY=/repo -e RESTIC_PASSWORD='$RESTIC_PW' \
-  restic/restic:0.18.1 snapshots --latest 5"
-
-# 4. Restore from restic
-ssh 192.168.1.5 "docker run --rm -v /mnt/csi/backups/restic:/repo \
-  -v /tmp/restore:/restore \
-  -e RESTIC_REPOSITORY=/repo -e RESTIC_PASSWORD='$RESTIC_PW' \
-  restic/restic:0.18.1 restore <snapshot-id> \
-  --include '/data/<minio-bucket>/' --target /restore"
-
-# 5. Move restored data
-ssh 192.168.1.5 "sudo mv /tmp/restore/data/<minio-bucket>/* \
-  /storage/v/glusterfs_minio_data/<minio-bucket>/"
-
-# 6. Restart job
-nomad job run <job-name>
+kubectl rollout restart deployment/seaweedfs-s3 -n default
+kubectl rollout status deployment/seaweedfs-s3 -n default --timeout=180s
+kubectl logs -n default deploy/overseerr -c litestream-restore --tail=100
 ```
 
 ---

@@ -18,7 +18,7 @@ This directory contains documentation for the K8s (K3s) cluster infrastructure.
 
 - **[seaweedfs-s3-identities.md](seaweedfs-s3-identities.md)** - Current SeaweedFS S3 identities, secret mappings, and manual credential rotation/repair procedure.
 
-- **[litestream-recovery.md](litestream-recovery.md)** - Historical MinIO-era litestream recovery notes. Current consumers use SeaweedFS S3 instead.
+- **[litestream-recovery.md](litestream-recovery.md)** - Current SeaweedFS-era Litestream recovery runbook for restoring bucket contents from restic and pushing them back through the S3 gateway.
 
 ## Quick Reference
 

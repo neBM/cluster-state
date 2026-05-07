@@ -202,6 +202,7 @@ volumes:
 - **SQLite on Network Storage**: Use ephemeral disk with litestream for SQLite databases. Network filesystems cause locking issues.
 - **SQLite WAL Mode**: Litestream requires WAL mode. Empty WAL files need a write to initialize the header.
 - **GitOps discipline**: Do not hand-edit live objects as a durable fix. Commit the manifest change here and let Flux reconcile it.
+- **Secret management**: Avoid `kubectl apply` for live Secrets. It stores a copy of the secret in `kubectl.kubernetes.io/last-applied-configuration` metadata. Use `kubectl patch` or explicit recreate flows instead.
 - **Traefik `allowEncodedSlash`**: Both Traefik instances have `encodedCharacters.allowEncodedSlash: true` set on the `websecure` entrypoint. This is required for GitLab's API (project slugs use `%2F` as a namespace separator). The setting is safe here because all routing is host-based — no path-based ACLs exist that `%2F` could bypass. If you ever add a Traefik rule using `Path`/`PathPrefix` to enforce access control, re-evaluate this. Keep the flag when re-rendering or updating the Traefik manifests.
 
 ## Debugging Tips
@@ -257,7 +258,7 @@ kubectl get secret wildcard-brmartin-tls -n default -o yaml
 - **Version compatibility**: Litestream 0.5.x uses LTX format, 0.3.x uses generations format. These are NOT compatible. Ensure restore and replicate use the same version.
 
 ### Litestream Backup Corruption Recovery
-Current litestream consumers write to the SeaweedFS S3 gateway. Secret mappings and manual rotation/repair steps live in [docs/seaweedfs-s3-identities.md](docs/seaweedfs-s3-identities.md). [docs/litestream-recovery.md](docs/litestream-recovery.md) is a historical MinIO-era runbook and should not be used as-is on the current cluster.
+Current litestream consumers write to the SeaweedFS S3 gateway. Secret mappings and manual rotation/repair steps live in [docs/seaweedfs-s3-identities.md](docs/seaweedfs-s3-identities.md), and the current bucket recovery procedure lives in [docs/litestream-recovery.md](docs/litestream-recovery.md).
 
 ### GlusterFS Architecture
 

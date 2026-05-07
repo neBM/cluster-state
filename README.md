@@ -80,6 +80,7 @@ GitLab CI validates the rendered manifests and builds driver artifacts. Flux is 
 ## Notes
 
 - Secrets stay out of git. Manifests reference existing secret names only.
+- Avoid `kubectl apply` for live Secrets. It stores a copy of the payload in `kubectl.kubernetes.io/last-applied-configuration` metadata.
 - SeaweedFS S3 is the live object-storage endpoint. Some workloads still use legacy `MINIO_*` secret key names for compatibility, and there is no active External Secrets controller in the cluster; see `docs/seaweedfs-s3-identities.md` for current mappings and manual rotation/repair steps.
 - Flux source polling is set to a long interval and GitLab webhooks provide the fast path.
 - Initial Flux child `Kustomization` objects use `prune: false` to avoid accidental deletion during the cutover cleanup phase.
