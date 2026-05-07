@@ -38,7 +38,7 @@ spec:
       - env:
         - name: TZ
           value: Europe/London
-        image: registry.brmartin.co.uk/jayne-martin-counselling/website:25178c1-amd64@sha256:e30b48e0360198ea3767cce1305b75c94c017f884a2760d8ac17ef2556d1a65c
+        image: registry.brmartin.co.uk/jayne-martin-counselling/website:ed61d9a-amd64@sha256:17c8a0b5daa398336c03d3ff2fee2cefc8bacc789b1e3da29ab0d6b4f4629fec
         imagePullPolicy: Always
         livenessProbe:
           failureThreshold: 3
