@@ -11,10 +11,10 @@ Infrastructure-as-Code repository for a Kubernetes (K3s) cluster. All services h
 - **Kustomize** - Manifest composition and validation
 - **Cilium** - Kubernetes CNI with network policies
 - **Traefik** - Ingress controller (K8s IngressRoutes)
-- **External Secrets Operator** - Syncs secrets from Vault to K8s (legacy, no longer actively used for new services)
+- **External Secrets Operator** - Historical only; there is no active controller/CRD in the current cluster
 - **GlusterFS** - Distributed storage (hostPath mounts in K8s)
 - **NFS-Ganesha** - NFS server with FSAL_GLUSTER (stable fileids), built from source V9.4 on all nodes
-- **MinIO** - Object storage (backups, litestream)
+- **SeaweedFS S3 gateway** - S3-compatible object storage (backups, litestream)
 
 ## Documentation
 
@@ -257,7 +257,7 @@ kubectl get secret wildcard-brmartin-tls -n default -o yaml
 - **Version compatibility**: Litestream 0.5.x uses LTX format, 0.3.x uses generations format. These are NOT compatible. Ensure restore and replicate use the same version.
 
 ### Litestream Backup Corruption Recovery
-If litestream backup in MinIO is corrupted (decode errors on restore), recover from restic. See [docs/litestream-recovery.md](docs/litestream-recovery.md) for the full runbook.
+Current litestream consumers write to the SeaweedFS S3 gateway. Secret mappings and manual rotation/repair steps live in [docs/seaweedfs-s3-identities.md](docs/seaweedfs-s3-identities.md). [docs/litestream-recovery.md](docs/litestream-recovery.md) is a historical MinIO-era runbook and should not be used as-is on the current cluster.
 
 ### GlusterFS Architecture
 
@@ -305,7 +305,7 @@ The GlusterFS bricks run on btrfs subvolumes with `nodatacow` attribute set:
 **Root Cause:** GlusterFS distributed volumes create **new GFIDs** when files are renamed across bricks. This is a fundamental behavior of the DHT (Distributed Hash Table) layer, not a bug.
 
 **Mechanism:**
-1. Application (e.g., MinIO during litestream backup) creates file in temp directory
+1. Application with heavy rename traffic (for example the pre-cutover MinIO litestream path) creates file in temp directory
 2. Application renames file to final location
 3. If source and destination hash to **different bricks**, GlusterFS DHT:
    - Creates a NEW file on destination brick with a NEW GFID
@@ -406,7 +406,7 @@ GlusterFS doesn't support Unix sockets. Services using sockets (Redis, Gitaly, P
 ### VictoriaMetrics (Metrics Collection)
 - **URL**: https://victoriametrics.brmartin.co.uk
 - **Purpose**: Drop-in Prometheus replacement, collects and stores metrics from Kubernetes nodes, pods, and services
-- **Storage**: emptyDir with hourly backup to MinIO
+- **Storage**: emptyDir with hourly backup to SeaweedFS S3
 - **Retention**: 30 days
 - **Scraping**: Auto-discovers targets via Kubernetes API and `prometheus.io/*` annotations
 - **Supplementary**: node-exporter (DaemonSet) and kube-state-metrics for host and K8s object metrics
@@ -498,7 +498,8 @@ glab api "projects/<id>/pipelines?ref=main&status=success&per_page=1"
 ## Links
 
 - GitLab: https://git.brmartin.co.uk
-- MinIO Console: https://minio.brmartin.co.uk
+- SeaweedFS Master UI: https://seaweedfs.brmartin.co.uk
+- SeaweedFS Filer UI: https://seaweedfs-filer.brmartin.co.uk
 - Keycloak (SSO): https://sso.brmartin.co.uk
 - VictoriaMetrics: https://victoriametrics.brmartin.co.uk
 - Grafana: https://grafana.brmartin.co.uk
@@ -514,7 +515,7 @@ glab api "projects/<id>/pipelines?ref=main&status=success&per_page=1"
 | vaultwarden | Deployment | Password manager |
 | overseerr | StatefulSet | Media requests, litestream backup |
 | ollama | Deployment | LLM inference, GPU on Hestia |
-| minio | Deployment | Object storage |
+| seaweedfs-s3 | Deployment | S3-compatible object storage endpoint |
 | keycloak | Deployment | SSO/OAuth |
 
 | nextcloud | Deployment | File sync |
@@ -525,19 +526,19 @@ glab api "projects/<id>/pipelines?ref=main&status=success&per_page=1"
 | gitlab-runner | Deployment | CI runners (amd64 + arm64) |
 | open-webui | Deployment | LLM chat UI, with valkey + postgres sidecars |
 | plextraktsync | CronJob | Plex/Trakt sync (every 2 hours) |
-| plex | StatefulSet | Media server, NVIDIA GPU, sqlite3 .backup CronJob to MinIO |
+| plex | StatefulSet | Media server, NVIDIA GPU, sqlite3 .backup CronJob to SeaweedFS S3 |
 
 | lldap | Deployment | Lightweight LDAP — user/group store for mail stack; admin UI at ldap.brmartin.co.uk (local admin credentials); Keycloak federates users READ_ONLY |
 | mail | Multiple | Postfix (SMTP), Dovecot (IMAP/POP3/LMTP), Rspamd (spam+DKIM), SoGO (webmail), mail-redis; mailboxes on glusterfs-nfs PVC; DKIM keys in `dkim-keys` Secret; TLS via cert-manager-managed `wildcard-brmartin-tls` Secret; mail ports via hostPort on Hestia |
 | tautulli | Deployment | Plex monitoring/statistics |
-| loki | Deployment | Log aggregation backend (MinIO-backed S3 storage, 30-day retention) |
+| loki | Deployment | Log aggregation backend (SeaweedFS-backed S3 storage, 30-day retention) |
 | alloy | DaemonSet | Log collection — tails pod logs + journal + syslog on all 3 nodes, ships to Loki |
 | athenaeum | Multiple | Knowledge wiki (backend, frontend, redis), Keycloak SSO, Ollama for fact extraction |
 | headlamp | Deployment | K8s web dashboard, Keycloak OIDC, kube-system namespace |
 | jayne-martin-counselling | Deployment | Static counselling website |
 | laurens-dissertation | Deployment | TikTok Shop vs Amazon profitability study |
 | iris | Deployment | Self-hosted media server (Movies & TV) |
-| victoriametrics | Deployment | Metrics collection (Prometheus replacement), MinIO backup |
+| victoriametrics | Deployment | Metrics collection (Prometheus replacement), SeaweedFS S3 backup |
 | node-exporter | DaemonSet | Host metrics collection |
 | kube-state-metrics | Deployment | Kubernetes object metrics |
 | hubble-ui | Deployment | Cilium network flow visualization, kube-system namespace |
@@ -548,8 +549,8 @@ glab api "projects/<id>/pipelines?ref=main&status=success&per_page=1"
 - Kubernetes (K3s 1.34+), Cilium CNI, Traefik Ingress, External Secrets Operator
 - GlusterFS via NFS-Ganesha at `/storage/v/` on all nodes
 - NFS Subdir External Provisioner for dynamic PVC provisioning
-- MinIO (litestream backups)
-- Grafana Loki 3.x (monolithic, MinIO-backed S3 storage, 30-day retention)
+- SeaweedFS S3 gateway (litestream backups and object storage)
+- Grafana Loki 3.x (monolithic, SeaweedFS-backed S3 storage, 30-day retention)
 - Grafana Alloy 1.x DaemonSet (pod logs + systemd journal + syslog/auth collection)
 - GitLab CNG container images (registry.gitlab.com/gitlab-org/build/cng)
 - External PostgreSQL (192.168.1.10:5433) for GitLab
@@ -566,7 +567,7 @@ GitLab CNG image tags and the schema-migrations trigger live in `apps/gitlab/kus
 
 ## Recent Changes
 - 012-k8s-mail-server: Migrated mailcow to standalone K8s mail stack (Postfix+Dovecot+Rspamd+SoGO+lldap); mailcow Docker Compose decommissioned; Keycloak LDAP federation configured; Dovecot group-enforcement via two-passdb chain (mail-users group in lldap)
-- 011-loki-migration: Replaced 3-node Elasticsearch + Kibana + Elastic Agent with Grafana Loki (monolithic, MinIO-backed) + Grafana Alloy DaemonSet; freed ~100GB NVMe and ~11GB RAM
+- 011-loki-migration: Replaced 3-node Elasticsearch + Kibana + Elastic Agent with Grafana Loki (monolithic, SeaweedFS-backed) + Grafana Alloy DaemonSet; freed ~100GB NVMe and ~11GB RAM
 - 011-traefik-encoded-slash: Enabled `allowEncodedSlash` on both Traefik instances so GitLab API slugs (`namespace%2Fproject`) work correctly with `glab`
 - 010-observability-stack: Added VictoriaMetrics, Grafana, and Meshery for cluster observability
 - 009-es-multi-node-cluster: Migrated Elasticsearch from single-node on GlusterFS to 3-node cluster (2 data + 1 tiebreaker) on local NVMe storage

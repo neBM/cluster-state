@@ -64,7 +64,8 @@ get_s3_bucket() {
   kubectl -n "$NAMESPACE" get pvc "$pvc" -o jsonpath='{.spec.volumeName}' 2>/dev/null || return 1
 }
 
-# Read S3 credentials from an existing service secret
+# Read S3 credentials from an existing service secret.
+# The secret still uses legacy MINIO_* key names.
 S3_ACCESS_KEY=$(kubectl -n "$NAMESPACE" get secret loki-s3 -o jsonpath='{.data.MINIO_ACCESS_KEY}' | base64 -d)
 S3_SECRET_KEY=$(kubectl -n "$NAMESPACE" get secret loki-s3 -o jsonpath='{.data.MINIO_SECRET_KEY}' | base64 -d)
 

@@ -4,6 +4,23 @@ Per-service S3 identities, scoped to individual buckets. The shared
 `admin` identity is reserved for operator use only (bucket creation,
 emergency access); all workloads use scoped identities.
 
+SeaweedFS S3 is the live object-storage endpoint for the cluster at
+`http://seaweedfs-s3.default.svc.cluster.local:8333`.
+
+Several consumers still use legacy secret key names such as
+`MINIO_ACCESS_KEY`, `MINIO_SECRET_KEY`, and in Athenaeum also
+`MINIO_URL` / `MINIO_BUCKET`. Those names are compatibility baggage from
+the MinIO era; they do not imply a MinIO backend.
+
+There is no active External Secrets controller in the current cluster.
+The secrets listed below are plain Kubernetes `Secret` objects, so
+manual `kubectl patch` or recreate operations are the durable repair and
+rotation path today.
+
+Avoid `kubectl apply` for these secrets. It stores the secret payload in
+the `kubectl.kubernetes.io/last-applied-configuration` annotation,
+which is both misleading and an unnecessary plaintext copy of the data.
+
 ## Identity → bucket → secret mapping
 
 | Identity | Bucket | K8s Secret | Key names | Consumers |
@@ -18,6 +35,9 @@ emergency access); all workloads use scoped identities.
 
 All scoped identities have actions `Read,Write,List,Tagging` on their
 bucket only. `admin` has the additional `Admin` action cluster-wide.
+
+Athenaeum additionally expects `MINIO_URL` to point at the SeaweedFS S3
+service and `MINIO_BUCKET` to contain `athenaeum-attachments`.
 
 ## Managing identities via `weed shell`
 

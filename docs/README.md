@@ -16,7 +16,9 @@ This directory contains documentation for the K8s (K3s) cluster infrastructure.
 
 - **[storage-troubleshooting.md](storage-troubleshooting.md)** - Troubleshooting guide for common storage issues including stale handles, mount failures, and recovery procedures.
 
-- **[litestream-recovery.md](litestream-recovery.md)** - Runbook for recovering from corrupted litestream backups in MinIO using restic snapshots.
+- **[seaweedfs-s3-identities.md](seaweedfs-s3-identities.md)** - Current SeaweedFS S3 identities, secret mappings, and manual credential rotation/repair procedure.
+
+- **[litestream-recovery.md](litestream-recovery.md)** - Historical MinIO-era litestream recovery notes. Current consumers use SeaweedFS S3 instead.
 
 ## Quick Reference
 

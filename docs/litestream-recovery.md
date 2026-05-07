@@ -1,6 +1,11 @@
 # Litestream Backup Corruption Recovery
 
-If litestream backup in MinIO is corrupted (decode errors on restore), recover from restic:
+> Warning: this runbook is historical and still references the pre-SeaweedFS MinIO layout.
+> Do not use it as-is on the current cluster.
+>
+> Current litestream consumers write to the SeaweedFS S3 gateway and their secret mappings live in [seaweedfs-s3-identities.md](seaweedfs-s3-identities.md).
+
+Historical MinIO-era recovery flow:
 
 ```bash
 # 1. Stop the affected service
