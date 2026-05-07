@@ -1,13 +1,13 @@
 apiVersion: kustomize.toolkit.fluxcd.io/v1
 kind: Kustomization
 metadata:
-  name: storage
+  name: storage-backups
   namespace: flux-system
 spec:
   dependsOn:
-  - name: storage-classes
+  - name: storage
   interval: 10m0s
-  path: ./infrastructure/storage/seaweedfs/core
+  path: ./infrastructure/storage/restic-backup
   prune: false
   retryInterval: 1m0s
   sourceRef:

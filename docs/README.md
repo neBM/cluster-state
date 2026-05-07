@@ -20,6 +20,8 @@ This directory contains documentation for the K8s (K3s) cluster infrastructure.
 
 - **[litestream-recovery.md](litestream-recovery.md)** - Current SeaweedFS-era Litestream recovery runbook for restoring bucket contents from restic and pushing them back through the S3 gateway.
 
+- **[seaweedfs-released-pv-audit.md](seaweedfs-released-pv-audit.md)** - Current audit baseline for released SeaweedFS PVs, including cleanup candidates and intentionally retained archive volumes.
+
 ## Quick Reference
 
 ### Key Components
