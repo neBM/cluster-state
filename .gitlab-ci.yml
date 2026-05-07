@@ -5,8 +5,6 @@ stages:
 
 variables:
   ACT_IMAGE: ${CI_REGISTRY}/ben/act:latest
-  # Transition-safe fallback while the shared ACT image rollout propagates.
-  KUBECTL_VERSION: v1.35.0
   RPI5_IMAGE: ${CI_REGISTRY_IMAGE}/rpi5-dra-driver
   RPI5_IMAGE_CACHE: ${CI_REGISTRY_IMAGE}/rpi5-dra-driver/cache
 
@@ -69,27 +67,6 @@ package:rpi5-dra-driver:
   rules:
     - *rules_rpi5
 
-.kubectl_before: &kubectl_before
-  - |
-    if ! command -v kubectl >/dev/null 2>&1; then
-      export PATH="${CI_PROJECT_DIR}/.local/bin:${PATH}"
-      mkdir -p "${CI_PROJECT_DIR}/.local/bin"
-
-      case "$(uname -m)" in
-        x86_64) KUBECTL_ARCH=amd64 ;;
-        aarch64) KUBECTL_ARCH=arm64 ;;
-        *)
-          echo "Unsupported architecture: $(uname -m)"
-          exit 1
-          ;;
-      esac
-
-      curl -fsSLo "${CI_PROJECT_DIR}/.local/bin/kubectl" \
-        "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/${KUBECTL_ARCH}/kubectl"
-      chmod +x "${CI_PROJECT_DIR}/.local/bin/kubectl"
-    fi
-  - kubectl version --client
-
 .validate_manifest_rules: &validate_manifest_rules
   - if: $CI_PIPELINE_SOURCE == "merge_request_event"
     changes:
@@ -120,7 +97,6 @@ validate:manifests:
   image: ${ACT_IMAGE}
   stage: validate
   needs: []
-  before_script: *kubectl_before
   script:
     - ./scripts/validate_kustomize.sh
   rules: *validate_manifest_rules
