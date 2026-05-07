@@ -23,6 +23,7 @@ See the `docs/` directory for detailed documentation:
 - [docs/nfs-ganesha-migration.md](docs/nfs-ganesha-migration.md) - NFS-Ganesha setup and V7.2 bug workaround
 - [docs/glusterfs-architecture.md](docs/glusterfs-architecture.md) - GlusterFS architecture and DHT behavior
 - [docs/storage-troubleshooting.md](docs/storage-troubleshooting.md) - Storage troubleshooting guide
+- [docs/seaweedfs-bucket-audit.md](docs/seaweedfs-bucket-audit.md) - SeaweedFS filer `/buckets` audit workflow, current bucket baseline, and cleanup-candidate rules
 - [docs/litestream-recovery.md](docs/litestream-recovery.md) - Litestream backup corruption recovery runbook
 
 ## Project Structure

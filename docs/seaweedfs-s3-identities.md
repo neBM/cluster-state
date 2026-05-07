@@ -21,6 +21,10 @@ Avoid `kubectl apply` for these secrets. It stores the secret payload in
 the `kubectl.kubernetes.io/last-applied-configuration` annotation,
 which is both misleading and an unnecessary plaintext copy of the data.
 
+For filer `/buckets` audit rules, `pvc-*` cleanup boundaries, and current
+named-bucket cleanup candidates, see
+[seaweedfs-bucket-audit.md](seaweedfs-bucket-audit.md).
+
 ## Identity → bucket → secret mapping
 
 | Identity | Bucket | K8s Secret | Key names | Consumers |
@@ -29,6 +33,7 @@ which is both misleading and an unnecessary plaintext copy of the data.
 | `victoriametrics` | `victoriametrics` | `victoriametrics-s3` | `MINIO_ACCESS_KEY`, `MINIO_SECRET_KEY` | Deployment/victoriametrics |
 | `media-centre` | `plex-backup` | `media-centre-secrets` | `MINIO_ACCESS_KEY`, `MINIO_SECRET_KEY` | StatefulSet/plex (db-restore init), CronJob/plex-db-backup |
 | `athenaeum` | `athenaeum-attachments` | `athenaeum-secrets` | `MINIO_ACCESS_KEY`, `MINIO_SECRET_KEY` | Deployment/athenaeum-backend |
+| `langfuse` | `langfuse` | `langfuse-secrets` | `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY` | Deployments langfuse-{web,worker} |
 | `gitlab-runner` | `gitlab-runner-cache` | `gitlab-runner-cache-s3` | `accesskey`, `secretkey` | Deployments gitlab-runner-{amd64,any,arm64} |
 | `overseerr` | `overseerr-litestream` | `overseerr-secrets` | `MINIO_ACCESS_KEY`, `MINIO_SECRET_KEY` | Deployment/overseerr |
 | `admin` | *(unscoped, full Admin)* | *(not in any workload secret)* | — | Operator use only |

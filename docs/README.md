@@ -18,6 +18,8 @@ This directory contains documentation for the K8s (K3s) cluster infrastructure.
 
 - **[seaweedfs-s3-identities.md](seaweedfs-s3-identities.md)** - Current SeaweedFS S3 identities, secret mappings, and manual credential rotation/repair procedure.
 
+- **[seaweedfs-bucket-audit.md](seaweedfs-bucket-audit.md)** - Durable runbook for auditing `/buckets`, including `pvc-*` CSI paths, named S3 buckets, and current cleanup candidates.
+
 - **[litestream-recovery.md](litestream-recovery.md)** - Current SeaweedFS-era Litestream recovery runbook for restoring bucket contents from restic and pushing them back through the S3 gateway.
 
 - **[seaweedfs-released-pv-audit.md](seaweedfs-released-pv-audit.md)** - Current audit baseline for released SeaweedFS PVs, including cleanup candidates and intentionally retained archive volumes.
