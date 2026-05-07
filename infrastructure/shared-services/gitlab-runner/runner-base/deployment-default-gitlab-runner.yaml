@@ -49,7 +49,7 @@ spec:
       - args:
         - |
           set -eu
-          for file in /template/*; do
+          for file in /template/[0-9][0-9]-*.toml; do
             cat "$file"
           done > /config/config.toml.template
           sed -e "s/RUNNER_NAME_PLACEHOLDER/$RUNNER_NAME/" -e "s/RUNNER_TOKEN_PLACEHOLDER/$RUNNER_TOKEN/" -e "s/MINIO_ACCESS_KEY_PLACEHOLDER/$MINIO_ACCESS_KEY/" -e "s/MINIO_SECRET_KEY_PLACEHOLDER/$MINIO_SECRET_KEY/" /config/config.toml.template > /config/config.toml
