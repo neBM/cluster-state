@@ -1,19 +1,9 @@
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
+namespace: default
 resources:
-- configmap-default-gitlab-runner-config-template-amd64.yaml
-- configmap-default-gitlab-runner-config-template-any.yaml
-- configmap-default-gitlab-runner-config-template-arm64.yaml
-- configmap-default-gitlab-runner-config-template-services.yaml
-- configmap-default-gitlab-runner-registries-conf.yaml
-- configmap-default-gitlab-runner-system-id-amd64.yaml
-- configmap-default-gitlab-runner-system-id-any.yaml
-- configmap-default-gitlab-runner-system-id-arm64.yaml
-- configmap-default-gitlab-runner-system-id-services.yaml
-- deployment-default-gitlab-runner-amd64.yaml
-- deployment-default-gitlab-runner-any.yaml
-- deployment-default-gitlab-runner-arm64.yaml
-- deployment-default-gitlab-runner-services.yaml
-- role-default-gitlab-runner.yaml
-- rolebinding-default-gitlab-runner.yaml
-- serviceaccount-default-gitlab-runner.yaml
+- shared
+- runners/amd64
+- runners/any
+- runners/arm64
+- runners/services

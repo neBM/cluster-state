@@ -1,0 +1,3 @@
+    # Always refresh mutable shared toolchain tags like ben/act:latest.
+    pull_policy = ["always"]
+    allowed_pull_policies = ["always", "if-not-present", "never"]

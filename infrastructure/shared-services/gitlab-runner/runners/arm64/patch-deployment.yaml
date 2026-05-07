@@ -1,0 +1,28 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    arch: arm64
+  name: gitlab-runner
+spec:
+  selector:
+    matchLabels:
+      arch: arm64
+  template:
+    metadata:
+      labels:
+        arch: arm64
+    spec:
+      initContainers:
+      - env:
+        - name: RUNNER_NAME
+          value: k8s-arm64
+        - name: RUNNER_TOKEN
+          valueFrom:
+            secretKeyRef:
+              key: runner_token_arm64
+              name: gitlab-runner-secrets
+              optional: false
+        name: config-generator
+      nodeSelector:
+        kubernetes.io/arch: arm64

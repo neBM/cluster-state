@@ -1,0 +1,26 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    arch: any
+  name: gitlab-runner
+spec:
+  selector:
+    matchLabels:
+      arch: any
+  template:
+    metadata:
+      labels:
+        arch: any
+    spec:
+      initContainers:
+      - env:
+        - name: RUNNER_NAME
+          value: k8s-any
+        - name: RUNNER_TOKEN
+          valueFrom:
+            secretKeyRef:
+              key: runner_token_any
+              name: gitlab-runner-secrets
+              optional: false
+        name: config-generator

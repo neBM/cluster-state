@@ -1,0 +1,3 @@
+# Node selector — pins job pods to the runner's architecture.
+[runners.kubernetes.node_selector]
+  "kubernetes.io/arch" = "amd64"

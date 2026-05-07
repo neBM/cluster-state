@@ -141,7 +141,7 @@ The helper script automates those checks by:
 | Bucket | Status | Current consumer evidence |
 | --- | --- | --- |
 | `athenaeum-attachments` | Active | `apps/athenaeum/deployment-default-athenaeum-backend.yaml` reads `MINIO_BUCKET` and the SeaweedFS S3 endpoint from `athenaeum-secrets` |
-| `gitlab-runner-cache` | Active | `infrastructure/shared-services/gitlab-runner/configmap-default-gitlab-runner-config-template-*.yaml` sets `BucketName = "gitlab-runner-cache"` for the live runner deployments |
+| `gitlab-runner-cache` | Active | `infrastructure/shared-services/gitlab-runner/runner-base/fragments/95-cache.toml` sets `BucketName = "gitlab-runner-cache"` for all live runner overlays |
 | `langfuse` | Active | `apps/langfuse/deployment-default-langfuse-{web,worker}.yaml` enable S3 event upload to bucket `langfuse` via `langfuse-secrets` |
 | `loki` | Active | `infrastructure/observability-core/loki/configmap-default-loki-config.yaml` sets `bucketnames: "loki"` for the live `StatefulSet/loki` |
 | `overseerr-litestream` | Active | `apps/overseerr/configmap-default-overseerr-litestream.yaml` points Litestream at bucket `overseerr-litestream` for the live `Deployment/overseerr` |

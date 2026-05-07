@@ -1,0 +1,5 @@
+[[runners]]
+  name = "RUNNER_NAME_PLACEHOLDER"
+  url = "https://git.brmartin.co.uk"
+  token = "RUNNER_TOKEN_PLACEHOLDER"
+  executor = "kubernetes"

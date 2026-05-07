@@ -1,0 +1,6 @@
+  # Kubedock-backed Docker API for jobs that rely on Testcontainers or
+  # other Docker clients.
+  [[runners.kubernetes.services]]
+    name = "joyrex2001/kubedock:0.20.3"
+    alias = "kubedock"
+    command = ["server", "--port-forward"]

@@ -1,0 +1,13 @@
+  [runners.kubernetes.pod_labels]
+    "ci.brmartin.co.uk/job" = "true"
+
+  # Soft anti-affinity: prefer scheduling each CI job pod on a node that
+  # doesn't already have another CI job pod.
+  [runners.kubernetes.affinity]
+    [runners.kubernetes.affinity.pod_anti_affinity]
+      [[runners.kubernetes.affinity.pod_anti_affinity.preferred_during_scheduling_ignored_during_execution]]
+        weight = 100
+        [runners.kubernetes.affinity.pod_anti_affinity.preferred_during_scheduling_ignored_during_execution.pod_affinity_term]
+          topology_key = "kubernetes.io/hostname"
+          [runners.kubernetes.affinity.pod_anti_affinity.preferred_during_scheduling_ignored_during_execution.pod_affinity_term.label_selector]
+            match_labels = { "ci.brmartin.co.uk/job" = "true" }

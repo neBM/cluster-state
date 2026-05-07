@@ -1,0 +1,5 @@
+check_interval = 30
+shutdown_timeout = 0
+
+[session_server]
+  session_timeout = 1800

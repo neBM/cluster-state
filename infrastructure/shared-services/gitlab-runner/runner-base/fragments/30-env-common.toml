@@ -1,0 +1,11 @@
+  # Node-local cache env vars — tools find their caches automatically, no
+  # .gitlab-ci.yml changes needed.
+  environment = [
+    "MAVEN_USER_HOME=/ci-cache/m2",
+    "GRADLE_USER_HOME=/ci-cache/gradle",
+    "UV_CACHE_DIR=/ci-cache/uv",
+    "PIP_CACHE_DIR=/ci-cache/pip",
+    "npm_config_cache=/ci-cache/npm",
+    "GOMODCACHE=/ci-cache/gomod",
+    "GOCACHE=/ci-cache/gobuild",
+    "STORAGE_DRIVER=overlay",

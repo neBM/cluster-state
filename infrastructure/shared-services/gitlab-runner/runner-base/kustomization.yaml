@@ -1,0 +1,21 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: default
+generatorOptions:
+  disableNameSuffixHash: true
+configMapGenerator:
+- name: gitlab-runner-config-template
+  options:
+    labels:
+      app: gitlab-runner
+  files:
+  - fragments/10-global.toml
+  - fragments/20-runner-header.toml
+  - fragments/30-env-common.toml
+  - fragments/40-env-close.toml
+  - fragments/50-kubernetes-common.toml
+  - fragments/70-pod-labels-affinity.toml
+  - fragments/90-storage.toml
+  - fragments/95-cache.toml
+resources:
+- deployment-default-gitlab-runner.yaml

@@ -34,7 +34,7 @@ named-bucket cleanup candidates, see
 | `media-centre` | `plex-backup` | `media-centre-secrets` | `MINIO_ACCESS_KEY`, `MINIO_SECRET_KEY` | StatefulSet/plex (db-restore init), CronJob/plex-db-backup |
 | `athenaeum` | `athenaeum-attachments` | `athenaeum-secrets` | `MINIO_ACCESS_KEY`, `MINIO_SECRET_KEY` | Deployment/athenaeum-backend |
 | `langfuse` | `langfuse` | `langfuse-secrets` | `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY` | Deployments langfuse-{web,worker} |
-| `gitlab-runner` | `gitlab-runner-cache` | `gitlab-runner-cache-s3` | `accesskey`, `secretkey` | Deployments gitlab-runner-{amd64,any,arm64} |
+| `gitlab-runner` | `gitlab-runner-cache` | `gitlab-runner-cache-s3` | `accesskey`, `secretkey` | Deployments gitlab-runner-{amd64,any,arm64,services} |
 | `overseerr` | `overseerr-litestream` | `overseerr-secrets` | `MINIO_ACCESS_KEY`, `MINIO_SECRET_KEY` | Deployment/overseerr |
 | `admin` | *(unscoped, full Admin)* | *(not in any workload secret)* | — | Operator use only |
 

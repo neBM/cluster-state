@@ -1,0 +1,26 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    pool: services
+  name: gitlab-runner
+spec:
+  selector:
+    matchLabels:
+      pool: services
+  template:
+    metadata:
+      labels:
+        pool: services
+    spec:
+      initContainers:
+      - env:
+        - name: RUNNER_NAME
+          value: k8s-services
+        - name: RUNNER_TOKEN
+          valueFrom:
+            secretKeyRef:
+              key: runner_token_services
+              name: gitlab-runner-secrets
+              optional: false
+        name: config-generator
