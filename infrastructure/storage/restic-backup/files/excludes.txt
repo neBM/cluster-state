@@ -20,6 +20,9 @@ cache
 logs
 log
 
+# Postfix queue state is transient and unsafe to snapshot live.
+/data-seaweedfs/pvc-ec04d9bd-bae1-4e43-9cb0-1134e6875936
+
 # Plex/Jellyfin regenerable data
 codecs
 crash reports

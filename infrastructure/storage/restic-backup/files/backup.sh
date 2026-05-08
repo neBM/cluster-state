@@ -12,7 +12,6 @@ fi
 
 echo "Starting backup of SeaweedFS volumes..."
 
-backup_status=0
 restic backup /data-seaweedfs \
   --host restic-backup \
   --group-by paths,tags \
@@ -21,18 +20,7 @@ restic backup /data-seaweedfs \
   --iexclude-file=/config/excludes.txt \
   --exclude-caches \
   --exclude-if-present .nobackup \
-  --skip-if-unchanged || backup_status=$?
-
-case "$backup_status" in
-  0)
-    ;;
-  3)
-    echo "Backup completed with unreadable source files; continuing after restic warning exit code 3."
-    ;;
-  *)
-    exit "$backup_status"
-    ;;
-esac
+  --skip-if-unchanged
 
 echo "Backup complete. Running cleanup..."
 
