@@ -17,4 +17,4 @@ images:
 - name: "plexinc/pms-docker"
   newTag: "latest"
 - name: "ghcr.io/tautulli/tautulli"
-  newTag: "v2.17.0"
+  newTag: "v2.17.1"

@@ -8,4 +8,4 @@ resources:
 
 images:
 - name: "glitchtip/glitchtip"
-  newTag: "6.1.5"
+  newTag: "6.1.6"

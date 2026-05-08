@@ -8,4 +8,4 @@ resources:
 
 images:
 - name: "clickhouse/clickhouse-server"
-  newTag: "26.3-alpine"
+  newTag: "26.4-alpine"
