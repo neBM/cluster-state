@@ -35,6 +35,7 @@ named-bucket cleanup candidates, see
 | `athenaeum` | `athenaeum-attachments` | `athenaeum-secrets` | `MINIO_ACCESS_KEY`, `MINIO_SECRET_KEY` | Deployment/athenaeum-backend |
 | `langfuse` | `langfuse` | `langfuse-secrets` | `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY` | Deployments langfuse-{web,worker} |
 | `gitlab-runner` | `gitlab-runner-cache` | `gitlab-runner-cache-s3` | `accesskey`, `secretkey` | Deployments gitlab-runner-{amd64,any,arm64,services} |
+| `renovate` | `renovate-cache` | GitLab CI variables in `infrastructure/renovate-runner` | `S3_ACCESS_KEY`, `S3_SECRET_KEY` | Scheduled Renovate runner job |
 | `overseerr` | `overseerr-litestream` | `overseerr-secrets` | `MINIO_ACCESS_KEY`, `MINIO_SECRET_KEY` | Deployment/overseerr |
 | `admin` | *(unscoped, full Admin)* | *(not in any workload secret)* | — | Operator use only |
 

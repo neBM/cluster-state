@@ -133,8 +133,10 @@ The helper script automates those checks by:
   `infrastructure/`, and `clusters/`
 - searching live `ConfigMap`, `Secret`, `Deployment`, `StatefulSet`,
   `DaemonSet`, `CronJob`, and `Job` objects for named-bucket references
-- flagging any named bucket with no current repo or live consumer as an
-  abandoned-data candidate
+- applying explicit external-consumer references for buckets used outside
+  this repo's manifests and live Kubernetes objects
+- flagging any named bucket with no current repo, live, or explicit external
+  consumer as an abandoned-data candidate
 
 ## Current Named Bucket Baseline
 
@@ -146,16 +148,12 @@ The helper script automates those checks by:
 | `loki` | Active | `infrastructure/observability-core/loki/configmap-default-loki-config.yaml` sets `bucketnames: "loki"` for the live `StatefulSet/loki` |
 | `overseerr-litestream` | Active | `apps/overseerr/configmap-default-overseerr-litestream.yaml` points Litestream at bucket `overseerr-litestream` for the live `Deployment/overseerr` |
 | `plex-backup` | Active | `apps/media-centre/cronjob-default-plex-db-backup.yaml` writes rolling backups to `plex-backup`, and `apps/media-centre/deployment-default-plex.yaml` reads the same bucket for restore |
+| `renovate-cache` | Active | `infrastructure/renovate-runner` GitLab CI config sets `RENOVATE_REPOSITORY_CACHE_TYPE=s3://renovate-cache`; credentials live in protected GitLab CI variables |
 | `victoriametrics` | Active | `infrastructure/observability-core/victoriametrics/deployment-default-victoriametrics.yaml` runs `vmbackup`/`vmrestore` against bucket `victoriametrics` |
 
 ## Removed Named Buckets
 
-The 2026-05-07 audit and cleanup pass removed one abandoned named bucket:
-
-- `renovate-cache`
-  - No checked-in manifest or live workload references remained.
-  - The only live object left was `Secret/default/renovate-secrets`.
-  - The bucket held about `1.2 MiB` of stale cache data with top-level path
-    `gitlab/`.
-  - `Secret/default/renovate-secrets` and `/buckets/renovate-cache` were both
-    deleted on 2026-05-07.
+The 2026-05-07 audit and cleanup pass incorrectly removed
+`renovate-cache` because its consumer is a GitLab CI project outside this
+repo and not a Kubernetes workload. The bucket was recreated on 2026-05-08
+with owner `renovate`; keep it in the active baseline.

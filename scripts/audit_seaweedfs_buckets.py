@@ -22,6 +22,11 @@ DEFAULT_REPO_SEARCH_PATHS = [
 DEFAULT_DOC_SEARCH_PATHS = [
     REPO_ROOT / "docs" / "seaweedfs-s3-identities.md",
 ]
+DEFAULT_EXTERNAL_BUCKET_REFS = {
+    "renovate-cache": [
+        "GitLab project infrastructure/renovate-runner uses RENOVATE_REPOSITORY_CACHE_TYPE=s3://renovate-cache via protected CI variables",
+    ],
+}
 DEFAULT_OBJECT_TYPES = [
     "deploy",
     "statefulset",
@@ -60,11 +65,12 @@ class BucketReport:
     logical_size: int
     repo_refs: list[str]
     live_refs: list[str]
+    external_refs: list[str]
     docs_refs: list[str]
 
     @property
     def status(self) -> str:
-        return "active" if self.repo_refs or self.live_refs else "abandoned-candidate"
+        return "active" if self.repo_refs or self.live_refs or self.external_refs else "abandoned-candidate"
 
 
 def run_command(args: list[str], input_text: str | None = None) -> str:
@@ -293,6 +299,20 @@ def search_live_objects(bucket: str, objects: list[dict[str, Any]]) -> list[str]
     return sorted(set(refs))
 
 
+def parse_external_bucket_refs(values: list[str]) -> dict[str, list[str]]:
+    refs = {bucket: list(bucket_refs) for bucket, bucket_refs in DEFAULT_EXTERNAL_BUCKET_REFS.items()}
+    for value in values:
+        if "=" not in value:
+            raise RuntimeError(f"--external-bucket-ref must use BUCKET=REF format: {value}")
+        bucket, ref = value.split("=", 1)
+        bucket = bucket.strip()
+        ref = ref.strip()
+        if not bucket or not ref:
+            raise RuntimeError(f"--external-bucket-ref must use non-empty BUCKET=REF values: {value}")
+        refs.setdefault(bucket, []).append(ref)
+    return refs
+
+
 def build_report(args: argparse.Namespace) -> dict[str, Any]:
     bucket_entries = list_bucket_entries(args.namespace, args.master_pod, args.weed_master)
     pvc_dirs = sorted(entry for entry in bucket_entries if entry.startswith("pvc-"))
@@ -310,6 +330,7 @@ def build_report(args: argparse.Namespace) -> dict[str, Any]:
     named_bucket_reports: list[BucketReport] = []
     repo_paths = [REPO_ROOT / path for path in args.repo_paths]
     doc_paths = [REPO_ROOT / path for path in args.doc_paths]
+    external_bucket_refs = parse_external_bucket_refs(args.external_bucket_ref)
 
     for bucket in named_buckets:
         named_bucket_reports.append(
@@ -318,6 +339,7 @@ def build_report(args: argparse.Namespace) -> dict[str, Any]:
                 logical_size=get_bucket_logical_size(bucket, args.namespace, args.master_pod, args.weed_master),
                 repo_refs=search_text_paths(repo_paths, bucket, require_context=True),
                 live_refs=search_live_objects(bucket, live_objects),
+                external_refs=external_bucket_refs.get(bucket, []),
                 docs_refs=search_text_paths(doc_paths, bucket, require_context=False),
             )
         )
@@ -391,6 +413,9 @@ def render_text(report: dict[str, Any]) -> str:
         if bucket["live_refs"]:
             lines.append("  live refs:")
             lines.extend(f"    - {ref}" for ref in bucket["live_refs"])
+        if bucket["external_refs"]:
+            lines.append("  external refs:")
+            lines.extend(f"    - {ref}" for ref in bucket["external_refs"])
         if bucket["docs_refs"]:
             lines.append("  docs refs:")
             lines.extend(f"    - {ref}" for ref in bucket["docs_refs"])
@@ -422,6 +447,12 @@ def parse_args() -> argparse.Namespace:
         nargs="+",
         default=[str(path.relative_to(REPO_ROOT)) for path in DEFAULT_DOC_SEARCH_PATHS],
         help="Documentation paths to scan for named-bucket references",
+    )
+    parser.add_argument(
+        "--external-bucket-ref",
+        action="append",
+        default=[],
+        help="Extra externally managed named-bucket consumer in BUCKET=REF format",
     )
     parser.add_argument("--json", action="store_true", help="Emit machine-readable JSON instead of text")
     parser.add_argument(
