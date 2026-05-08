@@ -6,4 +6,4 @@ resources:
 
 images:
 - name: "ubuntu"
-  newTag: "24.04"
+  newTag: "26.04"

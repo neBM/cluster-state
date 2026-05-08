@@ -15,4 +15,4 @@ images:
 - name: "registry.brmartin.co.uk/ben/iris"
   newTag: "latest"
 - name: "valkey/valkey"
-  newTag: "8-alpine"
+  newTag: "9-alpine"
