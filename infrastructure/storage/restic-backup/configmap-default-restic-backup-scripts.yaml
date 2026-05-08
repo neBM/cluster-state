@@ -18,6 +18,15 @@ data:
 
     *.sock
 
+    *.lock
+
+
+    # Dovecot regenerable index/cache files
+
+    dovecot.index*
+
+    dovecot.list.index*
+
 
     # SQLite temp files
 

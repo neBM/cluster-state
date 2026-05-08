@@ -34,7 +34,7 @@ data:
     auth_bind = yes\nauth_bind_userdn = uid=%n,ou=people,dc=brmartin,dc=co,dc=uk\n\
     \nbase = ou=people,dc=brmartin,dc=co,dc=uk\nscope = subtree\n\npass_filter = (&(objectClass=inetOrgPerson)(uid=%n))\n\
     user_filter = (&(objectClass=inetOrgPerson)(uid=%n))\nuser_attrs = \\\n  =uid=5000,\
-    \ \\\n  =gid=5000, \\\n  =home=/var/mail/%Ld/%Ln, \\\n  =mail=maildir:~/Maildir\n"
+    \ \\\n  =gid=5000, \\\n  =home=/var/mail/%Ld/%Ln, \\\n  =mail=maildir:~/Maildir:INDEX=/var/indexes/%Ld/%Ln\n"
 immutable: false
 kind: ConfigMap
 metadata:
