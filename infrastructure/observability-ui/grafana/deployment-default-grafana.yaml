@@ -108,7 +108,7 @@ spec:
           value: /etc/grafana/provisioning
         - name: GF_PLUGINS_PREINSTALL_DISABLED
           value: 'true'
-        image: grafana/grafana:13.0.1
+        image: grafana/grafana
         imagePullPolicy: IfNotPresent
         livenessProbe:
           failureThreshold: 3

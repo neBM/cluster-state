@@ -75,7 +75,7 @@ spec:
               key: ADMIN_TOKEN
               name: vaultwarden-secrets
               optional: false
-        image: vaultwarden/server:latest
+        image: vaultwarden/server
         imagePullPolicy: Always
         livenessProbe:
           failureThreshold: 3

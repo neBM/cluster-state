@@ -58,7 +58,7 @@ spec:
           value: 'true'
         - name: JAVA_OPTS_KC_HEAP
           value: -Xms200m -Xmx512m
-        image: quay.io/keycloak/keycloak:26.6.1
+        image: quay.io/keycloak/keycloak
         imagePullPolicy: IfNotPresent
         livenessProbe:
           failureThreshold: 5

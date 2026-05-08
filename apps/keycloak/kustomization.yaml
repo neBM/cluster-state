@@ -4,3 +4,7 @@ resources:
 - deployment-default-keycloak.yaml
 - ingress-default-keycloak.yaml
 - service-default-keycloak.yaml
+
+images:
+- name: "quay.io/keycloak/keycloak"
+  newTag: "26.6.1"

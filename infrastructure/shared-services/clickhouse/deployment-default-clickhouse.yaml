@@ -32,7 +32,7 @@ spec:
               key: CLICKHOUSE_PASSWORD
               name: clickhouse-secrets
               optional: false
-        image: clickhouse/clickhouse-server:26.3-alpine
+        image: clickhouse/clickhouse-server
         imagePullPolicy: IfNotPresent
         livenessProbe:
           failureThreshold: 3

@@ -5,3 +5,7 @@ resources:
 - ingress-default-vaultwarden.yaml
 - persistentvolumeclaim-default-vaultwarden-data-sw.yaml
 - service-default-vaultwarden.yaml
+
+images:
+- name: "vaultwarden/server"
+  newTag: "latest"

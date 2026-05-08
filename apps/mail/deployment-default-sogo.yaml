@@ -32,7 +32,7 @@ spec:
       - env:
         - name: DISABLE_CRON
           value: '1'
-        image: salvoxia/sogo:latest
+        image: salvoxia/sogo
         imagePullPolicy: Always
         livenessProbe:
           failureThreshold: 5
@@ -94,7 +94,7 @@ spec:
               key: LDAP_BIND_PW
               name: sogo-ldap-secret
               optional: false
-        image: salvoxia/sogo:latest
+        image: salvoxia/sogo
         imagePullPolicy: IfNotPresent
         name: init-config
         resources:

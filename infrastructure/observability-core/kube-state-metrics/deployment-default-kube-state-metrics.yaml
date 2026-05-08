@@ -33,7 +33,7 @@ spec:
       - args:
         - --telemetry-host=0.0.0.0
         - --telemetry-port=8081
-        image: registry.k8s.io/kube-state-metrics/kube-state-metrics:v2.14.0
+        image: registry.k8s.io/kube-state-metrics/kube-state-metrics
         imagePullPolicy: IfNotPresent
         livenessProbe:
           failureThreshold: 3

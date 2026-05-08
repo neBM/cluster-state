@@ -58,7 +58,7 @@ spec:
             fieldRef:
               apiVersion: v1
               fieldPath: metadata.namespace
-        image: quay.io/jetstack/cert-manager-webhook:v1.20.2
+        image: quay.io/jetstack/cert-manager-webhook
         imagePullPolicy: IfNotPresent
         livenessProbe:
           failureThreshold: 3

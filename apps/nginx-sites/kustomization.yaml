@@ -7,3 +7,9 @@ resources:
 - ingress-default-nginx-sites-martinilink.yaml
 - persistentvolumeclaim-default-nginx-sites-code-sw.yaml
 - service-default-nginx-sites.yaml
+
+images:
+- name: "nginx"
+  newTag: "alpine"
+- name: "php"
+  newTag: "8.5-fpm-alpine"

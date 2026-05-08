@@ -69,7 +69,7 @@ spec:
               key: DATABASE_URL
               name: open-webui-secrets
               optional: false
-        image: ghcr.io/open-webui/open-webui:v0.9.1
+        image: ghcr.io/open-webui/open-webui
         imagePullPolicy: IfNotPresent
         livenessProbe:
           failureThreshold: 3

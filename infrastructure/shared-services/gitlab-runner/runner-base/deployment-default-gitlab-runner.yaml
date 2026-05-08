@@ -27,7 +27,7 @@ spec:
         - run
         - --config
         - /config/config.toml
-        image: gitlab/gitlab-runner:v18.11.1
+        image: gitlab/gitlab-runner
         imagePullPolicy: Always
         name: gitlab-runner
         resources:
@@ -78,7 +78,7 @@ spec:
               key: secretkey
               name: gitlab-runner-cache-s3
               optional: false
-        image: busybox:1.37
+        image: busybox
         imagePullPolicy: IfNotPresent
         name: config-generator
         resources: {}

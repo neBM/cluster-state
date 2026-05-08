@@ -3,3 +3,7 @@ kind: Kustomization
 resources:
 - configmap-default-rpi-throttle-monitor-scripts.yaml
 - daemonset-default-rpi-throttle-monitor.yaml
+
+images:
+- name: "ubuntu"
+  newTag: "24.04"

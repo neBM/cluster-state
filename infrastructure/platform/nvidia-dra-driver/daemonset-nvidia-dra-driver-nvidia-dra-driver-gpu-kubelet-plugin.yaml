@@ -85,7 +85,7 @@ spec:
           value: /var/lib/kubelet/plugins
         - name: HEALTHCHECK_PORT
           value: '51515'
-        image: nvcr.io/nvidia/k8s-dra-driver-gpu:v25.12.0
+        image: nvcr.io/nvidia/k8s-dra-driver-gpu
         imagePullPolicy: IfNotPresent
         livenessProbe:
           failureThreshold: 3
@@ -163,7 +163,7 @@ spec:
           value: /var/lib/kubelet/plugins
         - name: HEALTHCHECK_PORT
           value: '51516'
-        image: nvcr.io/nvidia/k8s-dra-driver-gpu:v25.12.0
+        image: nvcr.io/nvidia/k8s-dra-driver-gpu
         imagePullPolicy: IfNotPresent
         livenessProbe:
           failureThreshold: 3
@@ -212,7 +212,7 @@ spec:
           value: /var/lib/kubelet/plugins_registry
         - name: KUBELET_PLUGINS_DIRECTORY_PATH
           value: /var/lib/kubelet/plugins
-        image: nvcr.io/nvidia/k8s-dra-driver-gpu:v25.12.0
+        image: nvcr.io/nvidia/k8s-dra-driver-gpu
         imagePullPolicy: IfNotPresent
         name: init-container
         resources: {}

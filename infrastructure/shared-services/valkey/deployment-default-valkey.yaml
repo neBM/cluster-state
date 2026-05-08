@@ -26,7 +26,7 @@ spec:
     spec:
       automountServiceAccountToken: true
       containers:
-      - image: valkey/valkey:8.1-alpine3.21
+      - image: valkey/valkey
         imagePullPolicy: IfNotPresent
         livenessProbe:
           exec:

@@ -96,7 +96,7 @@ spec:
           value: gemma3:4b
         - name: CORS_ORIGINS
           value: https://athenaeum.brmartin.co.uk
-        image: registry.brmartin.co.uk/ben/athenaeum/backend:5d0414d5
+        image: registry.brmartin.co.uk/ben/athenaeum/backend
         imagePullPolicy: IfNotPresent
         livenessProbe:
           failureThreshold: 3
@@ -172,7 +172,7 @@ spec:
               key: KEYCLOAK_CLIENT_SECRET
               name: athenaeum-secrets
               optional: false
-        image: registry.brmartin.co.uk/ben/athenaeum/backend:5d0414d5
+        image: registry.brmartin.co.uk/ben/athenaeum/backend
         imagePullPolicy: IfNotPresent
         name: migrations
         resources: {}

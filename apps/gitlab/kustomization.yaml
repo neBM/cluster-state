@@ -31,7 +31,9 @@ generatorOptions:
 configMapGenerator:
 - name: gitlab-release
   literals:
+  # renovate: datasource=docker depName=registry.gitlab.com/gitlab-org/build/cng/gitlab-webservice-ce
   - appVersion=v18.11.1
+  # renovate: datasource=docker depName=registry.gitlab.com/gitlab-org/build/cng/gitlab-webservice-ce
   - migrationVersion=v18.11.1
 replacements:
 - source:
@@ -100,3 +102,7 @@ replacements:
     options:
       delimiter: ':'
       index: 1
+
+images:
+- name: "redis"
+  newTag: "8-alpine"

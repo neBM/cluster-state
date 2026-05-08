@@ -3,3 +3,7 @@ kind: Kustomization
 resources:
 - deployment-default-ollama.yaml
 - service-default-ollama.yaml
+
+images:
+- name: "ollama/ollama"
+  newTag: "0.21.1"

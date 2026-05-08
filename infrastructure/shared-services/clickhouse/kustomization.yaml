@@ -5,3 +5,7 @@ resources:
 - deployment-default-clickhouse.yaml
 - persistentvolumeclaim-default-clickhouse-data.yaml
 - service-default-clickhouse.yaml
+
+images:
+- name: "clickhouse/clickhouse-server"
+  newTag: "26.3-alpine"

@@ -26,7 +26,7 @@ spec:
     spec:
       automountServiceAccountToken: true
       containers:
-      - image: dovecot/dovecot:2.3-latest
+      - image: dovecot/dovecot
         imagePullPolicy: IfNotPresent
         livenessProbe:
           failureThreshold: 3
@@ -124,7 +124,7 @@ spec:
               key: LDAP_BIND_PW
               name: dovecot-ldap-secret
               optional: false
-        image: dovecot/dovecot:2.3-latest
+        image: dovecot/dovecot
         imagePullPolicy: IfNotPresent
         name: init-ldap-conf
         resources:

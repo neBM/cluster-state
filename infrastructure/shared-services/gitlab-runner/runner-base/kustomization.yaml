@@ -19,3 +19,9 @@ configMapGenerator:
   - fragments/95-cache.toml
 resources:
 - deployment-default-gitlab-runner.yaml
+
+images:
+- name: "gitlab/gitlab-runner"
+  newTag: "v18.11.1"
+- name: "busybox"
+  newTag: "1.37"

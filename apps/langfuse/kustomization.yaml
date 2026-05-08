@@ -5,3 +5,9 @@ resources:
 - deployment-default-langfuse-worker.yaml
 - ingressroute-default-langfuse.yaml
 - service-default-langfuse-web.yaml
+
+images:
+- name: "langfuse/langfuse"
+  newTag: "3"
+- name: "langfuse/langfuse-worker"
+  newTag: "3"

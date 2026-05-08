@@ -10,3 +10,9 @@ resources:
 - resourceclaim-default-iris-transcode.yaml
 - service-default-iris.yaml
 - service-default-iris-valkey.yaml
+
+images:
+- name: "registry.brmartin.co.uk/ben/iris"
+  newTag: "latest"
+- name: "valkey/valkey"
+  newTag: "8-alpine"

@@ -33,7 +33,7 @@ spec:
         command:
         - /goldilocks
         - controller
-        image: us-docker.pkg.dev/fairwinds-ops/oss/goldilocks:v4.14.18
+        image: us-docker.pkg.dev/fairwinds-ops/oss/goldilocks
         imagePullPolicy: IfNotPresent
         name: goldilocks
         resources:

@@ -31,7 +31,7 @@ spec:
         - ''
         - --appendonly
         - 'no'
-        image: redis:8-alpine
+        image: redis
         imagePullPolicy: IfNotPresent
         livenessProbe:
           exec:

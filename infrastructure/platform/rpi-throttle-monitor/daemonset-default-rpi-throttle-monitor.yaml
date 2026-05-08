@@ -27,7 +27,7 @@ spec:
       - command:
         - /bin/bash
         - /scripts/monitor-throttle.sh
-        image: ubuntu:24.04
+        image: ubuntu
         imagePullPolicy: IfNotPresent
         name: monitor
         resources:

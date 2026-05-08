@@ -55,7 +55,7 @@ spec:
           value: dc=brmartin,dc=co,dc=uk
         - name: LLDAP_HTTP_URL
           value: https://ldap.brmartin.co.uk/
-        image: lldap/lldap:stable
+        image: lldap/lldap
         imagePullPolicy: IfNotPresent
         livenessProbe:
           failureThreshold: 3

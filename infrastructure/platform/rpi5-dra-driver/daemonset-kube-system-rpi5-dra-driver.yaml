@@ -27,7 +27,7 @@ spec:
             fieldRef:
               apiVersion: v1
               fieldPath: spec.nodeName
-        image: registry.brmartin.co.uk/ben/cluster-state/rpi5-dra-driver:latest
+        image: registry.brmartin.co.uk/ben/cluster-state/rpi5-dra-driver
         imagePullPolicy: Always
         name: driver
         resources: {}

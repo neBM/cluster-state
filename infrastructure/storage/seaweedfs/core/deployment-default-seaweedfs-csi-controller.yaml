@@ -41,7 +41,7 @@ spec:
           value: unix:///var/lib/csi/sockets/pluginproxy/csi.sock
         - name: SEAWEEDFS_FILER
           value: seaweedfs-filer:8888
-        image: registry.brmartin.co.uk/ben/seaweedfs-csi-driver:v0.1.12
+        image: registry.brmartin.co.uk/ben/seaweedfs-csi-driver
         imagePullPolicy: IfNotPresent
         name: csi-seaweedfs
         resources:
@@ -66,7 +66,7 @@ spec:
         env:
         - name: ADDRESS
           value: /var/lib/csi/sockets/pluginproxy/csi.sock
-        image: registry.k8s.io/sig-storage/csi-provisioner:v6.2.0
+        image: registry.k8s.io/sig-storage/csi-provisioner
         imagePullPolicy: IfNotPresent
         name: csi-provisioner
         resources:
@@ -90,7 +90,7 @@ spec:
         env:
         - name: ADDRESS
           value: /var/lib/csi/sockets/pluginproxy/csi.sock
-        image: registry.k8s.io/sig-storage/csi-attacher:v4.11.0
+        image: registry.k8s.io/sig-storage/csi-attacher
         imagePullPolicy: IfNotPresent
         name: csi-attacher
         resources:
@@ -114,7 +114,7 @@ spec:
         env:
         - name: ADDRESS
           value: /var/lib/csi/sockets/pluginproxy/csi.sock
-        image: registry.k8s.io/sig-storage/csi-resizer:v2.1.0
+        image: registry.k8s.io/sig-storage/csi-resizer
         imagePullPolicy: IfNotPresent
         name: csi-resizer
         resources:

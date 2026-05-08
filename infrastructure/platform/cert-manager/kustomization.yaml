@@ -53,3 +53,11 @@ resources:
 - serviceaccount-cert-manager-cert-manager-cainjector.yaml
 - serviceaccount-cert-manager-cert-manager-webhook.yaml
 - validatingwebhookconfiguration-cert-manager-webhook.yaml
+
+images:
+- name: "quay.io/jetstack/cert-manager-controller"
+  newTag: "v1.20.2"
+- name: "quay.io/jetstack/cert-manager-cainjector"
+  newTag: "v1.20.2"
+- name: "quay.io/jetstack/cert-manager-webhook"
+  newTag: "v1.20.2"

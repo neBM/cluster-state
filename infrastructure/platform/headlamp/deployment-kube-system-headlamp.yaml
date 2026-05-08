@@ -52,7 +52,7 @@ spec:
               optional: false
         - name: GODEBUG
           value: http2client=0
-        image: ghcr.io/headlamp-k8s/headlamp:v0.41.0
+        image: ghcr.io/headlamp-k8s/headlamp
         imagePullPolicy: IfNotPresent
         livenessProbe:
           failureThreshold: 3

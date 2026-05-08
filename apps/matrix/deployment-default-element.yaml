@@ -29,7 +29,7 @@ spec:
     spec:
       automountServiceAccountToken: true
       containers:
-      - image: docker.io/vectorim/element-web:v1.12.15
+      - image: docker.io/vectorim/element-web
         imagePullPolicy: IfNotPresent
         livenessProbe:
           failureThreshold: 3

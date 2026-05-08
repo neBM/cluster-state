@@ -29,7 +29,7 @@ spec:
     spec:
       automountServiceAccountToken: true
       containers:
-      - image: rspamd/rspamd:latest
+      - image: rspamd/rspamd
         imagePullPolicy: Always
         livenessProbe:
           failureThreshold: 3
@@ -111,7 +111,7 @@ spec:
           value: /etc/nginx/conf.d
         - name: NGINX_ENVSUBST_FILTER
           value: RSPAMD_CONTROLLER_PASSWORD
-        image: nginx:1.27-alpine
+        image: nginx
         imagePullPolicy: IfNotPresent
         livenessProbe:
           failureThreshold: 3

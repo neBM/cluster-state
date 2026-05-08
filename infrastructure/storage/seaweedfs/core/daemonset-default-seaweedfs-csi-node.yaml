@@ -58,7 +58,7 @@ spec:
             fieldRef:
               apiVersion: v1
               fieldPath: metadata.namespace
-        image: registry.brmartin.co.uk/ben/seaweedfs-csi-driver:v0.1.12
+        image: registry.brmartin.co.uk/ben/seaweedfs-csi-driver
         imagePullPolicy: IfNotPresent
         livenessProbe:
           failureThreshold: 5
@@ -125,7 +125,7 @@ spec:
             fieldRef:
               apiVersion: v1
               fieldPath: spec.nodeName
-        image: registry.k8s.io/sig-storage/csi-node-driver-registrar:v2.16.0
+        image: registry.k8s.io/sig-storage/csi-node-driver-registrar
         imagePullPolicy: IfNotPresent
         name: node-driver-registrar
         resources:
@@ -150,7 +150,7 @@ spec:
         env:
         - name: ADDRESS
           value: /csi/csi.sock
-        image: registry.k8s.io/sig-storage/livenessprobe:v2.18.0
+        image: registry.k8s.io/sig-storage/livenessprobe
         imagePullPolicy: IfNotPresent
         name: liveness-probe
         resources:

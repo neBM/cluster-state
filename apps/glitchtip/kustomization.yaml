@@ -5,3 +5,7 @@ resources:
 - ingress-default-glitchtip.yaml
 - persistentvolumeclaim-default-glitchtip-uploads.yaml
 - service-default-glitchtip.yaml
+
+images:
+- name: "glitchtip/glitchtip"
+  newTag: "6.1.5"

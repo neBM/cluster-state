@@ -99,7 +99,7 @@ spec:
               value: http://seaweedfs-s3.default.svc.cluster.local:8333
             - name: BACKUP_BUCKET
               value: plex-backup
-            image: alpine:3.23
+            image: alpine
             imagePullPolicy: IfNotPresent
             name: backup
             resources:

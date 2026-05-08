@@ -26,7 +26,7 @@ spec:
     spec:
       automountServiceAccountToken: true
       containers:
-      - image: dock.mau.dev/mautrix/whatsapp:v0.2604.0
+      - image: dock.mau.dev/mautrix/whatsapp
         imagePullPolicy: IfNotPresent
         name: whatsapp-bridge
         ports:

@@ -34,7 +34,7 @@ spec:
         - name: GITLAB_WORKHORSE_EXTRA_ARGS
           value: -authBackend http://gitlab-webservice:8080 -cableBackend http://gitlab-webservice:8080
             -apiCiLongPollingDuration 50s
-        image: registry.gitlab.com/gitlab-org/build/cng/gitlab-workhorse-ce:v18.11.1
+        image: registry.gitlab.com/gitlab-org/build/cng/gitlab-workhorse-ce:placeholder
         imagePullPolicy: IfNotPresent
         livenessProbe:
           failureThreshold: 10

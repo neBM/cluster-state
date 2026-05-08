@@ -10,3 +10,11 @@ resources:
 - persistentvolume-media-synology-share.yaml
 - service-default-plex.yaml
 - service-default-tautulli.yaml
+
+images:
+- name: "alpine"
+  newTag: "3.23"
+- name: "plexinc/pms-docker"
+  newTag: "latest"
+- name: "ghcr.io/tautulli/tautulli"
+  newTag: "v2.17.0"

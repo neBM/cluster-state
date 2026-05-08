@@ -5,3 +5,7 @@ resources:
 - cronjob-default-restic-backup.yaml
 - persistentvolume-restic-seaweedfs-filer-root.yaml
 - persistentvolumeclaim-default-restic-seaweedfs-filer-root.yaml
+
+images:
+- name: "restic/restic"
+  newTag: "0.18.1"

@@ -5,3 +5,8 @@ resources:
 - ingress-default-jayne-martin-counselling.yaml
 - service-default-jayne-martin-counselling.yaml
 - verticalpodautoscaler-default-jayne-martin-counselling-vpa.yaml
+
+images:
+- name: "registry.brmartin.co.uk/jayne-martin-counselling/website"
+  newTag: "ed61d9a-amd64"
+  digest: "sha256:17c8a0b5daa398336c03d3ff2fee2cefc8bacc789b1e3da29ab0d6b4f4629fec"

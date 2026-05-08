@@ -59,7 +59,7 @@ spec:
               key: SMTP_PASSWORD
               name: gitlab-smtp-secret
               optional: false
-        image: registry.gitlab.com/gitlab-org/build/cng/gitlab-sidekiq-ce:v18.11.1
+        image: registry.gitlab.com/gitlab-org/build/cng/gitlab-sidekiq-ce:placeholder
         imagePullPolicy: IfNotPresent
         livenessProbe:
           exec:

@@ -7,3 +7,7 @@ resources:
 - ingressroute-default-meshery.yaml
 - service-default-meshery.yaml
 - serviceaccount-default-meshery.yaml
+
+images:
+- name: "meshery/meshery"
+  newTag: "stable-v0.8.200"

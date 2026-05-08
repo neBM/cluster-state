@@ -31,7 +31,7 @@ spec:
           value: /config/homeserver.yaml
         - name: SYNAPSE_WORKER
           value: synapse.app.homeserver
-        image: ghcr.io/element-hq/synapse:v1.151.0
+        image: ghcr.io/element-hq/synapse
         imagePullPolicy: IfNotPresent
         livenessProbe:
           failureThreshold: 3
@@ -151,7 +151,7 @@ spec:
               key: hs_token
               name: matrix-secrets
               optional: false
-        image: busybox:1.37
+        image: busybox
         imagePullPolicy: IfNotPresent
         name: config-processor
         resources: {}

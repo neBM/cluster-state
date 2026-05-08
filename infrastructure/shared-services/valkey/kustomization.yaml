@@ -3,3 +3,7 @@ kind: Kustomization
 resources:
 - deployment-default-valkey.yaml
 - service-default-valkey.yaml
+
+images:
+- name: "valkey/valkey"
+  newTag: "8.1-alpine3.21"

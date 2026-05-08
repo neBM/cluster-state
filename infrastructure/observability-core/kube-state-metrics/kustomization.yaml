@@ -6,3 +6,7 @@ resources:
 - deployment-default-kube-state-metrics.yaml
 - service-default-kube-state-metrics.yaml
 - serviceaccount-default-kube-state-metrics.yaml
+
+images:
+- name: "registry.k8s.io/kube-state-metrics/kube-state-metrics"
+  newTag: "v2.14.0"

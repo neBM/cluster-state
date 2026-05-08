@@ -35,7 +35,7 @@ spec:
             fieldRef:
               apiVersion: v1
               fieldPath: spec.nodeName
-        image: grafana/alloy:v1.7.1
+        image: grafana/alloy
         imagePullPolicy: IfNotPresent
         name: alloy
         ports:

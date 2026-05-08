@@ -26,7 +26,7 @@ spec:
     spec:
       automountServiceAccountToken: true
       containers:
-      - image: redis:7-alpine
+      - image: redis
         imagePullPolicy: IfNotPresent
         livenessProbe:
           exec:

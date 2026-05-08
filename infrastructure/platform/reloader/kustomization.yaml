@@ -8,3 +8,7 @@ resources:
 - role-reloader-reloader-reloader-metadata-role.yaml
 - rolebinding-reloader-reloader-reloader-metadata-role-binding.yaml
 - serviceaccount-reloader-reloader-reloader.yaml
+
+images:
+- name: "ghcr.io/stakater/reloader"
+  newTag: "v1.4.14"

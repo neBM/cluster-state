@@ -6,3 +6,7 @@ resources:
 - deployment-default-lldap.yaml
 - ingress-default-lldap.yaml
 - service-default-lldap.yaml
+
+images:
+- name: "lldap/lldap"
+  newTag: "stable"

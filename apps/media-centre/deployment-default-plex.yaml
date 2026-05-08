@@ -36,7 +36,7 @@ spec:
           value: '997'
         - name: CHANGE_CONFIG_DIR_OWNERSHIP
           value: 'false'
-        image: plexinc/pms-docker:latest
+        image: plexinc/pms-docker
         imagePullPolicy: Always
         livenessProbe:
           failureThreshold: 5
@@ -143,7 +143,7 @@ spec:
           value: http://seaweedfs-s3.default.svc.cluster.local:8333
         - name: BACKUP_BUCKET
           value: plex-backup
-        image: alpine:3.23
+        image: alpine
         imagePullPolicy: IfNotPresent
         name: db-restore
         resources:

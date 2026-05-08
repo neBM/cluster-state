@@ -29,7 +29,7 @@ spec:
     spec:
       automountServiceAccountToken: true
       containers:
-      - image: ghcr.io/cinnyapp/cinny:v4.11.1
+      - image: ghcr.io/cinnyapp/cinny
         imagePullPolicy: IfNotPresent
         livenessProbe:
           failureThreshold: 3

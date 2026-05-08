@@ -29,7 +29,7 @@ spec:
       - env:
         - name: REGISTRY_CONFIGURATION_PATH
           value: /etc/docker/registry/config.yml
-        image: registry.gitlab.com/gitlab-org/build/cng/gitlab-container-registry:v18.11.1
+        image: registry.gitlab.com/gitlab-org/build/cng/gitlab-container-registry:placeholder
         imagePullPolicy: IfNotPresent
         livenessProbe:
           failureThreshold: 3

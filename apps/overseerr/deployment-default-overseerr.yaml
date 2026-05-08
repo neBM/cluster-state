@@ -44,7 +44,7 @@ spec:
       - env:
         - name: TZ
           value: Europe/London
-        image: sctx/overseerr:latest
+        image: sctx/overseerr
         imagePullPolicy: Always
         livenessProbe:
           failureThreshold: 3
@@ -105,7 +105,7 @@ spec:
               key: MINIO_SECRET_KEY
               name: overseerr-secrets
               optional: false
-        image: litestream/litestream:0.5
+        image: litestream/litestream
         imagePullPolicy: IfNotPresent
         name: litestream
         resources:
@@ -168,7 +168,7 @@ spec:
         - secretRef:
             name: overseerr-secrets
             optional: false
-        image: litestream/litestream:0.5
+        image: litestream/litestream
         imagePullPolicy: IfNotPresent
         name: litestream-restore
         resources:

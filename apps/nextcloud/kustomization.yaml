@@ -6,3 +6,11 @@ resources:
 - ingressroute-default-nextcloud.yaml
 - middleware-default-nextcloud-webdav-redirect.yaml
 - service-default-nextcloud.yaml
+
+images:
+- name: "redis"
+  newTag: "8-alpine"
+- name: "nextcloud"
+  newTag: "33"
+- name: "busybox"
+  newTag: "1"

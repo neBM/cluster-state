@@ -7,3 +7,7 @@ resources:
 - ingressroute-kube-system-headlamp.yaml
 - service-kube-system-headlamp.yaml
 - serviceaccount-kube-system-headlamp.yaml
+
+images:
+- name: "ghcr.io/headlamp-k8s/headlamp"
+  newTag: "v0.41.0"

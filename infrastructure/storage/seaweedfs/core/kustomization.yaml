@@ -28,3 +28,23 @@ resources:
 - serviceaccount-default-seaweedfs-csi.yaml
 - statefulset-default-seaweedfs-filer.yaml
 - statefulset-default-seaweedfs-master.yaml
+
+images:
+- name: "registry.brmartin.co.uk/ben/seaweedfs-consumer-recycler"
+  newTag: "v0.1.3"
+- name: "registry.brmartin.co.uk/ben/seaweedfs-csi-driver"
+  newTag: "v0.1.12"
+- name: "registry.k8s.io/sig-storage/csi-node-driver-registrar"
+  newTag: "v2.16.0"
+- name: "registry.k8s.io/sig-storage/livenessprobe"
+  newTag: "v2.18.0"
+- name: "registry.brmartin.co.uk/ben/seaweedfs-mount"
+  newTag: "v0.1.11"
+- name: "chrislusf/seaweedfs"
+  newTag: "4.18-nebm-2df29443"
+- name: "registry.k8s.io/sig-storage/csi-provisioner"
+  newTag: "v6.2.0"
+- name: "registry.k8s.io/sig-storage/csi-attacher"
+  newTag: "v4.11.0"
+- name: "registry.k8s.io/sig-storage/csi-resizer"
+  newTag: "v2.1.0"

@@ -34,3 +34,21 @@ resources:
 - service-default-matrix-nginx.yaml
 - service-default-synapse.yaml
 - service-default-whatsapp-bridge.yaml
+
+images:
+- name: "ghcr.io/cinnyapp/cinny"
+  newTag: "v4.11.1"
+- name: "docker.io/vectorim/element-web"
+  newTag: "v1.12.15"
+- name: "oci.element.io/element-admin"
+  newTag: "latest"
+- name: "ghcr.io/element-hq/matrix-authentication-service"
+  newTag: "1.15.0"
+- name: "busybox"
+  newTag: "1.37"
+- name: "docker.io/library/nginx"
+  newTag: "1.30.0-alpine"
+- name: "ghcr.io/element-hq/synapse"
+  newTag: "v1.151.0"
+- name: "dock.mau.dev/mautrix/whatsapp"
+  newTag: "v0.2604.0"

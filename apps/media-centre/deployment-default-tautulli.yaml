@@ -35,7 +35,7 @@ spec:
           value: '997'
         - name: TZ
           value: Europe/London
-        image: ghcr.io/tautulli/tautulli:v2.17.0
+        image: ghcr.io/tautulli/tautulli
         imagePullPolicy: IfNotPresent
         livenessProbe:
           failureThreshold: 3

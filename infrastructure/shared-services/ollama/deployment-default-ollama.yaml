@@ -22,7 +22,7 @@ spec:
         environment: prod
     spec:
       containers:
-      - image: ollama/ollama:0.21.1
+      - image: ollama/ollama
         imagePullPolicy: IfNotPresent
         livenessProbe:
           failureThreshold: 3

@@ -10,3 +10,11 @@ resources:
 - persistentvolumeclaim-default-victoriametrics-data.yaml
 - service-default-victoriametrics.yaml
 - serviceaccount-default-victoriametrics.yaml
+
+images:
+- name: "victoriametrics/victoria-metrics"
+  newTag: "v1.108.1"
+- name: "victoriametrics/vmbackup"
+  newTag: "v1.108.1"
+- name: "victoriametrics/vmrestore"
+  newTag: "v1.108.1"

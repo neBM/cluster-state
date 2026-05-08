@@ -111,7 +111,7 @@ spec:
               key: AUTH_CUSTOM_CLIENT_SECRET
               name: langfuse-secrets
               optional: false
-        image: langfuse/langfuse-worker:3
+        image: langfuse/langfuse-worker
         imagePullPolicy: IfNotPresent
         name: langfuse-worker
         resources:

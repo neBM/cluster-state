@@ -16,3 +16,7 @@ configMapGenerator:
   - contactpoints.yaml=files/contactpoints.yaml
   - policies.yaml=files/policies.yaml
   - rules.yaml=_grafana_alert_rules.yaml
+
+images:
+- name: "grafana/grafana"
+  newTag: "13.0.1"

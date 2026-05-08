@@ -31,7 +31,7 @@ spec:
           value: unix:///var/lib/seaweedfs-mount/seaweedfs-mount.sock
         - name: GOMEMLIMIT
           value: 1800MiB
-        image: registry.brmartin.co.uk/ben/seaweedfs-mount:v0.1.11
+        image: registry.brmartin.co.uk/ben/seaweedfs-mount
         imagePullPolicy: IfNotPresent
         name: seaweedfs-mount
         resources:

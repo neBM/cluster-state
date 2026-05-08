@@ -12,3 +12,7 @@ resources:
 - node-hestia.yaml
 - serviceaccount-nvidia-dra-driver-nvidia-dra-driver-gpu-service-account-controller.yaml
 - serviceaccount-nvidia-dra-driver-nvidia-dra-driver-gpu-service-account-kubeletplugin.yaml
+
+images:
+- name: "nvcr.io/nvidia/k8s-dra-driver-gpu"
+  newTag: "v25.12.0"

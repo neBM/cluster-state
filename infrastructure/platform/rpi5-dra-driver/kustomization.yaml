@@ -5,3 +5,7 @@ resources:
 - clusterrolebinding-rpi5-dra-driver.yaml
 - daemonset-kube-system-rpi5-dra-driver.yaml
 - serviceaccount-kube-system-rpi5-dra-driver.yaml
+
+images:
+- name: "registry.brmartin.co.uk/ben/cluster-state/rpi5-dra-driver"
+  newTag: "latest"

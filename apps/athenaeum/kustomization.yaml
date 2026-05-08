@@ -9,3 +9,11 @@ resources:
 - service-default-athenaeum-backend.yaml
 - service-default-athenaeum-frontend.yaml
 - service-default-athenaeum-redis.yaml
+
+images:
+- name: "registry.brmartin.co.uk/ben/athenaeum/backend"
+  newTag: "5d0414d5"
+- name: "registry.brmartin.co.uk/ben/athenaeum/frontend"
+  newTag: "5d0414d5"
+- name: "redis"
+  newTag: "7-alpine"

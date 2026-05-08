@@ -32,7 +32,7 @@ spec:
       - env:
         - name: MAS_CONFIG
           value: /config/config.yaml
-        image: ghcr.io/element-hq/matrix-authentication-service:1.15.0
+        image: ghcr.io/element-hq/matrix-authentication-service
         imagePullPolicy: IfNotPresent
         livenessProbe:
           failureThreshold: 3
@@ -135,7 +135,7 @@ spec:
               key: mas_keycloak_client_secret
               name: matrix-secrets
               optional: false
-        image: busybox:1.37
+        image: busybox
         imagePullPolicy: IfNotPresent
         name: config-processor
         resources: {}

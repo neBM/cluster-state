@@ -29,7 +29,7 @@ spec:
     spec:
       automountServiceAccountToken: true
       containers:
-      - image: docker.io/library/nginx:1.30.0-alpine
+      - image: docker.io/library/nginx
         imagePullPolicy: IfNotPresent
         livenessProbe:
           failureThreshold: 3

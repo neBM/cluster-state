@@ -38,7 +38,7 @@ spec:
         - -promscrape.config=/config/scrape.yml
         - -httpListenAddr=:8428
         - -selfScrapeInterval=15s
-        image: victoriametrics/victoria-metrics:v1.108.1
+        image: victoriametrics/victoria-metrics
         imagePullPolicy: IfNotPresent
         livenessProbe:
           failureThreshold: 3
@@ -98,7 +98,7 @@ spec:
               key: MINIO_SECRET_KEY
               name: victoriametrics-s3
               optional: false
-        image: victoriametrics/vmbackup:v1.108.1
+        image: victoriametrics/vmbackup
         imagePullPolicy: IfNotPresent
         lifecycle:
           preStop:
@@ -146,7 +146,7 @@ spec:
               key: MINIO_SECRET_KEY
               name: victoriametrics-s3
               optional: false
-        image: victoriametrics/vmrestore:v1.108.1
+        image: victoriametrics/vmrestore
         imagePullPolicy: IfNotPresent
         name: vmrestore
         resources: {}

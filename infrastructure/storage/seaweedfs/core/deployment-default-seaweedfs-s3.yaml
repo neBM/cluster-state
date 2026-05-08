@@ -33,7 +33,7 @@ spec:
         - s3
         - -filer=seaweedfs-filer:8888
         - -port=8333
-        image: chrislusf/seaweedfs:4.18-nebm-2df29443
+        image: chrislusf/seaweedfs
         imagePullPolicy: IfNotPresent
         livenessProbe:
           failureThreshold: 3

@@ -12,12 +12,15 @@
   ],
   "packageRules": [
     {
-      "description": "Group Flux controller image updates from the bootstrap manifests",
+      "description": "Group Flux controller image updates from the bootstrap kustomization",
       "matchManagers": [
-        "kubernetes"
+        "kustomize"
+      ],
+      "matchDatasources": [
+        "docker"
       ],
       "matchFileNames": [
-        "clusters/k3s-homelab/flux-system/gotk-components.yaml"
+        "clusters/k3s-homelab/flux-system/kustomization.yaml"
       ],
       "groupName": "flux-controllers",
       "labels": [
@@ -27,13 +30,35 @@
       ]
     },
     {
-      "description": "Group Kubernetes manifest image updates",
+      "description": "Group Kustomize image updates",
       "matchManagers": [
-        "kubernetes"
+        "kustomize"
+      ],
+      "matchDatasources": [
+        "docker"
+      ],
+      "matchFileNames": [
+        "apps/**/kustomization.yaml",
+        "infrastructure/**/kustomization.yaml"
       ],
       "groupName": "k8s-images",
       "labels": [
         "kubernetes",
+        "docker",
+        "dependencies"
+      ]
+    },
+    {
+      "description": "Group GitLab CNG replacement-managed release values",
+      "matchManagers": [
+        "custom.regex"
+      ],
+      "matchFileNames": [
+        "apps/gitlab/kustomization.yaml"
+      ],
+      "groupName": "gitlab-cng",
+      "labels": [
+        "gitlab",
         "docker",
         "dependencies"
       ]
@@ -95,6 +120,19 @@
         "patch"
       ],
       "automerge": true
+    }
+  ],
+  "customManagers": [
+    {
+      "customType": "regex",
+      "description": "Update GitLab CNG app and migration versions used by Kustomize replacements",
+      "managerFilePatterns": [
+        "/^apps/gitlab/kustomization\\.yaml$/"
+      ],
+      "matchStrings": [
+        "# renovate: datasource=(?<datasource>[a-zA-Z0-9._-]+) depName=(?<depName>[^\\s]+)\\s+- (?:appVersion|migrationVersion)=(?<currentValue>[^\\s]+)"
+      ],
+      "versioningTemplate": "docker"
     }
   ],
   "ignoreDeps": [],

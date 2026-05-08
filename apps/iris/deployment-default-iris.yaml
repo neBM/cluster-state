@@ -124,7 +124,7 @@ spec:
               key: TRAKT_CLIENT_SECRET
               name: iris-secrets
               optional: true
-        image: registry.brmartin.co.uk/ben/iris:latest
+        image: registry.brmartin.co.uk/ben/iris
         imagePullPolicy: Always
         livenessProbe:
           failureThreshold: 3

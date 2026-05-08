@@ -44,7 +44,7 @@ spec:
               key: MINIO_SECRET_KEY
               name: loki-s3
               optional: false
-        image: grafana/loki:3.4.1
+        image: grafana/loki
         imagePullPolicy: IfNotPresent
         livenessProbe:
           failureThreshold: 3

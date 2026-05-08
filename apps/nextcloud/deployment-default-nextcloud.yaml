@@ -29,7 +29,7 @@ spec:
       - args:
         - --save
         - ''
-        image: redis:8-alpine
+        image: redis
         imagePullPolicy: IfNotPresent
         livenessProbe:
           exec:
@@ -74,7 +74,7 @@ spec:
           value: 172.26.0.0/16 10.0.0.0/8
         - name: REDIS_HOST
           value: 127.0.0.1
-        image: nextcloud:33
+        image: nextcloud
         imagePullPolicy: IfNotPresent
         livenessProbe:
           failureThreshold: 3
@@ -139,7 +139,7 @@ spec:
         env:
         - name: REDIS_HOST
           value: 127.0.0.1
-        image: nextcloud:33
+        image: nextcloud
         imagePullPolicy: IfNotPresent
         name: cron
         resources:
@@ -177,7 +177,7 @@ spec:
         - sh
         - -c
         - chown 33:33 /nc-data && chmod 0770 /nc-data && chown 33:33 /nc-config /nc-custom-apps
-        image: busybox:1
+        image: busybox
         imagePullPolicy: IfNotPresent
         name: fix-data-perms
         resources: {}
@@ -240,7 +240,7 @@ spec:
               key: secret
               name: nextcloud-secrets
               optional: false
-        image: busybox:1
+        image: busybox
         imagePullPolicy: IfNotPresent
         name: generate-secrets-config
         resources: {}

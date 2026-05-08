@@ -10,3 +10,7 @@ resources:
 - namespace-kube-system.yaml
 - service-kube-system-goldilocks-dashboard.yaml
 - serviceaccount-kube-system-goldilocks.yaml
+
+images:
+- name: "us-docker.pkg.dev/fairwinds-ops/oss/goldilocks"
+  newTag: "v4.14.18"

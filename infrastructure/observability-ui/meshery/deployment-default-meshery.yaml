@@ -38,7 +38,7 @@ spec:
           value: localhost:10000
         - name: MESHERY_ADAPTER_CILIUM_ENABLED
           value: 'true'
-        image: meshery/meshery:stable-v0.8.200
+        image: meshery/meshery
         imagePullPolicy: IfNotPresent
         livenessProbe:
           failureThreshold: 3

@@ -5,3 +5,7 @@ resources:
 - persistentvolumeclaim-default-data-loki-0.yaml
 - service-default-loki.yaml
 - statefulset-default-loki.yaml
+
+images:
+- name: "grafana/loki"
+  newTag: "3.4.1"

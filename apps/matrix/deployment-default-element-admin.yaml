@@ -32,7 +32,7 @@ spec:
       - env:
         - name: SERVER_NAME
           value: brmartin.co.uk
-        image: oci.element.io/element-admin:latest
+        image: oci.element.io/element-admin
         imagePullPolicy: IfNotPresent
         livenessProbe:
           failureThreshold: 3

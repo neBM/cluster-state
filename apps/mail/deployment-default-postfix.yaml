@@ -45,7 +45,7 @@ spec:
               key: RELAY_PASSWORD
               name: postfix-relay-secret
               optional: false
-        image: tozd/postfix:ubuntu-noble
+        image: tozd/postfix
         imagePullPolicy: IfNotPresent
         livenessProbe:
           exec:
@@ -135,7 +135,7 @@ spec:
           chmod 0755 /var/spool/postfix/pid\n# Spool root must be owned by root\n\
           chown root:root /var/spool/postfix\nchmod 0755 /var/spool/postfix\necho\
           \ \"Spool permissions fixed\"\n"
-        image: tozd/postfix:ubuntu-noble
+        image: tozd/postfix
         imagePullPolicy: IfNotPresent
         name: fix-spool-permissions
         resources: {}

@@ -7,3 +7,9 @@ resources:
 - persistentvolumeclaim-default-overseerr-config-sw.yaml
 - service-default-overseerr.yaml
 - verticalpodautoscaler-default-overseerr-vpa.yaml
+
+images:
+- name: "sctx/overseerr"
+  newTag: "latest"
+- name: "litestream/litestream"
+  newTag: "0.5"

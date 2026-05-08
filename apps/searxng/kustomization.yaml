@@ -5,3 +5,7 @@ resources:
 - ingress-default-searxng.yaml
 - persistentvolumeclaim-default-searxng-config-sw.yaml
 - service-default-searxng.yaml
+
+images:
+- name: "docker.io/searxng/searxng"
+  newTag: "2025.11.1-0245327fc"

@@ -6,3 +6,7 @@ resources:
 - persistentvolumeclaim-default-laurens-dissertation-archive-sw.yaml
 - persistentvolumeclaim-default-laurens-dissertation-data.yaml
 - service-default-laurens-dissertation.yaml
+
+images:
+- name: "registry.brmartin.co.uk/ben/laurens-dissertation"
+  newTag: "latest"

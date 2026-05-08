@@ -5,3 +5,7 @@ resources:
 - ingressroute-default-open-webui.yaml
 - persistentvolumeclaim-default-open-webui-data-sw.yaml
 - service-default-open-webui.yaml
+
+images:
+- name: "ghcr.io/open-webui/open-webui"
+  newTag: "v0.9.1"

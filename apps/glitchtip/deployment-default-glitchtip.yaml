@@ -51,7 +51,7 @@ spec:
         - secretRef:
             name: glitchtip-secrets
             optional: false
-        image: glitchtip/glitchtip:6.1.5
+        image: glitchtip/glitchtip
         imagePullPolicy: IfNotPresent
         livenessProbe:
           failureThreshold: 3
@@ -148,7 +148,7 @@ spec:
         - secretRef:
             name: glitchtip-secrets
             optional: false
-        image: glitchtip/glitchtip:6.1.5
+        image: glitchtip/glitchtip
         imagePullPolicy: IfNotPresent
         name: bootstrap
         resources:

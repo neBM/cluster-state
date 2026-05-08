@@ -33,7 +33,7 @@ spec:
               key: PROXY_URL
               name: laurens-dissertation-secrets
               optional: true
-        image: registry.brmartin.co.uk/ben/laurens-dissertation:latest
+        image: registry.brmartin.co.uk/ben/laurens-dissertation
         imagePullPolicy: Always
         livenessProbe:
           failureThreshold: 3
@@ -87,7 +87,7 @@ spec:
       - command:
         - /app/.venv/bin/python
         - scripts/init_db.py
-        image: registry.brmartin.co.uk/ben/laurens-dissertation:latest
+        image: registry.brmartin.co.uk/ben/laurens-dissertation
         imagePullPolicy: Always
         name: init-db
         resources: {}

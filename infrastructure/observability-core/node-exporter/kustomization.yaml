@@ -3,3 +3,7 @@ kind: Kustomization
 resources:
 - daemonset-default-node-exporter.yaml
 - service-default-node-exporter.yaml
+
+images:
+- name: "prom/node-exporter"
+  newTag: "v1.10.2"
