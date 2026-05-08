@@ -1,0 +1,30 @@
+# Temporary and log files
+*.tmp
+*.log
+*.sock
+*.lock
+
+# Dovecot regenerable index/cache files
+dovecot.index*
+dovecot.list.index*
+
+# SQLite temp files
+*-wal
+*-shm
+
+# Cache directories
+cache
+.cache
+
+# Log directories
+logs
+log
+
+# Plex/Jellyfin regenerable data
+codecs
+crash reports
+diagnostics
+updates
+media
+metadata
+transcodes
