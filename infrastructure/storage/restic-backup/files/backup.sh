@@ -27,7 +27,7 @@ echo "Backup complete. Running cleanup..."
 restic forget \
   --group-by paths,tags \
   --keep-within 14d \
-  --keep-within-weekly 12w \
+  --keep-within-weekly 84d \
   --keep-within-monthly 18m \
   --keep-yearly 5 \
   --prune
