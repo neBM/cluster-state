@@ -3,6 +3,7 @@ set -e
 
 export RESTIC_REPOSITORY=/repo
 export RESTIC_PASSWORD_FILE=/secrets/password
+LOCK_WAIT=30m
 
 # Initialize repo if needed
 if ! restic snapshots >/dev/null 2>&1; then
@@ -13,6 +14,7 @@ fi
 echo "Starting backup of SeaweedFS volumes..."
 
 restic backup /data-seaweedfs \
+  --retry-lock "$LOCK_WAIT" \
   --host restic-backup \
   --group-by paths,tags \
   --tag seaweedfs \
@@ -22,12 +24,10 @@ restic backup /data-seaweedfs \
   --exclude-if-present .nobackup \
   --skip-if-unchanged
 
-echo "Backup complete. Removing stale repository locks..."
-restic unlock
-
-echo "Running cleanup..."
+echo "Backup complete. Running cleanup..."
 
 restic forget \
+  --retry-lock "$LOCK_WAIT" \
   --group-by paths,tags \
   --keep-within 14d \
   --keep-within-weekly 84d \
@@ -36,6 +36,6 @@ restic forget \
   --prune
 
 echo "Checking repository integrity..."
-restic check
+restic check --retry-lock "$LOCK_WAIT"
 
 echo "Backup job finished successfully"
