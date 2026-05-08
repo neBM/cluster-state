@@ -22,7 +22,10 @@ restic backup /data-seaweedfs \
   --exclude-if-present .nobackup \
   --skip-if-unchanged
 
-echo "Backup complete. Running cleanup..."
+echo "Backup complete. Removing stale repository locks..."
+restic unlock
+
+echo "Running cleanup..."
 
 restic forget \
   --group-by paths,tags \
