@@ -33,6 +33,7 @@ rules:
   - notification.toolkit.fluxcd.io
   resourceNames:
   - cluster-state
+  - gitlab-cluster-state
   - gitlab-receiver-cluster-state
   resources:
   - receivers
