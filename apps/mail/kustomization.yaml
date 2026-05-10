@@ -30,7 +30,7 @@ images:
 - name: "dovecot/dovecot"
   newTag: "2.3-latest"
 - name: "redis"
-  newTag: "7-alpine"
+  newTag: "8-alpine"
 - name: "tozd/postfix"
   newTag: "ubuntu-noble"
 - name: "rspamd/rspamd"

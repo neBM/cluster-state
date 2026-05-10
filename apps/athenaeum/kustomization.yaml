@@ -16,4 +16,4 @@ images:
 - name: "registry.brmartin.co.uk/ben/athenaeum/frontend"
   newTag: "5d0414d5"
 - name: "redis"
-  newTag: "7-alpine"
+  newTag: "8-alpine"
