@@ -1,0 +1,22 @@
+apiVersion: v1
+kind: Service
+metadata:
+  annotations:
+    prometheus.io/path: /metrics
+    prometheus.io/port: "8080"
+    prometheus.io/scrape: "true"
+  labels:
+    app: gitlab-agent
+    app.kubernetes.io/name: gitlab-agent
+  name: gitlab-agent
+  namespace: gitlab-agent
+spec:
+  ports:
+  - name: observability
+    port: 8080
+    protocol: TCP
+    targetPort: 8080
+  selector:
+    app: gitlab-agent
+    app.kubernetes.io/name: gitlab-agent
+  type: ClusterIP

@@ -1,0 +1,8 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+- namespace-gitlab-agent.yaml
+- serviceaccount-gitlab-agent.yaml
+- clusterrolebinding-gitlab-agent-view.yaml
+- deployment-gitlab-agent.yaml
+- service-gitlab-agent.yaml

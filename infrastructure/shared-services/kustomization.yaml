@@ -5,3 +5,4 @@ resources:
 - clickhouse
 - ollama
 - gitlab-runner
+- gitlab-agent
