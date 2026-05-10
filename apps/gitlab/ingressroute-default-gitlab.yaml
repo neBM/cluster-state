@@ -10,6 +10,18 @@ spec:
   - websecure
   routes:
   - kind: Rule
+    match: Host(`git.brmartin.co.uk`) && PathPrefix(`/-/kubernetes-agent/k8s-proxy`)
+    priority: 110
+    services:
+    - name: gitlab-kas
+      port: 8154
+  - kind: Rule
+    match: Host(`git.brmartin.co.uk`) && PathPrefix(`/-/kubernetes-agent`)
+    priority: 100
+    services:
+    - name: gitlab-kas
+      port: 8150
+  - kind: Rule
     match: Host(`git.brmartin.co.uk`)
     services:
     - name: gitlab-workhorse

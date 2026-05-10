@@ -3,10 +3,12 @@ kind: Kustomization
 resources:
 - configmap-default-gitaly-config.yaml
 - configmap-default-gitlab-config-templates.yaml
+- configmap-default-gitlab-kas-config.yaml
 - configmap-default-gitlab-registry-config.yaml
 - configmap-default-gitlab-smtp-config.yaml
 - configmap-default-workhorse-config.yaml
 - deployment-default-gitlab-gitaly.yaml
+- deployment-default-gitlab-kas.yaml
 - deployment-default-gitlab-redis.yaml
 - deployment-default-gitlab-registry.yaml
 - deployment-default-gitlab-sidekiq.yaml
@@ -19,6 +21,7 @@ resources:
 - persistentvolumeclaim-default-gitlab-shared-sw.yaml
 - persistentvolumeclaim-default-gitlab-uploads-sw.yaml
 - service-default-gitlab-gitaly.yaml
+- service-default-gitlab-kas.yaml
 - service-default-gitlab-redis.yaml
 - service-default-gitlab-registry.yaml
 - service-default-gitlab-registry-internal.yaml
@@ -65,6 +68,14 @@ replacements:
   - select:
       kind: Deployment
       name: gitlab-gitaly
+    fieldPaths:
+    - spec.template.spec.containers.0.image
+    options:
+      delimiter: ':'
+      index: 1
+  - select:
+      kind: Deployment
+      name: gitlab-kas
     fieldPaths:
     - spec.template.spec.containers.0.image
     options:

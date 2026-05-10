@@ -115,6 +115,10 @@ spec:
           name: rails-secret
           readOnly: true
           subPath: secrets.yml
+        - mountPath: /etc/gitlab/kas
+          mountPropagation: None
+          name: kas-secret
+          readOnly: true
         - mountPath: /etc/gitlab/gitlab-shell
           mountPropagation: None
           name: shell-secret
@@ -164,6 +168,14 @@ spec:
           defaultMode: 420
           optional: false
           secretName: gitlab-rails-secret
+      - name: kas-secret
+        secret:
+          defaultMode: 420
+          items:
+          - key: kas_shared_secret
+            path: .gitlab_kas_secret
+          optional: false
+          secretName: gitlab-kas-secret
       - name: shell-secret
         secret:
           defaultMode: 420

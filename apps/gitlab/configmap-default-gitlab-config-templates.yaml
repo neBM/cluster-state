@@ -8,35 +8,114 @@ data:
     \    encoding: unicode\n    database: gitlabhq_production\n    host: 192.168.1.10\n\
     \    port: 5433\n    username: gitlab\n    password: \"<%= File.read('/etc/gitlab/postgres/password').strip\
     \ %>\"\n    pool: 10\n    prepared_statements: false\n    database_tasks: false\n"
-  gitlab.yml: "production:\n  gitlab:\n    host: git.brmartin.co.uk\n    port: 443\n\
-    \    https: true\n    ssh_host: git.brmartin.co.uk\n    ssh_port: 2222\n    relative_url_root:\
-    \ \"\"\n    email_enabled: true\n    email_from: gitlab@brmartin.co.uk\n    email_display_name:\
-    \ GitLab\n    email_reply_to: noreply@brmartin.co.uk\n    default_theme: 2\n \
-    \   default_projects_features:\n      issues: true\n      merge_requests: true\n\
-    \      wiki: true\n      snippets: true\n      builds: true\n      container_registry:\
-    \ true\n    trusted_proxies:\n      - \"127.0.0.0/8\"\n      - \"::1/128\"\n \
-    \     - \"10.42.0.0/16\"\n      - \"10.43.0.0/16\"\n    time_zone: \"Europe/London\"\
-    \n    action_cable_allowed_origins:\n      - \"https://git.brmartin.co.uk\"\n\
-    \    \n  artifacts:\n    enabled: true\n    path: /srv/gitlab/shared/artifacts\n\
-    \    \n  lfs:\n    enabled: true\n    storage_path: /srv/gitlab/shared/lfs-objects\n\
-    \    \n  uploads:\n    storage_path: /srv/gitlab/public/uploads\n    \n  repositories:\n\
-    \    storages:\n      default:\n        path: /srv/gitlab/shared\n        gitaly_address:\
-    \ tcp://gitlab-gitaly:8075\n        \n  gitaly:\n    client_path: /usr/local/bin\n\
-    \    token: \"\"\n    \n  gitlab_shell:\n    path: /srv/gitlab/gitlab-shell\n\
-    \    hooks_path: /srv/gitlab/gitlab-shell/hooks\n    secret_file: /etc/gitlab/gitlab-shell/.gitlab_shell_secret\n\
-    \    ssh_port: 2222\n    \n  workhorse:\n    secret_file: /etc/gitlab/gitlab-workhorse/secret\n\
-    \    \n  registry:\n    enabled: true\n    host: registry.brmartin.co.uk\n   \
-    \ port: 443\n    api_url: http://gitlab-registry:5000\n    issuer: gitlab-issuer\n\
-    \    key: /etc/gitlab/registry/gitlab-registry.key\n    \n  pages:\n    enabled:\
-    \ false\n    \n  mattermost:\n    enabled: false\n    \n  gravatar:\n    enabled:\
-    \ true\n    \n  cron_jobs:\n    stuck_ci_jobs_worker:\n      cron: \"0 * * * *\"\
-    \n    pipeline_schedule_worker:\n      cron: \"19 * * * *\"\n    expire_build_artifacts_worker:\n\
-    \      cron: \"50 * * * *\"\n    repository_archive_cache_worker:\n      cron:\
-    \ \"0 * * * *\"\n    repository_check_worker:\n      cron: \"20 * * * *\"\n  \
-    \  admin_email_worker:\n      cron: \"0 0 * * 0\"\n      \n  monitoring:\n   \
-    \ ip_whitelist:\n      - \"127.0.0.0/8\"\n      - \"::1/128\"\n      - \"10.42.0.0/16\"\
-    \n      - \"10.43.0.0/16\"\n    sidekiq_exporter:\n      enabled: true\n     \
-    \ address: 0.0.0.0\n      port: 8082\n"
+  gitlab.yml: |
+    production:
+      gitlab:
+        host: git.brmartin.co.uk
+        port: 443
+        https: true
+        ssh_host: git.brmartin.co.uk
+        ssh_port: 2222
+        relative_url_root: ""
+        email_enabled: true
+        email_from: gitlab@brmartin.co.uk
+        email_display_name: GitLab
+        email_reply_to: noreply@brmartin.co.uk
+        default_theme: 2
+        default_projects_features:
+          issues: true
+          merge_requests: true
+          wiki: true
+          snippets: true
+          builds: true
+          container_registry: true
+        trusted_proxies:
+          - "127.0.0.0/8"
+          - "::1/128"
+          - "10.42.0.0/16"
+          - "10.43.0.0/16"
+        time_zone: "Europe/London"
+        action_cable_allowed_origins:
+          - "https://git.brmartin.co.uk"
+
+      artifacts:
+        enabled: true
+        path: /srv/gitlab/shared/artifacts
+
+      lfs:
+        enabled: true
+        storage_path: /srv/gitlab/shared/lfs-objects
+
+      uploads:
+        storage_path: /srv/gitlab/public/uploads
+
+      repositories:
+        storages:
+          default:
+            path: /srv/gitlab/shared
+            gitaly_address: tcp://gitlab-gitaly:8075
+
+      gitaly:
+        client_path: /usr/local/bin
+        token: ""
+
+      gitlab_shell:
+        path: /srv/gitlab/gitlab-shell
+        hooks_path: /srv/gitlab/gitlab-shell/hooks
+        secret_file: /etc/gitlab/gitlab-shell/.gitlab_shell_secret
+        ssh_port: 2222
+
+      gitlab_kas:
+        enabled: true
+        secret_file: /etc/gitlab/kas/.gitlab_kas_secret
+        external_url: "wss://git.brmartin.co.uk/-/kubernetes-agent/"
+        internal_url: "grpc://gitlab-kas:8153"
+        external_k8s_proxy_url: "https://git.brmartin.co.uk/-/kubernetes-agent/k8s-proxy/"
+
+      workhorse:
+        secret_file: /etc/gitlab/gitlab-workhorse/secret
+
+      registry:
+        enabled: true
+        host: registry.brmartin.co.uk
+        port: 443
+        api_url: http://gitlab-registry:5000
+        issuer: gitlab-issuer
+        key: /etc/gitlab/registry/gitlab-registry.key
+
+      pages:
+        enabled: false
+
+      mattermost:
+        enabled: false
+
+      gravatar:
+        enabled: true
+
+      cron_jobs:
+        stuck_ci_jobs_worker:
+          cron: "0 * * * *"
+        pipeline_schedule_worker:
+          cron: "19 * * * *"
+        expire_build_artifacts_worker:
+          cron: "50 * * * *"
+        repository_archive_cache_worker:
+          cron: "0 * * * *"
+        repository_check_worker:
+          cron: "20 * * * *"
+        admin_email_worker:
+          cron: "0 0 * * 0"
+
+      monitoring:
+        ip_whitelist:
+          - "127.0.0.0/8"
+          - "::1/128"
+          - "10.42.0.0/16"
+          - "10.43.0.0/16"
+        sidekiq_exporter:
+          enabled: true
+          address: 0.0.0.0
+          port: 8082
   redis.cache.yml: "production:\n  url: redis://gitlab-redis:6379/1\n"
   redis.queues.yml: "production:\n  url: redis://gitlab-redis:6379/2\n"
   redis.rate_limiting.yml: "production:\n  url: redis://gitlab-redis:6379/5\n"

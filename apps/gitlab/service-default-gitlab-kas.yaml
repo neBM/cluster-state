@@ -1,0 +1,30 @@
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app: gitlab
+    component: kas
+  name: gitlab-kas
+  namespace: default
+spec:
+  ports:
+  - name: kas
+    port: 8150
+    protocol: TCP
+    targetPort: 8150
+  - name: kas-api
+    port: 8153
+    protocol: TCP
+    targetPort: 8153
+  - name: kas-k8s-api
+    port: 8154
+    protocol: TCP
+    targetPort: 8154
+  - name: metrics
+    port: 8151
+    protocol: TCP
+    targetPort: 8151
+  selector:
+    app: gitlab
+    component: kas
+  type: ClusterIP
