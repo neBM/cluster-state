@@ -1,4 +1,4 @@
-# Persistent node-local cache for build tool dependencies (Maven, Gradle, pip, uv, npm).
+# Persistent node-local cache for build tool dependencies (Maven, Gradle, pip, uv, npm, Bun).
 [[runners.kubernetes.volumes.host_path]]
   name = "ci-cache"
   mount_path = "/ci-cache"

@@ -6,6 +6,7 @@
     "UV_CACHE_DIR=/ci-cache/uv",
     "PIP_CACHE_DIR=/ci-cache/pip",
     "npm_config_cache=/ci-cache/npm",
+    "BUN_INSTALL_CACHE_DIR=/ci-cache/bun-install",
     "GOMODCACHE=/ci-cache/gomod",
     "GOCACHE=/ci-cache/gobuild",
     "STORAGE_DRIVER=overlay",
