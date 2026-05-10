@@ -3,6 +3,8 @@ kind: Kustomization
 resources:
 - namespace-gitlab-agent.yaml
 - serviceaccount-gitlab-agent.yaml
+- role-gitlab-agent-leases.yaml
+- rolebinding-gitlab-agent-leases.yaml
 - clusterrolebinding-gitlab-agent-view.yaml
 - deployment-gitlab-agent.yaml
 - service-gitlab-agent.yaml
