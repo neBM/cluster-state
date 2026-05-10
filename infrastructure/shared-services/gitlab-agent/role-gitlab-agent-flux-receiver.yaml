@@ -1,0 +1,42 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  labels:
+    app: gitlab-agent
+    app.kubernetes.io/name: gitlab-agent
+  name: gitlab-agent-flux-receiver
+  namespace: flux-system
+rules:
+- apiGroups:
+  - ""
+  resources:
+  - secrets
+  verbs:
+  - create
+- apiGroups:
+  - ""
+  resourceNames:
+  - gitlab-receiver-cluster-state
+  resources:
+  - secrets
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
+  - notification.toolkit.fluxcd.io
+  resources:
+  - receivers
+  verbs:
+  - create
+- apiGroups:
+  - notification.toolkit.fluxcd.io
+  resourceNames:
+  - cluster-state
+  - gitlab-receiver-cluster-state
+  resources:
+  - receivers
+  verbs:
+  - get
+  - patch
+  - update

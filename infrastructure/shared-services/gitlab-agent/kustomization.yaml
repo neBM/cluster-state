@@ -4,7 +4,11 @@ resources:
 - namespace-gitlab-agent.yaml
 - serviceaccount-gitlab-agent.yaml
 - role-gitlab-agent-leases.yaml
+- role-gitlab-agent-events.yaml
+- role-gitlab-agent-flux-receiver.yaml
 - rolebinding-gitlab-agent-leases.yaml
+- rolebinding-gitlab-agent-events.yaml
+- rolebinding-gitlab-agent-flux-receiver.yaml
 - clusterrolebinding-gitlab-agent-view.yaml
 - deployment-gitlab-agent.yaml
 - service-gitlab-agent.yaml
