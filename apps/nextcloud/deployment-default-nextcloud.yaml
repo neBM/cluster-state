@@ -115,6 +115,9 @@ spec:
         terminationMessagePath: /dev/termination-log
         terminationMessagePolicy: File
         volumeMounts:
+        - mountPath: /var/www/html
+          mountPropagation: None
+          name: html
         - mountPath: /var/www/html/config
           mountPropagation: HostToContainer
           name: config
@@ -135,9 +138,14 @@ spec:
           readOnly: true
           subPath: zz-secrets.config.php
       - command:
-        - /entrypoint.sh
+        - sh
+        - -c
         args:
-        - /cron.sh
+        - |
+          until [ -f /var/www/html/cron.php ]; do
+            sleep 2
+          done
+          exec /cron.sh
         env:
         - name: REDIS_HOST
           value: 127.0.0.1
@@ -153,6 +161,9 @@ spec:
         terminationMessagePath: /dev/termination-log
         terminationMessagePolicy: File
         volumeMounts:
+        - mountPath: /var/www/html
+          mountPropagation: None
+          name: html
         - mountPath: /var/www/html/config
           mountPropagation: HostToContainer
           name: config
@@ -261,6 +272,8 @@ spec:
       shareProcessNamespace: false
       terminationGracePeriodSeconds: 30
       volumes:
+      - emptyDir: {}
+        name: html
       - name: config
         persistentVolumeClaim:
           claimName: nextcloud-config
