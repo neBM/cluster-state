@@ -1,0 +1,42 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+- customresourcedefinition-verticalpodautoscalercheckpoints.autoscaling.k8s.io.yaml
+- customresourcedefinition-verticalpodautoscalers.autoscaling.k8s.io.yaml
+- clusterrole-system-vpa-actor.yaml
+- clusterrole-system-vpa-admission-controller.yaml
+- clusterrole-system-vpa-checkpoint-actor.yaml
+- clusterrole-system-vpa-status-actor.yaml
+- clusterrole-system-vpa-status-reader.yaml
+- clusterrole-system-vpa-target-reader.yaml
+- clusterrole-system-vpa-updater-in-place.yaml
+- clusterrolebinding-system-vpa-actor.yaml
+- clusterrolebinding-system-vpa-admission-controller.yaml
+- clusterrolebinding-system-vpa-checkpoint-actor.yaml
+- clusterrolebinding-system-vpa-evictioner-binding.yaml
+- clusterrolebinding-system-vpa-status-actor.yaml
+- clusterrolebinding-system-vpa-status-reader-binding.yaml
+- clusterrolebinding-system-vpa-target-reader-binding.yaml
+- clusterrolebinding-system-vpa-updater-in-place-binding.yaml
+- serviceaccount-kube-system-vpa-admission-controller.yaml
+- serviceaccount-kube-system-vpa-recommender.yaml
+- serviceaccount-kube-system-vpa-updater.yaml
+- role-kube-system-system-leader-locking-vpa-recommender.yaml
+- role-kube-system-system-leader-locking-vpa-updater.yaml
+- rolebinding-kube-system-system-leader-locking-vpa-recommender.yaml
+- rolebinding-kube-system-system-leader-locking-vpa-updater.yaml
+- service-kube-system-vpa-webhook.yaml
+- mutatingwebhookconfiguration-vpa-webhook-config.yaml
+- deployment-kube-system-vpa-admission-controller.yaml
+- deployment-kube-system-vpa-recommender.yaml
+- deployment-kube-system-vpa-recommender-frugal.yaml
+- deployment-kube-system-vpa-recommender-performance.yaml
+- deployment-kube-system-vpa-updater.yaml
+
+images:
+- name: "registry.k8s.io/autoscaling/vpa-admission-controller"
+  newTag: "1.5.1"
+- name: "registry.k8s.io/autoscaling/vpa-recommender"
+  newTag: "1.5.1"
+- name: "registry.k8s.io/autoscaling/vpa-updater"
+  newTag: "1.5.1"

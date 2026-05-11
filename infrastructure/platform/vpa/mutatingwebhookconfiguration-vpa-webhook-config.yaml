@@ -1,8 +1,6 @@
 apiVersion: admissionregistration.k8s.io/v1
 kind: MutatingWebhookConfiguration
 metadata:
-  annotations:
-    kustomize.toolkit.fluxcd.io/prune: disabled
   name: vpa-webhook-config
 webhooks:
 - admissionReviewVersions:
