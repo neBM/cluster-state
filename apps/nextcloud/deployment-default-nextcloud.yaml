@@ -134,7 +134,7 @@ spec:
           name: config-secrets
           readOnly: true
           subPath: zz-secrets.config.php
-      - command:
+      - args:
         - /cron.sh
         env:
         - name: REDIS_HOST
