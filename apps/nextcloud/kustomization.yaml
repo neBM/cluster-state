@@ -11,6 +11,6 @@ images:
 - name: "redis"
   newTag: "8-alpine"
 - name: "nextcloud"
-  newTag: "33"
+  newTag: "33.0.3"
 - name: "busybox"
   newTag: "1"
