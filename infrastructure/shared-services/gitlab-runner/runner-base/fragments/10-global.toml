@@ -1,4 +1,4 @@
-check_interval = 30
+check_interval = 1
 shutdown_timeout = 0
 
 [session_server]

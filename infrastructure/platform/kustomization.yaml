@@ -4,6 +4,7 @@ resources:
 - cert-manager
 - reloader
 - goldilocks
+- vpa-admission
 - hubble-ui
 - headlamp
 - rpi5-dra-driver

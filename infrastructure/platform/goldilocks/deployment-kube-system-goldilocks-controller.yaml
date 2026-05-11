@@ -28,7 +28,7 @@ spec:
       containers:
       - args:
         - --on-by-default=false
-        - --exclude-namespaces=kube-system,kube-public,kube-node-lease
+        - --exclude-namespaces=kube-system,kube-public,kube-node-lease,ci
         - -v=2
         command:
         - /goldilocks

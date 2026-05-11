@@ -1,8 +1,9 @@
   [runners.kubernetes]
-    namespace = "default"
+    namespace = "ci"
     service_account = "gitlab-runner"
     image = "alpine:latest"
     privileged = true
+    enable_service_links = false
 
     # Resource defaults for build containers.
     # No cpu_limit: burstable QoS lets short-lived CI jobs use full node CPU.
@@ -17,7 +18,7 @@
     helper_memory_limit = "256Mi"
 
     # Poll settings.
-    poll_interval = 3
+    poll_interval = 1
     poll_timeout = 180
 
     # Cleanup.

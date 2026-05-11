@@ -3,3 +3,4 @@
   url = "https://git.brmartin.co.uk"
   token = "RUNNER_TOKEN_PLACEHOLDER"
   executor = "kubernetes"
+  request_concurrency = 4
