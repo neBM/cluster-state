@@ -105,6 +105,17 @@
       ]
     },
     {
+      "description": "Keep v1alpha1 COSI forks pinned to the release-0.2-compatible dependency set",
+      "matchManagers": [
+        "gomod"
+      ],
+      "matchFileNames": [
+        "drivers/cosi-provisioner-sidecar/**",
+        "drivers/seaweedfs-cosi-driver/**"
+      ],
+      "enabled": false
+    },
+    {
       "description": "Separate major updates from minor/patch",
       "matchUpdateTypes": [
         "major"
