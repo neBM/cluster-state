@@ -2,7 +2,7 @@ module github.com/seaweedfs/seaweedfs-cosi-driver
 
 go 1.24
 
-toolchain go1.24.0
+toolchain go1.26.3
 
 require (
 	github.com/aws/aws-sdk-go v1.55.8
