@@ -19,6 +19,7 @@ import (
 	"context"
 	"flag"
 	"strings"
+	"time"
 
 	"sigs.k8s.io/container-object-storage-interface-api/controller"
 	"sigs.k8s.io/container-object-storage-interface-provisioner-sidecar/pkg/bucket"
@@ -78,6 +79,12 @@ func init() {
 }
 
 func run(ctx context.Context, args []string) error {
+	select {
+	case <-time.After(2 * time.Second):
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+
 	klog.V(3).InfoS("Attempting connection to driver", "address", driverAddress)
 	cosiClient, err := provisioner.NewDefaultCOSIProvisionerClient(ctx, driverAddress, debug)
 	if err != nil {

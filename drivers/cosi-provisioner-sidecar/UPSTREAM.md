@@ -20,3 +20,5 @@ Local patch:
   conflicts.
 - The S3 `BucketInfo` Secret preserves driver-provided `endpoint` and `region`
   values instead of replacing them with AWS defaults.
+- `cmd/objectstorage-sidecar` waits briefly before leader election so normal
+  single-replica rollouts can release the previous leader lease first.
