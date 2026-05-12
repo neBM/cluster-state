@@ -1,0 +1,13 @@
+apiVersion: objectstorage.k8s.io/v1alpha1
+kind: BucketClaim
+metadata:
+  labels:
+    app: loki
+    environment: prod
+  name: loki
+  namespace: default
+spec:
+  bucketClassName: seaweedfs
+  existingBucketName: loki
+  protocols:
+    - s3

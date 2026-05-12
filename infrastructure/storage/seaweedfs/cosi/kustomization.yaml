@@ -19,6 +19,9 @@ resources:
 - bucket-victoriametrics.yaml
 - bucketclaim-default-victoriametrics.yaml
 - bucketaccess-default-victoriametrics.yaml
+- bucket-loki.yaml
+- bucketclaim-default-loki.yaml
+- bucketaccess-default-loki.yaml
 
 images:
 - name: "registry.brmartin.co.uk/ben/cluster-state/seaweedfs-cosi-driver"
