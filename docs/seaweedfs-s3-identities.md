@@ -39,7 +39,7 @@ named-bucket cleanup candidates, see
 | COSI `BucketAccess/default/plex-backup` | `plex-backup` | `plex-backup-s3` | `BucketInfo.spec.secretS3` | Deployment/plex (db-restore init), CronJob/plex-db-backup |
 | COSI `BucketAccess/default/athenaeum-attachments` | `athenaeum-attachments` | `athenaeum-attachments-s3` | `BucketInfo.spec.secretS3` | Deployment/athenaeum-backend |
 | COSI `BucketAccess/default/langfuse` | `langfuse` | `langfuse-s3` | `BucketInfo.spec.secretS3` | Deployments langfuse-{web,worker} |
-| `gitlab-runner` | `gitlab-runner-cache` | `gitlab-runner-cache-s3` | `accesskey`, `secretkey` | Deployments gitlab-runner-{amd64,any,arm64,services} |
+| COSI `BucketAccess/default/gitlab-runner-cache` | `gitlab-runner-cache` | `gitlab-runner-cache-cosi-s3` | `BucketInfo.spec.secretS3` | Deployments gitlab-runner-{amd64,any,arm64,services} config-generator init |
 | `renovate` | `renovate-cache` | GitLab CI variables in `infrastructure/renovate-runner` | `S3_ACCESS_KEY`, `S3_SECRET_KEY` | Scheduled Renovate runner job |
 | COSI `BucketAccess/default/overseerr-litestream` | `overseerr-litestream` | `overseerr-litestream-s3` | `BucketInfo.spec.secretS3` | Deployment/overseerr Litestream containers |
 | `admin` | *(unscoped, full Admin)* | *(not in any workload secret)* | — | Operator use only |
@@ -126,9 +126,6 @@ workload Secret for those identities.
      {\"op\":\"replace\",\"path\":\"/data/MINIO_SECRET_KEY\",\"value\":\"$(printf %s "$SEC" | base64 -w0)\"}
    ]"
    ```
-
-   Note: `gitlab-runner-cache-s3` uses lowercase `accesskey` / `secretkey`
-   instead of the `MINIO_*` convention.
 
 4. Bounce the consumer (adjust the resource kind per service):
 

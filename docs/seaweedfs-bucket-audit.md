@@ -143,7 +143,7 @@ The helper script automates those checks by:
 | Bucket | Status | Current consumer evidence |
 | --- | --- | --- |
 | `athenaeum-attachments` | Active | COSI `BucketAccess/default/athenaeum-attachments` creates `athenaeum-attachments-s3`; `apps/athenaeum/deployment-default-athenaeum-backend.yaml` mounts `BucketInfo` and exports the app's `MINIO_*` names at container start |
-| `gitlab-runner-cache` | Active | `infrastructure/shared-services/gitlab-runner/runner-base/fragments/95-cache.toml` sets `BucketName = "gitlab-runner-cache"` for all live runner overlays |
+| `gitlab-runner-cache` | Active | COSI `BucketAccess/default/gitlab-runner-cache` creates `gitlab-runner-cache-cosi-s3`; `infrastructure/shared-services/gitlab-runner/runner-base/deployment-default-gitlab-runner.yaml` renders runner cache config from `BucketInfo` |
 | `langfuse` | Active | COSI `BucketAccess/default/langfuse` creates `langfuse-s3`; `apps/langfuse/deployment-default-langfuse-{web,worker}.yaml` mount `BucketInfo` and export Langfuse's S3 event-upload env vars at container start |
 | `loki` | Active | COSI `BucketAccess/default/loki` creates `loki-cosi-s3`; `infrastructure/observability-core/loki/statefulset-default-loki.yaml` renders `BucketInfo` into the live Loki config |
 | `overseerr-litestream` | Active | COSI `BucketAccess/default/overseerr-litestream` creates `overseerr-litestream-s3`; `apps/overseerr/deployment-default-overseerr.yaml` mounts `BucketInfo` for Litestream |
