@@ -20,6 +20,7 @@ package driver
 
 import (
 	"context"
+	"encoding/json"
 	"net"
 	"reflect"
 	"sort"
@@ -95,9 +96,8 @@ func (f *fakeFiler) DeleteEntry(_ context.Context, in *filer_pb.DeleteEntryReque
 	return &filer_pb.DeleteEntryResponse{}, nil
 }
 
-// iam returns the IAM config bytes stored in the fake filer.
-func (f *fakeFiler) iam() []byte {
-	return f.files[f.fileKey(filer.IamConfigDirectory, filer.IamIdentityFile)]
+func (f *fakeFiler) identity(name string) []byte {
+	return f.files[f.fileKey(s3IdentityDirectory(), s3IdentityFileName(name))]
 }
 
 /* ------------------------- helper: real TCP gRPC server ----------------------- */
@@ -420,22 +420,25 @@ func TestDriverGrantBucketAccess(t *testing.T) {
 // iamActions parses the fakeFiler IAM buffer and returns sorted actions for the given identity.
 func iamActions(t *testing.T, ff *fakeFiler, identity string) []string {
 	t.Helper()
-	cfg := &iam_pb.S3ApiConfiguration{}
-	if data := ff.iam(); len(data) > 0 {
-		if err := filer.ParseS3ConfigurationFromBytes(data, cfg); err != nil {
-			t.Fatalf("parse IAM config: %v", err)
-		}
+	id := iamIdentity(t, ff, identity)
+	actions := make([]string, len(id.Actions))
+	copy(actions, id.Actions)
+	sort.Strings(actions)
+	return actions
+}
+
+func iamIdentity(t *testing.T, ff *fakeFiler, identity string) *iam_pb.Identity {
+	t.Helper()
+	data := ff.identity(identity)
+	if len(data) == 0 {
+		t.Fatalf("identity %q not found in IAM config", identity)
 	}
-	for _, id := range cfg.Identities {
-		if id.Name == identity {
-			actions := make([]string, len(id.Actions))
-			copy(actions, id.Actions)
-			sort.Strings(actions)
-			return actions
-		}
+
+	id := &iam_pb.Identity{}
+	if err := json.Unmarshal(data, id); err != nil {
+		t.Fatalf("parse identity %q: %v", identity, err)
 	}
-	t.Fatalf("identity %q not found in IAM config", identity)
-	return nil
+	return id
 }
 
 func TestDriverGrantBucketAccessPolicy(t *testing.T) {
@@ -497,7 +500,7 @@ func TestDriverGrantBucketAccessPolicy(t *testing.T) {
 }
 
 func TestDriverRevokeBucketAccess(t *testing.T) {
-	p, _ := newProv(t)
+	p, ff := newProv(t)
 	_, _ = p.DriverGrantBucketAccess(context.Background(),
 		&cosispec.DriverGrantBucketAccessRequest{BucketId: "b", Name: "u"})
 
@@ -527,6 +530,9 @@ func TestDriverRevokeBucketAccess(t *testing.T) {
 			}
 			if !reflect.DeepEqual(got, &cosispec.DriverRevokeBucketAccessResponse{}) {
 				t.Errorf("unexpected resp=%+v", got)
+			}
+			if data := ff.identity("u"); len(data) > 0 {
+				t.Fatalf("identity file was not deleted: %s", string(data))
 			}
 		})
 	}
@@ -878,20 +884,9 @@ func TestConcurrentGrantAccess(t *testing.T) {
 		}
 	}
 
-	// verify IAM config has exactly n credentials for "user"
-	cfg := &iam_pb.S3ApiConfiguration{}
-	if data := ff.iam(); len(data) > 0 {
-		if err := filer.ParseS3ConfigurationFromBytes(data, cfg); err != nil {
-			t.Fatalf("parse IAM config: %v", err)
-		}
+	// Concurrent grants for the same COSI account are idempotent.
+	id := iamIdentity(t, ff, "user")
+	if len(id.Credentials) != 1 {
+		t.Errorf("credentials count=%d want 1", len(id.Credentials))
 	}
-	for _, id := range cfg.Identities {
-		if id.Name == "user" {
-			if len(id.Credentials) != n {
-				t.Errorf("credentials count=%d want %d", len(id.Credentials), n)
-			}
-			return
-		}
-	}
-	t.Fatal("identity 'user' not found in IAM config")
 }

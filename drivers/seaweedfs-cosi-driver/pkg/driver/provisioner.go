@@ -22,6 +22,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
+	"encoding/json"
 	"fmt"
 	"os"
 	"regexp"
@@ -255,37 +256,31 @@ func (s *provisionerServer) DriverGrantBucketAccess(ctx context.Context, req *co
 		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
 
-	accessKey, _ := GenerateAccessKeyID()
-	secretKey, _ := GenerateSecretAccessKey()
-
-	// atomic read-modify-write IAM configuration
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	var cfgBuf bytes.Buffer
-	if err := s.readS3Configuration(ctx, &cfgBuf); err != nil {
+	id, found, err := s.readS3Identity(ctx, user)
+	if err != nil {
 		return nil, status.Error(codes.Internal, err.Error())
 	}
-	cfg := &iam_pb.S3ApiConfiguration{}
-	if cfgBuf.Len() > 0 {
-		if err := filer.ParseS3ConfigurationFromBytes(cfgBuf.Bytes(), cfg); err != nil {
-			return nil, status.Error(codes.Internal, err.Error())
-		}
+	if !found {
+		id = &iam_pb.Identity{Name: user}
 	}
 
-	// ensure identity exists
-	var id *iam_pb.Identity
-	for _, i := range cfg.Identities {
-		if i.Name == user {
-			id = i
-			break
+	credential := firstUsableCredential(id)
+	if credential == nil {
+		accessKey, err := GenerateAccessKeyID()
+		if err != nil {
+			return nil, status.Error(codes.Internal, err.Error())
 		}
+		secretKey, err := GenerateSecretAccessKey()
+		if err != nil {
+			return nil, status.Error(codes.Internal, err.Error())
+		}
+		credential = &iam_pb.Credential{AccessKey: accessKey, SecretKey: secretKey}
+		id.Credentials = append(id.Credentials, credential)
 	}
-	if id == nil {
-		id = &iam_pb.Identity{Name: user}
-		cfg.Identities = append(cfg.Identities, id)
-	}
-	id.Credentials = append(id.Credentials, &iam_pb.Credential{AccessKey: accessKey, SecretKey: secretKey})
+
 	for _, a := range actions {
 		action := fmt.Sprintf("%s:%s", a, bucket)
 		if !contains(id.Actions, action) {
@@ -293,20 +288,17 @@ func (s *provisionerServer) DriverGrantBucketAccess(ctx context.Context, req *co
 		}
 	}
 
-	// write back
-	cfgBuf.Reset()
-	filer.ProtoToText(&cfgBuf, cfg)
-	if err := s.saveS3Configuration(ctx, cfgBuf.Bytes()); err != nil {
+	if err := s.saveS3Identity(ctx, id); err != nil {
 		return nil, status.Error(codes.Internal, err.Error())
 	}
 
-	klog.InfoS("granted bucket access", "user", user, "bucket", bucket, "accessKey", accessKey)
+	klog.InfoS("granted bucket access", "user", user, "bucket", bucket, "accessKey", credential.AccessKey)
 	return &cosispec.DriverGrantBucketAccessResponse{
 		AccountId: user,
 		Credentials: map[string]*cosispec.CredentialDetails{
 			"s3": {Secrets: map[string]string{
-				"accessKeyID":     accessKey,
-				"accessSecretKey": secretKey,
+				"accessKeyID":     credential.AccessKey,
+				"accessSecretKey": credential.SecretKey,
 				"endpoint":        s.endpoint,
 				"region":          s.region,
 			}},
@@ -436,7 +428,100 @@ func (s *provisionerServer) saveS3Configuration(ctx context.Context, data []byte
 }
 
 func (s *provisionerServer) revokeBucketAccess(ctx context.Context, user string) error {
-	return s.configureS3Access(ctx, user, "", "", nil, true)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	return s.deleteS3Identity(ctx, user)
+}
+
+func firstUsableCredential(id *iam_pb.Identity) *iam_pb.Credential {
+	for _, credential := range id.Credentials {
+		if credential.AccessKey != "" && credential.SecretKey != "" {
+			return credential
+		}
+	}
+	return nil
+}
+
+func s3IdentityDirectory() string {
+	return filer.IamConfigDirectory + "/identities"
+}
+
+func s3IdentityFileName(user string) string {
+	return user + ".json"
+}
+
+func (s *provisionerServer) readS3Identity(ctx context.Context, user string) (*iam_pb.Identity, bool, error) {
+	var identity *iam_pb.Identity
+	found := false
+
+	err := s.withFilerClient(ctx, func(c filer_pb.SeaweedFilerClient) error {
+		resp, err := c.LookupDirectoryEntry(ctx, &filer_pb.LookupDirectoryEntryRequest{
+			Directory: s3IdentityDirectory(),
+			Name:      s3IdentityFileName(user),
+		})
+		if err != nil {
+			if isNotFoundError(err) {
+				return nil
+			}
+			return err
+		}
+		if resp == nil || resp.Entry == nil || len(resp.Entry.Content) == 0 {
+			return nil
+		}
+
+		identity = &iam_pb.Identity{}
+		if err := json.Unmarshal(resp.Entry.Content, identity); err != nil {
+			return fmt.Errorf("parse identity %s: %w", user, err)
+		}
+		found = true
+		return nil
+	})
+	if err != nil {
+		return nil, false, err
+	}
+
+	return identity, found, nil
+}
+
+func (s *provisionerServer) saveS3Identity(ctx context.Context, identity *iam_pb.Identity) error {
+	data, err := json.Marshal(identity)
+	if err != nil {
+		return fmt.Errorf("serialize identity %s: %w", identity.Name, err)
+	}
+
+	return s.withFilerClient(ctx, func(c filer_pb.SeaweedFilerClient) error {
+		entry := &filer_pb.Entry{
+			Name:        s3IdentityFileName(identity.Name),
+			Content:     data,
+			IsDirectory: false,
+		}
+		_, err := c.UpdateEntry(ctx, &filer_pb.UpdateEntryRequest{
+			Directory: s3IdentityDirectory(),
+			Entry:     entry,
+		})
+		if err == nil || !isNotFoundError(err) {
+			return err
+		}
+		_, err = c.CreateEntry(ctx, &filer_pb.CreateEntryRequest{
+			Directory: s3IdentityDirectory(),
+			Entry:     entry,
+		})
+		return err
+	})
+}
+
+func (s *provisionerServer) deleteS3Identity(ctx context.Context, user string) error {
+	return s.withFilerClient(ctx, func(c filer_pb.SeaweedFilerClient) error {
+		_, err := c.DeleteEntry(ctx, &filer_pb.DeleteEntryRequest{
+			Directory: s3IdentityDirectory(),
+			Name:      s3IdentityFileName(user),
+		})
+		if isNotFoundError(err) {
+			return nil
+		}
+		return err
+	})
 }
 
 func (s *provisionerServer) configureS3Access(ctx context.Context, user, ak, sk string, actions []string, del bool) error {
@@ -497,6 +582,9 @@ func (s *provisionerServer) configureS3Access(ctx context.Context, user, ak, sk 
 // It first checks for a proper gRPC NotFound status code, then falls back to
 // string matching for SeaweedFS filer which returns plain error strings.
 func isNotFoundError(err error) bool {
+	if err == nil {
+		return false
+	}
 	if status.Code(err) == codes.NotFound {
 		return true
 	}
