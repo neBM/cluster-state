@@ -5,12 +5,13 @@ metadata:
     app: plex
     environment: prod
   name: plex-backup
-bucketClaim:
-  name: plex-backup
-  namespace: default
-bucketClassName: seaweedfs
-deletionPolicy: Retain
-driverName: seaweedfs.objectstorage.k8s.io
-existingBucketID: plex-backup
-protocols:
-  - s3
+spec:
+  bucketClaim:
+    name: plex-backup
+    namespace: default
+  bucketClassName: seaweedfs
+  deletionPolicy: Retain
+  driverName: seaweedfs.objectstorage.k8s.io
+  existingBucketID: plex-backup
+  protocols:
+    - s3
