@@ -7,15 +7,20 @@ emergency access); all workloads use scoped identities.
 SeaweedFS S3 is the live object-storage endpoint for the cluster at
 `http://seaweedfs-s3.default.svc.cluster.local:8333`.
 
-Several consumers still use legacy secret key names such as
+Some consumers still use legacy secret key names such as
 `MINIO_ACCESS_KEY`, `MINIO_SECRET_KEY`, and in Athenaeum also
 `MINIO_URL` / `MINIO_BUCKET`. Those names are compatibility baggage from
 the MinIO era; they do not imply a MinIO backend.
 
-There is no active External Secrets controller in the current cluster.
-The secrets listed below are plain Kubernetes `Secret` objects, so
-manual `kubectl patch` or recreate operations are the durable repair and
-rotation path today.
+COSI-managed consumers use `objectstorage.k8s.io` `Bucket`,
+`BucketClaim`, and `BucketAccess` resources. Their generated Secret
+contains a `BucketInfo` JSON document with the bucket name, endpoint,
+region, and scoped S3 credentials.
+
+For legacy consumers, there is no active External Secrets controller in
+the current cluster. Those secrets are plain Kubernetes `Secret` objects,
+so manual `kubectl patch` or recreate operations are the durable repair
+and rotation path until the consumer is migrated to COSI.
 
 Avoid `kubectl apply` for these secrets. It stores the secret payload in
 the `kubectl.kubernetes.io/last-applied-configuration` annotation,
@@ -31,7 +36,7 @@ named-bucket cleanup candidates, see
 |---|---|---|---|---|
 | `loki` | `loki` | `loki-s3` | `MINIO_ACCESS_KEY`, `MINIO_SECRET_KEY` | Deployment/loki |
 | `victoriametrics` | `victoriametrics` | `victoriametrics-s3` | `MINIO_ACCESS_KEY`, `MINIO_SECRET_KEY` | Deployment/victoriametrics |
-| `media-centre` | `plex-backup` | `media-centre-secrets` | `MINIO_ACCESS_KEY`, `MINIO_SECRET_KEY` | StatefulSet/plex (db-restore init), CronJob/plex-db-backup |
+| COSI `BucketAccess/default/plex-backup` | `plex-backup` | `plex-backup-s3` | `BucketInfo.spec.secretS3` | Deployment/plex (db-restore init), CronJob/plex-db-backup |
 | `athenaeum` | `athenaeum-attachments` | `athenaeum-secrets` | `MINIO_ACCESS_KEY`, `MINIO_SECRET_KEY` | Deployment/athenaeum-backend |
 | `langfuse` | `langfuse` | `langfuse-secrets` | `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY` | Deployments langfuse-{web,worker} |
 | `gitlab-runner` | `gitlab-runner-cache` | `gitlab-runner-cache-s3` | `accesskey`, `secretkey` | Deployments gitlab-runner-{amd64,any,arm64,services} |
@@ -84,12 +89,17 @@ s3.configure -delete -user <name>
 s3.configure -user <name>
 ```
 
-## Rotation procedure
+## Legacy rotation procedure
 
-Perform **one service at a time**. On any failure, stop and investigate
-before proceeding to the next — most likely causes are identity typos,
-bucket misspelled in the SW config, or stale pods still holding the
-previous credentials.
+Use this only for buckets that have not yet moved to COSI. Perform **one
+service at a time**. On any failure, stop and investigate before
+proceeding to the next — most likely causes are identity typos, bucket
+misspelled in the SW config, or stale pods still holding the previous
+credentials.
+
+For COSI-managed buckets, rotate by replacing the `BucketAccess` and let
+the COSI driver mint the replacement `BucketInfo` Secret. Do not patch a
+workload Secret for those identities.
 
 1. Generate a new access key + secret:
 
@@ -126,10 +136,10 @@ previous credentials.
    kubectl -n default rollout status deploy/loki --timeout=180s
    ```
 
-   For `media-centre`, the plex StatefulSet only reads the secret in its
-   `db-restore` init container at pod start — a running plex pod does
-   not need to be restarted. Instead, verify the rotation by triggering
-   the cronjob manually:
+   For legacy `media-centre` credentials, the plex pod only read the
+   secret in its `db-restore` init container at pod start. The current
+   Plex backup path is COSI-managed, so verify it by triggering the
+   cronjob manually:
 
    ```bash
    kubectl -n default create job --from=cronjob/plex-db-backup plex-db-backup-verify

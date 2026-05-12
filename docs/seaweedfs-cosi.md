@@ -3,7 +3,7 @@
 This cluster uses COSI `objectstorage.k8s.io/v1alpha1` as the desired-state
 control plane for SeaweedFS S3 buckets and credentials.
 
-The first GitOps increment only installs:
+The base GitOps increment installs:
 
 - COSI CRDs and controller from `container-object-storage-interface@release-0.2`
 - the SeaweedFS COSI driver `v0.3.0`
@@ -13,9 +13,22 @@ The first GitOps increment only installs:
 - `BucketAccessClass/seaweedfs-readwrite`
 - `BucketAccessClass/seaweedfs-readonly`
 
-No production `BucketClaim` or `BucketAccess` objects are added yet. Existing
-workload Secrets and manually managed SeaweedFS identities remain in place until
-each bucket is migrated and verified.
+Production buckets are migrated one at a time. Existing workload Secrets and
+manually managed SeaweedFS identities remain available as rollback boundaries
+until each bucket is migrated and verified.
+
+## Production Status
+
+| Bucket | Status | COSI resources | Workload consumption | Verification |
+|---|---|---|---|---|
+| `plex-backup` | Migrated | `Bucket/plex-backup`, `BucketClaim/default/plex-backup`, `BucketAccess/default/plex-backup` | `Secret/default/plex-backup-s3` mounted as `BucketInfo` by `Deployment/plex` db-restore init and `CronJob/plex-db-backup` | Manual `plex-db-backup` job completed on 2026-05-12; scoped credentials were denied against `overseerr-litestream` |
+| `overseerr-litestream` | Pending | — | legacy Secret | — |
+| `victoriametrics` | Pending | — | legacy Secret | — |
+| `loki` | Pending | — | legacy Secret | — |
+| `athenaeum-attachments` | Pending | — | legacy Secret | — |
+| `langfuse` | Pending | — | legacy Secret | — |
+| `gitlab-runner-cache` | Pending | — | legacy Secret | — |
+| `renovate-cache` | Pending | — | GitLab CI variables | — |
 
 ## Deployment Checks
 
@@ -25,13 +38,14 @@ kubectl get bucketclasses,bucketaccessclasses
 kubectl get bucketclaims,buckets,bucketaccesses -A
 ```
 
-Expected before bucket migration:
+Expected base state:
 
 - `container-object-storage-controller` is Ready
 - `seaweedfs-cosi-driver` is Ready
 - `BucketClass/seaweedfs` exists with `deletionPolicy: Retain`
 - both SeaweedFS `BucketAccessClass` objects exist
-- no production workload has changed credentials
+- production workloads only change credentials after their bucket is listed as
+  migrated above
 
 ## Greenfield Proof
 
