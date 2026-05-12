@@ -24,3 +24,5 @@ Local patch:
   single-replica rollouts can release the previous leader lease first.
 - Deleting a `BucketAccess` revokes the driver account and removes the generated
   credentials Secret after clearing finalizers.
+- `BucketAccess` update handling ignores active objects and only runs delete
+  cleanup when Kubernetes has set `deletionTimestamp`.

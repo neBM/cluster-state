@@ -319,6 +319,56 @@ func TestDeleteBucketAccessRevokesIdentityAndDeletesSecret(t *testing.T) {
 	}
 }
 
+func TestUpdateBucketAccessIgnoresActiveObject(t *testing.T) {
+	ns := "testns"
+	secretName := "secret1"
+	bucketAccessName := "bucketAccess1"
+
+	mpc := struct{ fakespec.FakeProvisionerClient }{}
+	mpc.FakeDriverRevokeBucketAccess = func(ctx context.Context,
+		in *cosi.DriverRevokeBucketAccessRequest,
+		opts ...grpc.CallOption) (*cosi.DriverRevokeBucketAccessResponse, error) {
+		t.Errorf("grpc revoke called")
+		return nil, nil
+	}
+
+	oldBA := v1alpha1.BucketAccess{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      bucketAccessName,
+			Namespace: ns,
+		},
+		Spec: v1alpha1.BucketAccessSpec{
+			CredentialsSecretName: secretName,
+		},
+	}
+	newBA := oldBA
+	newBA.Status = v1alpha1.BucketAccessStatus{
+		AccountID:     "account1",
+		AccessGranted: true,
+	}
+
+	client := fakebucketclientset.NewSimpleClientset(&newBA)
+	kubeClient := fakekubeclientset.NewSimpleClientset(&corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      secretName,
+			Namespace: ns,
+		},
+	})
+	bal := BucketAccessListener{
+		provisionerClient: &mpc,
+		bucketClient:      client,
+		kubeClient:        kubeClient,
+	}
+
+	ctx := context.TODO()
+	if err := bal.Update(ctx, &oldBA, &newBA); err != nil {
+		t.Fatalf("Update returned: %+v", err)
+	}
+	if _, err := bal.secrets(ns).Get(ctx, secretName, metav1.GetOptions{}); err != nil {
+		t.Fatalf("Expected active secret to remain: %v", err)
+	}
+}
+
 func TestInitializeBucketClient(t *testing.T) {
 	client := fakebucketclientset.NewSimpleClientset()
 

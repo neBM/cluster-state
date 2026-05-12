@@ -327,6 +327,10 @@ func (bal *BucketAccessListener) Update(ctx context.Context, old, new *v1alpha1.
 		"name", old.ObjectMeta.Name)
 
 	bucketAccess := new.DeepCopy()
+	if bucketAccess.GetDeletionTimestamp().IsZero() {
+		return nil
+	}
+
 	err := bal.deleteBucketAccessOp(ctx, bucketAccess)
 	if err != nil {
 		return err
