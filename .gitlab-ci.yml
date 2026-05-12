@@ -7,8 +7,8 @@ variables:
   ACT_IMAGE: ${CI_REGISTRY}/ben/act:latest
   RPI5_IMAGE: ${CI_REGISTRY_IMAGE}/rpi5-dra-driver
   RPI5_IMAGE_CACHE: ${CI_REGISTRY_IMAGE}/rpi5-dra-driver/cache
-  SEAWEEDFS_COSI_IMAGE: ${CI_REGISTRY}/ben/seaweedfs-cosi-driver
-  SEAWEEDFS_COSI_IMAGE_CACHE: ${CI_REGISTRY}/ben/seaweedfs-cosi-driver/cache
+  SEAWEEDFS_COSI_IMAGE: ${CI_REGISTRY_IMAGE}/seaweedfs-cosi-driver
+  SEAWEEDFS_COSI_IMAGE_CACHE: ${CI_REGISTRY_IMAGE}/seaweedfs-cosi-driver/cache
 
 .buildah_before: &buildah_before
   - mkdir -p ${CI_PROJECT_DIR}/.local/share/containers

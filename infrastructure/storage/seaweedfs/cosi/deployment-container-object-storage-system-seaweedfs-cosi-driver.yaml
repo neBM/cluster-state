@@ -34,7 +34,7 @@ spec:
           value: http://seaweedfs-s3.default.svc.cluster.local:8333
         - name: REGION
           value: us-east-1
-        image: registry.brmartin.co.uk/ben/seaweedfs-cosi-driver
+        image: registry.brmartin.co.uk/ben/cluster-state/seaweedfs-cosi-driver
         imagePullPolicy: Always
         name: driver
         resources:

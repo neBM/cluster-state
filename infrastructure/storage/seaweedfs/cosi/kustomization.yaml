@@ -12,5 +12,5 @@ resources:
 - bucketaccessclass-seaweedfs-readonly.yaml
 
 images:
-- name: "registry.brmartin.co.uk/ben/seaweedfs-cosi-driver"
+- name: "registry.brmartin.co.uk/ben/cluster-state/seaweedfs-cosi-driver"
   newTag: "latest"
