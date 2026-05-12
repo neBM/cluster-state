@@ -14,3 +14,5 @@ resources:
 images:
 - name: "registry.brmartin.co.uk/ben/cluster-state/seaweedfs-cosi-driver"
   newTag: "latest"
+- name: "registry.brmartin.co.uk/ben/cluster-state/cosi-provisioner-sidecar"
+  newTag: "latest"

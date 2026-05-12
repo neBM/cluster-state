@@ -7,6 +7,8 @@ The first GitOps increment only installs:
 
 - COSI CRDs and controller from `container-object-storage-interface@release-0.2`
 - the SeaweedFS COSI driver `v0.3.0`
+- a local `cosi-provisioner-sidecar` image pinned to upstream `v0.1.0` with a
+  status-subresource fix for `BucketClaim.status.bucketReady`
 - `BucketClass/seaweedfs`
 - `BucketAccessClass/seaweedfs-readwrite`
 - `BucketAccessClass/seaweedfs-readonly`

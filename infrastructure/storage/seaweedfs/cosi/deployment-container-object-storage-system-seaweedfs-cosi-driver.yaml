@@ -58,7 +58,7 @@ spec:
       - args:
         - --v=5
         - --driver-addr=unix:///var/lib/cosi/cosi.sock
-        image: gcr.io/k8s-staging-sig-storage/objectstorage-sidecar:release-0.2
+        image: registry.brmartin.co.uk/ben/cluster-state/cosi-provisioner-sidecar
         imagePullPolicy: IfNotPresent
         name: objectstorage-sidecar
         resources:
