@@ -1,0 +1,13 @@
+apiVersion: objectstorage.k8s.io/v1alpha1
+kind: BucketClaim
+metadata:
+  labels:
+    app: plex
+    environment: prod
+  name: plex-backup
+  namespace: default
+spec:
+  bucketClassName: seaweedfs
+  existingBucketName: plex-backup
+  protocols:
+    - s3

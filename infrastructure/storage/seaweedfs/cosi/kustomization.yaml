@@ -10,6 +10,9 @@ resources:
 - bucketclass-seaweedfs.yaml
 - bucketaccessclass-seaweedfs-readwrite.yaml
 - bucketaccessclass-seaweedfs-readonly.yaml
+- bucket-plex-backup.yaml
+- bucketclaim-default-plex-backup.yaml
+- bucketaccess-default-plex-backup.yaml
 
 images:
 - name: "registry.brmartin.co.uk/ben/cluster-state/seaweedfs-cosi-driver"
