@@ -215,6 +215,7 @@ spec:
           command:
             - /bin/sh
             - -c
+          env: []
           image: alpine
           imagePullPolicy: IfNotPresent
           name: db-restore
