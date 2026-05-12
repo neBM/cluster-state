@@ -1,0 +1,13 @@
+apiVersion: objectstorage.k8s.io/v1alpha1
+kind: BucketClaim
+metadata:
+  labels:
+    app: overseerr
+    environment: prod
+  name: overseerr-litestream
+  namespace: default
+spec:
+  bucketClassName: seaweedfs
+  existingBucketName: overseerr-litestream
+  protocols:
+    - s3

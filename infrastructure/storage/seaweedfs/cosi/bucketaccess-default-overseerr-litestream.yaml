@@ -1,0 +1,13 @@
+apiVersion: objectstorage.k8s.io/v1alpha1
+kind: BucketAccess
+metadata:
+  labels:
+    app: overseerr
+    environment: prod
+  name: overseerr-litestream
+  namespace: default
+spec:
+  bucketAccessClassName: seaweedfs-readwrite
+  bucketClaimName: overseerr-litestream
+  credentialsSecretName: overseerr-litestream-s3
+  protocol: s3
