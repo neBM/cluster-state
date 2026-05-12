@@ -51,7 +51,7 @@ NS=default
 WORKLOAD=deployment/overseerr
 BUCKET=overseerr-litestream
 PREFIX=db
-SECRET=overseerr-secrets
+COSI_SECRET=overseerr-litestream-s3
 HELPER=litestream-recovery
 ```
 
@@ -67,7 +67,7 @@ Create a helper pod on `hestia` with:
 - the restic repository mounted from `/mnt/csi/backups/restic`
 - scratch space shared between a `restic` container and an `rclone`
   container
-- the live service secret loaded into the `rclone` container
+- the live COSI `BucketInfo` Secret loaded into the `rclone` container
 
 ```bash
 cat <<EOF | kubectl apply -f -
@@ -96,11 +96,11 @@ spec:
     image: rclone/rclone:latest
     command: ["sh", "-lc", "sleep 7d"]
     env:
-    - name: S3_ENDPOINT
-      value: http://seaweedfs-s3.default.svc.cluster.local:8333
-    envFrom:
-    - secretRef:
-        name: ${SECRET}
+    - name: BUCKET_INFO
+      valueFrom:
+        secretKeyRef:
+          name: ${COSI_SECRET}
+          key: BucketInfo
     volumeMounts:
     - name: restore
       mountPath: /restore
@@ -156,14 +156,31 @@ Open a shell in the `rclone` container:
 kubectl exec -it -n "$NS" pod/"$HELPER" -c rclone -- sh
 ```
 
+Inside the container, extract the scoped S3 fields from COSI `BucketInfo`:
+
+```bash
+parse_cosi_field() {
+  printf '%s' "$BUCKET_INFO" | sed -n "s/.*\"$1\"[[:space:]]*:[[:space:]]*\"\([^\"]*\)\".*/\1/p"
+}
+
+export S3_ENDPOINT=$(parse_cosi_field endpoint)
+export S3_ACCESS_KEY_ID=$(parse_cosi_field accessKeyID)
+export S3_SECRET_ACCESS_KEY=$(parse_cosi_field accessSecretKey)
+
+test "$(parse_cosi_field bucketName)" = "$BUCKET"
+test -n "$S3_ENDPOINT"
+test -n "$S3_ACCESS_KEY_ID"
+test -n "$S3_SECRET_ACCESS_KEY"
+```
+
 First, preserve the current live prefix before you overwrite it:
 
 ```bash
 rclone copy ":s3:$BUCKET/$PREFIX" /restore/live-before-recovery \
   --s3-provider Other \
   --s3-endpoint "$S3_ENDPOINT" \
-  --s3-access-key-id "$MINIO_ACCESS_KEY" \
-  --s3-secret-access-key "$MINIO_SECRET_KEY" \
+  --s3-access-key-id "$S3_ACCESS_KEY_ID" \
+  --s3-secret-access-key "$S3_SECRET_ACCESS_KEY" \
   --s3-force-path-style \
   --s3-no-check-bucket
 ```
@@ -174,24 +191,24 @@ Then wipe the current prefix and upload the restored files:
 rclone purge ":s3:$BUCKET/$PREFIX" \
   --s3-provider Other \
   --s3-endpoint "$S3_ENDPOINT" \
-  --s3-access-key-id "$MINIO_ACCESS_KEY" \
-  --s3-secret-access-key "$MINIO_SECRET_KEY" \
+  --s3-access-key-id "$S3_ACCESS_KEY_ID" \
+  --s3-secret-access-key "$S3_SECRET_ACCESS_KEY" \
   --s3-force-path-style \
   --s3-no-check-bucket
 
 rclone copy "/restore/data-seaweedfs/$BUCKET/$PREFIX" ":s3:$BUCKET/$PREFIX" \
   --s3-provider Other \
   --s3-endpoint "$S3_ENDPOINT" \
-  --s3-access-key-id "$MINIO_ACCESS_KEY" \
-  --s3-secret-access-key "$MINIO_SECRET_KEY" \
+  --s3-access-key-id "$S3_ACCESS_KEY_ID" \
+  --s3-secret-access-key "$S3_SECRET_ACCESS_KEY" \
   --s3-force-path-style \
   --s3-no-check-bucket
 
 rclone lsf ":s3:$BUCKET/$PREFIX" \
   --s3-provider Other \
   --s3-endpoint "$S3_ENDPOINT" \
-  --s3-access-key-id "$MINIO_ACCESS_KEY" \
-  --s3-secret-access-key "$MINIO_SECRET_KEY" \
+  --s3-access-key-id "$S3_ACCESS_KEY_ID" \
+  --s3-secret-access-key "$S3_SECRET_ACCESS_KEY" \
   --s3-force-path-style \
   --s3-no-check-bucket | head
 
@@ -237,10 +254,10 @@ Then retry the Litestream restore before doing a full bucket recovery.
 
 ## Secret And Metadata Hygiene
 
-- The current service secret mappings are documented in
+- The current COSI and legacy service secret mappings are documented in
   [seaweedfs-s3-identities.md](seaweedfs-s3-identities.md).
-- These secrets are plain Kubernetes `Secret` objects today.
+- COSI-managed consumers read generated `BucketInfo` Secrets.
 - Avoid `kubectl apply` when rotating or repairing them. Use
-  `kubectl patch` or recreate them explicitly so you do not reintroduce
-  `kubectl.kubernetes.io/last-applied-configuration` with secret content
-  embedded in metadata.
+  `kubectl patch` or explicit recreate flows for legacy manual Secrets so
+  you do not reintroduce `kubectl.kubernetes.io/last-applied-configuration`
+  with secret content embedded in metadata.

@@ -22,7 +22,7 @@ until each bucket is migrated and verified.
 | Bucket | Status | COSI resources | Workload consumption | Verification |
 |---|---|---|---|---|
 | `plex-backup` | Migrated | `Bucket/plex-backup`, `BucketClaim/default/plex-backup`, `BucketAccess/default/plex-backup` | `Secret/default/plex-backup-s3` mounted as `BucketInfo` by `Deployment/plex` db-restore init and `CronJob/plex-db-backup` | Manual `plex-db-backup` job completed on 2026-05-12; scoped credentials were denied against `overseerr-litestream` |
-| `overseerr-litestream` | Pending | — | legacy Secret | — |
+| `overseerr-litestream` | Migrated | `Bucket/overseerr-litestream`, `BucketClaim/default/overseerr-litestream`, `BucketAccess/default/overseerr-litestream` | `Secret/default/overseerr-litestream-s3` mounted as `BucketInfo` by `Deployment/overseerr` Litestream containers | Restore init completed and Litestream uploaded LTX on 2026-05-12; scoped credentials were denied against `plex-backup` |
 | `victoriametrics` | Pending | — | legacy Secret | — |
 | `loki` | Pending | — | legacy Secret | — |
 | `athenaeum-attachments` | Pending | — | legacy Secret | — |

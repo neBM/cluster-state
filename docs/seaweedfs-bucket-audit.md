@@ -146,7 +146,7 @@ The helper script automates those checks by:
 | `gitlab-runner-cache` | Active | `infrastructure/shared-services/gitlab-runner/runner-base/fragments/95-cache.toml` sets `BucketName = "gitlab-runner-cache"` for all live runner overlays |
 | `langfuse` | Active | `apps/langfuse/deployment-default-langfuse-{web,worker}.yaml` enable S3 event upload to bucket `langfuse` via `langfuse-secrets` |
 | `loki` | Active | `infrastructure/observability-core/loki/configmap-default-loki-config.yaml` sets `bucketnames: "loki"` for the live `StatefulSet/loki` |
-| `overseerr-litestream` | Active | `apps/overseerr/configmap-default-overseerr-litestream.yaml` points Litestream at bucket `overseerr-litestream` for the live `Deployment/overseerr` |
+| `overseerr-litestream` | Active | COSI `BucketAccess/default/overseerr-litestream` creates `overseerr-litestream-s3`; `apps/overseerr/deployment-default-overseerr.yaml` mounts `BucketInfo` for Litestream |
 | `plex-backup` | Active | `apps/media-centre/cronjob-default-plex-db-backup.yaml` writes rolling backups to `plex-backup`, and `apps/media-centre/deployment-default-plex.yaml` reads the same bucket for restore |
 | `renovate-cache` | Active | `infrastructure/renovate-runner` GitLab CI config sets `RENOVATE_REPOSITORY_CACHE_TYPE=s3://renovate-cache`; credentials live in protected GitLab CI variables |
 | `victoriametrics` | Active | `infrastructure/observability-core/victoriametrics/deployment-default-victoriametrics.yaml` runs `vmbackup`/`vmrestore` against bucket `victoriametrics` |
