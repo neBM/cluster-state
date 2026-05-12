@@ -31,6 +31,9 @@ resources:
 - bucket-gitlab-runner-cache.yaml
 - bucketclaim-default-gitlab-runner-cache.yaml
 - bucketaccess-default-gitlab-runner-cache.yaml
+- bucket-renovate-cache.yaml
+- bucketclaim-default-renovate-cache.yaml
+- bucketaccess-default-renovate-cache.yaml
 
 images:
 - name: "registry.brmartin.co.uk/ben/cluster-state/seaweedfs-cosi-driver"
