@@ -1,36 +1,120 @@
 apiVersion: v1
 data:
-  backup.sh: "#!/bin/sh\nset -e\n\nDATA_PATH=\"/victoria-metrics-data\"\nBACKUP_DEST=\"\
-    s3://victoriametrics/data\"\nMINIO_ENDPOINT=\"http://seaweedfs-s3.default.svc.cluster.local:8333\"\
-    \nSLEEP_SECONDS=3600\n\n# SIGTERM handling: /bin/sh as PID 1 ignores SIGTERM by\
-    \ default (the\n# kernel masks signals without handlers for PID 1), so without\
-    \ an\n# explicit trap the pod hangs until terminationGracePeriodSeconds\n# expires\
-    \ and kubelet SIGKILLs. The container preStop hook above has\n# already drained\
-    \ any in-flight vmbackup-prod before SIGTERM arrives,\n# so exiting immediately\
-    \ here is safe \u2014 the bucket is guaranteed\n# consistent at this point.\n\
-    trap 'echo \"Received SIGTERM/INT, exiting\"; exit 0' TERM INT\n\necho \"Starting\
-    \ vmbackup sidecar\"\necho \"  Data path: $DATA_PATH\"\necho \"  Backup destination:\
-    \ $BACKUP_DEST\"\necho \"  MinIO endpoint: $MINIO_ENDPOINT\"\necho \"  Backup\
-    \ interval: 1h ($SLEEP_SECONDS seconds)\"\n\nwhile true; do\n  echo \"$(date '+%Y-%m-%d\
-    \ %H:%M:%S') Starting incremental backup...\"\n        \n  /vmbackup-prod \\\n\
-    \    -storageDataPath=\"$DATA_PATH\" \\\n    -dst=\"$BACKUP_DEST\" \\\n    -customS3Endpoint=\"\
-    $MINIO_ENDPOINT\" \\\n    -snapshot.createURL=\"http://localhost:8428/snapshot/create\"\
-    \ \\\n    -snapshot.deleteURL=\"http://localhost:8428/snapshot/delete\" \\\n \
-    \   || echo \"Backup failed, will retry next interval\"\n        \n  echo \"$(date\
-    \ '+%Y-%m-%d %H:%M:%S') Backup complete, sleeping $SLEEP_SECONDS seconds\"\n \
-    \ # Background sleep + wait so the TERM trap above fires immediately\n  # on SIGTERM.\
-    \ A direct \"sleep $SLEEP_SECONDS\" would block signal\n  # delivery until sleep\
-    \ exits (up to the full interval).\n  sleep \"$SLEEP_SECONDS\" &\n  wait $!\n\
-    done\n"
-  restore.sh: "#!/bin/sh\nset -e\n      \nDATA_PATH=\"/victoria-metrics-data\"\nBACKUP_SRC=\"\
-    s3://victoriametrics/data\"\nMINIO_ENDPOINT=\"http://seaweedfs-s3.default.svc.cluster.local:8333\"\
-    \n      \necho \"Starting vmrestore\"\necho \"  Data path: $DATA_PATH\"\necho\
-    \ \"  Backup source: $BACKUP_SRC\"\necho \"  MinIO endpoint: $MINIO_ENDPOINT\"\
-    \n      \n# Check if backup exists in MinIO\nif /vmrestore-prod \\\n     -src=\"\
-    $BACKUP_SRC\" \\\n     -storageDataPath=\"$DATA_PATH\" \\\n     -customS3Endpoint=\"\
-    $MINIO_ENDPOINT\"; then\n  echo \"Restore complete\"\nelse\n  echo \"No backup\
-    \ found or restore failed - starting fresh\"\n  # Remove lock file left by vmrestore\
-    \ so VictoriaMetrics can start\n  rm -f \"$DATA_PATH/restore-in-progress\"\nfi\n"
+  backup.sh: |
+    #!/bin/sh
+    set -e
+
+    DATA_PATH="/victoria-metrics-data"
+    COSI_BUCKET_INFO="/cosi/victoriametrics/BucketInfo"
+    SLEEP_SECONDS=3600
+
+    parse_cosi_field() {
+      sed -n "s/.*\"$1\"[[:space:]]*:[[:space:]]*\"\([^\"]*\)\".*/\1/p" "$COSI_BUCKET_INFO"
+    }
+
+    load_cosi_bucket_info() {
+      if [ ! -s "$COSI_BUCKET_INFO" ]; then
+        echo "ERROR: COSI BucketInfo secret is missing at $COSI_BUCKET_INFO"
+        exit 1
+      fi
+
+      BACKUP_BUCKET=$(parse_cosi_field bucketName)
+      MINIO_ENDPOINT=$(parse_cosi_field endpoint)
+      AWS_ACCESS_KEY_ID=$(parse_cosi_field accessKeyID)
+      AWS_SECRET_ACCESS_KEY=$(parse_cosi_field accessSecretKey)
+
+      if [ "$BACKUP_BUCKET" != "victoriametrics" ] || [ -z "$MINIO_ENDPOINT" ] || [ -z "$AWS_ACCESS_KEY_ID" ] || [ -z "$AWS_SECRET_ACCESS_KEY" ]; then
+        echo "ERROR: COSI BucketInfo is missing required VictoriaMetrics S3 fields"
+        exit 1
+      fi
+
+      BACKUP_DEST="s3://${BACKUP_BUCKET}/data"
+      export AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY
+    }
+
+    load_cosi_bucket_info
+
+    # SIGTERM handling: /bin/sh as PID 1 ignores SIGTERM by default (the
+    # kernel masks signals without handlers for PID 1), so without an
+    # explicit trap the pod hangs until terminationGracePeriodSeconds
+    # expires and kubelet SIGKILLs. The container preStop hook above has
+    # already drained any in-flight vmbackup-prod before SIGTERM arrives,
+    # so exiting immediately here is safe - the bucket is guaranteed
+    # consistent at this point.
+    trap 'echo "Received SIGTERM/INT, exiting"; exit 0' TERM INT
+
+    echo "Starting vmbackup sidecar"
+    echo "  Data path: $DATA_PATH"
+    echo "  Backup destination: $BACKUP_DEST"
+    echo "  SeaweedFS S3 endpoint: $MINIO_ENDPOINT"
+    echo "  Backup interval: 1h ($SLEEP_SECONDS seconds)"
+
+    while true; do
+      echo "$(date '+%Y-%m-%d %H:%M:%S') Starting incremental backup..."
+
+      /vmbackup-prod \
+        -storageDataPath="$DATA_PATH" \
+        -dst="$BACKUP_DEST" \
+        -customS3Endpoint="$MINIO_ENDPOINT" \
+        -snapshot.createURL="http://localhost:8428/snapshot/create" \
+        -snapshot.deleteURL="http://localhost:8428/snapshot/delete" \
+        || echo "Backup failed, will retry next interval"
+
+      echo "$(date '+%Y-%m-%d %H:%M:%S') Backup complete, sleeping $SLEEP_SECONDS seconds"
+      # Background sleep + wait so the TERM trap above fires immediately
+      # on SIGTERM. A direct "sleep $SLEEP_SECONDS" would block signal
+      # delivery until sleep exits (up to the full interval).
+      sleep "$SLEEP_SECONDS" &
+      wait $!
+    done
+  restore.sh: |
+    #!/bin/sh
+    set -e
+
+    DATA_PATH="/victoria-metrics-data"
+    COSI_BUCKET_INFO="/cosi/victoriametrics/BucketInfo"
+
+    parse_cosi_field() {
+      sed -n "s/.*\"$1\"[[:space:]]*:[[:space:]]*\"\([^\"]*\)\".*/\1/p" "$COSI_BUCKET_INFO"
+    }
+
+    load_cosi_bucket_info() {
+      if [ ! -s "$COSI_BUCKET_INFO" ]; then
+        echo "ERROR: COSI BucketInfo secret is missing at $COSI_BUCKET_INFO"
+        exit 1
+      fi
+
+      BACKUP_BUCKET=$(parse_cosi_field bucketName)
+      MINIO_ENDPOINT=$(parse_cosi_field endpoint)
+      AWS_ACCESS_KEY_ID=$(parse_cosi_field accessKeyID)
+      AWS_SECRET_ACCESS_KEY=$(parse_cosi_field accessSecretKey)
+
+      if [ "$BACKUP_BUCKET" != "victoriametrics" ] || [ -z "$MINIO_ENDPOINT" ] || [ -z "$AWS_ACCESS_KEY_ID" ] || [ -z "$AWS_SECRET_ACCESS_KEY" ]; then
+        echo "ERROR: COSI BucketInfo is missing required VictoriaMetrics S3 fields"
+        exit 1
+      fi
+
+      BACKUP_SRC="s3://${BACKUP_BUCKET}/data"
+      export AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY
+    }
+
+    load_cosi_bucket_info
+
+    echo "Starting vmrestore"
+    echo "  Data path: $DATA_PATH"
+    echo "  Backup source: $BACKUP_SRC"
+    echo "  SeaweedFS S3 endpoint: $MINIO_ENDPOINT"
+
+    if /vmrestore-prod \
+      -src="$BACKUP_SRC" \
+      -storageDataPath="$DATA_PATH" \
+      -customS3Endpoint="$MINIO_ENDPOINT"; then
+      echo "Restore complete"
+    else
+      echo "No backup found or restore failed - starting fresh"
+      # Remove lock file left by vmrestore so VictoriaMetrics can start
+      rm -f "$DATA_PATH/restore-in-progress"
+    fi
 immutable: false
 kind: ConfigMap
 metadata:

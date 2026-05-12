@@ -20,7 +20,7 @@ spec:
   template:
     metadata:
       annotations:
-        checksum/backup-script: 2670cf1911c7ce095762a15f6928aa1af4605ddd54e357b6782924997df6481f
+        checksum/backup-script: 92a28df90972b9b8178530cafbebf4c88de64efc6b6b1226675134329738c57e
         checksum/scrape-config: c7b417d659212330bc46640e59dc024b23aab3b1cf9b8f683f9490d612dda636
         prometheus.io/port: '8428'
         prometheus.io/scrape: 'true'
@@ -85,19 +85,7 @@ spec:
       - command:
         - /bin/sh
         - /scripts/backup.sh
-        env:
-        - name: AWS_ACCESS_KEY_ID
-          valueFrom:
-            secretKeyRef:
-              key: MINIO_ACCESS_KEY
-              name: victoriametrics-s3
-              optional: false
-        - name: AWS_SECRET_ACCESS_KEY
-          valueFrom:
-            secretKeyRef:
-              key: MINIO_SECRET_KEY
-              name: victoriametrics-s3
-              optional: false
+        env: []
         image: victoriametrics/vmbackup
         imagePullPolicy: IfNotPresent
         lifecycle:
@@ -127,25 +115,16 @@ spec:
         - mountPath: /scripts
           mountPropagation: None
           name: scripts
+        - mountPath: /cosi/victoriametrics
+          name: victoriametrics-cosi
+          readOnly: true
       dnsPolicy: ClusterFirst
       enableServiceLinks: true
       initContainers:
       - command:
         - /bin/sh
         - /scripts/restore.sh
-        env:
-        - name: AWS_ACCESS_KEY_ID
-          valueFrom:
-            secretKeyRef:
-              key: MINIO_ACCESS_KEY
-              name: victoriametrics-s3
-              optional: false
-        - name: AWS_SECRET_ACCESS_KEY
-          valueFrom:
-            secretKeyRef:
-              key: MINIO_SECRET_KEY
-              name: victoriametrics-s3
-              optional: false
+        env: []
         image: victoriametrics/vmrestore
         imagePullPolicy: IfNotPresent
         name: vmrestore
@@ -159,6 +138,9 @@ spec:
         - mountPath: /scripts
           mountPropagation: None
           name: scripts
+        - mountPath: /cosi/victoriametrics
+          name: victoriametrics-cosi
+          readOnly: true
       nodeSelector:
         kubernetes.io/hostname: hestia
       restartPolicy: Always
@@ -182,3 +164,6 @@ spec:
       - name: data
         persistentVolumeClaim:
           claimName: victoriametrics-data
+      - name: victoriametrics-cosi
+        secret:
+          secretName: victoriametrics-cosi-s3
