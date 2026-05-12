@@ -35,7 +35,7 @@ named-bucket cleanup candidates, see
 | Identity | Bucket | K8s Secret | Key names | Consumers |
 |---|---|---|---|---|
 | `loki` | `loki` | `loki-s3` | `MINIO_ACCESS_KEY`, `MINIO_SECRET_KEY` | Deployment/loki |
-| `victoriametrics` | `victoriametrics` | `victoriametrics-s3` | `MINIO_ACCESS_KEY`, `MINIO_SECRET_KEY` | Deployment/victoriametrics |
+| COSI `BucketAccess/default/victoriametrics` | `victoriametrics` | `victoriametrics-cosi-s3` | `BucketInfo.spec.secretS3` | Deployment/victoriametrics vmrestore init and vmbackup sidecar |
 | COSI `BucketAccess/default/plex-backup` | `plex-backup` | `plex-backup-s3` | `BucketInfo.spec.secretS3` | Deployment/plex (db-restore init), CronJob/plex-db-backup |
 | `athenaeum` | `athenaeum-attachments` | `athenaeum-secrets` | `MINIO_ACCESS_KEY`, `MINIO_SECRET_KEY` | Deployment/athenaeum-backend |
 | `langfuse` | `langfuse` | `langfuse-secrets` | `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY` | Deployments langfuse-{web,worker} |

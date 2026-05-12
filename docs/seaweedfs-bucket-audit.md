@@ -149,7 +149,7 @@ The helper script automates those checks by:
 | `overseerr-litestream` | Active | COSI `BucketAccess/default/overseerr-litestream` creates `overseerr-litestream-s3`; `apps/overseerr/deployment-default-overseerr.yaml` mounts `BucketInfo` for Litestream |
 | `plex-backup` | Active | `apps/media-centre/cronjob-default-plex-db-backup.yaml` writes rolling backups to `plex-backup`, and `apps/media-centre/deployment-default-plex.yaml` reads the same bucket for restore |
 | `renovate-cache` | Active | `infrastructure/renovate-runner` GitLab CI config sets `RENOVATE_REPOSITORY_CACHE_TYPE=s3://renovate-cache`; credentials live in protected GitLab CI variables |
-| `victoriametrics` | Active | `infrastructure/observability-core/victoriametrics/deployment-default-victoriametrics.yaml` runs `vmbackup`/`vmrestore` against bucket `victoriametrics` |
+| `victoriametrics` | Active | COSI `BucketAccess/default/victoriametrics` creates `victoriametrics-cosi-s3`; `infrastructure/observability-core/victoriametrics/deployment-default-victoriametrics.yaml` mounts `BucketInfo` for `vmbackup`/`vmrestore` |
 
 ## Removed Named Buckets
 
