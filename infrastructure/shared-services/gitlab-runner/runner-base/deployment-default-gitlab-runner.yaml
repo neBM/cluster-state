@@ -52,7 +52,33 @@ spec:
           for file in /template/[0-9][0-9]-*.toml; do
             cat "$file"
           done > /config/config.toml.template
-          sed -e "s/RUNNER_NAME_PLACEHOLDER/$RUNNER_NAME/" -e "s/RUNNER_TOKEN_PLACEHOLDER/$RUNNER_TOKEN/" -e "s/MINIO_ACCESS_KEY_PLACEHOLDER/$MINIO_ACCESS_KEY/" -e "s/MINIO_SECRET_KEY_PLACEHOLDER/$MINIO_SECRET_KEY/" /config/config.toml.template > /config/config.toml
+
+          bucket_info=/cosi/gitlab-runner-cache/BucketInfo
+          parse_cosi_field() {
+            sed -n "s/.*\"$1\"[[:space:]]*:[[:space:]]*\"\([^\"]*\)\".*/\1/p" "$bucket_info"
+          }
+
+          cache_bucket=$(parse_cosi_field bucketName)
+          cache_endpoint=$(parse_cosi_field endpoint)
+          cache_access_key=$(parse_cosi_field accessKeyID)
+          cache_secret_key=$(parse_cosi_field accessSecretKey)
+
+          if [ "$cache_bucket" != "gitlab-runner-cache" ] || [ -z "$cache_endpoint" ] || [ -z "$cache_access_key" ] || [ -z "$cache_secret_key" ]; then
+            echo "ERROR: COSI BucketInfo is missing required GitLab runner cache S3 fields"
+            exit 1
+          fi
+
+          cache_endpoint=${cache_endpoint#http://}
+          cache_endpoint=${cache_endpoint#https://}
+
+          sed \
+            -e "s|RUNNER_NAME_PLACEHOLDER|$RUNNER_NAME|g" \
+            -e "s|RUNNER_TOKEN_PLACEHOLDER|$RUNNER_TOKEN|g" \
+            -e "s|S3_SERVER_ADDRESS_PLACEHOLDER|$cache_endpoint|g" \
+            -e "s|S3_BUCKET_NAME_PLACEHOLDER|$cache_bucket|g" \
+            -e "s|MINIO_ACCESS_KEY_PLACEHOLDER|$cache_access_key|g" \
+            -e "s|MINIO_SECRET_KEY_PLACEHOLDER|$cache_secret_key|g" \
+            /config/config.toml.template > /config/config.toml
           cp /system-id/system_id /config/.runner_system_id
         command:
         - /bin/sh
@@ -65,18 +91,6 @@ spec:
             secretKeyRef:
               key: runner_token_placeholder
               name: gitlab-runner-secrets
-              optional: false
-        - name: MINIO_ACCESS_KEY
-          valueFrom:
-            secretKeyRef:
-              key: accesskey
-              name: gitlab-runner-cache-s3
-              optional: false
-        - name: MINIO_SECRET_KEY
-          valueFrom:
-            secretKeyRef:
-              key: secretkey
-              name: gitlab-runner-cache-s3
               optional: false
         image: busybox
         imagePullPolicy: IfNotPresent
@@ -94,6 +108,9 @@ spec:
         - mountPath: /system-id
           mountPropagation: None
           name: system-id
+        - mountPath: /cosi/gitlab-runner-cache
+          name: gitlab-runner-cache-cosi
+          readOnly: true
       restartPolicy: Always
       schedulerName: default-scheduler
       securityContext: {}
@@ -112,5 +129,8 @@ spec:
           name: gitlab-runner-system-id
           optional: false
         name: system-id
+      - name: gitlab-runner-cache-cosi
+        secret:
+          secretName: gitlab-runner-cache-cosi-s3
       - emptyDir: {}
         name: config

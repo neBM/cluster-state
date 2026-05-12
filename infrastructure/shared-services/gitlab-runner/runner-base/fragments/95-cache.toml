@@ -2,8 +2,8 @@
   Type = "s3"
   Shared = true
   [runners.cache.s3]
-    ServerAddress = "seaweedfs-s3.default.svc.cluster.local:8333"
-    BucketName = "gitlab-runner-cache"
+    ServerAddress = "S3_SERVER_ADDRESS_PLACEHOLDER"
+    BucketName = "S3_BUCKET_NAME_PLACEHOLDER"
     Insecure = true
     AuthenticationType = "access-key"
     AccessKey = "MINIO_ACCESS_KEY_PLACEHOLDER"
