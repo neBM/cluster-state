@@ -1,0 +1,17 @@
+apiVersion: objectstorage.k8s.io/v1alpha1
+kind: Bucket
+metadata:
+  labels:
+    app: athenaeum
+    environment: prod
+  name: athenaeum-attachments
+spec:
+  bucketClaim:
+    name: athenaeum-attachments
+    namespace: default
+  bucketClassName: seaweedfs
+  deletionPolicy: Retain
+  driverName: seaweedfs.objectstorage.k8s.io
+  existingBucketID: athenaeum-attachments
+  protocols:
+    - s3

@@ -1,0 +1,13 @@
+apiVersion: objectstorage.k8s.io/v1alpha1
+kind: BucketAccess
+metadata:
+  labels:
+    app: athenaeum
+    environment: prod
+  name: athenaeum-attachments
+  namespace: default
+spec:
+  bucketAccessClassName: seaweedfs-readwrite
+  bucketClaimName: athenaeum-attachments
+  credentialsSecretName: athenaeum-attachments-s3
+  protocol: s3
