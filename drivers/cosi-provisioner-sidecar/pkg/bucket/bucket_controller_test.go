@@ -230,6 +230,57 @@ func TestAddSyncsAlreadyReadyBucketClaimStatus(t *testing.T) {
 	}
 }
 
+func TestAddDeletingRetainedBucketRemovesFinalizersWhenClaimMissing(t *testing.T) {
+	driver := "driver1"
+	mpc := struct{ fakespec.FakeProvisionerClient }{}
+	mpc.FakeDriverDeleteBucket = func(ctx context.Context,
+		in *cosi.DriverDeleteBucketRequest,
+		opts ...grpc.CallOption) (*cosi.DriverDeleteBucketResponse, error) {
+		t.Errorf("grpc delete called for retained bucket")
+		return nil, nil
+	}
+
+	deletionTimestamp := metav1.Now()
+	bucket := v1alpha1.Bucket{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:              "bucket1",
+			Finalizers:        []string{consts.BucketFinalizer, consts.BABucketFinalizer},
+			DeletionTimestamp: &deletionTimestamp,
+		},
+		Spec: v1alpha1.BucketSpec{
+			DriverName:     driver,
+			DeletionPolicy: v1alpha1.DeletionPolicyRetain,
+			BucketClaim: &corev1.ObjectReference{
+				Name:      "missing-claim",
+				Namespace: "default",
+			},
+		},
+		Status: v1alpha1.BucketStatus{
+			BucketID:    "bucket1",
+			BucketReady: true,
+		},
+	}
+	client := fakebucketclientset.NewSimpleClientset(&bucket)
+	bl := BucketListener{
+		driverName:        driver,
+		provisionerClient: &mpc,
+		bucketClient:      client,
+	}
+
+	ctx := context.TODO()
+	if err := bl.Add(ctx, &bucket); err != nil {
+		t.Fatalf("Add returned: %+v", err)
+	}
+
+	got, err := client.ObjectstorageV1alpha1().Buckets().Get(ctx, "bucket1", metav1.GetOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Finalizers) != 0 {
+		t.Fatalf("finalizers=%v want none", got.Finalizers)
+	}
+}
+
 func hasUpdateStatusAction(actions []kubetesting.Action, resource string) bool {
 	for _, action := range actions {
 		if action.GetVerb() != "update" || action.GetResource().Resource != resource {

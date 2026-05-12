@@ -19,6 +19,7 @@ import (
 	"context"
 	"strings"
 
+	kubeerrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	utilversion "k8s.io/apimachinery/pkg/util/version"
 	kube "k8s.io/client-go/kubernetes"
@@ -77,6 +78,10 @@ func (b *BucketListener) Add(ctx context.Context, inputBucket *v1alpha1.Bucket) 
 			"driver", bucket.Spec.DriverName,
 		)
 		return nil
+	}
+
+	if !bucket.GetDeletionTimestamp().IsZero() {
+		return b.cleanupDeletedBucket(ctx, bucket)
 	}
 
 	if bucket.Status.BucketReady {
@@ -213,31 +218,50 @@ func (b *BucketListener) Update(ctx context.Context, old, new *v1alpha1.Bucket) 
 
 	bucket := new.DeepCopy()
 
-	var err error
-
 	if !bucket.GetDeletionTimestamp().IsZero() {
-		if controllerutil.ContainsFinalizer(bucket, consts.BABucketFinalizer) {
-			bucketClaimNs := bucket.Spec.BucketClaim.Namespace
-			bucketClaimName := bucket.Spec.BucketClaim.Name
-			bucketAccessList, err := b.bucketAccesses(bucketClaimNs).List(ctx, metav1.ListOptions{})
+		return b.cleanupDeletedBucket(ctx, bucket)
+	}
 
-			for _, bucketAccess := range bucketAccessList.Items {
-				if strings.EqualFold(bucketAccess.Spec.BucketClaimName, bucketClaimName) {
-					err = b.bucketAccesses(bucketClaimNs).Delete(ctx, bucketAccess.Name, metav1.DeleteOptions{})
-					if err != nil {
-						return err
-					}
-				}
-			}
+	return nil
+}
 
-			controllerutil.RemoveFinalizer(bucket, consts.BABucketFinalizer)
+func (b *BucketListener) cleanupDeletedBucket(ctx context.Context, bucket *v1alpha1.Bucket) error {
+	finalizersChanged := false
+	if controllerutil.ContainsFinalizer(bucket, consts.BABucketFinalizer) {
+		bucketClaimNs := bucket.Spec.BucketClaim.Namespace
+		bucketClaimName := bucket.Spec.BucketClaim.Name
+		bucketAccessList, err := b.bucketAccesses(bucketClaimNs).List(ctx, metav1.ListOptions{})
+		if err != nil {
+			return err
 		}
 
-		if controllerutil.ContainsFinalizer(bucket, consts.BucketFinalizer) {
-			err = b.deleteBucketOp(ctx, bucket)
-			if err != nil {
-				return err
+		for _, bucketAccess := range bucketAccessList.Items {
+			if strings.EqualFold(bucketAccess.Spec.BucketClaimName, bucketClaimName) {
+				err = b.bucketAccesses(bucketClaimNs).Delete(ctx, bucketAccess.Name, metav1.DeleteOptions{})
+				if err != nil {
+					return err
+				}
 			}
+		}
+
+		if controllerutil.RemoveFinalizer(bucket, consts.BABucketFinalizer) {
+			finalizersChanged = true
+		}
+	}
+
+	if controllerutil.ContainsFinalizer(bucket, consts.BucketFinalizer) {
+		err := b.deleteBucketOp(ctx, bucket)
+		if err != nil {
+			return err
+		}
+		if controllerutil.RemoveFinalizer(bucket, consts.BucketFinalizer) {
+			finalizersChanged = true
+		}
+	}
+
+	if finalizersChanged {
+		if _, err := b.buckets().Update(ctx, bucket, metav1.UpdateOptions{}); err != nil {
+			return err
 		}
 	}
 
@@ -306,6 +330,9 @@ func (b *BucketListener) deleteBucketOp(ctx context.Context, bucket *v1alpha1.Bu
 		ref := bucket.Spec.BucketClaim
 		bucketClaim, err := b.bucketClaims(ref.Namespace).Get(ctx, ref.Name, metav1.GetOptions{})
 		if err != nil {
+			if kubeerrors.IsNotFound(err) {
+				return nil
+			}
 			return err
 		}
 
