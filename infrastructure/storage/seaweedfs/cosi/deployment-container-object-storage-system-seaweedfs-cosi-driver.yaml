@@ -59,7 +59,7 @@ spec:
         - --v=5
         - --driver-addr=unix:///var/lib/cosi/cosi.sock
         image: registry.brmartin.co.uk/ben/cluster-state/cosi-provisioner-sidecar
-        imagePullPolicy: IfNotPresent
+        imagePullPolicy: Always
         name: objectstorage-sidecar
         resources:
           limits:
