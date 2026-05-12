@@ -28,6 +28,9 @@ resources:
 - bucket-langfuse.yaml
 - bucketclaim-default-langfuse.yaml
 - bucketaccess-default-langfuse.yaml
+- bucket-gitlab-runner-cache.yaml
+- bucketclaim-default-gitlab-runner-cache.yaml
+- bucketaccess-default-gitlab-runner-cache.yaml
 
 images:
 - name: "registry.brmartin.co.uk/ben/cluster-state/seaweedfs-cosi-driver"

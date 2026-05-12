@@ -1,0 +1,17 @@
+apiVersion: objectstorage.k8s.io/v1alpha1
+kind: Bucket
+metadata:
+  labels:
+    app: gitlab-runner
+    environment: prod
+  name: gitlab-runner-cache
+spec:
+  bucketClaim:
+    name: gitlab-runner-cache
+    namespace: default
+  bucketClassName: seaweedfs
+  deletionPolicy: Retain
+  driverName: seaweedfs.objectstorage.k8s.io
+  existingBucketID: gitlab-runner-cache
+  protocols:
+    - s3

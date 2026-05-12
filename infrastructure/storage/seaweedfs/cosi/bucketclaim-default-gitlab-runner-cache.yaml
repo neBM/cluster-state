@@ -1,0 +1,13 @@
+apiVersion: objectstorage.k8s.io/v1alpha1
+kind: BucketClaim
+metadata:
+  labels:
+    app: gitlab-runner
+    environment: prod
+  name: gitlab-runner-cache
+  namespace: default
+spec:
+  bucketClassName: seaweedfs
+  existingBucketName: gitlab-runner-cache
+  protocols:
+    - s3
