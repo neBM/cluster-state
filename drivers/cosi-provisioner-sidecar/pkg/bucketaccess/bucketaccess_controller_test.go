@@ -17,6 +17,7 @@ package bucketaccess
 
 import (
 	"context"
+	"encoding/json"
 	"reflect"
 	"strings"
 	"testing"
@@ -31,6 +32,7 @@ import (
 	fakediscovery "k8s.io/client-go/discovery/fake"
 	fakekubeclientset "k8s.io/client-go/kubernetes/fake"
 
+	cosiapi "sigs.k8s.io/container-object-storage-interface-api/apis"
 	"sigs.k8s.io/container-object-storage-interface-api/apis/objectstorage/v1alpha1"
 	fakebucketclientset "sigs.k8s.io/container-object-storage-interface-api/client/clientset/versioned/fake"
 	"sigs.k8s.io/container-object-storage-interface-provisioner-sidecar/pkg/consts"
@@ -149,6 +151,109 @@ func TestAddBucketAccessWithExistingSecretMarksStatusWithoutGrant(t *testing.T) 
 	expectedAccountID := consts.AccountNamePrefix + string(uid)
 	if updatedBA.Status.AccountID != expectedAccountID {
 		t.Fatalf("Expected account %s, got %s", expectedAccountID, updatedBA.Status.AccountID)
+	}
+}
+
+func TestAddBucketAccessPreservesS3EndpointRegion(t *testing.T) {
+	driver := "driver"
+	bucketName := "bucket1"
+	bucketClaimName := "bucketClaim1"
+	bucketAccessClassName := "bucketAccessClass1"
+	bucketAccessName := "bucketAccess1"
+	secretName := "secret1"
+	ns := "testns"
+	endpoint := "http://seaweedfs-s3.default.svc.cluster.local:8333"
+	region := "us-east-1"
+
+	mpc := struct{ fakespec.FakeProvisionerClient }{}
+	mpc.FakeDriverGrantBucketAccess = func(ctx context.Context,
+		in *cosi.DriverGrantBucketAccessRequest,
+		opts ...grpc.CallOption) (*cosi.DriverGrantBucketAccessResponse, error) {
+		return &cosi.DriverGrantBucketAccessResponse{
+			AccountId: "account1",
+			Credentials: map[string]*cosi.CredentialDetails{
+				consts.S3Key: {
+					Secrets: map[string]string{
+						consts.S3SecretEndpoint:        endpoint,
+						consts.S3SecretRegion:          region,
+						consts.S3SecretAccessKeyID:     "access-key",
+						consts.S3SecretAccessSecretKey: "secret-key",
+					},
+				},
+			},
+		}, nil
+	}
+
+	b := v1alpha1.Bucket{
+		ObjectMeta: metav1.ObjectMeta{Name: bucketName},
+		Spec: v1alpha1.BucketSpec{
+			DriverName: driver,
+			Protocols:  []v1alpha1.Protocol{v1alpha1.ProtocolS3},
+		},
+		Status: v1alpha1.BucketStatus{
+			BucketID:    bucketName,
+			BucketReady: true,
+		},
+	}
+	bc := v1alpha1.BucketClaim{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      bucketClaimName,
+			Namespace: ns,
+		},
+		Status: v1alpha1.BucketClaimStatus{
+			BucketReady: true,
+			BucketName:  bucketName,
+		},
+	}
+	bac := v1alpha1.BucketAccessClass{
+		ObjectMeta: metav1.ObjectMeta{Name: bucketAccessClassName},
+		DriverName: driver,
+	}
+	ba := v1alpha1.BucketAccess{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      bucketAccessName,
+			Namespace: ns,
+			UID:       types.UID("access-uid"),
+		},
+		Spec: v1alpha1.BucketAccessSpec{
+			BucketClaimName:       bucketClaimName,
+			Protocol:              v1alpha1.ProtocolS3,
+			BucketAccessClassName: bucketAccessClassName,
+			CredentialsSecretName: secretName,
+		},
+	}
+
+	client := fakebucketclientset.NewSimpleClientset(&b, &bc, &bac, &ba)
+	kubeClient := fakekubeclientset.NewSimpleClientset()
+	bal := BucketAccessListener{
+		driverName:        driver,
+		provisionerClient: &mpc,
+		bucketClient:      client,
+		kubeClient:        kubeClient,
+	}
+
+	ctx := context.TODO()
+	if err := bal.Add(ctx, &ba); err != nil {
+		t.Fatalf("Add returned: %+v", err)
+	}
+
+	secret, err := bal.secrets(ns).Get(ctx, secretName, metav1.GetOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	bucketInfoJSON := secret.StringData["BucketInfo"]
+	if bucketInfoJSON == "" {
+		bucketInfoJSON = string(secret.Data["BucketInfo"])
+	}
+	var bucketInfo cosiapi.BucketInfo
+	if err := json.Unmarshal([]byte(bucketInfoJSON), &bucketInfo); err != nil {
+		t.Fatal(err)
+	}
+	if bucketInfo.Spec.S3.Endpoint != endpoint {
+		t.Fatalf("Expected endpoint %s, got %s", endpoint, bucketInfo.Spec.S3.Endpoint)
+	}
+	if bucketInfo.Spec.S3.Region != region {
+		t.Fatalf("Expected region %s, got %s", region, bucketInfo.Spec.S3.Region)
 	}
 }
 

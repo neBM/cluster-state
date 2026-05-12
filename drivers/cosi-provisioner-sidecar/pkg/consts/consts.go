@@ -27,6 +27,8 @@ const (
 
 	S3Key                      = "s3"
 	AzureKey                   = "azure"
+	S3SecretEndpoint           = "endpoint"
+	S3SecretRegion             = "region"
 	S3SecretAccessKeyID        = "accessKeyID"
 	S3SecretAccessSecretKey    = "accessSecretKey"
 	AzureSecretAccessToken     = "accessToken"

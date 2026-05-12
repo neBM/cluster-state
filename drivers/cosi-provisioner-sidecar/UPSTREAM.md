@@ -18,3 +18,5 @@ Local patch:
   Secret as an already minted grant and updates `BucketAccess` finalizer/status
   from fresh objects, avoiding repeated backend grants after resource-version
   conflicts.
+- The S3 `BucketInfo` Secret preserves driver-provided `endpoint` and `region`
+  values instead of replacing them with AWS defaults.
