@@ -60,8 +60,10 @@ type provisionerServer struct {
 var _ cosispec.ProvisionerServer = (*provisionerServer)(nil)
 
 const (
-	paramDisk        = "disk"
-	paramReplication = "replication"
+	paramDisk                 = "disk"
+	paramReplication          = "replication"
+	grantParamAccessKeyID     = "cosi.seaweedfs.io/accessKeyID"
+	grantParamAccessSecretKey = "cosi.seaweedfs.io/accessSecretKey"
 )
 
 // replicationPattern matches a valid SeaweedFS replication string: exactly 3 digits.
@@ -267,19 +269,17 @@ func (s *provisionerServer) DriverGrantBucketAccess(ctx context.Context, req *co
 		id = &iam_pb.Identity{Name: user}
 	}
 
-	credential := firstUsableCredential(id)
+	credential := desiredCredential(req.GetParameters())
 	if credential == nil {
-		accessKey, err := GenerateAccessKeyID()
-		if err != nil {
-			return nil, status.Error(codes.Internal, err.Error())
-		}
-		secretKey, err := GenerateSecretAccessKey()
-		if err != nil {
-			return nil, status.Error(codes.Internal, err.Error())
-		}
-		credential = &iam_pb.Credential{AccessKey: accessKey, SecretKey: secretKey}
-		id.Credentials = append(id.Credentials, credential)
+		credential = firstUsableCredential(id)
 	}
+	if credential == nil {
+		credential, err = newCredential()
+		if err != nil {
+			return nil, status.Error(codes.Internal, err.Error())
+		}
+	}
+	id.Credentials = []*iam_pb.Credential{credential}
 
 	for _, a := range actions {
 		action := fmt.Sprintf("%s:%s", a, bucket)
@@ -441,6 +441,27 @@ func firstUsableCredential(id *iam_pb.Identity) *iam_pb.Credential {
 		}
 	}
 	return nil
+}
+
+func desiredCredential(params map[string]string) *iam_pb.Credential {
+	accessKey := params[grantParamAccessKeyID]
+	secretKey := params[grantParamAccessSecretKey]
+	if accessKey == "" || secretKey == "" {
+		return nil
+	}
+	return &iam_pb.Credential{AccessKey: accessKey, SecretKey: secretKey}
+}
+
+func newCredential() (*iam_pb.Credential, error) {
+	accessKey, err := GenerateAccessKeyID()
+	if err != nil {
+		return nil, err
+	}
+	secretKey, err := GenerateSecretAccessKey()
+	if err != nil {
+		return nil, err
+	}
+	return &iam_pb.Credential{AccessKey: accessKey, SecretKey: secretKey}, nil
 }
 
 func s3IdentityDirectory() string {

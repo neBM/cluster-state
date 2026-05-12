@@ -53,6 +53,11 @@ type BucketAccessListener struct {
 	kubeVersion  *utilversion.Version
 }
 
+const (
+	grantParamAccessKeyID     = "cosi.seaweedfs.io/accessKeyID"
+	grantParamAccessSecretKey = "cosi.seaweedfs.io/accessSecretKey"
+)
+
 // NewBucketAccessListener returns a resource handler for BucketAccess objects
 func NewBucketAccessListener(driverName string, client cosi.ProvisionerClient) (*BucketAccessListener, error) {
 	return &BucketAccessListener{
@@ -71,7 +76,6 @@ func (bal *BucketAccessListener) Add(ctx context.Context, inputBucketAccess *v1a
 
 	if bucketAccess.Status.AccessGranted && bucketAccess.Status.AccountID != "" {
 		klog.V(3).InfoS("BucketAccess already exists", bucketAccess.ObjectMeta.Name)
-		return nil
 	}
 
 	bucketClaimName := bucketAccess.Spec.BucketClaimName
@@ -138,7 +142,6 @@ func (bal *BucketAccessListener) Add(ctx context.Context, inputBucketAccess *v1a
 			"bucketAccess", bucketAccess.ObjectMeta.Name,
 			"bucketClaim", bucketClaimName,
 		)
-		return nil
 	}
 
 	bucket, err := bal.buckets().Get(ctx, bucketClaim.Status.BucketName, metav1.GetOptions{})
@@ -153,7 +156,29 @@ func (bal *BucketAccessListener) Add(ctx context.Context, inputBucketAccess *v1a
 
 	accountName := consts.AccountNamePrefix + string(bucketAccess.UID)
 
-	if _, err := bal.secrets(namespace).Get(ctx, secretCredName, metav1.GetOptions{}); err == nil {
+	if existingSecret, err := bal.secrets(namespace).Get(ctx, secretCredName, metav1.GetOptions{}); err == nil {
+		params, err := parametersWithExistingS3Credentials(bucketAccessClass.Parameters, existingSecret)
+		if err != nil {
+			return err
+		}
+		req := &cosi.DriverGrantBucketAccessRequest{
+			BucketId:           bucket.Status.BucketID,
+			Name:               accountName,
+			AuthenticationType: authType,
+			Parameters:         params,
+		}
+		rsp, err := bal.provisionerClient.DriverGrantBucketAccess(ctx, req)
+		if err != nil && status.Code(err) != codes.AlreadyExists {
+			klog.ErrorS(err,
+				"Failed to ensure existing access grant",
+				"bucketAccess", bucketAccess.ObjectMeta.Name,
+				"bucketClaim", bucketClaimName,
+			)
+			return errors.Wrap(err, "failed to ensure existing access grant")
+		}
+		if rsp != nil && rsp.AccountId != "" {
+			accountName = rsp.AccountId
+		}
 		return bal.markBucketAccessGranted(ctx, bucketAccess, bucket, accountName)
 	} else if !kubeerrors.IsNotFound(err) {
 		klog.ErrorS(err,
@@ -315,6 +340,32 @@ func (bal *BucketAccessListener) markBucketAccessGranted(ctx context.Context, bu
 	}
 
 	return nil
+}
+
+func parametersWithExistingS3Credentials(parameters map[string]string, secret *corev1.Secret) (map[string]string, error) {
+	merged := make(map[string]string, len(parameters)+2)
+	for key, value := range parameters {
+		merged[key] = value
+	}
+
+	rawBucketInfo := secret.Data["BucketInfo"]
+	if len(rawBucketInfo) == 0 {
+		return merged, nil
+	}
+
+	var bucketInfo cosiapi.BucketInfo
+	if err := json.Unmarshal(rawBucketInfo, &bucketInfo); err != nil {
+		return nil, errors.Wrap(err, "failed to parse existing BucketInfo secret")
+	}
+	if bucketInfo.Spec.S3 == nil {
+		return merged, nil
+	}
+	if bucketInfo.Spec.S3.AccessKeyID != "" && bucketInfo.Spec.S3.AccessSecretKey != "" {
+		merged[grantParamAccessKeyID] = bucketInfo.Spec.S3.AccessKeyID
+		merged[grantParamAccessSecretKey] = bucketInfo.Spec.S3.AccessSecretKey
+	}
+
+	return merged, nil
 }
 
 // Update attempts to reconcile changes to a given bucketAccess. This function must be idempotent

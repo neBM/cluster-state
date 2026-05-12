@@ -499,6 +499,37 @@ func TestDriverGrantBucketAccessPolicy(t *testing.T) {
 	}
 }
 
+func TestDriverGrantBucketAccessUsesDesiredCredentialParameters(t *testing.T) {
+	p, ff := newProv(t)
+	req := &cosispec.DriverGrantBucketAccessRequest{
+		BucketId: "b",
+		Name:     "u",
+		Parameters: map[string]string{
+			grantParamAccessKeyID:     "desired-ak",
+			grantParamAccessSecretKey: "desired-sk",
+		},
+	}
+
+	resp, err := p.DriverGrantBucketAccess(context.Background(), req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got := resp.Credentials["s3"].Secrets["accessKeyID"]; got != "desired-ak" {
+		t.Fatalf("access key=%s want desired-ak", got)
+	}
+	if got := resp.Credentials["s3"].Secrets["accessSecretKey"]; got != "desired-sk" {
+		t.Fatalf("secret key=%s want desired-sk", got)
+	}
+
+	id := iamIdentity(t, ff, "u")
+	if len(id.Credentials) != 1 {
+		t.Fatalf("credentials count=%d want 1", len(id.Credentials))
+	}
+	if id.Credentials[0].AccessKey != "desired-ak" || id.Credentials[0].SecretKey != "desired-sk" {
+		t.Fatalf("stored credentials=%+v", id.Credentials[0])
+	}
+}
+
 func TestDriverRevokeBucketAccess(t *testing.T) {
 	p, ff := newProv(t)
 	_, _ = p.DriverGrantBucketAccess(context.Background(),

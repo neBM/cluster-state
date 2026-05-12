@@ -65,7 +65,7 @@ func TestInitializeKubeClient(t *testing.T) {
 	}
 }
 
-func TestAddBucketAccessWithExistingSecretMarksStatusWithoutGrant(t *testing.T) {
+func TestAddBucketAccessWithExistingSecretEnsuresGrant(t *testing.T) {
 	driver := "driver"
 	bucketName := "bucket1"
 	bucketClaimName := "bucketClaim1"
@@ -74,20 +74,31 @@ func TestAddBucketAccessWithExistingSecretMarksStatusWithoutGrant(t *testing.T) 
 	secretName := "secret1"
 	ns := "testns"
 	uid := types.UID("access-uid")
+	expectedAccountID := consts.AccountNamePrefix + string(uid)
+	grantCalls := 0
 
 	mpc := struct{ fakespec.FakeProvisionerClient }{}
 	mpc.FakeDriverGrantBucketAccess = func(ctx context.Context,
 		in *cosi.DriverGrantBucketAccessRequest,
 		opts ...grpc.CallOption) (*cosi.DriverGrantBucketAccessResponse, error) {
-		t.Errorf("grpc client called")
-		return nil, nil
+		grantCalls++
+		if in.Name != expectedAccountID {
+			t.Fatalf("grant name=%s want %s", in.Name, expectedAccountID)
+		}
+		if got := in.Parameters[grantParamAccessKeyID]; got != "existing-ak" {
+			t.Fatalf("existing access key parameter=%q", got)
+		}
+		if got := in.Parameters[grantParamAccessSecretKey]; got != "existing-sk" {
+			t.Fatalf("existing secret key parameter=%q", got)
+		}
+		return &cosi.DriverGrantBucketAccessResponse{AccountId: expectedAccountID}, nil
 	}
 
 	b := v1alpha1.Bucket{
 		ObjectMeta: metav1.ObjectMeta{Name: bucketName},
 		Spec: v1alpha1.BucketSpec{
 			DriverName: driver,
-			Protocols:  []v1alpha1.Protocol{v1alpha1.ProtocolAzure},
+			Protocols:  []v1alpha1.Protocol{v1alpha1.ProtocolS3},
 		},
 		Status: v1alpha1.BucketStatus{
 			BucketID:    bucketName,
@@ -116,9 +127,13 @@ func TestAddBucketAccessWithExistingSecretMarksStatusWithoutGrant(t *testing.T) 
 		},
 		Spec: v1alpha1.BucketAccessSpec{
 			BucketClaimName:       bucketClaimName,
-			Protocol:              v1alpha1.ProtocolAzure,
+			Protocol:              v1alpha1.ProtocolS3,
 			BucketAccessClassName: bucketAccessClassName,
 			CredentialsSecretName: secretName,
+		},
+		Status: v1alpha1.BucketAccessStatus{
+			AccessGranted: true,
+			AccountID:     expectedAccountID,
 		},
 	}
 
@@ -127,6 +142,9 @@ func TestAddBucketAccessWithExistingSecretMarksStatusWithoutGrant(t *testing.T) 
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      secretName,
 			Namespace: ns,
+		},
+		Data: map[string][]byte{
+			"BucketInfo": []byte(`{"spec":{"secretS3":{"accessKeyID":"existing-ak","accessSecretKey":"existing-sk"}}}`),
 		},
 	})
 	bal := BucketAccessListener{
@@ -148,9 +166,11 @@ func TestAddBucketAccessWithExistingSecretMarksStatusWithoutGrant(t *testing.T) 
 	if !updatedBA.Status.AccessGranted {
 		t.Fatalf("Expected access to be granted")
 	}
-	expectedAccountID := consts.AccountNamePrefix + string(uid)
 	if updatedBA.Status.AccountID != expectedAccountID {
 		t.Fatalf("Expected account %s, got %s", expectedAccountID, updatedBA.Status.AccountID)
+	}
+	if grantCalls != 1 {
+		t.Fatalf("grant calls=%d want 1", grantCalls)
 	}
 }
 
