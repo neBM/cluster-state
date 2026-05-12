@@ -1,0 +1,32 @@
+---
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.6.0
+    hooks:
+      - id: trailing-whitespace
+      - id: check-yaml
+        exclude: ^charts/seaweedfs-cosi/templates/.*.yaml$
+      - id: check-added-large-files
+      - id: end-of-file-fixer
+      - id: debug-statements
+      - id: mixed-line-ending
+      - id: detect-private-key
+      - id: destroyed-symlinks
+      - id: check-shebang-scripts-are-executable
+      - id: check-case-conflict
+
+  - repo: https://github.com/codespell-project/codespell
+    rev: v2.2.6
+    hooks:
+      - id: codespell
+        exclude: ^(go\.mod|go\.sum)$
+
+  - repo: https://github.com/DavidAnson/markdownlint-cli2
+    rev: v0.13.0
+    hooks:
+      - id: markdownlint-cli2
+
+  - repo: https://github.com/golangci/golangci-lint
+    rev: v2.10.1
+    hooks:
+      - id: golangci-lint

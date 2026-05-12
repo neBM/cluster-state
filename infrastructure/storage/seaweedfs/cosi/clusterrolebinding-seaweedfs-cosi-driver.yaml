@@ -1,0 +1,17 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  labels:
+    app: seaweedfs-cosi-driver
+    app.kubernetes.io/name: seaweedfs-cosi-driver
+    app.kubernetes.io/part-of: seaweedfs
+    environment: prod
+  name: seaweedfs-cosi-driver
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: seaweedfs-cosi-driver
+subjects:
+- kind: ServiceAccount
+  name: seaweedfs-cosi-driver
+  namespace: container-object-storage-system

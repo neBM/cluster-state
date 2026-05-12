@@ -1,0 +1,17 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  labels:
+    app.kubernetes.io/component: controller
+    app.kubernetes.io/name: container-object-storage-interface-controller
+    app.kubernetes.io/part-of: container-object-storage-interface
+    app.kubernetes.io/version: release-0.2
+  name: container-object-storage-controller
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: container-object-storage-controller
+subjects:
+- kind: ServiceAccount
+  name: container-object-storage-controller
+  namespace: container-object-storage-system

@@ -1,0 +1,52 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app.kubernetes.io/component: controller
+    app.kubernetes.io/name: container-object-storage-interface-controller
+    app.kubernetes.io/part-of: container-object-storage-interface
+    app.kubernetes.io/version: release-0.2
+  name: container-object-storage-controller
+  namespace: container-object-storage-system
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: container-object-storage-interface-controller
+  strategy:
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+    type: RollingUpdate
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/component: controller
+        app.kubernetes.io/name: container-object-storage-interface-controller
+        app.kubernetes.io/part-of: container-object-storage-interface
+        app.kubernetes.io/version: release-0.2
+    spec:
+      containers:
+      - args:
+        - --v=5
+        image: gcr.io/k8s-staging-sig-storage/objectstorage-controller:release-0.2
+        imagePullPolicy: IfNotPresent
+        name: objectstorage-controller
+        resources:
+          limits:
+            cpu: 250m
+            memory: 256Mi
+          requests:
+            cpu: 10m
+            memory: 64Mi
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+          readOnlyRootFilesystem: true
+          runAsNonRoot: true
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
+      serviceAccountName: container-object-storage-controller

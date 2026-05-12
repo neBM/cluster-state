@@ -1,0 +1,23 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+commonAnnotations:
+  api-approved.kubernetes.io: https://github.com/kubernetes/enhancements/tree/master/keps/sig-storage/1979-object-storage-support
+  objectstorage.k8s.io/authors: Kubernetes Authors
+  objectstorage.k8s.io/license: Apache V2
+  objectstorage.k8s.io/source-ref: kubernetes-sigs/container-object-storage-interface@release-0.2
+  objectstorage.k8s.io/support: https://github.com/kubernetes-sigs/container-object-storage-interface
+
+resources:
+- crds/objectstorage.k8s.io_bucketaccessclasses.yaml
+- crds/objectstorage.k8s.io_bucketaccesses.yaml
+- crds/objectstorage.k8s.io_bucketclaims.yaml
+- crds/objectstorage.k8s.io_bucketclasses.yaml
+- crds/objectstorage.k8s.io_buckets.yaml
+- namespace-container-object-storage-system.yaml
+- serviceaccount-container-object-storage-system-controller.yaml
+- clusterrole-container-object-storage-controller.yaml
+- clusterrolebinding-container-object-storage-controller.yaml
+- role-container-object-storage-system-controller.yaml
+- rolebinding-container-object-storage-system-controller.yaml
+- deployment-container-object-storage-system-controller.yaml

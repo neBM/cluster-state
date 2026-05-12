@@ -1,0 +1,8 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  labels:
+    app.kubernetes.io/component: controller
+    app.kubernetes.io/name: container-object-storage-interface-controller
+    app.kubernetes.io/part-of: container-object-storage-interface
+  name: container-object-storage-system

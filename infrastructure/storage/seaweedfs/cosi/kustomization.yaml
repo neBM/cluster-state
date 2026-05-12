@@ -1,0 +1,16 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+- serviceaccount-container-object-storage-system-seaweedfs-cosi-driver.yaml
+- clusterrole-seaweedfs-cosi-driver.yaml
+- clusterrolebinding-seaweedfs-cosi-driver.yaml
+- role-container-object-storage-system-seaweedfs-cosi-driver.yaml
+- rolebinding-container-object-storage-system-seaweedfs-cosi-driver.yaml
+- deployment-container-object-storage-system-seaweedfs-cosi-driver.yaml
+- bucketclass-seaweedfs.yaml
+- bucketaccessclass-seaweedfs-readwrite.yaml
+- bucketaccessclass-seaweedfs-readonly.yaml
+
+images:
+- name: "registry.brmartin.co.uk/ben/seaweedfs-cosi-driver"
+  newTag: "latest"

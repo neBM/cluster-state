@@ -1,0 +1,90 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app: seaweedfs-cosi-driver
+    app.kubernetes.io/name: seaweedfs-cosi-driver
+    app.kubernetes.io/part-of: seaweedfs
+    environment: prod
+  name: seaweedfs-cosi-driver
+  namespace: container-object-storage-system
+spec:
+  replicas: 1
+  revisionHistoryLimit: 3
+  selector:
+    matchLabels:
+      app: seaweedfs-cosi-driver
+  template:
+    metadata:
+      labels:
+        app: seaweedfs-cosi-driver
+        app.kubernetes.io/name: seaweedfs-cosi-driver
+        app.kubernetes.io/part-of: seaweedfs
+        environment: prod
+    spec:
+      containers:
+      - env:
+        - name: DRIVERNAME
+          value: seaweedfs.objectstorage.k8s.io
+        - name: COSI_ENDPOINT
+          value: unix:///var/lib/cosi/cosi.sock
+        - name: SEAWEEDFS_FILER
+          value: seaweedfs-filer.default.svc.cluster.local:18888
+        - name: ENDPOINT
+          value: http://seaweedfs-s3.default.svc.cluster.local:8333
+        - name: REGION
+          value: us-east-1
+        image: registry.brmartin.co.uk/ben/seaweedfs-cosi-driver
+        imagePullPolicy: Always
+        name: driver
+        resources:
+          limits:
+            cpu: 250m
+            memory: 256Mi
+          requests:
+            cpu: 10m
+            memory: 64Mi
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+          readOnlyRootFilesystem: true
+          runAsNonRoot: true
+          runAsUser: 65532
+        volumeMounts:
+        - mountPath: /var/lib/cosi
+          name: cosi-socket
+      - args:
+        - --v=5
+        - --driver-addr=unix:///var/lib/cosi/cosi.sock
+        image: gcr.io/k8s-staging-sig-storage/objectstorage-sidecar:release-0.2
+        imagePullPolicy: IfNotPresent
+        name: objectstorage-sidecar
+        resources:
+          limits:
+            cpu: 250m
+            memory: 256Mi
+          requests:
+            cpu: 10m
+            memory: 64Mi
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+          readOnlyRootFilesystem: true
+          runAsNonRoot: true
+          runAsUser: 65532
+        volumeMounts:
+        - mountPath: /var/lib/cosi
+          name: cosi-socket
+      securityContext:
+        fsGroup: 65532
+        fsGroupChangePolicy: OnRootMismatch
+        seccompProfile:
+          type: RuntimeDefault
+      serviceAccountName: seaweedfs-cosi-driver
+      volumes:
+      - emptyDir: {}
+        name: cosi-socket

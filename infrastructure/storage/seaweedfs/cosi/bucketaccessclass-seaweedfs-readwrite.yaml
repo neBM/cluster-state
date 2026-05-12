@@ -1,0 +1,11 @@
+apiVersion: objectstorage.k8s.io/v1alpha1
+kind: BucketAccessClass
+metadata:
+  labels:
+    app: seaweedfs
+    environment: prod
+  name: seaweedfs-readwrite
+authenticationType: KEY
+driverName: seaweedfs.objectstorage.k8s.io
+parameters:
+  accessPolicy: readwrite
