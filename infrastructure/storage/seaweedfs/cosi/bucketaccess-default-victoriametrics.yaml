@@ -1,0 +1,13 @@
+apiVersion: objectstorage.k8s.io/v1alpha1
+kind: BucketAccess
+metadata:
+  labels:
+    app: victoriametrics
+    environment: prod
+  name: victoriametrics
+  namespace: default
+spec:
+  bucketAccessClassName: seaweedfs-readwrite
+  bucketClaimName: victoriametrics
+  credentialsSecretName: victoriametrics-cosi-s3
+  protocol: s3

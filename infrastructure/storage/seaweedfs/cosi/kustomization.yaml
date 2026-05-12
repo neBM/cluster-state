@@ -16,6 +16,9 @@ resources:
 - bucket-overseerr-litestream.yaml
 - bucketclaim-default-overseerr-litestream.yaml
 - bucketaccess-default-overseerr-litestream.yaml
+- bucket-victoriametrics.yaml
+- bucketclaim-default-victoriametrics.yaml
+- bucketaccess-default-victoriametrics.yaml
 
 images:
 - name: "registry.brmartin.co.uk/ben/cluster-state/seaweedfs-cosi-driver"
