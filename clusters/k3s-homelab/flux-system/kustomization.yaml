@@ -18,8 +18,8 @@ resources:
 
 images:
 - name: "ghcr.io/fluxcd/source-controller"
-  newTag: "v1.8.3"
-- name: "ghcr.io/fluxcd/kustomize-controller"
   newTag: "v1.8.4"
+- name: "ghcr.io/fluxcd/kustomize-controller"
+  newTag: "v1.8.5"
 - name: "ghcr.io/fluxcd/notification-controller"
   newTag: "v1.8.4"
