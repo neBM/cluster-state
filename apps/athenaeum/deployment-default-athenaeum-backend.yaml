@@ -29,7 +29,34 @@ spec:
     spec:
       automountServiceAccountToken: true
       containers:
-      - env:
+      - command:
+        - /bin/sh
+        - -ec
+        args:
+        - |
+          bucket_info=/cosi/athenaeum-attachments/BucketInfo
+
+          parse() {
+            sed -n "s/.*\"$1\"[[:space:]]*:[[:space:]]*\"\([^\"]*\)\".*/\1/p" "$bucket_info"
+          }
+
+          bucket=$(parse bucketName)
+          endpoint=$(parse endpoint)
+          access_key=$(parse accessKeyID)
+          secret_key=$(parse accessSecretKey)
+
+          if [ "$bucket" != "athenaeum-attachments" ] || [ -z "$endpoint" ] || [ -z "$access_key" ] || [ -z "$secret_key" ]; then
+            echo "ERROR: COSI BucketInfo is missing required Athenaeum S3 fields"
+            exit 1
+          fi
+
+          export MINIO_BUCKET="$bucket"
+          export MINIO_URL="$endpoint"
+          export MINIO_ACCESS_KEY="$access_key"
+          export MINIO_SECRET_KEY="$secret_key"
+
+          exec uv run uvicorn app.main:app --host 0.0.0.0 --port 8000
+        env:
         - name: DATABASE_URL
           valueFrom:
             secretKeyRef:
@@ -64,30 +91,6 @@ spec:
           valueFrom:
             secretKeyRef:
               key: REDIS_URL
-              name: athenaeum-secrets
-              optional: false
-        - name: MINIO_URL
-          valueFrom:
-            secretKeyRef:
-              key: MINIO_URL
-              name: athenaeum-secrets
-              optional: false
-        - name: MINIO_ACCESS_KEY
-          valueFrom:
-            secretKeyRef:
-              key: MINIO_ACCESS_KEY
-              name: athenaeum-secrets
-              optional: false
-        - name: MINIO_SECRET_KEY
-          valueFrom:
-            secretKeyRef:
-              key: MINIO_SECRET_KEY
-              name: athenaeum-secrets
-              optional: false
-        - name: MINIO_BUCKET
-          valueFrom:
-            secretKeyRef:
-              key: MINIO_BUCKET
               name: athenaeum-secrets
               optional: false
         - name: OLLAMA_URL
@@ -132,6 +135,10 @@ spec:
             memory: 1125Mi
         terminationMessagePath: /dev/termination-log
         terminationMessagePolicy: File
+        volumeMounts:
+        - mountPath: /cosi/athenaeum-attachments
+          name: athenaeum-attachments-cosi
+          readOnly: true
       dnsPolicy: ClusterFirst
       enableServiceLinks: true
       imagePullSecrets:
@@ -183,3 +190,7 @@ spec:
       securityContext: {}
       shareProcessNamespace: false
       terminationGracePeriodSeconds: 30
+      volumes:
+      - name: athenaeum-attachments-cosi
+        secret:
+          secretName: athenaeum-attachments-s3
