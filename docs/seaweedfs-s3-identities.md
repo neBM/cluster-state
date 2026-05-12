@@ -40,7 +40,7 @@ named-bucket cleanup candidates, see
 | COSI `BucketAccess/default/athenaeum-attachments` | `athenaeum-attachments` | `athenaeum-attachments-s3` | `BucketInfo.spec.secretS3` | Deployment/athenaeum-backend |
 | COSI `BucketAccess/default/langfuse` | `langfuse` | `langfuse-s3` | `BucketInfo.spec.secretS3` | Deployments langfuse-{web,worker} |
 | COSI `BucketAccess/default/gitlab-runner-cache` | `gitlab-runner-cache` | `gitlab-runner-cache-cosi-s3` | `BucketInfo.spec.secretS3` | Deployments gitlab-runner-{amd64,any,arm64,services} config-generator init |
-| `renovate` | `renovate-cache` | GitLab CI variables in `infrastructure/renovate-runner` | `S3_ACCESS_KEY`, `S3_SECRET_KEY` | Scheduled Renovate runner job |
+| COSI `BucketAccess/default/renovate-cache` | `renovate-cache` | `renovate-cache-s3` synced into GitLab CI variables in `infrastructure/renovate-runner` | `BucketInfo.spec.secretS3` -> `S3_ACCESS_KEY`, `S3_SECRET_KEY` | Scheduled Renovate runner job |
 | COSI `BucketAccess/default/overseerr-litestream` | `overseerr-litestream` | `overseerr-litestream-s3` | `BucketInfo.spec.secretS3` | Deployment/overseerr Litestream containers |
 | `admin` | *(unscoped, full Admin)* | *(not in any workload secret)* | — | Operator use only |
 
@@ -50,6 +50,11 @@ bucket only. `admin` has the additional `Admin` action cluster-wide.
 Athenaeum still uses `MINIO_*` process environment names internally, but
 `Deployment/athenaeum-backend` derives them from the mounted COSI `BucketInfo`
 at container start.
+
+Renovate runs in an external GitLab CI project rather than as a Kubernetes
+workload. COSI owns the backend SeaweedFS bucket identity, and the GitLab CI
+variables are the compatibility boundary. On rotation, sync values from
+`Secret/default/renovate-cache-s3` `BucketInfo.spec.secretS3` into that project.
 
 ## Managing identities via `weed shell`
 

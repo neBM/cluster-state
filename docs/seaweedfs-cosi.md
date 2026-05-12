@@ -28,7 +28,7 @@ until each bucket is migrated and verified.
 | `athenaeum-attachments` | Migrated | `Bucket/athenaeum-attachments`, `BucketClaim/default/athenaeum-attachments`, `BucketAccess/default/athenaeum-attachments` | `Secret/default/athenaeum-attachments-s3` mounted as `BucketInfo` by `Deployment/athenaeum-backend` | Backend restarted healthy on 2026-05-12; scoped credentials wrote/read/deleted a smoke object and were denied against `plex-backup` |
 | `langfuse` | Migrated | `Bucket/langfuse`, `BucketClaim/default/langfuse`, `BucketAccess/default/langfuse` | `Secret/default/langfuse-s3` mounted as `BucketInfo` by `Deployment/langfuse-web` and `Deployment/langfuse-worker` | Web and worker restarted healthy on 2026-05-12; scoped credentials wrote/read/deleted a smoke object and were denied against `plex-backup` |
 | `gitlab-runner-cache` | Migrated | `Bucket/gitlab-runner-cache`, `BucketClaim/default/gitlab-runner-cache`, `BucketAccess/default/gitlab-runner-cache` | `Secret/default/gitlab-runner-cache-cosi-s3` mounted as `BucketInfo` by GitLab runner config-generator init containers | All runner Deployments restarted on 2026-05-12 with generated cache config; scoped credentials wrote/read/deleted a smoke object and were denied against `plex-backup` |
-| `renovate-cache` | Pending | — | GitLab CI variables | — |
+| `renovate-cache` | Migrated | `Bucket/renovate-cache`, `BucketClaim/default/renovate-cache`, `BucketAccess/default/renovate-cache` | `Secret/default/renovate-cache-s3` `BucketInfo` values synced into `infrastructure/renovate-runner` GitLab CI variables | Manual Renovate pipeline `2432` completed on 2026-05-12; scoped credentials wrote/read/deleted a smoke object and were denied against `plex-backup` |
 
 ## Deployment Checks
 

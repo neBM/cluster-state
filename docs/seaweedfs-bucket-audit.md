@@ -148,7 +148,7 @@ The helper script automates those checks by:
 | `loki` | Active | COSI `BucketAccess/default/loki` creates `loki-cosi-s3`; `infrastructure/observability-core/loki/statefulset-default-loki.yaml` renders `BucketInfo` into the live Loki config |
 | `overseerr-litestream` | Active | COSI `BucketAccess/default/overseerr-litestream` creates `overseerr-litestream-s3`; `apps/overseerr/deployment-default-overseerr.yaml` mounts `BucketInfo` for Litestream |
 | `plex-backup` | Active | `apps/media-centre/cronjob-default-plex-db-backup.yaml` writes rolling backups to `plex-backup`, and `apps/media-centre/deployment-default-plex.yaml` reads the same bucket for restore |
-| `renovate-cache` | Active | `infrastructure/renovate-runner` GitLab CI config sets `RENOVATE_REPOSITORY_CACHE_TYPE=s3://renovate-cache`; credentials live in protected GitLab CI variables |
+| `renovate-cache` | Active | COSI `BucketAccess/default/renovate-cache` creates `renovate-cache-s3`; `BucketInfo.spec.secretS3` is synced into protected GitLab CI variables for the external `infrastructure/renovate-runner` project |
 | `victoriametrics` | Active | COSI `BucketAccess/default/victoriametrics` creates `victoriametrics-cosi-s3`; `infrastructure/observability-core/victoriametrics/deployment-default-victoriametrics.yaml` mounts `BucketInfo` for `vmbackup`/`vmrestore` |
 
 ## Removed Named Buckets
