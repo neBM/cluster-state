@@ -153,6 +153,16 @@ func (bal *BucketAccessListener) Add(ctx context.Context, inputBucketAccess *v1a
 
 	accountName := consts.AccountNamePrefix + string(bucketAccess.UID)
 
+	if _, err := bal.secrets(namespace).Get(ctx, secretCredName, metav1.GetOptions{}); err == nil {
+		return bal.markBucketAccessGranted(ctx, bucketAccess, bucket, accountName)
+	} else if !kubeerrors.IsNotFound(err) {
+		klog.ErrorS(err,
+			"Failed to fetch secrets",
+			"bucketAccess", bucketAccess.ObjectMeta.Name,
+			"bucket", bucket.ObjectMeta.Name)
+		return errors.Wrap(err, "failed to fetch secrets")
+	}
+
 	req := &cosi.DriverGrantBucketAccessRequest{
 		BucketId:           bucket.Status.BucketID,
 		Name:               accountName,
@@ -229,45 +239,52 @@ func (bal *BucketAccessListener) Add(ctx context.Context, inputBucketAccess *v1a
 		return errors.New("Error converting bucketinfo into secret")
 	}
 
-	if _, err := bal.secrets(namespace).Get(ctx, secretCredName, metav1.GetOptions{}); err != nil {
-		if !kubeerrors.IsNotFound(err) {
+	if _, err := bal.secrets(namespace).Create(ctx, &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:       secretCredName,
+			Namespace:  namespace,
+			Finalizers: []string{consts.SecretFinalizer},
+		},
+		StringData: map[string]string{
+			"BucketInfo": string(stringData),
+		},
+		Type: corev1.SecretTypeOpaque,
+	}, metav1.CreateOptions{}); err != nil {
+		if !kubeerrors.IsAlreadyExists(err) {
 			klog.ErrorS(err,
-				"Failed to create secrets",
+				"Failed to create minted secret",
 				"bucketAccess", bucketAccess.ObjectMeta.Name,
 				"bucket", bucket.ObjectMeta.Name)
-			return errors.Wrap(err, "failed to fetch secrets")
-		}
-
-		if _, err := bal.secrets(namespace).Create(ctx, &corev1.Secret{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:       secretCredName,
-				Namespace:  namespace,
-				Finalizers: []string{consts.SecretFinalizer},
-			},
-			StringData: map[string]string{
-				"BucketInfo": string(stringData),
-			},
-			Type: corev1.SecretTypeOpaque,
-		}, metav1.CreateOptions{}); err != nil {
-			if !kubeerrors.IsAlreadyExists(err) {
-				klog.ErrorS(err,
-					"Failed to create minted secret",
-					"bucketAccess", bucketAccess.ObjectMeta.Name,
-					"bucket", bucket.ObjectMeta.Name)
-				return errors.Wrap(err, "Failed to create minted secret")
-			}
+			return errors.Wrap(err, "Failed to create minted secret")
 		}
 	}
 
-	if controllerutil.AddFinalizer(bucket, consts.BABucketFinalizer) {
-		_, err = bal.buckets().Update(ctx, bucket, metav1.UpdateOptions{})
-		if err != nil {
+	return bal.markBucketAccessGranted(ctx, bucketAccess, bucket, rsp.AccountId)
+}
+
+func (bal *BucketAccessListener) markBucketAccessGranted(ctx context.Context, bucketAccess *v1alpha1.BucketAccess, bucket *v1alpha1.Bucket, accountID string) error {
+	if accountID == "" {
+		return errors.New("AccountID not defined")
+	}
+
+	currentBucket, err := bal.buckets().Get(ctx, bucket.Name, metav1.GetOptions{})
+	if err != nil {
+		return err
+	}
+	if controllerutil.AddFinalizer(currentBucket, consts.BABucketFinalizer) {
+		if _, err = bal.buckets().Update(ctx, currentBucket, metav1.UpdateOptions{}); err != nil {
 			return err
 		}
 	}
 
-	if controllerutil.AddFinalizer(bucketAccess, consts.BAFinalizer) {
-		if _, err = bal.bucketAccesses(bucketAccess.ObjectMeta.Namespace).Update(ctx, bucketAccess, metav1.UpdateOptions{}); err != nil {
+	currentBucketAccess, err := bal.bucketAccesses(bucketAccess.Namespace).Get(ctx, bucketAccess.Name, metav1.GetOptions{})
+	if err != nil {
+		return err
+	}
+
+	if controllerutil.AddFinalizer(currentBucketAccess, consts.BAFinalizer) {
+		currentBucketAccess, err = bal.bucketAccesses(currentBucketAccess.Namespace).Update(ctx, currentBucketAccess, metav1.UpdateOptions{})
+		if err != nil {
 			klog.ErrorS(err, "Failed to update BucketAccess finalizer",
 				"bucketAccess", bucketAccess.ObjectMeta.Name,
 				"bucket", bucket.ObjectMeta.Name)
@@ -275,11 +292,14 @@ func (bal *BucketAccessListener) Add(ctx context.Context, inputBucketAccess *v1a
 		}
 	}
 
-	bucketAccess.Status.AccountID = rsp.AccountId
-	bucketAccess.Status.AccessGranted = true
+	if currentBucketAccess.Status.AccessGranted && currentBucketAccess.Status.AccountID == accountID {
+		return nil
+	}
 
-	// if this step fails, then controller will retry with backoff
-	if _, err := bal.bucketAccesses(bucketAccess.ObjectMeta.Namespace).UpdateStatus(ctx, bucketAccess, metav1.UpdateOptions{}); err != nil {
+	currentBucketAccess.Status.AccountID = accountID
+	currentBucketAccess.Status.AccessGranted = true
+
+	if _, err := bal.bucketAccesses(currentBucketAccess.Namespace).UpdateStatus(ctx, currentBucketAccess, metav1.UpdateOptions{}); err != nil {
 		klog.ErrorS(err, "Failed to update BucketAccess Status",
 			"bucketAccess", bucketAccess.ObjectMeta.Name,
 			"bucket", bucket.ObjectMeta.Name)

@@ -23,7 +23,9 @@ import (
 	"time"
 
 	"google.golang.org/grpc"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 	utilversion "k8s.io/apimachinery/pkg/util/version"
 	"k8s.io/apimachinery/pkg/version"
 	fakediscovery "k8s.io/client-go/discovery/fake"
@@ -31,6 +33,7 @@ import (
 
 	"sigs.k8s.io/container-object-storage-interface-api/apis/objectstorage/v1alpha1"
 	fakebucketclientset "sigs.k8s.io/container-object-storage-interface-api/client/clientset/versioned/fake"
+	"sigs.k8s.io/container-object-storage-interface-provisioner-sidecar/pkg/consts"
 	cosi "sigs.k8s.io/container-object-storage-interface-spec"
 	fakespec "sigs.k8s.io/container-object-storage-interface-spec/fake"
 )
@@ -57,6 +60,95 @@ func TestInitializeKubeClient(t *testing.T) {
 	expected := utilversion.MustParseSemantic(fakeVersion.GitVersion)
 	if !reflect.DeepEqual(expected, bal.kubeVersion) {
 		t.Errorf("Expected %+v, but got %+v", expected, bal.kubeVersion)
+	}
+}
+
+func TestAddBucketAccessWithExistingSecretMarksStatusWithoutGrant(t *testing.T) {
+	driver := "driver"
+	bucketName := "bucket1"
+	bucketClaimName := "bucketClaim1"
+	bucketAccessClassName := "bucketAccessClass1"
+	bucketAccessName := "bucketAccess1"
+	secretName := "secret1"
+	ns := "testns"
+	uid := types.UID("access-uid")
+
+	mpc := struct{ fakespec.FakeProvisionerClient }{}
+	mpc.FakeDriverGrantBucketAccess = func(ctx context.Context,
+		in *cosi.DriverGrantBucketAccessRequest,
+		opts ...grpc.CallOption) (*cosi.DriverGrantBucketAccessResponse, error) {
+		t.Errorf("grpc client called")
+		return nil, nil
+	}
+
+	b := v1alpha1.Bucket{
+		ObjectMeta: metav1.ObjectMeta{Name: bucketName},
+		Spec: v1alpha1.BucketSpec{
+			DriverName: driver,
+			Protocols:  []v1alpha1.Protocol{v1alpha1.ProtocolAzure},
+		},
+		Status: v1alpha1.BucketStatus{
+			BucketID:    bucketName,
+			BucketReady: true,
+		},
+	}
+	bc := v1alpha1.BucketClaim{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      bucketClaimName,
+			Namespace: ns,
+		},
+		Status: v1alpha1.BucketClaimStatus{
+			BucketReady: true,
+			BucketName:  bucketName,
+		},
+	}
+	bac := v1alpha1.BucketAccessClass{
+		ObjectMeta: metav1.ObjectMeta{Name: bucketAccessClassName},
+		DriverName: driver,
+	}
+	ba := v1alpha1.BucketAccess{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      bucketAccessName,
+			Namespace: ns,
+			UID:       uid,
+		},
+		Spec: v1alpha1.BucketAccessSpec{
+			BucketClaimName:       bucketClaimName,
+			Protocol:              v1alpha1.ProtocolAzure,
+			BucketAccessClassName: bucketAccessClassName,
+			CredentialsSecretName: secretName,
+		},
+	}
+
+	client := fakebucketclientset.NewSimpleClientset(&b, &bc, &bac, &ba)
+	kubeClient := fakekubeclientset.NewSimpleClientset(&corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      secretName,
+			Namespace: ns,
+		},
+	})
+	bal := BucketAccessListener{
+		driverName:        driver,
+		provisionerClient: &mpc,
+		bucketClient:      client,
+		kubeClient:        kubeClient,
+	}
+
+	ctx := context.TODO()
+	if err := bal.Add(ctx, &ba); err != nil {
+		t.Fatalf("Add returned: %+v", err)
+	}
+
+	updatedBA, err := bal.bucketAccesses(ns).Get(ctx, ba.Name, metav1.GetOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !updatedBA.Status.AccessGranted {
+		t.Fatalf("Expected access to be granted")
+	}
+	expectedAccountID := consts.AccountNamePrefix + string(uid)
+	if updatedBA.Status.AccountID != expectedAccountID {
+		t.Fatalf("Expected account %s, got %s", expectedAccountID, updatedBA.Status.AccountID)
 	}
 }
 

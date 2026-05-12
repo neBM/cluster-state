@@ -14,3 +14,7 @@ Local patch:
 - The same path also resynchronizes a claim when a `Bucket` is already Ready,
   which repairs claims created before the sidecar fix and covers imported
   brownfield buckets.
+- `pkg/bucketaccess/bucketaccess_controller.go` treats an existing credentials
+  Secret as an already minted grant and updates `BucketAccess` finalizer/status
+  from fresh objects, avoiding repeated backend grants after resource-version
+  conflicts.
