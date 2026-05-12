@@ -144,7 +144,7 @@ The helper script automates those checks by:
 | --- | --- | --- |
 | `athenaeum-attachments` | Active | COSI `BucketAccess/default/athenaeum-attachments` creates `athenaeum-attachments-s3`; `apps/athenaeum/deployment-default-athenaeum-backend.yaml` mounts `BucketInfo` and exports the app's `MINIO_*` names at container start |
 | `gitlab-runner-cache` | Active | `infrastructure/shared-services/gitlab-runner/runner-base/fragments/95-cache.toml` sets `BucketName = "gitlab-runner-cache"` for all live runner overlays |
-| `langfuse` | Active | `apps/langfuse/deployment-default-langfuse-{web,worker}.yaml` enable S3 event upload to bucket `langfuse` via `langfuse-secrets` |
+| `langfuse` | Active | COSI `BucketAccess/default/langfuse` creates `langfuse-s3`; `apps/langfuse/deployment-default-langfuse-{web,worker}.yaml` mount `BucketInfo` and export Langfuse's S3 event-upload env vars at container start |
 | `loki` | Active | COSI `BucketAccess/default/loki` creates `loki-cosi-s3`; `infrastructure/observability-core/loki/statefulset-default-loki.yaml` renders `BucketInfo` into the live Loki config |
 | `overseerr-litestream` | Active | COSI `BucketAccess/default/overseerr-litestream` creates `overseerr-litestream-s3`; `apps/overseerr/deployment-default-overseerr.yaml` mounts `BucketInfo` for Litestream |
 | `plex-backup` | Active | `apps/media-centre/cronjob-default-plex-db-backup.yaml` writes rolling backups to `plex-backup`, and `apps/media-centre/deployment-default-plex.yaml` reads the same bucket for restore |

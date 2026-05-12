@@ -26,7 +26,7 @@ until each bucket is migrated and verified.
 | `victoriametrics` | Migrated | `Bucket/victoriametrics`, `BucketClaim/default/victoriametrics`, `BucketAccess/default/victoriametrics` | `Secret/default/victoriametrics-cosi-s3` mounted as `BucketInfo` by `Deployment/victoriametrics` vmrestore init and vmbackup sidecar | Restore and backup completed on 2026-05-12; scoped credentials were denied against `plex-backup` |
 | `loki` | Migrated | `Bucket/loki`, `BucketClaim/default/loki`, `BucketAccess/default/loki` | `Secret/default/loki-cosi-s3` mounted as `BucketInfo` by `StatefulSet/loki` render-config init | Loki restarted with rendered COSI config on 2026-05-12 and read TSDB index files from S3; scoped credentials were denied against `plex-backup` |
 | `athenaeum-attachments` | Migrated | `Bucket/athenaeum-attachments`, `BucketClaim/default/athenaeum-attachments`, `BucketAccess/default/athenaeum-attachments` | `Secret/default/athenaeum-attachments-s3` mounted as `BucketInfo` by `Deployment/athenaeum-backend` | Backend restarted healthy on 2026-05-12; scoped credentials wrote/read/deleted a smoke object and were denied against `plex-backup` |
-| `langfuse` | Pending | — | legacy Secret | — |
+| `langfuse` | Migrated | `Bucket/langfuse`, `BucketClaim/default/langfuse`, `BucketAccess/default/langfuse` | `Secret/default/langfuse-s3` mounted as `BucketInfo` by `Deployment/langfuse-web` and `Deployment/langfuse-worker` | Web and worker restarted healthy on 2026-05-12; scoped credentials wrote/read/deleted a smoke object and were denied against `plex-backup` |
 | `gitlab-runner-cache` | Pending | — | legacy Secret | — |
 | `renovate-cache` | Pending | — | GitLab CI variables | — |
 
