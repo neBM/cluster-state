@@ -24,7 +24,7 @@ until each bucket is migrated and verified.
 | `plex-backup` | Migrated | `Bucket/plex-backup`, `BucketClaim/default/plex-backup`, `BucketAccess/default/plex-backup` | `Secret/default/plex-backup-s3` mounted as `BucketInfo` by `Deployment/plex` db-restore init and `CronJob/plex-db-backup` | Manual `plex-db-backup` job completed on 2026-05-12; scoped credentials were denied against `overseerr-litestream` |
 | `overseerr-litestream` | Migrated | `Bucket/overseerr-litestream`, `BucketClaim/default/overseerr-litestream`, `BucketAccess/default/overseerr-litestream` | `Secret/default/overseerr-litestream-s3` mounted as `BucketInfo` by `Deployment/overseerr` Litestream containers | Restore init completed and Litestream uploaded LTX on 2026-05-12; scoped credentials were denied against `plex-backup` |
 | `victoriametrics` | Migrated | `Bucket/victoriametrics`, `BucketClaim/default/victoriametrics`, `BucketAccess/default/victoriametrics` | `Secret/default/victoriametrics-cosi-s3` mounted as `BucketInfo` by `Deployment/victoriametrics` vmrestore init and vmbackup sidecar | Restore and backup completed on 2026-05-12; scoped credentials were denied against `plex-backup` |
-| `loki` | Pending | — | legacy Secret | — |
+| `loki` | Migrated | `Bucket/loki`, `BucketClaim/default/loki`, `BucketAccess/default/loki` | `Secret/default/loki-cosi-s3` mounted as `BucketInfo` by `StatefulSet/loki` render-config init | Loki restarted with rendered COSI config on 2026-05-12 and read TSDB index files from S3; scoped credentials were denied against `plex-backup` |
 | `athenaeum-attachments` | Pending | — | legacy Secret | — |
 | `langfuse` | Pending | — | legacy Secret | — |
 | `gitlab-runner-cache` | Pending | — | legacy Secret | — |
