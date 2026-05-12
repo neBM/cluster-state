@@ -8,6 +8,8 @@ resources:
 - receiver-cluster-state.yaml
 - kustomization-storage-classes.yaml
 - kustomization-storage.yaml
+- kustomization-storage-cosi.yaml
+- kustomization-storage-cosi-driver.yaml
 - kustomization-storage-access.yaml
 - kustomization-storage-backups.yaml
 - kustomization-platform.yaml
