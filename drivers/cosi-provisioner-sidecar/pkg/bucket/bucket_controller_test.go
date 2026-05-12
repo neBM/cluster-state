@@ -22,6 +22,7 @@ import (
 
 	"sigs.k8s.io/container-object-storage-interface-api/apis/objectstorage/v1alpha1"
 	fakebucketclientset "sigs.k8s.io/container-object-storage-interface-api/client/clientset/versioned/fake"
+	"sigs.k8s.io/container-object-storage-interface-provisioner-sidecar/pkg/consts"
 	cosi "sigs.k8s.io/container-object-storage-interface-spec"
 	fakespec "sigs.k8s.io/container-object-storage-interface-spec/fake"
 
@@ -156,8 +157,22 @@ func TestAddUpdatesBucketClaimStatusSubresource(t *testing.T) {
 		t.Fatalf("BucketClaim status was not marked ready: %+v", got.Status)
 	}
 
+	gotBucket, err := client.ObjectstorageV1alpha1().Buckets().Get(ctx, "bucket1", metav1.GetOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !gotBucket.Status.BucketReady || gotBucket.Status.BucketID != "bucket1" {
+		t.Fatalf("Bucket status was not marked ready: %+v", gotBucket.Status)
+	}
+	if !hasFinalizer(gotBucket.Finalizers, consts.BucketFinalizer) {
+		t.Fatalf("Bucket finalizer was not added: %+v", gotBucket.Finalizers)
+	}
+
 	if !hasUpdateStatusAction(client.Actions(), "bucketclaims") {
 		t.Fatalf("BucketClaim status was not updated through the status subresource: %#v", client.Actions())
+	}
+	if !hasUpdateStatusAction(client.Actions(), "buckets") {
+		t.Fatalf("Bucket status was not updated through the status subresource: %#v", client.Actions())
 	}
 }
 
@@ -222,6 +237,15 @@ func hasUpdateStatusAction(actions []kubetesting.Action, resource string) bool {
 		}
 		updateAction, ok := action.(kubetesting.UpdateAction)
 		if ok && updateAction.GetSubresource() == "status" {
+			return true
+		}
+	}
+	return false
+}
+
+func hasFinalizer(finalizers []string, finalizer string) bool {
+	for _, item := range finalizers {
+		if item == finalizer {
 			return true
 		}
 	}

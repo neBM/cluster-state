@@ -125,25 +125,48 @@ func (b *BucketListener) Add(ctx context.Context, inputBucket *v1alpha1.Bucket) 
 	}
 
 	if bucket.Status.BucketReady {
+		updatedBucket, err := b.updateBucketStatus(ctx, bucket)
+		if err != nil {
+			return err
+		}
+		bucket = updatedBucket
+
 		if err := b.updateBucketClaimStatus(ctx, bucket); err != nil {
 			return err
 		}
 	}
 
-	controllerutil.AddFinalizer(bucket, consts.BucketFinalizer)
-	if _, err = b.buckets().Update(ctx, bucket, metav1.UpdateOptions{}); err != nil {
-		klog.ErrorS(err, "Failed to update bucket finalizers", "bucket", bucket.ObjectMeta.Name)
-		return errors.Wrap(err, "Failed to update bucket finalizers")
+	latestBucket, err := b.buckets().Get(ctx, bucket.Name, metav1.GetOptions{})
+	if err != nil {
+		return err
 	}
-
-	// if this step fails, then controller will retry with backoff
-	if _, err = b.buckets().UpdateStatus(ctx, bucket, metav1.UpdateOptions{}); err != nil {
-		klog.ErrorS(err, "Failed to update bucket status",
-			"bucket", bucket.ObjectMeta.Name)
-		return errors.Wrap(err, "Failed to update bucket status")
+	if controllerutil.AddFinalizer(latestBucket, consts.BucketFinalizer) {
+		if _, err = b.buckets().Update(ctx, latestBucket, metav1.UpdateOptions{}); err != nil {
+			klog.ErrorS(err, "Failed to update bucket finalizers", "bucket", bucket.ObjectMeta.Name)
+			return errors.Wrap(err, "Failed to update bucket finalizers")
+		}
 	}
 
 	return nil
+}
+
+func (b *BucketListener) updateBucketStatus(ctx context.Context, bucket *v1alpha1.Bucket) (*v1alpha1.Bucket, error) {
+	latestBucket, err := b.buckets().Get(ctx, bucket.Name, metav1.GetOptions{})
+	if err != nil {
+		return nil, err
+	}
+
+	latestBucket.Status.BucketID = bucket.Status.BucketID
+	latestBucket.Status.BucketReady = bucket.Status.BucketReady
+
+	updatedBucket, err := b.buckets().UpdateStatus(ctx, latestBucket, metav1.UpdateOptions{})
+	if err != nil {
+		klog.ErrorS(err, "Failed to update bucket status",
+			"bucket", bucket.ObjectMeta.Name)
+		return nil, errors.Wrap(err, "Failed to update bucket status")
+	}
+
+	return updatedBucket, nil
 }
 
 func (b *BucketListener) updateBucketClaimStatus(ctx context.Context, bucket *v1alpha1.Bucket) error {
