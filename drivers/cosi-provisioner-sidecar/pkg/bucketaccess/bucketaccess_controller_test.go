@@ -257,6 +257,68 @@ func TestAddBucketAccessPreservesS3EndpointRegion(t *testing.T) {
 	}
 }
 
+func TestDeleteBucketAccessRevokesIdentityAndDeletesSecret(t *testing.T) {
+	ns := "testns"
+	secretName := "secret1"
+	accountID := "account1"
+	bucketAccessName := "bucketAccess1"
+	revokedAccountID := ""
+
+	mpc := struct{ fakespec.FakeProvisionerClient }{}
+	mpc.FakeDriverRevokeBucketAccess = func(ctx context.Context,
+		in *cosi.DriverRevokeBucketAccessRequest,
+		opts ...grpc.CallOption) (*cosi.DriverRevokeBucketAccessResponse, error) {
+		revokedAccountID = in.AccountId
+		return &cosi.DriverRevokeBucketAccessResponse{}, nil
+	}
+
+	ba := v1alpha1.BucketAccess{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:       bucketAccessName,
+			Namespace:  ns,
+			Finalizers: []string{consts.BAFinalizer},
+		},
+		Spec: v1alpha1.BucketAccessSpec{
+			CredentialsSecretName: secretName,
+		},
+		Status: v1alpha1.BucketAccessStatus{
+			AccountID: accountID,
+		},
+	}
+
+	client := fakebucketclientset.NewSimpleClientset(&ba)
+	kubeClient := fakekubeclientset.NewSimpleClientset(&corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:       secretName,
+			Namespace:  ns,
+			Finalizers: []string{consts.SecretFinalizer},
+		},
+	})
+	bal := BucketAccessListener{
+		provisionerClient: &mpc,
+		bucketClient:      client,
+		kubeClient:        kubeClient,
+	}
+
+	ctx := context.TODO()
+	if err := bal.deleteBucketAccessOp(ctx, &ba); err != nil {
+		t.Fatalf("deleteBucketAccessOp returned: %+v", err)
+	}
+	if revokedAccountID != accountID {
+		t.Fatalf("Expected revoked account %s, got %s", accountID, revokedAccountID)
+	}
+	if _, err := bal.secrets(ns).Get(ctx, secretName, metav1.GetOptions{}); err == nil {
+		t.Fatalf("Expected generated secret to be deleted")
+	}
+	updatedBA, err := bal.bucketAccesses(ns).Get(ctx, bucketAccessName, metav1.GetOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(updatedBA.Finalizers) != 0 {
+		t.Fatalf("Expected BucketAccess finalizers to be removed, got %v", updatedBA.Finalizers)
+	}
+}
+
 func TestInitializeBucketClient(t *testing.T) {
 	client := fakebucketclientset.NewSimpleClientset()
 

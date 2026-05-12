@@ -352,13 +352,25 @@ func (bal *BucketAccessListener) Delete(ctx context.Context, bucketAccess *v1alp
 func (bal *BucketAccessListener) deleteBucketAccessOp(ctx context.Context, bucketAccess *v1alpha1.BucketAccess) error {
 	credSecretName := bucketAccess.Spec.CredentialsSecretName
 	secret, err := bal.secrets(bucketAccess.ObjectMeta.Namespace).Get(ctx, credSecretName, metav1.GetOptions{})
-	if err != nil {
+	if err != nil && !kubeerrors.IsNotFound(err) {
 		return err
 	}
 
-	if controllerutil.RemoveFinalizer(secret, consts.SecretFinalizer) {
-		_, err = bal.secrets(bucketAccess.ObjectMeta.Namespace).Update(ctx, secret, metav1.UpdateOptions{})
-		if err != nil {
+	if bucketAccess.Status.AccountID != "" {
+		if _, err := bal.provisionerClient.DriverRevokeBucketAccess(ctx, &cosi.DriverRevokeBucketAccessRequest{
+			AccountId: bucketAccess.Status.AccountID,
+		}); err != nil && status.Code(err) != codes.NotFound {
+			return err
+		}
+	}
+
+	if secret != nil {
+		if controllerutil.RemoveFinalizer(secret, consts.SecretFinalizer) {
+			if _, err = bal.secrets(bucketAccess.ObjectMeta.Namespace).Update(ctx, secret, metav1.UpdateOptions{}); err != nil {
+				return err
+			}
+		}
+		if err = bal.secrets(bucketAccess.ObjectMeta.Namespace).Delete(ctx, secret.Name, metav1.DeleteOptions{}); err != nil && !kubeerrors.IsNotFound(err) {
 			return err
 		}
 	}

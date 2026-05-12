@@ -22,3 +22,5 @@ Local patch:
   values instead of replacing them with AWS defaults.
 - `cmd/objectstorage-sidecar` waits briefly before leader election so normal
   single-replica rollouts can release the previous leader lease first.
+- Deleting a `BucketAccess` revokes the driver account and removes the generated
+  credentials Secret after clearing finalizers.
