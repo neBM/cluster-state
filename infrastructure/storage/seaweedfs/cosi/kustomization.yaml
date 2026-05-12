@@ -25,6 +25,9 @@ resources:
 - bucket-athenaeum-attachments.yaml
 - bucketclaim-default-athenaeum-attachments.yaml
 - bucketaccess-default-athenaeum-attachments.yaml
+- bucket-langfuse.yaml
+- bucketclaim-default-langfuse.yaml
+- bucketaccess-default-langfuse.yaml
 
 images:
 - name: "registry.brmartin.co.uk/ben/cluster-state/seaweedfs-cosi-driver"
