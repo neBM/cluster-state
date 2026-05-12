@@ -37,7 +37,7 @@ named-bucket cleanup candidates, see
 | COSI `BucketAccess/default/loki` | `loki` | `loki-cosi-s3` | `BucketInfo.spec.secretS3` | StatefulSet/loki render-config init |
 | COSI `BucketAccess/default/victoriametrics` | `victoriametrics` | `victoriametrics-cosi-s3` | `BucketInfo.spec.secretS3` | Deployment/victoriametrics vmrestore init and vmbackup sidecar |
 | COSI `BucketAccess/default/plex-backup` | `plex-backup` | `plex-backup-s3` | `BucketInfo.spec.secretS3` | Deployment/plex (db-restore init), CronJob/plex-db-backup |
-| `athenaeum` | `athenaeum-attachments` | `athenaeum-secrets` | `MINIO_ACCESS_KEY`, `MINIO_SECRET_KEY` | Deployment/athenaeum-backend |
+| COSI `BucketAccess/default/athenaeum-attachments` | `athenaeum-attachments` | `athenaeum-attachments-s3` | `BucketInfo.spec.secretS3` | Deployment/athenaeum-backend |
 | `langfuse` | `langfuse` | `langfuse-secrets` | `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY` | Deployments langfuse-{web,worker} |
 | `gitlab-runner` | `gitlab-runner-cache` | `gitlab-runner-cache-s3` | `accesskey`, `secretkey` | Deployments gitlab-runner-{amd64,any,arm64,services} |
 | `renovate` | `renovate-cache` | GitLab CI variables in `infrastructure/renovate-runner` | `S3_ACCESS_KEY`, `S3_SECRET_KEY` | Scheduled Renovate runner job |
@@ -47,8 +47,9 @@ named-bucket cleanup candidates, see
 All scoped identities have actions `Read,Write,List,Tagging` on their
 bucket only. `admin` has the additional `Admin` action cluster-wide.
 
-Athenaeum additionally expects `MINIO_URL` to point at the SeaweedFS S3
-service and `MINIO_BUCKET` to contain `athenaeum-attachments`.
+Athenaeum still uses `MINIO_*` process environment names internally, but
+`Deployment/athenaeum-backend` derives them from the mounted COSI `BucketInfo`
+at container start.
 
 ## Managing identities via `weed shell`
 

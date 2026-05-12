@@ -142,7 +142,7 @@ The helper script automates those checks by:
 
 | Bucket | Status | Current consumer evidence |
 | --- | --- | --- |
-| `athenaeum-attachments` | Active | `apps/athenaeum/deployment-default-athenaeum-backend.yaml` reads `MINIO_BUCKET` and the SeaweedFS S3 endpoint from `athenaeum-secrets` |
+| `athenaeum-attachments` | Active | COSI `BucketAccess/default/athenaeum-attachments` creates `athenaeum-attachments-s3`; `apps/athenaeum/deployment-default-athenaeum-backend.yaml` mounts `BucketInfo` and exports the app's `MINIO_*` names at container start |
 | `gitlab-runner-cache` | Active | `infrastructure/shared-services/gitlab-runner/runner-base/fragments/95-cache.toml` sets `BucketName = "gitlab-runner-cache"` for all live runner overlays |
 | `langfuse` | Active | `apps/langfuse/deployment-default-langfuse-{web,worker}.yaml` enable S3 event upload to bucket `langfuse` via `langfuse-secrets` |
 | `loki` | Active | COSI `BucketAccess/default/loki` creates `loki-cosi-s3`; `infrastructure/observability-core/loki/statefulset-default-loki.yaml` renders `BucketInfo` into the live Loki config |
