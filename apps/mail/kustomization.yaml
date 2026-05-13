@@ -36,6 +36,6 @@ images:
 - name: "rspamd/rspamd"
   newTag: "latest"
 - name: "nginx"
-  newTag: "1.30-alpine"
+  newTag: "1.31-alpine"
 - name: "salvoxia/sogo"
   newTag: "latest"
