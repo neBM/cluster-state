@@ -48,16 +48,13 @@ spec:
         image: tozd/postfix
         imagePullPolicy: IfNotPresent
         livenessProbe:
-          exec:
-            command:
-            - sh
-            - -c
-            - postfix check && echo ok
           failureThreshold: 3
           initialDelaySeconds: 30
           periodSeconds: 60
           successThreshold: 1
-          timeoutSeconds: 10
+          tcpSocket:
+            port: 25
+          timeoutSeconds: 5
         name: postfix
         ports:
         - containerPort: 25
