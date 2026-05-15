@@ -1,0 +1,19 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: postfix-spool-local
+  namespace: default
+  labels:
+    app: postfix
+    environment: prod
+    managed-by: flux
+  annotations:
+    storage-note: "Local retained Postfix queue on hestia; keep old postfix-spool-sw SeaweedFS PVC for rollback/archive."
+spec:
+  accessModes:
+  - ReadWriteOnce
+  resources:
+    requests:
+      storage: 5Gi
+  storageClassName: local-path-retain
+  volumeMode: Filesystem

@@ -167,4 +167,4 @@ spec:
           secretName: wildcard-brmartin-tls
       - name: spool
         persistentVolumeClaim:
-          claimName: postfix-spool-sw
+          claimName: postfix-spool-local
