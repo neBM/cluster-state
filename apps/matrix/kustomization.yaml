@@ -49,6 +49,6 @@ images:
 - name: "docker.io/library/nginx"
   newTag: "1.31.0-alpine"
 - name: "ghcr.io/element-hq/synapse"
-  newTag: "v1.152.1"
+  newTag: "v1.153.0"
 - name: "dock.mau.dev/mautrix/whatsapp"
   newTag: "v0.2605.0"
