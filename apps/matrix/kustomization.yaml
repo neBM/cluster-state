@@ -43,7 +43,7 @@ images:
 - name: "oci.element.io/element-admin"
   newTag: "latest"
 - name: "ghcr.io/element-hq/matrix-authentication-service"
-  newTag: "1.16.0"
+  newTag: "1.17.0"
 - name: "busybox"
   newTag: "1.37"
 - name: "docker.io/library/nginx"
