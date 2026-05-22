@@ -24,4 +24,4 @@ images:
 - name: "gitlab/gitlab-runner"
   newTag: "v18.11.3"
 - name: "busybox"
-  newTag: "1.37"
+  newTag: "1.38"
