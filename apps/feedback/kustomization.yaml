@@ -8,6 +8,6 @@ resources:
 
 images:
 - name: postgrest/postgrest
-  newTag: v14.11
+  newTag: v14.12
 - name: postgres
   newTag: 18-alpine
