@@ -3,8 +3,7 @@ kind: Kustomization
 resources:
 - configmap-default-feedback-schema.yaml
 - deployment-default-feedback-api.yaml
-- ingressroute-default-feedback-api.yaml
-- middleware-default-feedback-rate-limit.yaml
+- ingress-default-feedback-api.yaml
 - service-default-feedback-api.yaml
 
 images:
