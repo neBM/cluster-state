@@ -1,0 +1,110 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app: feedback-api
+  name: feedback-api
+  namespace: default
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: feedback-api
+  template:
+    metadata:
+      labels:
+        app: feedback-api
+    spec:
+      automountServiceAccountToken: false
+      containers:
+      - env:
+        - name: PGRST_DB_URI
+          valueFrom:
+            secretKeyRef:
+              key: PGRST_DB_URI
+              name: feedback-postgrest
+        - name: PGRST_DB_SCHEMAS
+          value: api
+        - name: PGRST_DB_ANON_ROLE
+          value: feedback_public
+        - name: PGRST_SERVER_PORT
+          value: "3000"
+        - name: PGRST_ADMIN_SERVER_PORT
+          value: "3001"
+        - name: PGRST_OPENAPI_SERVER_PROXY_URI
+          value: https://feedback.brmartin.co.uk
+        image: postgrest/postgrest
+        imagePullPolicy: IfNotPresent
+        livenessProbe:
+          failureThreshold: 3
+          httpGet:
+            path: /live
+            port: admin
+          initialDelaySeconds: 10
+          periodSeconds: 30
+          timeoutSeconds: 5
+        name: postgrest
+        ports:
+        - containerPort: 3000
+          name: http
+        - containerPort: 3001
+          name: admin
+        readinessProbe:
+          failureThreshold: 3
+          httpGet:
+            path: /ready
+            port: admin
+          initialDelaySeconds: 5
+          periodSeconds: 10
+          timeoutSeconds: 5
+        resources:
+          limits:
+            memory: 128Mi
+          requests:
+            cpu: 25m
+            memory: 64Mi
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+          readOnlyRootFilesystem: true
+      initContainers:
+      - command:
+        - /bin/sh
+        - -ec
+        - |
+          until pg_isready -d "${DATABASE_URL}"; do
+            echo "Waiting for PostgreSQL..."
+            sleep 5
+          done
+          psql "${DATABASE_URL}" -v ON_ERROR_STOP=1 -f /migrations/schema.sql
+        env:
+        - name: DATABASE_URL
+          valueFrom:
+            secretKeyRef:
+              key: DATABASE_URL
+              name: feedback-migrations
+        image: postgres
+        imagePullPolicy: IfNotPresent
+        name: migrate
+        resources:
+          limits:
+            memory: 128Mi
+          requests:
+            cpu: 25m
+            memory: 64Mi
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+          readOnlyRootFilesystem: true
+        volumeMounts:
+        - mountPath: /migrations
+          name: schema
+          readOnly: true
+      volumes:
+      - configMap:
+          name: feedback-schema
+        name: schema

@@ -1,0 +1,14 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+- configmap-default-feedback-schema.yaml
+- deployment-default-feedback-api.yaml
+- ingressroute-default-feedback-api.yaml
+- middleware-default-feedback-rate-limit.yaml
+- service-default-feedback-api.yaml
+
+images:
+- name: postgrest/postgrest
+  newTag: v14.11
+- name: postgres
+  newTag: 18-alpine

@@ -1,0 +1,20 @@
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  labels:
+    app: feedback-api
+  name: feedback-api
+  namespace: default
+spec:
+  entryPoints:
+  - websecure
+  routes:
+  - kind: Rule
+    match: Host(`feedback.brmartin.co.uk`) && Path(`/rpc/submit_feedback`)
+    middlewares:
+    - name: feedback-rate-limit
+    services:
+    - name: feedback-api
+      port: 80
+  tls:
+    secretName: wildcard-brmartin-tls
