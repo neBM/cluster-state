@@ -10,6 +10,11 @@ spec:
   - websecure
   routes:
   - kind: Rule
+    match: Host(`feedback.brmartin.co.uk`) && Path(`/`)
+    services:
+    - name: feedback-api
+      port: 80
+  - kind: Rule
     match: Host(`feedback.brmartin.co.uk`) && Path(`/rpc/submit_feedback`)
     middlewares:
     - name: feedback-rate-limit
