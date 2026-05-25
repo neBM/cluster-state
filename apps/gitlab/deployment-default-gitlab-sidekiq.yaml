@@ -4,6 +4,7 @@ metadata:
   labels:
     app: gitlab
     component: sidekiq
+    gitlab.com/rails-runtime: "true"
   name: gitlab-sidekiq
   namespace: default
 spec:
@@ -97,41 +98,12 @@ spec:
         terminationMessagePath: /dev/termination-log
         terminationMessagePolicy: File
         volumeMounts:
-        - mountPath: /var/opt/gitlab/config/templates
-          mountPropagation: None
-          name: config-templates
         - mountPath: /srv/gitlab/public/uploads
           mountPropagation: HostToContainer
           name: uploads
         - mountPath: /srv/gitlab/shared
           mountPropagation: HostToContainer
           name: shared
-        - mountPath: /etc/gitlab/postgres
-          mountPropagation: None
-          name: db-password
-          readOnly: true
-        - mountPath: /srv/gitlab/config/secrets.yml
-          mountPropagation: None
-          name: rails-secret
-          readOnly: true
-          subPath: secrets.yml
-        - mountPath: /etc/gitlab/kas
-          mountPropagation: None
-          name: kas-secret
-          readOnly: true
-        - mountPath: /etc/gitlab/gitlab-shell
-          mountPropagation: None
-          name: shell-secret
-          readOnly: true
-        - mountPath: /etc/gitlab/gitlab-workhorse
-          mountPropagation: None
-          name: workhorse-secret
-          readOnly: true
-        - mountPath: /srv/gitlab/config/initializers/smtp_settings.rb
-          mountPropagation: None
-          name: smtp-config
-          readOnly: true
-          subPath: smtp_settings.rb
       dnsPolicy: ClusterFirst
       enableServiceLinks: true
       restartPolicy: Always
@@ -144,50 +116,9 @@ spec:
       shareProcessNamespace: false
       terminationGracePeriodSeconds: 30
       volumes:
-      - configMap:
-          defaultMode: 420
-          name: gitlab-config-templates
-          optional: false
-        name: config-templates
       - name: uploads
         persistentVolumeClaim:
           claimName: gitlab-uploads-sw
       - name: shared
         persistentVolumeClaim:
           claimName: gitlab-shared-sw
-      - name: db-password
-        secret:
-          defaultMode: 420
-          items:
-          - key: db_password
-            path: password
-          optional: false
-          secretName: gitlab-secrets
-      - name: rails-secret
-        secret:
-          defaultMode: 420
-          optional: false
-          secretName: gitlab-rails-secret
-      - name: kas-secret
-        secret:
-          defaultMode: 420
-          items:
-          - key: kas_shared_secret
-            path: .gitlab_kas_secret
-          optional: false
-          secretName: gitlab-kas-secret
-      - name: shell-secret
-        secret:
-          defaultMode: 420
-          optional: false
-          secretName: gitlab-shell
-      - name: workhorse-secret
-        secret:
-          defaultMode: 420
-          optional: false
-          secretName: gitlab-workhorse
-      - configMap:
-          defaultMode: 420
-          name: gitlab-smtp-config
-          optional: false
-        name: smtp-config

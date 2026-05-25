@@ -123,3 +123,24 @@ replacements:
 images:
 - name: "redis"
   newTag: "8-alpine"
+
+# Rails components keep only component-specific storage in their base manifests.
+# Shared GitLab Rails config and secret mounts are injected here to prevent drift
+# between webservice, sidekiq, and migrations.
+patches:
+- path: patch-gitlab-rails-runtime-deployments.yaml
+  target:
+    kind: Deployment
+    labelSelector: gitlab.com/rails-runtime=true
+- path: patch-gitlab-rails-runtime-job.yaml
+  target:
+    kind: Job
+    labelSelector: gitlab.com/rails-runtime=true
+- path: patch-gitlab-rails-registry-auth-deployment.yaml
+  target:
+    kind: Deployment
+    labelSelector: gitlab.com/rails-registry-auth=true
+- path: patch-gitlab-rails-registry-auth-job.yaml
+  target:
+    kind: Job
+    labelSelector: gitlab.com/rails-registry-auth=true

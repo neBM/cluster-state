@@ -1,0 +1,105 @@
+- op: add
+  path: /spec/template/spec/containers/0/volumeMounts/0
+  value:
+    mountPath: /var/opt/gitlab/config/templates
+    name: config-templates
+- op: add
+  path: /spec/template/spec/containers/0/volumeMounts/3
+  value:
+    mountPath: /etc/gitlab/postgres
+    name: db-password
+    readOnly: true
+- op: add
+  path: /spec/template/spec/containers/0/volumeMounts/4
+  value:
+    mountPath: /srv/gitlab/config/secrets.yml
+    name: rails-secret
+    readOnly: true
+    subPath: secrets.yml
+- op: add
+  path: /spec/template/spec/containers/0/volumeMounts/5
+  value:
+    mountPath: /etc/gitlab/kas
+    name: kas-secret
+    readOnly: true
+- op: add
+  path: /spec/template/spec/containers/0/volumeMounts/6
+  value:
+    mountPath: /etc/gitlab/gitlab-workhorse
+    name: workhorse-secret
+    readOnly: true
+- op: add
+  path: /spec/template/spec/containers/0/volumeMounts/7
+  value:
+    mountPath: /etc/gitlab/gitlab-shell
+    name: shell-secret
+    readOnly: true
+- op: add
+  path: /spec/template/spec/containers/0/volumeMounts/8
+  value:
+    mountPath: /srv/gitlab/config/initializers/smtp_settings.rb
+    name: smtp-config
+    readOnly: true
+    subPath: smtp_settings.rb
+- op: add
+  path: /spec/template/spec/volumes/0
+  value:
+    configMap:
+      defaultMode: 420
+      name: gitlab-config-templates
+      optional: false
+    name: config-templates
+- op: add
+  path: /spec/template/spec/volumes/3
+  value:
+    name: db-password
+    secret:
+      defaultMode: 420
+      items:
+      - key: db_password
+        path: password
+      optional: false
+      secretName: gitlab-secrets
+- op: add
+  path: /spec/template/spec/volumes/4
+  value:
+    name: rails-secret
+    secret:
+      defaultMode: 420
+      optional: false
+      secretName: gitlab-rails-secret
+- op: add
+  path: /spec/template/spec/volumes/5
+  value:
+    name: kas-secret
+    secret:
+      defaultMode: 420
+      items:
+      - key: kas_shared_secret
+        path: .gitlab_kas_secret
+      optional: false
+      secretName: gitlab-kas-secret
+- op: add
+  path: /spec/template/spec/volumes/6
+  value:
+    name: workhorse-secret
+    secret:
+      defaultMode: 420
+      optional: false
+      secretName: gitlab-workhorse
+- op: add
+  path: /spec/template/spec/volumes/7
+  value:
+    name: shell-secret
+    secret:
+      defaultMode: 420
+      optional: false
+      secretName: gitlab-shell
+- op: add
+  path: /spec/template/spec/volumes/8
+  value:
+    configMap:
+      defaultMode: 420
+      name: gitlab-smtp-config
+      optional: false
+    name: smtp-config

@@ -6,6 +6,8 @@ metadata:
   labels:
     app: gitlab
     component: migrations
+    gitlab.com/rails-registry-auth: "true"
+    gitlab.com/rails-runtime: "true"
 spec:
   backoffLimit: 6
   template:
@@ -63,37 +65,12 @@ spec:
             cpu: 75m
             memory: 2100Mi
         volumeMounts:
-        - mountPath: /var/opt/gitlab/config/templates
-          name: config-templates
         - mountPath: /srv/gitlab/public/uploads
           mountPropagation: HostToContainer
           name: uploads
         - mountPath: /srv/gitlab/shared
           mountPropagation: HostToContainer
           name: shared
-        - mountPath: /etc/gitlab/postgres
-          name: db-password
-          readOnly: true
-        - mountPath: /srv/gitlab/config/secrets.yml
-          name: rails-secret
-          readOnly: true
-          subPath: secrets.yml
-        - mountPath: /etc/gitlab/kas
-          name: kas-secret
-          readOnly: true
-        - mountPath: /etc/gitlab/gitlab-workhorse
-          name: workhorse-secret
-          readOnly: true
-        - mountPath: /etc/gitlab/gitlab-shell
-          name: shell-secret
-          readOnly: true
-        - mountPath: /etc/gitlab/registry
-          name: registry-auth
-          readOnly: true
-        - mountPath: /srv/gitlab/config/initializers/smtp_settings.rb
-          name: smtp-config
-          readOnly: true
-          subPath: smtp_settings.rb
       dnsPolicy: ClusterFirst
       enableServiceLinks: true
       restartPolicy: OnFailure
@@ -106,55 +83,9 @@ spec:
       shareProcessNamespace: false
       terminationGracePeriodSeconds: 30
       volumes:
-      - configMap:
-          defaultMode: 420
-          name: gitlab-config-templates
-          optional: false
-        name: config-templates
       - name: uploads
         persistentVolumeClaim:
           claimName: gitlab-uploads-sw
       - name: shared
         persistentVolumeClaim:
           claimName: gitlab-shared-sw
-      - name: db-password
-        secret:
-          defaultMode: 420
-          items:
-          - key: db_password
-            path: password
-          optional: false
-          secretName: gitlab-secrets
-      - name: rails-secret
-        secret:
-          defaultMode: 420
-          optional: false
-          secretName: gitlab-rails-secret
-      - name: kas-secret
-        secret:
-          defaultMode: 420
-          items:
-          - key: kas_shared_secret
-            path: .gitlab_kas_secret
-          optional: false
-          secretName: gitlab-kas-secret
-      - name: workhorse-secret
-        secret:
-          defaultMode: 420
-          optional: false
-          secretName: gitlab-workhorse
-      - name: shell-secret
-        secret:
-          defaultMode: 420
-          optional: false
-          secretName: gitlab-shell
-      - name: registry-auth
-        secret:
-          defaultMode: 420
-          optional: false
-          secretName: gitlab-registry-auth
-      - configMap:
-          defaultMode: 420
-          name: gitlab-smtp-config
-          optional: false
-        name: smtp-config
