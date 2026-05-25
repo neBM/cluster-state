@@ -32,7 +32,7 @@ spec:
         - name: PGRST_JWT_AUD
           value: feedback-api
         - name: PGRST_JWT_ROLE_CLAIM_KEY
-          value: '.realm_access.roles[?(@ == "feedback_admin")]'
+          value: '.resource_access."feedback-api".roles[?(@ == "feedback_admin")]'
         - name: PGRST_JWT_SECRET
           value: '@/etc/postgrest/jwks/keycloak-jwks.json'
         - name: PGRST_OPENAPI_SECURITY_ACTIVE
