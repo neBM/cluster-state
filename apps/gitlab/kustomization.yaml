@@ -38,11 +38,12 @@ configMapGenerator:
   - appVersion=v18.11.3
   # renovate: datasource=docker depName=registry.gitlab.com/gitlab-org/build/cng/gitlab-webservice-ce
   - migrationVersion=v18.11.3
+  - migrationRun=v18.11.3-r2
 replacements:
 - source:
     kind: ConfigMap
     name: gitlab-release
-    fieldPath: data.migrationVersion
+    fieldPath: data.migrationRun
   targets:
   - select:
       kind: Job
@@ -52,6 +53,11 @@ replacements:
     options:
       delimiter: '-'
       index: 2
+- source:
+    kind: ConfigMap
+    name: gitlab-release
+    fieldPath: data.migrationVersion
+  targets:
   - select:
       kind: Job
       labelSelector: app=gitlab,component=migrations
