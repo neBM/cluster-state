@@ -27,6 +27,16 @@ spec:
           value: api
         - name: PGRST_DB_ANON_ROLE
           value: feedback_public
+        - name: PGRST_DB_PRE_REQUEST
+          value: feedback_auth.validate_oidc_claims
+        - name: PGRST_JWT_AUD
+          value: feedback-api
+        - name: PGRST_JWT_ROLE_CLAIM_KEY
+          value: '.realm_access.roles[?(@ == "feedback_admin")]'
+        - name: PGRST_JWT_SECRET
+          value: '@/etc/postgrest/jwks/keycloak-jwks.json'
+        - name: PGRST_OPENAPI_SECURITY_ACTIVE
+          value: "true"
         - name: PGRST_SERVER_PORT
           value: "3000"
         - name: PGRST_ADMIN_SERVER_PORT
@@ -69,3 +79,13 @@ spec:
             drop:
             - ALL
           readOnlyRootFilesystem: true
+        volumeMounts:
+        - mountPath: /etc/postgrest/jwks/keycloak-jwks.json
+          name: keycloak-jwks
+          readOnly: true
+          subPath: keycloak-jwks.json
+      volumes:
+      - configMap:
+          defaultMode: 0444
+          name: feedback-keycloak-jwks
+        name: keycloak-jwks
