@@ -16,6 +16,61 @@ spec:
         app: feedback-api
     spec:
       automountServiceAccountToken: false
+      initContainers:
+      - args:
+        - -c
+        - |
+          import json
+          import os
+          import pathlib
+          import urllib.request
+
+          discovery_url = os.environ["OIDC_DISCOVERY_URL"]
+          jwks_path = pathlib.Path(os.environ["JWKS_PATH"])
+
+          with urllib.request.urlopen(discovery_url, timeout=10) as response:
+              discovery = json.load(response)
+
+          with urllib.request.urlopen(discovery["jwks_uri"], timeout=10) as response:
+              jwks = json.load(response)
+
+          if not jwks.get("keys"):
+              raise SystemExit("jwks_uri returned no keys")
+
+          jwks_path.write_text(
+              json.dumps(jwks, separators=(",", ":")) + "\n",
+              encoding="utf-8",
+          )
+        command:
+        - python
+        env:
+        - name: OIDC_DISCOVERY_URL
+          value: https://sso.brmartin.co.uk/realms/prod/.well-known/openid-configuration
+        - name: JWKS_PATH
+          value: /jwks/keycloak-jwks.json
+        - name: PYTHONDONTWRITEBYTECODE
+          value: "1"
+        image: python:3.13-alpine
+        imagePullPolicy: IfNotPresent
+        name: fetch-keycloak-jwks
+        resources:
+          limits:
+            memory: 64Mi
+          requests:
+            cpu: 10m
+            memory: 32Mi
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+          readOnlyRootFilesystem: true
+          runAsGroup: 65532
+          runAsNonRoot: true
+          runAsUser: 65532
+        volumeMounts:
+        - mountPath: /jwks
+          name: keycloak-jwks
       containers:
       - env:
         - name: PGRST_DB_URI
@@ -80,12 +135,12 @@ spec:
             - ALL
           readOnlyRootFilesystem: true
         volumeMounts:
-        - mountPath: /etc/postgrest/jwks/keycloak-jwks.json
+        - mountPath: /etc/postgrest/jwks
           name: keycloak-jwks
           readOnly: true
-          subPath: keycloak-jwks.json
+      securityContext:
+        fsGroup: 65532
+        fsGroupChangePolicy: OnRootMismatch
       volumes:
-      - configMap:
-          defaultMode: 0444
-          name: feedback-keycloak-jwks
+      - emptyDir: {}
         name: keycloak-jwks

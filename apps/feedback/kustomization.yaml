@@ -14,9 +14,6 @@ configMapGenerator:
   literals:
   - migrationVersion=v2
   - migrationRun=v2
-- name: feedback-keycloak-jwks
-  files:
-  - keycloak-jwks.json=files/keycloak-jwks.json
 replacements:
 - source:
     kind: ConfigMap
