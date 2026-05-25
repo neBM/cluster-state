@@ -1,0 +1,60 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app: feedback-admin
+  name: feedback-admin
+  namespace: default
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: feedback-admin
+  template:
+    metadata:
+      labels:
+        app: feedback-admin
+    spec:
+      automountServiceAccountToken: false
+      containers:
+      - image: registry.brmartin.co.uk/ben/feedback-admin:461b2ab3
+        imagePullPolicy: IfNotPresent
+        livenessProbe:
+          failureThreshold: 3
+          httpGet:
+            path: /healthz
+            port: http
+          initialDelaySeconds: 10
+          periodSeconds: 30
+          timeoutSeconds: 5
+        name: nginx
+        ports:
+        - containerPort: 80
+          name: http
+        readinessProbe:
+          failureThreshold: 3
+          httpGet:
+            path: /healthz
+            port: http
+          initialDelaySeconds: 5
+          periodSeconds: 10
+          timeoutSeconds: 5
+        resources:
+          limits:
+            memory: 128Mi
+          requests:
+            cpu: 10m
+            memory: 32Mi
+        securityContext:
+          allowPrivilegeEscalation: false
+        volumeMounts:
+        - mountPath: /usr/share/nginx/html/admin/config.js
+          name: feedback-admin-config
+          readOnly: true
+          subPath: config.js
+      imagePullSecrets:
+      - name: gitlab-registry
+      volumes:
+      - configMap:
+          name: feedback-admin-config
+        name: feedback-admin-config

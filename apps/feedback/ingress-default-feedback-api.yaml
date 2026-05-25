@@ -16,6 +16,13 @@ spec:
       paths:
       - backend:
           service:
+            name: feedback-admin
+            port:
+              number: 80
+        path: /admin
+        pathType: Prefix
+      - backend:
+          service:
             name: feedback-api
             port:
               number: 80
