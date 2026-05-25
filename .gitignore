@@ -21,3 +21,6 @@ __pycache__/
 
 # CSI driver build outputs
 /drivers/seaweedfs-csi-driver/_output/
+
+# App build outputs
+/apps/feedback/migrations/dist/

@@ -1,0 +1,49 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  labels:
+    app: feedback-api
+    component: migrations
+  name: feedback-migrations-placeholder
+  namespace: default
+spec:
+  backoffLimit: 3
+  template:
+    metadata:
+      labels:
+        app: feedback-api
+        component: migrations
+    spec:
+      automountServiceAccountToken: false
+      containers:
+      - args:
+        - -dir
+        - /migrations
+        - postgres
+        - $(DATABASE_URL)
+        - up
+        env:
+        - name: DATABASE_URL
+          valueFrom:
+            secretKeyRef:
+              key: DATABASE_URL
+              name: feedback-migrations
+        image: registry.brmartin.co.uk/ben/cluster-state/feedback-migrations:placeholder
+        imagePullPolicy: IfNotPresent
+        name: migrations
+        resources:
+          limits:
+            memory: 128Mi
+          requests:
+            cpu: 25m
+            memory: 64Mi
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+          readOnlyRootFilesystem: true
+          runAsGroup: 65532
+          runAsNonRoot: true
+          runAsUser: 65532
+      restartPolicy: OnFailure

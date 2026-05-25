@@ -1,13 +1,40 @@
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 resources:
-- configmap-default-feedback-schema.yaml
 - deployment-default-feedback-api.yaml
 - ingress-default-feedback-api.yaml
+- job-default-feedback-migrations.yaml
 - service-default-feedback-api.yaml
+
+generatorOptions:
+  disableNameSuffixHash: true
+configMapGenerator:
+- name: feedback-release
+  literals:
+  - migrationVersion=v1
+replacements:
+- source:
+    kind: ConfigMap
+    name: feedback-release
+    fieldPath: data.migrationVersion
+  targets:
+  - select:
+      kind: Job
+      labelSelector: app=feedback-api,component=migrations
+    fieldPaths:
+    - metadata.name
+    options:
+      delimiter: '-'
+      index: 2
+  - select:
+      kind: Job
+      labelSelector: app=feedback-api,component=migrations
+    fieldPaths:
+    - spec.template.spec.containers.0.image
+    options:
+      delimiter: ':'
+      index: 1
 
 images:
 - name: postgrest/postgrest
   newTag: v14.12
-- name: postgres
-  newTag: 18-alpine
