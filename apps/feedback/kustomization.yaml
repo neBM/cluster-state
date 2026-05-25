@@ -6,6 +6,7 @@ resources:
 - job-default-feedback-migrations.yaml
 - service-default-feedback-api.yaml
 
+namespace: default
 generatorOptions:
   disableNameSuffixHash: true
 configMapGenerator:
