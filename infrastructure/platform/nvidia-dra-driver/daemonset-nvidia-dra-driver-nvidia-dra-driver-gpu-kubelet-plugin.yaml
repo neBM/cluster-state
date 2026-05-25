@@ -241,8 +241,8 @@ spec:
           type: ''
         name: plugins
       - hostPath:
-          path: /var/run/cdi
-          type: ''
+          path: /etc/cdi
+          type: DirectoryOrCreate
         name: cdi
       - hostPath:
           path: /
