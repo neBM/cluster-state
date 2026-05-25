@@ -11,4 +11,4 @@ resources:
 
 images:
 - name: "ghcr.io/stakater/reloader"
-  newTag: "v1.4.16"
+  newTag: "v1.4.17"
