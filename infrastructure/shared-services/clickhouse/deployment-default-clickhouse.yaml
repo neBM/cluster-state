@@ -67,8 +67,8 @@ spec:
             cpu: '2'
             memory: 3Gi
           requests:
-            cpu: 100m
-            memory: 256Mi
+            cpu: 300m
+            memory: 1536Mi
         terminationMessagePath: /dev/termination-log
         terminationMessagePolicy: File
         volumeMounts:

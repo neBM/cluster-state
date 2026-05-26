@@ -40,7 +40,7 @@ spec:
             memory: 2Gi
           requests:
             cpu: 50m
-            memory: 128Mi
+            memory: 640Mi
         securityContext:
           allowPrivilegeEscalation: true
           privileged: true
