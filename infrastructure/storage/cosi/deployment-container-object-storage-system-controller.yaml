@@ -34,7 +34,6 @@ spec:
         name: objectstorage-controller
         resources:
           limits:
-            cpu: 250m
             memory: 256Mi
           requests:
             cpu: 10m

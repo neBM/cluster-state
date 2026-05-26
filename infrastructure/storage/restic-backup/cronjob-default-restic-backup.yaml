@@ -32,7 +32,6 @@ spec:
             name: restic
             resources:
               limits:
-                cpu: 1500m
                 memory: 2Gi
               requests:
                 cpu: 200m

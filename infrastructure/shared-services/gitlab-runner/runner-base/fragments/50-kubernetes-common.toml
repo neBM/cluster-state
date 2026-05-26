@@ -6,7 +6,7 @@
     enable_service_links = false
 
     # Resource defaults for build containers.
-    # No cpu_limit: burstable QoS lets short-lived CI jobs use full node CPU.
+    # No CPU limits: burstable QoS lets short-lived CI jobs use full node CPU.
     cpu_request = "100m"
     memory_request = "512Mi"
     memory_limit = "6Gi"
@@ -14,7 +14,6 @@
     # Helper container resources.
     helper_cpu_request = "50m"
     helper_memory_request = "128Mi"
-    helper_cpu_limit = "500m"
     helper_memory_limit = "256Mi"
 
     # Poll settings.

@@ -80,7 +80,6 @@ spec:
           protocol: TCP
         resources:
           limits:
-            cpu: 200m
             memory: 128Mi
           requests:
             cpu: 50m
@@ -130,7 +129,6 @@ spec:
         name: node-driver-registrar
         resources:
           limits:
-            cpu: 50m
             memory: 32Mi
           requests:
             cpu: 10m
@@ -155,7 +153,6 @@ spec:
         name: liveness-probe
         resources:
           limits:
-            cpu: 50m
             memory: 32Mi
           requests:
             cpu: 10m

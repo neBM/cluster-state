@@ -67,7 +67,6 @@ spec:
           timeoutSeconds: 5
         resources:
           limits:
-            cpu: '1'
             memory: 1Gi
           requests:
             cpu: 200m
@@ -100,7 +99,6 @@ spec:
         name: vmbackup
         resources:
           limits:
-            cpu: 200m
             memory: 1Gi
           requests:
             cpu: 10m

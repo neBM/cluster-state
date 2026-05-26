@@ -36,7 +36,6 @@ spec:
         name: seaweedfs-mount
         resources:
           limits:
-            cpu: 200m
             memory: 2Gi
           requests:
             cpu: 50m

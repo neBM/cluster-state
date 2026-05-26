@@ -68,7 +68,6 @@ spec:
           timeoutSeconds: 5
         resources:
           limits:
-            cpu: 500m
             memory: 1Gi
           requests:
             cpu: 100m
@@ -129,7 +128,6 @@ spec:
         name: init-ldap-conf
         resources:
           limits:
-            cpu: 50m
             memory: 32Mi
           requests:
             cpu: 10m

@@ -32,7 +32,6 @@ spec:
         name: gitlab-runner
         resources:
           limits:
-            cpu: 500m
             memory: 256Mi
           requests:
             cpu: 100m

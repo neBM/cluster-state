@@ -39,7 +39,6 @@ spec:
         name: driver
         resources:
           limits:
-            cpu: 250m
             memory: 256Mi
           requests:
             cpu: 10m
@@ -63,7 +62,6 @@ spec:
         name: objectstorage-sidecar
         resources:
           limits:
-            cpu: 250m
             memory: 256Mi
           requests:
             cpu: 10m
