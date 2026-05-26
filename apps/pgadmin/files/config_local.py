@@ -20,6 +20,8 @@ OAUTH2_CONFIG = [
         "OAUTH2_CLIENT_SECRET": os.environ["OAUTH2_CLIENT_SECRET"],
         "OAUTH2_SERVER_METADATA_URL": "https://sso.brmartin.co.uk/realms/prod/.well-known/openid-configuration",
         "OAUTH2_SCOPE": "openid email profile",
+        "OAUTH2_CHALLENGE_METHOD": "S256",
+        "OAUTH2_RESPONSE_TYPE": "code",
         "OAUTH2_USERNAME_CLAIM": "preferred_username",
         "OAUTH2_ADDITIONAL_CLAIMS": {
             "groups": ["pgadmin-users"],
