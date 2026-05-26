@@ -26,6 +26,15 @@ spec:
         component: filer
         environment: prod
     spec:
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: kubernetes.io/hostname
+                operator: In
+                values:
+                - nyx
       automountServiceAccountToken: true
       containers:
       - args:
