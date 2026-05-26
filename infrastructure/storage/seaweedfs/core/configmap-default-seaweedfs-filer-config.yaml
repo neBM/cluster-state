@@ -1,0 +1,47 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  labels:
+    app: seaweedfs
+    component: filer
+    environment: prod
+  name: seaweedfs-filer-config
+  namespace: default
+data:
+  filer.toml.tmpl: |
+    [filer.options]
+    recursive_delete = false
+
+    [leveldb2]
+    enabled = false
+
+    [postgres2]
+    enabled = true
+    createTable = """
+      CREATE TABLE IF NOT EXISTS "%s" (
+        dirhash BIGINT,
+        name VARCHAR(65535),
+        directory VARCHAR(65535),
+        meta bytea,
+        PRIMARY KEY (dirhash, name)
+      );
+    """
+    hostname = "POSTGRES_HOST_PLACEHOLDER"
+    port = POSTGRES_PORT_PLACEHOLDER
+    username = "POSTGRES_USER_PLACEHOLDER"
+    password = "POSTGRES_PASSWORD_PLACEHOLDER"
+    database = "POSTGRES_DATABASE_PLACEHOLDER"
+    schema = ""
+    sslmode = "disable"
+    connection_max_idle = 10
+    connection_max_open = 50
+    connection_max_lifetime_seconds = 300
+    pgbouncer_compatible = false
+    enableUpsert = true
+    upsertQuery = """
+      INSERT INTO "%[1]s" (dirhash, name, directory, meta)
+        VALUES($1, $2, $3, $4)
+        ON CONFLICT (dirhash, name) DO UPDATE SET
+          directory=EXCLUDED.directory,
+          meta=EXCLUDED.meta
+    """

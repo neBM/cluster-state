@@ -11,6 +11,7 @@ resources:
 - clusterrolebinding-seaweedfs-csi-node.yaml
 - clusterrolebinding-seaweedfs-csi-provisioner.yaml
 - clusterrolebinding-seaweedfs-csi-resizer.yaml
+- configmap-default-seaweedfs-filer-config.yaml
 - daemonset-default-seaweedfs-consumer-recycler.yaml
 - daemonset-default-seaweedfs-csi-node.yaml
 - daemonset-default-seaweedfs-mount.yaml
