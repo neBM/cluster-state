@@ -99,8 +99,8 @@ spec:
           limits:
             memory: 2Gi
           requests:
-            cpu: 100m
-            memory: 800Mi
+            cpu: 25m
+            memory: 1280Mi
         terminationMessagePath: /dev/termination-log
         terminationMessagePolicy: File
         volumeMounts:
