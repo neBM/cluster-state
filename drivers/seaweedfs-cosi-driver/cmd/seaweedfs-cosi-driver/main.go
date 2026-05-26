@@ -23,11 +23,15 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"flag"
+	"fmt"
 	"io/ioutil"
 	"log"
+	"net"
+	"net/url"
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/seaweedfs/seaweedfs-cosi-driver/pkg/driver"
 	"github.com/seaweedfs/seaweedfs-cosi-driver/pkg/envflag"
@@ -84,11 +88,48 @@ func run(ctx context.Context, opts runOptions) error {
 		return err
 	}
 
+	if err := removeStaleUnixSocket(opts.cosiEndpoint); err != nil {
+		return err
+	}
+
 	cosiSrv, err := provisioner.NewDefaultCOSIProvisionerServer(opts.cosiEndpoint, idSrv, provSrv)
 	if err != nil {
 		return err
 	}
 	return cosiSrv.Run(ctx)
+}
+
+func removeStaleUnixSocket(endpoint string) error {
+	addr, err := url.Parse(endpoint)
+	if err != nil {
+		return fmt.Errorf("parse COSI endpoint %q: %w", endpoint, err)
+	}
+	if addr.Scheme != "unix" || addr.Path == "" {
+		return nil
+	}
+
+	info, err := os.Lstat(addr.Path)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("stat COSI endpoint socket %q: %w", addr.Path, err)
+	}
+	if info.Mode()&os.ModeSocket == 0 {
+		return fmt.Errorf("refusing to remove non-socket COSI endpoint %q", addr.Path)
+	}
+
+	conn, err := net.DialTimeout("unix", addr.Path, 200*time.Millisecond)
+	if err == nil {
+		conn.Close()
+		return fmt.Errorf("refusing to remove active COSI endpoint socket %q", addr.Path)
+	}
+
+	if err := os.Remove(addr.Path); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("remove stale COSI endpoint socket %q: %w", addr.Path, err)
+	}
+	klog.InfoS("Removed stale COSI endpoint socket", "path", addr.Path, "dialError", err)
+	return nil
 }
 
 func loadClientTLS() grpc.DialOption {
