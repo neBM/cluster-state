@@ -292,7 +292,7 @@ func (s *provisionerServer) DriverGrantBucketAccess(ctx context.Context, req *co
 		return nil, status.Error(codes.Internal, err.Error())
 	}
 
-	klog.InfoS("granted bucket access", "user", user, "bucket", bucket, "accessKey", credential.AccessKey)
+	klog.InfoS("granted bucket access", "user", user, "bucket", bucket)
 	return &cosispec.DriverGrantBucketAccessResponse{
 		AccountId: user,
 		Credentials: map[string]*cosispec.CredentialDetails{
