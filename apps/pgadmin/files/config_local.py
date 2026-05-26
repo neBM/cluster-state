@@ -22,7 +22,7 @@ OAUTH2_CONFIG = [
         "OAUTH2_SCOPE": "openid email profile",
         "OAUTH2_USERNAME_CLAIM": "preferred_username",
         "OAUTH2_ADDITIONAL_CLAIMS": {
-            "email": "ben@brmartin.co.uk",
+            "groups": ["pgadmin-users"],
         },
         "OAUTH2_SSL_CERT_VERIFICATION": True,
     }
