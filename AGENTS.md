@@ -538,7 +538,6 @@ glab api "projects/<id>/pipelines?ref=main&status=success&per_page=1"
 | athenaeum | Multiple | Knowledge wiki (backend, frontend, redis), Keycloak SSO, Ollama for fact extraction |
 | headlamp | Deployment | K8s web dashboard, Keycloak OIDC, kube-system namespace |
 | jayne-martin-counselling | Deployment | Static counselling website |
-| laurens-dissertation | Deployment | TikTok Shop vs Amazon profitability study |
 | iris | Deployment | Self-hosted media server (Movies & TV) |
 | victoriametrics | Deployment | Metrics collection (Prometheus replacement), SeaweedFS S3 backup |
 | node-exporter | DaemonSet | Host metrics collection |

@@ -1071,7 +1071,6 @@ def main() -> int:
             "apps/langfuse",
             selectors={"default": "app=langfuse"},
         ),
-        Component("apps/laurens-dissertation", selectors={"default": "app=laurens-dissertation"}),
         Component(
             "apps/lldap",
             selectors={"default": "app=lldap"},
@@ -1186,7 +1185,6 @@ def main() -> int:
             "jayne-martin-counselling",
             "keycloak",
             "langfuse",
-            "laurens-dissertation",
             "lldap",
             "mail",
             "matrix",
