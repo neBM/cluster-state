@@ -106,7 +106,6 @@ spec:
             - ALL
           privileged: false
           readOnlyRootFilesystem: false
-          runAsGroup: 5050
           runAsNonRoot: true
           runAsUser: 5050
         startupProbe:
@@ -139,7 +138,6 @@ spec:
       securityContext:
         fsGroup: 5050
         fsGroupChangePolicy: OnRootMismatch
-        runAsGroup: 5050
         runAsNonRoot: true
         runAsUser: 5050
       shareProcessNamespace: false
