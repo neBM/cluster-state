@@ -1,0 +1,21 @@
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app.kubernetes.io/component: database-admin
+    app.kubernetes.io/instance: pgadmin
+    app.kubernetes.io/name: pgadmin
+  name: pgadmin
+  namespace: default
+spec:
+  internalTrafficPolicy: Cluster
+  ports:
+  - name: http
+    port: 80
+    protocol: TCP
+    targetPort: http
+  selector:
+    app.kubernetes.io/instance: pgadmin
+    app.kubernetes.io/name: pgadmin
+  sessionAffinity: None
+  type: ClusterIP

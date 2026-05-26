@@ -1,0 +1,20 @@
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  labels:
+    app.kubernetes.io/component: database-admin
+    app.kubernetes.io/instance: pgadmin
+    app.kubernetes.io/name: pgadmin
+  name: pgadmin
+  namespace: default
+spec:
+  entryPoints:
+  - websecure
+  routes:
+  - kind: Rule
+    match: Host(`pgadmin.brmartin.co.uk`)
+    services:
+    - name: pgadmin
+      port: http
+  tls:
+    secretName: wildcard-brmartin-tls

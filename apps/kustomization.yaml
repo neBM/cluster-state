@@ -15,6 +15,7 @@ resources:
 - nginx-sites
 - open-webui
 - overseerr
+- pgadmin
 - searxng
 - vaultwarden
 - gitlab
