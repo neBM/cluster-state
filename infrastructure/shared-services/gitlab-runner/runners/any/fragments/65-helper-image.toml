@@ -1,2 +1,2 @@
-    helper_image = "registry.brmartin.co.uk/infrastructure/gitlab-runner-helper:v18.11.2"
+    helper_image = "registry.brmartin.co.uk/infrastructure/gitlab-runner-helper:v19.0.0"
     image_pull_secrets = ["gitlab-runner-helper-pull"]
