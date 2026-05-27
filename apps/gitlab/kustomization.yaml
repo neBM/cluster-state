@@ -38,7 +38,7 @@ configMapGenerator:
   - appVersion=v18.11.4
   # renovate: datasource=docker depName=registry.gitlab.com/gitlab-org/build/cng/gitlab-webservice-ce
   - migrationVersion=v18.11.4
-  - migrationRun=v18.11.3-r3
+  - migrationRun=v18.11.4-r1
 replacements:
 - source:
     kind: ConfigMap
