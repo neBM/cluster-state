@@ -13,4 +13,4 @@ resources:
 
 images:
 - name: "us-docker.pkg.dev/fairwinds-ops/oss/goldilocks"
-  newTag: "v4.15.0"
+  newTag: "v4.15.1"
