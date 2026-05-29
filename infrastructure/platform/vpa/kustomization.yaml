@@ -37,6 +37,6 @@ images:
 - name: "registry.k8s.io/autoscaling/vpa-admission-controller"
   newTag: "1.6.0"
 - name: "registry.k8s.io/autoscaling/vpa-recommender"
-  newTag: "1.6.0"
+  newTag: "1.7.0"
 - name: "registry.k8s.io/autoscaling/vpa-updater"
-  newTag: "1.6.0"
+  newTag: "1.7.0"
