@@ -193,8 +193,11 @@ if [[ -e /data/glusterfs ]]; then
   echo "  [execute] deleting retired /data/glusterfs"
   if command -v btrfs >/dev/null 2>&1 && btrfs subvolume show /data/glusterfs >/dev/null 2>&1; then
     btrfs subvolume delete /data/glusterfs
+    btrfs subvolume sync /
+    btrfs filesystem sync /
   else
     rm -rf --one-file-system /data/glusterfs
+    sync
   fi
 fi
 
