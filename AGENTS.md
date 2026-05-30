@@ -12,17 +12,16 @@ Infrastructure-as-Code repository for a Kubernetes (K3s) cluster. All services h
 - **Cilium** - Kubernetes CNI with network policies
 - **Traefik** - Ingress controller (K8s IngressRoutes)
 - **External Secrets Operator** - Historical only; there is no active controller/CRD in the current cluster
-- **GlusterFS** - Distributed storage (hostPath mounts in K8s)
-- **NFS-Ganesha** - NFS server with FSAL_GLUSTER (stable fileids), built from source V9.4 on all nodes
-- **SeaweedFS S3 gateway** - S3-compatible object storage (backups, litestream)
+- **SeaweedFS** - RWX PVCs, filer, volume servers, and S3-compatible object storage
+- **local-path / local-path-retain** - Node-local RWO storage for database-heavy services and telemetry
+- **Synology NFS static PVs** - Read-only media shares for Iris and Plex
 
 ## Documentation
 
 See the `docs/` directory for detailed documentation:
 - [docs/README.md](docs/README.md) - Documentation index
-- [docs/nfs-ganesha-migration.md](docs/nfs-ganesha-migration.md) - NFS-Ganesha setup and V7.2 bug workaround
-- [docs/glusterfs-architecture.md](docs/glusterfs-architecture.md) - GlusterFS architecture and DHT behavior
-- [docs/storage-troubleshooting.md](docs/storage-troubleshooting.md) - Storage troubleshooting guide
+- [docs/storage-troubleshooting.md](docs/storage-troubleshooting.md) - Current storage troubleshooting guide
+- [docs/seaweedfs-migration.md](docs/seaweedfs-migration.md) - Completed Gluster/Ganesha/MinIO to SeaweedFS migration record
 - [docs/seaweedfs-bucket-audit.md](docs/seaweedfs-bucket-audit.md) - SeaweedFS filer `/buckets` audit workflow, current bucket baseline, and cleanup-candidate rules
 - [docs/litestream-recovery.md](docs/litestream-recovery.md) - Litestream backup corruption recovery runbook
 
@@ -42,15 +41,14 @@ scripts/                      # Validation and operational helpers
 
 | Node | IP | Architecture | Role |
 |------|-----|--------------|------|
-| Hestia | 192.168.1.5 | amd64 | Primary node, NVIDIA GPU, GlusterFS client |
-| Heracles | 192.168.1.6 | arm64 | Worker node, GlusterFS brick |
-| Nyx | 192.168.1.7 | arm64 | Worker node, GlusterFS brick |
+| Hestia | 192.168.1.5 | amd64 | Primary node, NVIDIA GPU, local-path workloads |
+| Heracles | 192.168.1.6 | arm64 | Worker node, SeaweedFS volume server |
+| Nyx | 192.168.1.7 | arm64 | Worker node, SeaweedFS volume server |
 
 ### Storage Paths (on Hestia)
 
 | Path | Description |
 |------|-------------|
-| `/storage/v/` | GlusterFS volumes |
 | `/mnt/csi/` | Legacy CSI backups |
 | `/var/lib/docker/volumes/` | Docker volume backups |
 
@@ -157,12 +155,12 @@ Host logs additionally carry: `unit` (journal), `job="node/syslog"` or `job="nod
 
 ## Naming Conventions
 
-- GlusterFS volumes: `glusterfs_<service>_<type>`
+- SeaweedFS PVCs usually keep the migrated `-sw` suffix, e.g. `<service>-config-sw`
 - Martinibar volumes: `martinibar_prod_<service>_<type>`
 
 ## Storage: PVC vs hostPath
 
-**For new services, use PVCs with the `glusterfs-nfs` StorageClass:**
+**For new shared persistent app data, use PVCs with the `seaweedfs` StorageClass:**
 
 ```yaml
 apiVersion: v1
@@ -170,10 +168,8 @@ kind: PersistentVolumeClaim
 metadata:
   name: myapp-data
   namespace: default
-  annotations:
-    volume-name: myapp_data
 spec:
-  storageClassName: glusterfs-nfs
+  storageClassName: seaweedfs
   accessModes:
     - ReadWriteMany
   resources:
@@ -181,22 +177,30 @@ spec:
       storage: 1Gi
 ```
 
-**Existing services using hostPath continue to work:**
+**For node-local database or telemetry data, prefer `local-path-retain` unless the service already has a different established storage model:**
+
 ```yaml
-volumes:
-  - name: config
-    hostPath:
-      path: /storage/v/glusterfs_myapp_config
-      type: Directory
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: myapp-db
+  namespace: default
+spec:
+  storageClassName: local-path-retain
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
 ```
 
 **Key differences:**
-| Aspect | PVC (recommended) | hostPath (legacy) |
-|--------|-------------------|-------------------|
-| Directory creation | Automatic on PVC create | Manual SSH required |
-| Git visibility | PVC manifest in repo | No tracking |
-| Data on PVC delete | Retained (Retain policy) | N/A |
-| Migration effort | New services only | Existing unchanged |
+| Aspect | SeaweedFS PVC | local-path-retain PVC |
+|--------|----------------|-----------------------|
+| Access | RWX | RWO, node-local |
+| Best for | Shared app files, uploads, cache | SQLite/Postgres-like local disk needs |
+| Data on PVC delete | Retained by StorageClass | Retained by StorageClass |
+| Scheduling | Any node with CSI support | Bound to selected node |
 
 ## Critical Warnings
 
@@ -243,7 +247,7 @@ kubectl exec -n default dovecot-0 -- doveadm mailbox status -u user@brmartin.co.
 kubectl exec -n default dovecot-0 -- doveadm log errors
 ```
 
-**Migrate a new mailbox** (if mailcow-encrypted source): Use the dovecot-decrypt container pattern — see TASK notes in `specs/012-k8s-mail-server/tasks.md`. Plain Maildir sources: `rsync -av --chown=5000:5000 <src>/Maildir/ /storage/v/glusterfs_dovecot_mailboxes/<domain>/<user>/Maildir/`
+**Migrate a new mailbox** (if mailcow-encrypted source): Use the dovecot-decrypt container pattern — see TASK notes in `specs/012-k8s-mail-server/tasks.md`. Plain Maildir sources should be copied through a pod that mounts the live mail PVC, not through retired host storage paths.
 
 **wildcard TLS renewal**: cert-manager manages `wildcard-brmartin-tls` in the `default` and `kube-system` namespaces. Reloader restarts mail pods when the secret changes.
 ```bash
@@ -262,125 +266,50 @@ kubectl get secret wildcard-brmartin-tls -n default -o yaml
 ### Litestream Backup Corruption Recovery
 Current litestream consumers write to the SeaweedFS S3 gateway. Secret mappings and manual rotation/repair steps live in [docs/seaweedfs-s3-identities.md](docs/seaweedfs-s3-identities.md), and the current bucket recovery procedure lives in [docs/litestream-recovery.md](docs/litestream-recovery.md).
 
-### GlusterFS Architecture
+### Current Storage Architecture
 
 ```
-Heracles (/data/glusterfs/brick1) ─┬─ GlusterFS "nomad-vol" (Distributed)
-Nyx (/data/glusterfs/brick1) ──────┘
-                                   │
-                                   ▼
-                    NFS-Ganesha V9.4 (FSAL_GLUSTER via libgfapi)
-                    ┌─────────────┬─────────────┬─────────────┐
-                    │   Hestia    │  Heracles   │    Nyx      │
-                    │   (V9.4)    │   (V9.4)    │   (V9.4)    │
-                    └─────────────┴─────────────┴─────────────┘
-                                   │
-                                   ▼ (127.0.0.1:/storage)
-                    nfs-subdir-external-provisioner mounts into containers
+SeaweedFS volume servers (Heracles, Nyx) ─┐
+                                          ├─> SeaweedFS filer -> CSI driver -> RWX PVCs
+SeaweedFS master quorum (all nodes) ──────┘
+                                          └─> SeaweedFS S3/COSI -> object consumers
 ```
 
 **Key points:**
-- Bricks are on Heracles and Nyx (btrfs filesystem)
-- Volume is **distributed** (data split across bricks), NOT replicated
-- NFS-Ganesha with FSAL_GLUSTER provides stable fileids (no "fileid changed" errors)
-- All nodes run NFS-Ganesha V9.4 built from source (no Ubuntu packages/PPAs)
-- nfs-subdir-external-provisioner uses NFS to mount subdirectories into containers
+- `seaweedfs` is the RWX StorageClass for shared app data.
+- `local-path-retain` is used for node-local RWO data such as Loki, VictoriaMetrics, and Postfix spool.
+- Static Synology NFS PVs are used for read-only media shares.
+- Restic backs up the SeaweedFS filer root through `restic-seaweedfs-filer-root`.
+- GlusterFS and NFS-Ganesha were retired from live hosts on May 30, 2026; archived history is in `docs/archived/`.
 
-See [docs/glusterfs-architecture.md](docs/glusterfs-architecture.md) for details.
-
-### GlusterFS + Btrfs Configuration
-
-The GlusterFS bricks run on btrfs subvolumes with `nodatacow` attribute set:
-```bash
-# Check current setting
-/usr/bin/ssh 192.168.1.6 "lsattr -d /data/glusterfs"
-/usr/bin/ssh 192.168.1.7 "lsattr -d /data/glusterfs"
-
-# Should show 'C' flag: ---------------C------ /data/glusterfs
-```
-
-**Note:** `nodatacow` was originally added to prevent btrfs COW inode changes, but this does NOT prevent the primary source of fileid changes (see below).
-
-**Do NOT use btrfs snapshots** on GlusterFS brick directories - with nodatacow, snapshots don't preserve point-in-time data (files are overwritten in-place).
-
-### GlusterFS DHT and NFS fileid Instability (KNOWN ISSUE)
-
-**Root Cause:** GlusterFS distributed volumes create **new GFIDs** when files are renamed across bricks. This is a fundamental behavior of the DHT (Distributed Hash Table) layer, not a bug.
-
-**Mechanism:**
-1. Application with heavy rename traffic (for example the pre-cutover MinIO litestream path) creates file in temp directory
-2. Application renames file to final location
-3. If source and destination hash to **different bricks**, GlusterFS DHT:
-   - Creates a NEW file on destination brick with a NEW GFID
-   - Copies data from source to destination
-   - Deletes source file
-4. GlusterFS FUSE uses low 64 bits of GFID as inode number
-5. NFS re-export reports new inode as fileid
-6. NFS client has old fileid cached → `NFS: server 127.0.0.1 error: fileid changed`
-
-**Evidence in logs:**
-```bash
-# GlusterFS shows different GFIDs for source and destination:
-sudo grep dht-rename /var/log/glusterfs/storage.log | tail -5
-# Output shows: renaming .../file (old-gfid) => .../file (different-gfid)
-```
-
-**Why mitigations don't help:**
-
-**Solution:** NFS-Ganesha with FSAL_GLUSTER talks directly to GlusterFS via libgfapi and maintains stable fileids. See [docs/nfs-ganesha-migration.md](docs/nfs-ganesha-migration.md).
-
-**Previous mitigations that didn't work:**
-
-| Mitigation | Why It Didn't Help |
-|------------|---------------------|
-| `nodatacow` on btrfs | Only prevents btrfs inode changes; DHT creates new GFIDs at GlusterFS layer |
-| `fsid=1` on NFS export | Stabilizes filesystem ID, but fileid still comes from underlying inode |
-| NFS v4.2 | Better filehandle stability, but can't fix unstable upstream inodes |
-| Kernel NFS re-export | Uses GFID as fileid, which changes on cross-brick renames |
-
-**Current status (January 2026):** Migrated to NFS-Ganesha with FSAL_GLUSTER. No fileid errors since migration.
-
-### NFS Stale File Handle Errors
-When services report "stale file handle" errors after NFS changes or node restarts:
-
-```bash
-# 1. Drop kernel caches on the affected node
-/usr/bin/ssh 192.168.1.X "sudo sync && echo 3 | sudo tee /proc/sys/vm/drop_caches"
-
-# 2. Delete the affected pod (K8s will recreate with fresh mounts)
-kubectl delete pod <pod-name> -n default
-```
-
-**Severe cases:** If kernel NFS client cache is deeply corrupted (e.g., after cluster instability or sustained fileid changes), a **full node reboot** may be required to clear the kernel NFS client cache completely.
-
-### NFS Provisioner Issues
+### SeaweedFS PVC Issues
 
 **PVC stuck in Pending:**
 ```bash
-# Check provisioner logs
-kubectl logs -l app=nfs-subdir-external-provisioner -n default
-
-# Common causes:
-# - NFS server unreachable (check NFS mount on provisioner node)
-# - Missing volume-name annotation (check PVC annotations)
-# - StorageClass not found (kubectl get storageclass glusterfs-nfs)
+kubectl describe pvc <pvc-name> -n <namespace>
+kubectl get pods -n default -l app=seaweedfs -o wide
+kubectl logs -n default deploy/seaweedfs-csi-controller -c csi-seaweedfs
 ```
 
-**Directory not created:**
+**Mounted pod reports `Transport endpoint is not connected`:**
 ```bash
-# Check PVC events
-kubectl describe pvc <pvc-name>
-
-# Verify NFS mount on provisioner's node
-kubectl get pod -l app=nfs-subdir-external-provisioner -o wide
-/usr/bin/ssh <node-ip> "mount | grep storage"
+kubectl get pod <pod-name> -n <namespace> -o wide
+kubectl delete pod <pod-name> -n <namespace>
 ```
 
-**Verify provisioner is running:**
+SeaweedFS CSI uses FUSE mounts. Existing pods do not always recover after a CSI node or mount daemon rollout; recreated pods remount cleanly.
+
+### Retired Gluster/Ganesha Verification
+
+Use this guard before assuming any retired storage component is active again:
+
 ```bash
-kubectl get pods -l app=nfs-subdir-external-provisioner
-kubectl get storageclass glusterfs-nfs
+scripts/retire-gluster-ganesha.sh --node hestia
+scripts/retire-gluster-ganesha.sh --node heracles
+scripts/retire-gluster-ganesha.sh --node nyx
 ```
+
+The script verifies that `glusterfs-nfs` is absent and no Gluster/Ganesha units, processes, mounts, hostPath references, or storage listener ports are active.
 
 ### NVIDIA GPU / Device Plugin
 Hestia has an NVIDIA GTX 1070 with time-slicing configured (2 virtual GPUs). Ollama and Plex both request GPU resources.
@@ -398,11 +327,6 @@ kubectl describe node hestia | grep nvidia.com/gpu
 # Fix: restart the device plugin pod
 kubectl delete pod -n kube-system -l app=nvidia-device-plugin-daemonset
 ```
-
-### GlusterFS Socket Limitations
-GlusterFS doesn't support Unix sockets. Services using sockets (Redis, Gitaly, Puma) must be configured to use:
-- TCP connections instead of Unix sockets
-- `/run/` (tmpfs) for socket files if sockets are required
 
 ## Observability Stack
 
@@ -430,7 +354,7 @@ increase(kube_pod_container_status_restarts_total[1h])
 - **URL**: https://grafana.brmartin.co.uk
 - **Auth**: Keycloak SSO (prod realm)
 - **Data Source**: VictoriaMetrics (auto-configured, Prometheus-compatible)
-- **Storage**: 1GB on GlusterFS for dashboards and SQLite DB
+- **Storage**: local-path PVC for dashboards and SQLite DB
 
 **Useful dashboards** (import by ID):
 - Kubernetes Cluster Overview: 6417
@@ -524,14 +448,14 @@ glab api "projects/<id>/pipelines?ref=main&status=success&per_page=1"
 | nextcloud | Deployment | File sync |
 | matrix | Multiple | 6 components (synapse, mas, whatsapp-bridge, nginx, element, cinny) |
 | gitlab | Multiple | CNG multi-container (webservice, workhorse, sidekiq, gitaly, redis, registry), SSH via NodePort 30022, external PostgreSQL |
-| restic-backup | CronJob | GlusterFS backup (daily 3am) |
+| restic-backup | CronJob | SeaweedFS filer-root backup (daily 3am) |
 | gitlab-runner | Deployment | CI runners (amd64 + arm64) |
 | open-webui | Deployment | LLM chat UI, with valkey + postgres sidecars |
 | plextraktsync | CronJob | Plex/Trakt sync (every 2 hours) |
 | plex | StatefulSet | Media server, NVIDIA GPU, sqlite3 .backup CronJob to SeaweedFS S3 |
 
 | lldap | Deployment | Lightweight LDAP — user/group store for mail stack; admin UI at ldap.brmartin.co.uk (local admin credentials); Keycloak federates users READ_ONLY |
-| mail | Multiple | Postfix (SMTP), Dovecot (IMAP/POP3/LMTP), Rspamd (spam+DKIM), SoGO (webmail), mail-redis; mailboxes on glusterfs-nfs PVC; DKIM keys in `dkim-keys` Secret; TLS via cert-manager-managed `wildcard-brmartin-tls` Secret; mail ports via hostPort on Hestia |
+| mail | Multiple | Postfix (SMTP), Dovecot (IMAP/POP3/LMTP), Rspamd (spam+DKIM), SoGO (webmail), mail-redis; mailboxes on SeaweedFS PVCs, Postfix spool on `local-path-retain`; DKIM keys in `dkim-keys` Secret; TLS via cert-manager-managed `wildcard-brmartin-tls` Secret; mail ports via hostPort on Hestia |
 | tautulli | Deployment | Plex monitoring/statistics |
 | loki | Deployment | Log aggregation backend (SeaweedFS-backed S3 storage, 30-day retention) |
 | alloy | DaemonSet | Log collection — tails pod logs + journal + syslog on all 3 nodes, ships to Loki |
@@ -547,10 +471,10 @@ glab api "projects/<id>/pipelines?ref=main&status=success&per_page=1"
 
 ## Active Technologies
 - YAML (plain Kubernetes manifests), Kustomize, Flux v2
-- Kubernetes (K3s 1.34+), Cilium CNI, Traefik Ingress, External Secrets Operator
-- GlusterFS via NFS-Ganesha at `/storage/v/` on all nodes
-- NFS Subdir External Provisioner for dynamic PVC provisioning
-- SeaweedFS S3 gateway (litestream backups and object storage)
+- Kubernetes (K3s 1.34+), Cilium CNI, Traefik Ingress
+- SeaweedFS CSI, filer, volume servers, COSI driver, and S3 gateway
+- local-path and local-path-retain StorageClasses
+- Synology NFS static PVs for media
 - Grafana Loki 3.x (monolithic, SeaweedFS-backed S3 storage, 30-day retention)
 - Grafana Alloy 1.x DaemonSet (pod logs + systemd journal + syslog/auth collection)
 - GitLab CNG container images (registry.gitlab.com/gitlab-org/build/cng)

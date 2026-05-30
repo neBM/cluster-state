@@ -6,25 +6,23 @@ This directory contains documentation for the K8s (K3s) cluster infrastructure.
 
 ### Observability
 
-- **[elasticsearch-pipelines.md](elasticsearch-pipelines.md)** - Elasticsearch ingest pipelines for K8s log processing, including sampling, noise reduction, and service-specific enrichment.
+- **[elasticsearch-pipelines.md](elasticsearch-pipelines.md)** - Historical Elasticsearch ingest pipeline notes.
 
 ### Storage
 
-- **[nfs-ganesha-migration.md](nfs-ganesha-migration.md)** - Guide for the NFS-Ganesha migration, including the V7.2 bug workaround and building V9.4 from source.
-
-- **[glusterfs-architecture.md](glusterfs-architecture.md)** - Overview of the GlusterFS distributed storage architecture, DHT behavior, and integration with NFS-Ganesha.
-
-- **[storage-troubleshooting.md](storage-troubleshooting.md)** - Troubleshooting guide for common storage issues including stale handles, mount failures, and recovery procedures.
-
+- **[storage-troubleshooting.md](storage-troubleshooting.md)** - Current storage troubleshooting for SeaweedFS, local-path volumes, Synology NFS static PVs, and disk pressure.
 - **[seaweedfs-s3-identities.md](seaweedfs-s3-identities.md)** - Current SeaweedFS S3 identities, secret mappings, and manual credential rotation/repair procedure.
+- **[seaweedfs-cosi.md](seaweedfs-cosi.md)** - COSI-first SeaweedFS S3 control-plane runbook.
+- **[seaweedfs-bucket-audit.md](seaweedfs-bucket-audit.md)** - Durable runbook for auditing `/buckets`, including `pvc-*` CSI paths, named S3 buckets, and cleanup candidates.
+- **[seaweedfs-released-pv-audit.md](seaweedfs-released-pv-audit.md)** - Audit baseline for released SeaweedFS PVs, cleanup candidates, and retained archive volumes.
+- **[litestream-recovery.md](litestream-recovery.md)** - SeaweedFS-era Litestream recovery runbook for restoring bucket contents from restic and pushing them back through the S3 gateway.
+- **[seaweedfs-migration.md](seaweedfs-migration.md)** - Completed migration record from GlusterFS/NFS-Ganesha/MinIO to SeaweedFS.
 
-- **[seaweedfs-cosi.md](seaweedfs-cosi.md)** - COSI-first SeaweedFS S3 control-plane runbook, including disposable greenfield/brownfield proofs before production bucket migration.
+### Archived Storage
 
-- **[seaweedfs-bucket-audit.md](seaweedfs-bucket-audit.md)** - Durable runbook for auditing `/buckets`, including `pvc-*` CSI paths, named S3 buckets, and current cleanup candidates.
-
-- **[litestream-recovery.md](litestream-recovery.md)** - Current SeaweedFS-era Litestream recovery runbook for restoring bucket contents from restic and pushing them back through the S3 gateway.
-
-- **[seaweedfs-released-pv-audit.md](seaweedfs-released-pv-audit.md)** - Current audit baseline for released SeaweedFS PVs, including cleanup candidates and intentionally retained archive volumes.
+- **[archived/glusterfs-architecture.md](archived/glusterfs-architecture.md)** - Historical GlusterFS architecture.
+- **[archived/nfs-ganesha-migration.md](archived/nfs-ganesha-migration.md)** - Historical NFS-Ganesha migration and build notes.
+- **[archived/gluster-ganesha-storage-troubleshooting.md](archived/gluster-ganesha-storage-troubleshooting.md)** - Historical Gluster/Ganesha troubleshooting runbook.
 
 ## Quick Reference
 
@@ -32,54 +30,45 @@ This directory contains documentation for the K8s (K3s) cluster infrastructure.
 
 | Component | Purpose | Config Location |
 |-----------|---------|-----------------|
-| K3s | Kubernetes distribution | `~/.kube/k3s-config` |
-| GlusterFS | Distributed storage | `gluster volume info nomad-vol` |
-| NFS-Ganesha | NFS server (FSAL_GLUSTER) | `/etc/ganesha/ganesha.conf` |
-| Elasticsearch | Log storage & search | `modules-k8s/elk/` |
-| Elastic Agent | Log collection | DaemonSet in K8s |
+| K3s | Kubernetes distribution | `clusters/k3s-homelab/` |
+| SeaweedFS | RWX PVCs, S3 gateway, filer, volume servers | `infrastructure/storage/seaweedfs/` |
+| local-path / local-path-retain | Node-local RWO volumes for databases and telemetry | `infrastructure/storage/storage-classes/` |
+| Synology NFS static PVs | Read-only media shares for Iris and Plex | `apps/iris/`, `apps/media-centre/` |
+| Grafana Alloy | Pod, journal, syslog, and auth log collection | `infrastructure/observability-core/alloy/` |
+| Grafana Loki | Log storage and query backend | `infrastructure/observability-core/loki/` |
 
 ### Node IPs
 
 | Node | IP | Roles |
 |------|-----|-------|
-| Hestia | 192.168.1.5 | K3s control-plane/etcd, NVIDIA GPU, NFS-Ganesha V9.4 |
-| Heracles | 192.168.1.6 | K3s control-plane/etcd, glusterd, NFS-Ganesha V9.4 |
-| Nyx | 192.168.1.7 | K3s control-plane/etcd, glusterd, NFS-Ganesha V9.4 |
+| Hestia | 192.168.1.5 | K3s control-plane/etcd, NVIDIA GPU, local-path workloads |
+| Heracles | 192.168.1.6 | K3s control-plane/etcd, SeaweedFS volume server |
+| Nyx | 192.168.1.7 | K3s control-plane/etcd, SeaweedFS volume server |
 
 ### Common Commands
 
 ```bash
 # K8s commands
-export KUBECONFIG=~/.kube/k3s-config
 kubectl get pods -n default
 kubectl logs <pod-name> -n default
 
-# Check storage health
-gluster volume status nomad-vol
-ss -tlnp | grep 2049
+# Storage health
+kubectl get pods -n default -l app=seaweedfs -o wide
+kubectl get storageclass,pv,pvc -A
+kubectl get events -A --field-selector reason=FreeDiskSpaceFailed --sort-by=.lastTimestamp
+kubectl get nodes -o wide
 
-# Check for errors
-dmesg | grep -i fileid
-tail /var/log/ganesha/ganesha.log
-
-# Terraform
-set -a && source .env && set +a
-terraform plan -out=tfplan
-terraform apply tfplan
+# Render cluster state
+./scripts/validate_kustomize.sh
+kubectl kustomize clusters/k3s-homelab > /dev/null
 ```
 
 ## History
 
 ### January 2026: NFS-Ganesha Migration
 
-**Problem:** Repeated NFS "fileid changed" errors causing stale file handles, requiring 5 node reboots in 3 days.
+GlusterFS DHT fileid instability under kernel NFS re-export caused repeated stale handles. The cluster migrated to NFS-Ganesha V9.4 with FSAL_GLUSTER as an interim stabilization layer.
 
-**Root Cause:** GlusterFS DHT creates new GFIDs when files are renamed across bricks. Kernel NFS re-export exposes this as fileid instability.
+### April-May 2026: SeaweedFS Migration and Gluster Retirement
 
-**Solution:** Migrated to NFS-Ganesha with FSAL_GLUSTER, which talks directly to GlusterFS via libgfapi and maintains stable fileids.
-
-**Challenges:**
-- Fedora's nfs-ganesha 7.2 has a bug (Issue #1358) where TCP listeners never start
-- Built V9.4 from source on all nodes for consistency
-
-**Result:** No fileid errors since migration. All nodes running NFS-Ganesha V9.4. Cluster is stable.
+The cluster migrated persistent workload storage and object storage to SeaweedFS, removed `glusterfs-nfs`, retired MinIO, and removed host-level GlusterFS/NFS-Ganesha services and brick data from all nodes on May 30, 2026.

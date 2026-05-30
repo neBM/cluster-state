@@ -1,5 +1,7 @@
 # GlusterFS Architecture
 
+> Archived: GlusterFS was retired from the live cluster on May 30, 2026. This document is retained only for incident history and migration forensics.
+
 This document describes the GlusterFS storage architecture used in the cluster.
 
 ## Overview

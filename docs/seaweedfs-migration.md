@@ -1,19 +1,19 @@
-# SeaweedFS Migration Plan
+# SeaweedFS Migration Record
 
-This document describes the migration from GlusterFS + NFS-Ganesha + MinIO to SeaweedFS.
+This document records the completed migration from GlusterFS + NFS-Ganesha + MinIO to SeaweedFS. The live cluster now uses SeaweedFS, local-path storage, and static Synology NFS PVs; GlusterFS and NFS-Ganesha were retired from all nodes on May 30, 2026.
 
 ## Background
 
 ### Why Migrate
 
-The current storage stack is three layers deep:
+The legacy storage stack was three layers deep:
 
 ```
 GlusterFS bricks → NFS-Ganesha (FSAL_GLUSTER) → nfs-subdir-provisioner → PVCs
                                                                         ↘ MinIO (S3 re-export)
 ```
 
-Each layer has produced production incidents (see `storage-troubleshooting.md`):
+Each layer produced production incidents (see `docs/archived/gluster-ganesha-storage-troubleshooting.md`):
 
 - GlusterFS DHT fileid churn on cross-brick renames
 - NFS-Ganesha TCP listener bugs (Issue #1358, build-from-source required)
@@ -26,37 +26,37 @@ native POSIX filer, Apache 2.0 licensed, ARM64-native, lightweight enough for Pi
 ### Target Architecture
 
 ```
-SeaweedFS volume servers (one per node) ─┐
-                                         ├─→ Filer ─→ CSI driver ─→ PVCs
-                                         └─→ S3 gateway ──────────→ Services (loki, vm, media-centre, ...)
-                                         
-                                         Master (Raft quorum, 3 replicas)
+SeaweedFS volume servers (Heracles, Nyx) ─┐
+                                          ├─→ Filer ─→ CSI driver ─→ PVCs
+                                          └─→ S3 gateway ──────────→ Services (loki, vm, media-centre, ...)
+
+                                          Master (Raft quorum, 3 replicas)
 ```
 
 ### Design Decisions
 
 | Decision | Choice | Rationale |
 |----------|--------|-----------|
-| Replication policy | `000` (no replication) | Matches current Gluster config; restic mitigates data loss |
-| Volume servers | DaemonSet on Heracles + Nyx only (node selector) | Hestia has no storage brick — matches current Gluster topology. Master auto-balances across available volume servers by free capacity |
+| Replication policy | `000` (no replication) | Matched the legacy Gluster config; restic mitigates data loss |
+| Volume servers | DaemonSet on Heracles + Nyx only (node selector) | Hestia had no storage brick in the legacy topology. Master auto-balances across available volume servers by free capacity |
 | Master quorum | 3 replicas (Raft) | Match node count |
-| Filer metadata backend | leveldb (embedded) | Zero-ops, isolated per filer instance; etcd rejected (k8s blast radius), Postgres rejected (no in-cluster instance). Upgrade path to Postgres exists if needed later |
-| Filer placement | DaemonSet across all nodes | HA — no single-node pinning |
+| Filer metadata backend | Postgres | Started with leveldb during migration, then moved filer metadata to Postgres for durability |
+| Filer placement | StatefulSet | One active filer with durable Postgres metadata |
 | S3 gateway | `weed s3` | Drops MinIO dependency entirely |
 | CSI driver | `seaweedfs-csi-driver` | Official, Apache 2.0 |
-| Volume data path | `/data/seaweedfs/` | Coexists with `/data/glusterfs/brick1` during migration |
+| Volume data path | `/data/seaweedfs/` | Replaced the retired `/data/glusterfs/brick1` brick data |
 
 ## Pre-Migration
 
-### Current State Inventory
+### Legacy Source Inventory
 
 | Node | IP | OS | Arch | Role |
 |------|-----|-----|------|------|
-| Hestia | 192.168.1.5 | Fedora 43 | amd64 | Brick, Ganesha, MinIO |
-| Heracles | 192.168.1.6 | Ubuntu 25.10 | arm64 | Brick, Ganesha, glusterd |
-| Nyx | 192.168.1.7 | Ubuntu 25.10 | arm64 | Brick, Ganesha, glusterd |
+| Hestia | 192.168.1.5 | Fedora 43 | amd64 | MinIO and Ganesha client path |
+| Heracles | 192.168.1.6 | Ubuntu 25.10 | arm64 | Gluster brick, Ganesha, glusterd |
+| Nyx | 192.168.1.7 | Ubuntu 25.10 | arm64 | Gluster brick, Ganesha, glusterd |
 
-### PVC Consumers (StorageClass `glusterfs-nfs`)
+### Legacy PVC Consumers (StorageClass `glusterfs-nfs`)
 
 Discovered from `modules-k8s/*/main.tf`:
 
@@ -132,8 +132,9 @@ check `df -h` per node and plan staggered migration accordingly.
 
 **Goal:** Restic backs up SeaweedFS data before any real workloads move.
 
-The restic CronJob (`modules-k8s/restic-backup/`) currently mounts `hostPath: /storage/v`
-(the Ganesha NFS export of GlusterFS). This path won't exist after Gluster is removed.
+At the start of migration, the restic CronJob (`modules-k8s/restic-backup/`) mounted
+`hostPath: /storage/v` (the Ganesha NFS export of GlusterFS). That path no longer
+exists after host retirement.
 
 1. **Update source volume:** Replace the `hostPath /storage/v` volume with a SeaweedFS
    filer PVC that exposes the filer root. This gives restic the same tree-of-directories
@@ -225,11 +226,9 @@ because:
 - Historical Plex DB state has diverged; recovery value is ~zero
 - Restic covers the live PVC going forward
 
-### Phase 6 — Cleanup (COMPLETE 2026-04-14)
+### Phase 6 — Cleanup (COMPLETE 2026-05-30)
 
-All cluster-side Gluster/MinIO resources removed. Host-level Gluster
-services are still running as a safety net — stop them once 2+ weeks of
-clean restic backups are in hand.
+All cluster-side Gluster/MinIO resources and host-level Gluster/Ganesha services are removed.
 
 **Completed:**
 
@@ -241,23 +240,13 @@ clean restic backups are in hand.
 - [x] 26 Released glusterfs-nfs PVs hand-deleted (brick data retained on disk)
 - [x] Legacy secrets deleted: `minio-secrets`, `loki-minio`, `victoriametrics-minio`, `appflowy-secrets`
 - [x] `/etc/modprobe.d/nfs-ganesha-workaround.conf` removed from hestia + heracles (nyx never had it)
+- [x] Host-level Gluster/Ganesha units confirmed inactive on hestia, heracles, and nyx
+- [x] Gluster/Ganesha packages and local Ganesha build artifacts removed from all nodes
+- [x] Retired `/data/glusterfs` brick data deleted from heracles and nyx, freeing worker root filesystems from about 90% used to under 50% used
+- [x] Gluster/Ganesha runbooks archived under `docs/archived/`
+- [x] Current storage troubleshooting rewritten for SeaweedFS/local-path/Synology storage
 
-**Still outstanding (host-level, do when confident in SeaweedFS):**
-
-1. On each node, stop and disable services:
-   ```bash
-   sudo systemctl disable --now nfs-ganesha-local
-   sudo systemctl disable --now glusterd
-   ```
-2. Unmount `/storage` and archive brick data:
-   ```bash
-   sudo umount /storage
-   sudo mv /data/glusterfs /data/glusterfs.archived.$(date +%Y%m%d)
-   ```
-3. Wait 2+ weeks with good restic backups, then delete archive and remove
-   Gluster packages.
-4. Archive/rewrite `storage-troubleshooting.md` and `glusterfs-architecture.md`
-   into `docs/archived/` (or rewrite for SeaweedFS).
+Use `scripts/retire-gluster-ganesha.sh --node <node>` to re-run the live guard checks.
 
 ## Per-Service Migration Procedure
 
@@ -369,15 +358,9 @@ kubectl exec deploy/<service> -- wget -q -O /dev/null --spider http://localhost:
 kubectl delete pvc <service>-config    # old glusterfs PVC
 ```
 
-### Rollback (per service)
+### Rollback
 
-```bash
-kubectl scale -n default deploy/<service> --replicas=0
-# Re-add old PVC to Terraform state:
-terraform import module.k8s_<service>.kubernetes_persistent_volume_claim.config default/<service>-config
-# Edit module: storage_class_name = "glusterfs-nfs", name = "<service>-config"
-terraform apply -target=module.k8s_<service>
-```
+The per-service Gluster rollback path was only valid before host retirement. After May 30, 2026, recovery should use the current SeaweedFS PVC, SeaweedFS S3, Litestream, and restic runbooks rather than attempting to restore `glusterfs-nfs`.
 
 ## CSI Mount Memory Sizing
 
@@ -496,7 +479,7 @@ registry reschedule, then `kubectl uncordon`.
 | Risk | Likelihood | Mitigation |
 |------|-----------|------------|
 | POSIX semantics break SQLite/Litestream | Medium | Pilot with SQLite-backed service in Phase 1; restic snapshots as safety net |
-| FUSE mount instability | Medium | Monitor during pilot week; fall back to Gluster if chronic |
+| FUSE mount instability | Medium | Restart affected consumers after CSI node rollouts; use restic and app-level backups for recovery |
 | Pi memory pressure from filer + volume server + S3 | Medium | Profile after Phase 0; consider externalising filer to amd64 node (Hestia) |
 | Filer metadata loss (leveldb corruption) | Low | Backup filer DB nightly; upgrade to Postgres backend for production |
 | `mc mirror` incomplete bucket copy | Low | Verify with `mc du` + spot checksum; keep MinIO running until Phase 5 |
@@ -513,9 +496,10 @@ Track completion in PR description:
 - [x] Phase 3: All stateless PVCs migrated (2026-04-06)
 - [x] Phase 4: All stateful services migrated (2026-04-06)
 - [x] Phase 5: All MinIO buckets mirrored, consumers cut over to SeaweedFS S3 (2026-04-06)
-- [x] Phase 6: Gluster/Ganesha/MinIO TF modules deleted (2026-04-14). Host-level `glusterd`/`nfs-ganesha-local` still running pending confidence window.
+- [x] Phase 6: Gluster/Ganesha/MinIO TF modules deleted (2026-04-14)
+- [x] Host-level Gluster/Ganesha services, packages, local build artifacts, and brick data removed (2026-05-30)
 - [x] Kernel 6.18 workaround removed (2026-04-14)
-- [ ] `glusterfs-architecture.md` and `storage-troubleshooting.md` updated or archived
+- [x] Gluster/Ganesha runbooks archived and current storage troubleshooting rewritten (2026-05-30)
 
 ## References
 
@@ -523,4 +507,4 @@ Track completion in PR description:
 - [SeaweedFS CSI Driver](https://github.com/seaweedfs/seaweedfs-csi-driver)
 - [SeaweedFS S3 API docs](https://github.com/seaweedfs/seaweedfs/wiki/Amazon-S3-API)
 - [Filer metadata backends](https://github.com/seaweedfs/seaweedfs/wiki/Filer-Stores)
-- Related internal docs: `glusterfs-architecture.md`, `storage-troubleshooting.md`, `nfs-ganesha-migration.md`, `litestream-recovery.md`
+- Related internal docs: `storage-troubleshooting.md`, `litestream-recovery.md`, `archived/glusterfs-architecture.md`, `archived/nfs-ganesha-migration.md`, `archived/gluster-ganesha-storage-troubleshooting.md`

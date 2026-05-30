@@ -1,385 +1,115 @@
-# Storage Troubleshooting Guide
+# Storage Troubleshooting
 
-This document covers common storage issues and their solutions for the cluster.
+This runbook covers the current storage stack. GlusterFS and NFS-Ganesha were retired on May 30, 2026; historical notes live under `docs/archived/`.
 
-## Quick Diagnosis Commands
+## Current Storage Paths
+
+| Storage | Use | Manifests |
+|---------|-----|-----------|
+| `seaweedfs` StorageClass | RWX PVCs and filer-backed app data | `infrastructure/storage/seaweedfs/`, app PVCs ending in `-sw` |
+| SeaweedFS S3/COSI | Object buckets for backups, cache, and attachments | `infrastructure/storage/seaweedfs/cosi/` |
+| `local-path` / `local-path-retain` | Node-local RWO data, especially database-heavy services | `infrastructure/storage/storage-classes/` |
+| `synology-nfs-static` | Static read-only media shares | `apps/iris/`, `apps/media-centre/` |
+| `/mnt/csi/backups/restic` on Hestia | Restic repository host path | `infrastructure/storage/restic-backup/` |
+
+## First Checks
 
 ```bash
-# Check all storage components
-gluster volume status nomad-vol          # GlusterFS
-systemctl status nfs-ganesha             # NFS-Ganesha (or nfs-ganesha-local on Hestia)
-ss -tlnp | grep 2049                     # NFS TCP listener
-nomad job status plugin-glusterfs-nodes  # CSI plugin
-
-# Check for NFS errors
-dmesg | grep -i fileid                   # Fileid changed errors
-dmesg | grep -i nfs                      # All NFS errors
-journalctl -u nfs-ganesha -f             # Ganesha logs
+kubectl get pods -n default -l app=seaweedfs -o wide
+kubectl get storageclass
+kubectl get pv,pvc -A
+kubectl get events -A --field-selector reason=FreeDiskSpaceFailed --sort-by=.lastTimestamp
+kubectl get nodes -o jsonpath='{range .items[*]}{.metadata.name}{"\t"}{range .status.conditions[?(@.type=="DiskPressure")]}{.status}{"\t"}{.message}{end}{"\n"}{end}'
+kubectl top nodes
 ```
 
-## Common Issues
+Use Grafana/Loki for historical context:
 
-### 1. NFS "fileid changed" Errors
+- Metrics: Grafana dashboards backed by VictoriaMetrics
+- Logs: `{cluster="k3s-homelab"}` and journal logs with `{job="journal"}`
 
-**Symptom:**
-```
-NFS: server 127.0.0.1 error: fileid changed
-fsid 0:110: expected fileid 0x..., got 0x...
-```
+## FreeDiskSpaceFailed Events
 
-**Cause:** GlusterFS DHT created new GFIDs during cross-brick rename operations. This happens with kernel NFS re-export.
+`FreeDiskSpaceFailed` is emitted by kubelet image garbage collection when kubelet needs to reclaim image filesystem space but finds too little eligible image data to delete. Treat it as a node disk pressure signal, not as proof that container images are the largest consumer.
 
-**Solution:** Migrate to NFS-Ganesha with FSAL_GLUSTER. See [nfs-ganesha-migration.md](nfs-ganesha-migration.md).
-
-**Temporary Workaround (if still on kernel NFS):**
-```bash
-# Clear kernel NFS cache
-sync && echo 3 > /proc/sys/vm/drop_caches
-
-# If severe, reboot the node
-```
-
----
-
-### 2. Stale File Handle Errors
-
-**Symptom:**
-```
-Stale file handle
-ls: cannot access '/path': Stale file handle
-```
-
-**Causes:**
-1. NFS server restarted
-2. Volume remounted
-3. Fileid changed (see above)
-
-**Solution:**
-```bash
-# Force unmount and remount
-umount -f /path/to/mount
-mount -t nfs4 127.0.0.1:/storage /path/to/mount
-
-# For CSI mounts, reschedule the job
-nomad job eval -force-reschedule <job-name>
-```
-
----
-
-### 3. CSI Mount Failures (errno 521)
-
-**Symptom:**
-```
-mount point detection failed for volume: lstat ...: errno 521
-```
-
-**Cause:** `errno 521` is `EREMOTEIO` - remote I/O error. Usually means stale NFS mount.
-
-**Solution:**
-```bash
-# Find and unmount stale mounts
-mount | grep csi
-umount -f /opt/nomad/data/client/csi/node/glusterfs/staging/default/<volume>/...
-
-# Reschedule CSI plugin
-nomad job eval -force-reschedule plugin-glusterfs-nodes
-
-# Reschedule affected job
-nomad job eval -force-reschedule <job-name>
-```
-
----
-
-### 4. Ganesha Not Starting
-
-**Symptom:** `systemctl status nfs-ganesha` shows failed
-
-**Check the log:**
-```bash
-tail -50 /var/log/ganesha/ganesha.log
-journalctl -u nfs-ganesha -n 50
-```
-
-**Common causes and solutions:**
-
-#### Missing PID directory
-```
-open(.../ganesha.pid) failed: No such file or directory
-```
-**Solution:**
-```bash
-# For package installation
-mkdir -p /var/run/ganesha
-
-# For V9.4 from source
-mkdir -p /usr/local/var/run/ganesha
-```
-
-#### Missing recovery directory
-```
-Failed to create v4 recovery dir
-```
-**Solution:**
-```bash
-# For package installation
-mkdir -p /var/lib/nfs/ganesha
-
-# For V9.4 from source
-mkdir -p /usr/local/var/lib/nfs/ganesha
-```
-
-#### Unable to initialize GlusterFS volume
-```
-glusterfs_get_fs :FSAL :CRIT :Unable to initialize volume
-```
-**Solution:**
-1. Check glusterd is running: `systemctl status glusterd`
-2. Check FSAL Hostname in config points to a glusterd node
-3. Check network connectivity to glusterd
-
----
-
-### 5. Ganesha Running But No TCP Listener
-
-**Symptom:** 
-```bash
-$ ss -tlnp | grep 2049
-# (no output, or only UDP)
-```
-
-**Cause:** Known bug in nfs-ganesha V7.x (Issue #1358)
-
-**Solution:** 
-- Use V6.5 (Ubuntu package) 
-- Or build V9.4+ from source (see migration guide)
-
----
-
-### 6. GlusterFS Brick Offline
-
-**Symptom:**
-```bash
-$ gluster volume status nomad-vol
-Brick 192.168.1.X:/data/glusterfs/brick1  N/A      N/A        N
-```
-
-**Solution:**
-```bash
-# Check glusterd on that node
-ssh 192.168.1.X systemctl status glusterd
-
-# Start glusterd if stopped
-ssh 192.168.1.X sudo systemctl start glusterd
-
-# Check brick process
-ssh 192.168.1.X ps aux | grep glusterfsd
-```
-
----
-
-### 7. SSH to Nodes Hanging
-
-**Symptom:** SSH connections to cluster nodes hang/timeout
-
-**Causes:**
-1. NFS mounts blocking SSH (PAM/NSS trying to access NFS)
-2. Consul DNS issues
-3. High system load
-
-**Diagnosis:**
-```bash
-# Check if node is pingable
-ping 192.168.1.X
-
-# Check Nomad sees the node
-nomad node status
-
-# Try SSH with timeout
-timeout 5 ssh -o ConnectTimeout=3 192.168.1.X "echo OK"
-```
-
-**Solution:**
-If nodes are pingable and Nomad sees them as healthy, the SSH issue is likely PAM/NSS related. The cluster is actually healthy - just SSH is affected.
-
-For urgent access:
-- Use Nomad UI to check job status
-- Use `nomad alloc exec` to access containers
-- Physical console access if needed
-
----
-
-### 8. Services Failing After NFS Server Change
-
-**Symptom:** Multiple services fail to start after changing NFS configuration
-
-**Solution:**
-```bash
-# Restart CSI plugins first
-nomad job eval -force-reschedule plugin-glusterfs-nodes
-nomad job eval -force-reschedule plugin-glusterfs-controller
-
-# Wait for CSI to be healthy
-sleep 30
-
-# Check volume status
-nomad volume status
-
-# Reschedule failed services
-nomad job eval -force-reschedule <job-name>
-```
-
----
-
-### 9. Litestream Backup Corruption
-
-**Symptom:**
-```
-database disk image is malformed
-decode error on restore
-```
-
-**Cause:** For the current cluster, this usually means either:
-
-1. the SeaweedFS S3 bucket/prefix is missing or corrupted
-2. Litestream cannot read the bucket due to S3 credential drift
-3. the `seaweedfs-s3` gateway has stale internal routing state
-
-**Solution:** Follow [litestream-recovery.md](litestream-recovery.md).
-
-Fast path before a full restore:
+Check the affected node:
 
 ```bash
-kubectl rollout restart deployment/seaweedfs-s3 -n default
-kubectl rollout status deployment/seaweedfs-s3 -n default --timeout=180s
-kubectl logs -n default deploy/overseerr -c litestream-restore --tail=100
+/usr/bin/ssh -F /dev/null 192.168.1.X "df -h / /var/lib/rancher/k3s /data 2>/dev/null || df -h /"
+/usr/bin/ssh -F /dev/null 192.168.1.X "sudo du -xh -d1 /data /var/lib/rancher /var/log 2>/dev/null | sort -h"
+kubectl describe node <node>
 ```
 
----
+If `DiskPressure=False` and `df` has recovered, recent events may only be historical. Re-check after the next kubelet image GC interval before taking more action.
 
-### 10. EREMOTEIO (errno 121) on NFS4 Directory Access — Kernel 6.18+
+## SeaweedFS PVC Issues
 
-**Symptom:**
-```
-ls: cannot open directory '/path': Remote I/O error
-# errno 121 (EREMOTEIO) on any subdirectory access via NFS-Ganesha
-# Root directory listing may work (cached), but stat/readdir on children fails
-```
-
-**Cause:** Linux kernel 6.18 enables NFSv4.1 **directory delegations** by default
-(`/sys/module/nfsv4/parameters/directory_delegations=Y`). The NFS client sends
-`GET_DIR_DELEGATION` (op 46) in COMPOUND operations when opening directories.
-NFS-Ganesha's GLUSTER FSAL returns `NFS4ERR_OP_ILLEGAL` (10044) instead of the
-correct `NFS4ERR_NOTSUPP`, which kills the entire COMPOUND — the subsequent
-GETATTR never executes, producing EREMOTEIO.
-
-**Diagnosis:**
-```bash
-# Confirm kernel version
-uname -r  # 6.18+
-
-# Check if directory delegations are enabled
-cat /sys/module/nfsv4/parameters/directory_delegations  # Y = affected
-
-# Verify with tcpdump (look for "ERROR: unk 10044")
-sudo tcpdump -i lo -nn port 2049 -c 20
-# Then trigger: ls /var/lib/kubelet/pods/.../volumes/kubernetes.io~nfs/.../subdir/
-```
-
-**Fix (runtime — immediate):**
-```bash
-sudo bash -c 'echo N > /sys/module/nfsv4/parameters/directory_delegations'
-sudo bash -c 'echo 3 > /proc/sys/vm/drop_caches'  # clear stale inode cache
-```
-
-**Fix (persistent — survives reboot):**
-```bash
-echo 'options nfsv4 directory_delegations=N' | sudo tee /etc/modprobe.d/nfs-ganesha-workaround.conf
-```
-
-**Note:** This workaround can be removed once NFS-Ganesha handles GET_DIR_DELEGATION
-correctly (returning NFS4ERR_NOTSUPP instead of NFS4ERR_OP_ILLEGAL). Track upstream
-Ganesha for a fix.
-
----
-
-## Recovery Procedures
-
-### Full Cluster Storage Recovery
-
-If multiple storage components are failing:
-
-1. **Stop all workloads:**
-   ```bash
-   # Mask Docker to prevent restarts
-   for node in 192.168.1.{5,6,7}; do
-     ssh $node "sudo systemctl stop docker; sudo systemctl mask docker docker.socket"
-   done
-   ```
-
-2. **Fix GlusterFS:**
-   ```bash
-   # Ensure glusterd running on brick nodes
-   for node in 192.168.1.{6,7}; do
-     ssh $node "sudo systemctl start glusterd"
-   done
-   
-   # Check volume
-   gluster volume status nomad-vol
-   ```
-
-3. **Fix NFS-Ganesha:**
-   ```bash
-   # Start Ganesha on all nodes
-   ssh 192.168.1.5 "sudo systemctl start nfs-ganesha-local"
-   ssh 192.168.1.6 "sudo systemctl start nfs-ganesha"
-   ssh 192.168.1.7 "sudo systemctl start nfs-ganesha"
-   
-   # Verify TCP listeners
-   for node in 192.168.1.{5,6,7}; do
-     ssh $node "ss -tlnp | grep 2049"
-   done
-   ```
-
-4. **Restart Docker and workloads:**
-   ```bash
-   for node in 192.168.1.{5,6,7}; do
-     ssh $node "sudo systemctl unmask docker docker.socket; sudo systemctl start docker"
-   done
-   
-   # Restart CSI
-   nomad job eval -force-reschedule plugin-glusterfs-nodes
-   ```
-
-### Emergency: Revert to Kernel NFS
-
-If NFS-Ganesha is causing issues and you need to quickly restore service:
+### PVC Pending
 
 ```bash
-# On all nodes:
-sudo systemctl stop nfs-ganesha  # or nfs-ganesha-local
-sudo systemctl disable nfs-ganesha
-sudo systemctl enable --now nfs-server
-
-# Restart CSI
-nomad job eval -force-reschedule plugin-glusterfs-nodes
+kubectl describe pvc <pvc-name> -n <namespace>
+kubectl get pods -n default -l app=seaweedfs -o wide
+kubectl logs -n default deploy/seaweedfs-csi-controller -c csi-seaweedfs
 ```
 
-## Monitoring Checklist
+Common causes:
 
-Daily/regular checks:
+- `seaweedfs-csi-controller` is not ready
+- `seaweedfs-filer` is unreachable
+- The StorageClass name is wrong; use `seaweedfs` for RWX filer-backed PVCs
 
-- [ ] All Nomad jobs running: `nomad job status`
-- [ ] GlusterFS healthy: `gluster volume status nomad-vol`
-- [ ] No fileid errors: `dmesg | grep -i fileid`
-- [ ] Ganesha running: `systemctl status nfs-ganesha`
-- [ ] Backups completing: Check restic-backup job logs
+### Mounted Pod Reports Stale FUSE Mount
 
-## Log Locations
+SeaweedFS CSI uses FUSE mounts. A rollout of `seaweedfs-csi-node` or `seaweedfs-mount` can leave existing pods with `Transport endpoint is not connected`.
 
-| Component | Log Location |
-|-----------|--------------|
-| NFS-Ganesha | `/var/log/ganesha/ganesha.log` |
-| GlusterFS | `/var/log/glusterfs/` |
-| Kernel NFS | `dmesg`, `journalctl -k` |
-| democratic-csi | `nomad alloc logs <alloc> csi-plugin` |
-| Nomad | `journalctl -u nomad` |
+```bash
+kubectl get pods -A -o wide | grep <node>
+kubectl delete pod -n <namespace> <pod-name>
+```
+
+New pods remount cleanly through kubelet. If a registry-backed image pull is blocked by stale registry storage, cordon the affected node, reschedule the registry, then uncordon.
+
+### SeaweedFS Volume or Filer Health
+
+```bash
+kubectl exec -n default deploy/seaweedfs-s3 -- weed shell -master=seaweedfs-master:9333 -exec=cluster.check
+kubectl logs -n default -l app=seaweedfs,component=volume --tail=100
+kubectl logs -n default -l app=seaweedfs,component=filer --tail=100
+```
+
+Volume servers run on Heracles and Nyx with host data at `/data/seaweedfs`. The filer metadata backend is Postgres-backed through the `seaweedfs-filer` configuration.
+
+## local-path Issues
+
+`local-path` and `local-path-retain` are node-local. Check the scheduled node before deleting or rescheduling workloads:
+
+```bash
+kubectl get pod <pod-name> -n <namespace> -o wide
+kubectl describe pvc <pvc-name> -n <namespace>
+/usr/bin/ssh -F /dev/null <node-ip> "sudo du -xh -d2 /var/lib/rancher/k3s/storage 2>/dev/null | sort -h | tail -40"
+```
+
+Do not delete retained local-path directories unless the owning PV/PVC has been intentionally retired.
+
+## Retired Gluster/Ganesha Guard
+
+Use the guard script before claiming retired storage has reappeared:
+
+```bash
+scripts/retire-gluster-ganesha.sh --node hestia
+scripts/retire-gluster-ganesha.sh --node heracles
+scripts/retire-gluster-ganesha.sh --node nyx
+```
+
+The script verifies that:
+
+- `glusterfs-nfs` is absent
+- no PV/PVC uses `glusterfs-nfs`
+- no live pod hostPath references `/data/glusterfs` or `/storage`
+- Gluster/Ganesha units, processes, mounts, and storage listener ports are inactive
+
+Historical repair procedures are archived in:
+
+- `docs/archived/glusterfs-architecture.md`
+- `docs/archived/nfs-ganesha-migration.md`
+- `docs/archived/gluster-ganesha-storage-troubleshooting.md`

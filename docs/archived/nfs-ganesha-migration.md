@@ -1,5 +1,7 @@
 # NFS-Ganesha Migration Guide
 
+> Archived: NFS-Ganesha was retired from the live cluster on May 30, 2026. This document is retained only for incident history and migration forensics.
+
 This document describes the migration from kernel NFS to NFS-Ganesha with FSAL_GLUSTER for the cluster's GlusterFS storage.
 
 ## Background
