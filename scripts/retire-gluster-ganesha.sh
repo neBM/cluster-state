@@ -163,9 +163,14 @@ for path in /data/glusterfs /var/log/ganesha /etc/ganesha /usr/local/bin/ganesha
     du -sh "$path" 2>/dev/null || ls -ld "$path"
   fi
 done
+if getent passwd gluster >/dev/null || getent group gluster >/dev/null; then
+  echo "  [inventory] retired gluster account/group still present"
+  getent passwd gluster || true
+  getent group gluster || true
+fi
 
 if [[ "$EXECUTE" != "true" ]]; then
-  echo "  [dry-run] would disable retired units, remove Ganesha artifacts/logs, purge Gluster packages, and delete /data/glusterfs if present"
+  echo "  [dry-run] would disable retired units, remove Ganesha artifacts/logs, purge Gluster packages, delete /data/glusterfs if present, and remove retired gluster account names"
   exit 0
 fi
 
@@ -226,6 +231,17 @@ elif command -v dnf >/dev/null 2>&1; then
   fi
 fi
 
+echo "  [execute] removing retired Gluster account names"
+if getent passwd gluster >/dev/null; then
+  if pgrep -u gluster >/dev/null 2>&1; then
+    fail "gluster user still owns running processes; inspect before removing the account"
+  fi
+  userdel gluster
+fi
+if getent group gluster >/dev/null; then
+  groupdel gluster
+fi
+
 echo "  [verify] final state"
 if pgrep -af '(^|/)(glusterd|glusterfsd|ganesha\.nfsd)( |$)' >/tmp/retired-storage-procs 2>/dev/null; then
   cat /tmp/retired-storage-procs >&2
@@ -236,6 +252,9 @@ rm -f /tmp/retired-storage-procs
 
 if [[ -e /data/glusterfs ]]; then
   fail "/data/glusterfs still exists after cleanup"
+fi
+if getent passwd gluster >/dev/null || getent group gluster >/dev/null; then
+  fail "retired gluster account/group remains after cleanup"
 fi
 
 df -h /
