@@ -21,7 +21,10 @@ spec:
         app: vpa-recommender
     spec:
       containers:
-        - image: registry.k8s.io/autoscaling/vpa-recommender
+        - args:
+            - --recommender-interval=10m
+            - --memory-saver=true
+          image: registry.k8s.io/autoscaling/vpa-recommender
           imagePullPolicy: IfNotPresent
           livenessProbe:
             failureThreshold: 3

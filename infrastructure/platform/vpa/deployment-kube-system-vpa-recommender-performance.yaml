@@ -24,6 +24,8 @@ spec:
         - args:
             - --recommender-name=performance
             - --target-cpu-percentile=0.95
+            - --recommender-interval=10m
+            - --memory-saver=true
           image: registry.k8s.io/autoscaling/vpa-recommender
           imagePullPolicy: Always
           livenessProbe:
