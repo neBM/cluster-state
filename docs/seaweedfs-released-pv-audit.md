@@ -11,8 +11,9 @@ orphaned `/buckets/pvc-*` directories on the same date.
 - All `9` PV objects were deleted on 2026-05-07.
 - All `9` matching orphaned filer paths were confirmed absent after scrub on
   2026-05-07.
-- Current ClickHouse does **not** use any of these PVs. Its live claim is
-  `default/clickhouse-data` on `storageClassName=local-path`.
+- ClickHouse was later retired; while it was live, its claim was
+  `default/clickhouse-data` on `storageClassName=local-path`, not one of these
+  SeaweedFS PVs.
 
 ## Deleted PVs
 

@@ -1023,10 +1023,6 @@ def main() -> int:
             selectors={"default": "app=valkey"},
         ),
         Component(
-            "infrastructure/shared-services/clickhouse",
-            selectors={"default": "app=clickhouse"},
-        ),
-        Component(
             "infrastructure/shared-services/ollama",
             selectors={"default": "app=ollama"},
         ),
@@ -1067,10 +1063,6 @@ def main() -> int:
         Component("apps/glitchtip", selectors={"default": "app=glitchtip"}),
         Component("apps/jayne-martin-counselling", selectors={"default": "app=jayne-martin-counselling"}, explicit_namespaced=[ExplicitResource("verticalpodautoscalers.autoscaling.k8s.io", ["jayne-martin-counselling-vpa"], namespace="default")]),
         Component("apps/keycloak", selectors={"default": "app=keycloak"}),
-        Component(
-            "apps/langfuse",
-            selectors={"default": "app=langfuse"},
-        ),
         Component(
             "apps/lldap",
             selectors={"default": "app=lldap"},
@@ -1155,7 +1147,6 @@ def main() -> int:
         "infrastructure/shared-services",
         [
             "valkey",
-            "clickhouse",
             "ollama",
             "gitlab-runner",
         ],
@@ -1184,7 +1175,6 @@ def main() -> int:
             "glitchtip",
             "jayne-martin-counselling",
             "keycloak",
-            "langfuse",
             "lldap",
             "mail",
             "matrix",

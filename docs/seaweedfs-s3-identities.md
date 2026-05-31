@@ -38,7 +38,6 @@ named-bucket cleanup candidates, see
 | COSI `BucketAccess/default/victoriametrics` | `victoriametrics` | `victoriametrics-cosi-s3` | `BucketInfo.spec.secretS3` | Deployment/victoriametrics vmrestore init and vmbackup sidecar |
 | COSI `BucketAccess/default/plex-backup` | `plex-backup` | `plex-backup-s3` | `BucketInfo.spec.secretS3` | Deployment/plex (db-restore init), CronJob/plex-db-backup |
 | COSI `BucketAccess/default/athenaeum-attachments` | `athenaeum-attachments` | `athenaeum-attachments-s3` | `BucketInfo.spec.secretS3` | Deployment/athenaeum-backend |
-| COSI `BucketAccess/default/langfuse` | `langfuse` | `langfuse-s3` | `BucketInfo.spec.secretS3` | Deployments langfuse-{web,worker} |
 | COSI `BucketAccess/default/gitlab-runner-cache` | `gitlab-runner-cache` | `gitlab-runner-cache-cosi-s3` | `BucketInfo.spec.secretS3` | Deployments gitlab-runner-{amd64,any,arm64,services} config-generator init |
 | COSI `BucketAccess/default/renovate-cache` | `renovate-cache` | `renovate-cache-s3` synced into GitLab CI variables in `infrastructure/renovate-runner` | `BucketInfo.spec.secretS3` -> `S3_ACCESS_KEY`, `S3_SECRET_KEY` | Scheduled Renovate runner job |
 | COSI `BucketAccess/default/overseerr-litestream` | `overseerr-litestream` | `overseerr-litestream-s3` | `BucketInfo.spec.secretS3` | Deployment/overseerr Litestream containers |

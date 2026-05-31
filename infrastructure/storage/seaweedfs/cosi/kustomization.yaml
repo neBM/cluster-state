@@ -25,9 +25,6 @@ resources:
 - bucket-athenaeum-attachments.yaml
 - bucketclaim-default-athenaeum-attachments.yaml
 - bucketaccess-default-athenaeum-attachments.yaml
-- bucket-langfuse.yaml
-- bucketclaim-default-langfuse.yaml
-- bucketaccess-default-langfuse.yaml
 - bucket-gitlab-runner-cache.yaml
 - bucketclaim-default-gitlab-runner-cache.yaml
 - bucketaccess-default-gitlab-runner-cache.yaml

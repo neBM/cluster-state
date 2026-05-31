@@ -6,7 +6,6 @@ resources:
 - glitchtip
 - jayne-martin-counselling
 - keycloak
-- langfuse
 - lldap
 - mail
 - matrix
