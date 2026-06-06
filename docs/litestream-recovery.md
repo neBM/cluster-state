@@ -1,19 +1,24 @@
 # Litestream Backup Recovery
 
-This runbook covers the current SeaweedFS-era recovery flow for
-Litestream-backed SQLite data.
+This document is a historical record of the SeaweedFS-era recovery flow for
+Seerr's former Litestream-backed SQLite runtime.
 
-Current SQLite-era Seerr boundary:
+The Litestream-backed Seerr buckets and credentials were retired after the
+June 6, 2026 PostgreSQL cutover. Do not treat this as a current runbook unless
+you are reconstructing that retired migration boundary for forensics.
+
+Historical SQLite-era Seerr boundary:
 
 - Before the PostgreSQL cutover in
-  [seerr-postgres-migration.md](seerr-postgres-migration.md), `seerr` stores
+  [seerr-postgres-migration.md](seerr-postgres-migration.md), `seerr` stored
   Litestream LTX files in bucket `seerr-litestream`, prefix `db`
-- After the PostgreSQL cutover, `seerr-litestream` and `overseerr-litestream`
-  remain only as Seerr migration-window and rollback restore sources
+- The cutover temporarily retained `seerr-litestream` and
+  `overseerr-litestream` as migration and rollback restore sources before both
+  were retired
 
 Related references:
 
-- [seaweedfs-s3-identities.md](seaweedfs-s3-identities.md) for the live
+- [seaweedfs-s3-identities.md](seaweedfs-s3-identities.md) for the current live
   secret mappings and credential rotation flow
 - [storage-troubleshooting.md](storage-troubleshooting.md) for broader
   storage failure modes
@@ -28,9 +33,10 @@ for example:
 - the workload refuses to start because its restore init container
   cannot rebuild the local SQLite file from object storage
 
-Do not use this runbook to repair a local SQLite file in place. The
-current Litestream consumer restores its local database from SeaweedFS
-S3 at startup, so the durable recovery target is the bucket contents.
+Do not use this runbook to repair a local SQLite file in place. In the
+historical Seerr runtime, Litestream restored the local database from
+SeaweedFS S3 at startup, so the durable recovery target was the bucket
+contents.
 
 ## Important Constraints
 

@@ -1,22 +1,22 @@
 # Seerr PostgreSQL Migration
 
-This runbook covers the planned migration from Seerr's current SQLite +
-Litestream runtime to the shared external PostgreSQL instance at
-`192.168.1.10:5433`.
+This document is the historical runbook used for the June 6, 2026 migration
+from Seerr's former SQLite + Litestream runtime to the shared external
+PostgreSQL instance at `192.168.1.10:5433`.
 
-It assumes the desired-state manifest change lives on a branch and is **not**
-merged or reconciled yet. Do not let Flux apply the Postgres Deployment before
-the SQLite data import has completed.
+The migration completed successfully. The temporary rollback artifacts used
+during cutover (`overseerr-config-sw`, `seerr-litestream`, and
+`overseerr-litestream`) were retired after validation. Treat any steps that
+reference them as execution history, not current desired state.
 
 ## Target Boundaries
 
 - Seerr keeps `seerr-config-sw` for `settings.json`, logs, cache, and migration
   scratch data.
 - Seerr moves request/user/application data from SQLite to PostgreSQL.
-- `seerr-litestream` and `overseerr-litestream` remain available only for the
+- During cutover, `seerr-litestream` and `overseerr-litestream` provided the
   migration window and rollback boundary.
-- `overseerr-config-sw` remains the legacy rollback config source until the
-  stability window closes.
+- During cutover, `overseerr-config-sw` provided the legacy config fallback.
 
 ## Pre-Migration
 

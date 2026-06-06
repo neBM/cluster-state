@@ -22,8 +22,6 @@ until each bucket is migrated and verified.
 | Bucket | Status | COSI resources | Workload consumption | Verification |
 |---|---|---|---|---|
 | `plex-backup` | Migrated | `Bucket/plex-backup`, `BucketClaim/default/plex-backup`, `BucketAccess/default/plex-backup` | `Secret/default/plex-backup-s3` mounted as `BucketInfo` by `Deployment/plex` db-restore init and `CronJob/plex-db-backup` | Manual `plex-db-backup` job completed on 2026-05-12; scoped credentials were denied against `overseerr-litestream` |
-| `seerr-litestream` | Migration/rollback boundary | `Bucket/seerr-litestream`, `BucketClaim/default/seerr-litestream`, `BucketAccess/default/seerr-litestream` | No steady-state workload after the PostgreSQL cutover; helper pods in `docs/seerr-postgres-migration.md` and rollback procedures in `docs/litestream-recovery.md` use the generated `BucketInfo` | Live Seerr cutover completed on 2026-06-06; retain this bucket until the PostgreSQL migration stability window closes |
-| `overseerr-litestream` | Rollback-only | `Bucket/overseerr-litestream`, `BucketClaim/default/overseerr-litestream`, `BucketAccess/default/overseerr-litestream` | No steady-state workload after the PostgreSQL cutover; retained for Seerr fallback restore procedures in `docs/seerr-postgres-migration.md` and `docs/litestream-recovery.md` | Retained as the Seerr rollback restore boundary after the 2026-06-06 cutover |
 | `victoriametrics` | Migrated | `Bucket/victoriametrics`, `BucketClaim/default/victoriametrics`, `BucketAccess/default/victoriametrics` | `Secret/default/victoriametrics-cosi-s3` mounted as `BucketInfo` by `Deployment/victoriametrics` vmrestore init and vmbackup sidecar | Restore and backup completed on 2026-05-12; scoped credentials were denied against `plex-backup` |
 | `loki` | Migrated | `Bucket/loki`, `BucketClaim/default/loki`, `BucketAccess/default/loki` | `Secret/default/loki-cosi-s3` mounted as `BucketInfo` by `StatefulSet/loki` render-config init | Loki restarted with rendered COSI config on 2026-05-12 and read TSDB index files from S3; scoped credentials were denied against `plex-backup` |
 | `athenaeum-attachments` | Migrated | `Bucket/athenaeum-attachments`, `BucketClaim/default/athenaeum-attachments`, `BucketAccess/default/athenaeum-attachments` | `Secret/default/athenaeum-attachments-s3` mounted as `BucketInfo` by `Deployment/athenaeum-backend` | Backend restarted healthy on 2026-05-12; scoped credentials wrote/read/deleted a smoke object and were denied against `plex-backup` |
@@ -168,12 +166,11 @@ driver limitation.
 Migrate one bucket at a time:
 
 1. `plex-backup`
-2. `overseerr-litestream`
-3. `victoriametrics`
-4. `loki`
-5. `athenaeum-attachments`
-6. `gitlab-runner-cache`
-7. `renovate-cache`
+2. `victoriametrics`
+3. `loki`
+4. `athenaeum-attachments`
+5. `gitlab-runner-cache`
+6. `renovate-cache`
 
 Prefer brownfield adoption. Only copy data into a new COSI-owned bucket if
 brownfield import fails in the disposable proof.

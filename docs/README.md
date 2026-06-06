@@ -20,7 +20,7 @@ This directory contains documentation for the K8s (K3s) cluster infrastructure.
 - **[seaweedfs-cosi.md](seaweedfs-cosi.md)** - COSI-first SeaweedFS S3 control-plane runbook.
 - **[seaweedfs-bucket-audit.md](seaweedfs-bucket-audit.md)** - Durable runbook for auditing `/buckets`, including `pvc-*` CSI paths, named S3 buckets, and cleanup candidates.
 - **[seaweedfs-released-pv-audit.md](seaweedfs-released-pv-audit.md)** - Audit baseline for released SeaweedFS PVs, cleanup candidates, and retained archive volumes.
-- **[litestream-recovery.md](litestream-recovery.md)** - SeaweedFS-era Litestream recovery runbook for restoring bucket contents from restic and pushing them back through the S3 gateway.
+- **[litestream-recovery.md](litestream-recovery.md)** - Historical SeaweedFS-era Litestream recovery record from the pre-PostgreSQL Seerr runtime.
 - **[seaweedfs-migration.md](seaweedfs-migration.md)** - Completed migration record from GlusterFS/NFS-Ganesha/MinIO to SeaweedFS.
 
 ### Archived Storage
