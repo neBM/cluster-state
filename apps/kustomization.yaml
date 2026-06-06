@@ -13,7 +13,7 @@ resources:
 - nextcloud
 - nginx-sites
 - open-webui
-- overseerr
+- seerr
 - pgadmin
 - searxng
 - vaultwarden

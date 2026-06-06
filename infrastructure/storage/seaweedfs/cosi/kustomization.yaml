@@ -16,6 +16,9 @@ resources:
 - bucket-overseerr-litestream.yaml
 - bucketclaim-default-overseerr-litestream.yaml
 - bucketaccess-default-overseerr-litestream.yaml
+- bucket-seerr-litestream.yaml
+- bucketclaim-default-seerr-litestream.yaml
+- bucketaccess-default-seerr-litestream.yaml
 - bucket-victoriametrics.yaml
 - bucketclaim-default-victoriametrics.yaml
 - bucketaccess-default-victoriametrics.yaml

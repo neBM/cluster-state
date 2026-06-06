@@ -1,0 +1,13 @@
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  labels:
+    app: seerr
+    environment: prod
+  name: overseerr-redirect
+  namespace: default
+spec:
+  redirectRegex:
+    permanent: false
+    regex: ^https?://overseerr\.brmartin\.co\.uk(.*)$
+    replacement: https://seerr.brmartin.co.uk$1

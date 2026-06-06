@@ -2,9 +2,9 @@ apiVersion: v1
 kind: Service
 metadata:
   labels:
-    app: overseerr
+    app: seerr
     environment: prod
-  name: overseerr
+  name: seerr
   namespace: default
 spec:
   internalTrafficPolicy: Cluster
@@ -13,6 +13,6 @@ spec:
     protocol: TCP
     targetPort: 5055
   selector:
-    app: overseerr
+    app: seerr
   sessionAffinity: None
   type: ClusterIP

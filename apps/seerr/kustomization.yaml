@@ -1,0 +1,19 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+- deployment-default-seerr.yaml
+- ingressroute-default-overseerr-redirect.yaml
+- ingressroute-default-seerr.yaml
+- middleware-default-overseerr-redirect.yaml
+- persistentvolumeclaim-default-overseerr-config-sw.yaml
+- persistentvolumeclaim-default-seerr-config-sw.yaml
+- service-default-seerr.yaml
+- verticalpodautoscaler-default-seerr-vpa.yaml
+
+images:
+- name: "ghcr.io/seerr-team/seerr"
+  newTag: "v3.2.0"
+- name: "litestream/litestream"
+  newTag: "0.5"
+- name: "busybox"
+  newTag: "1.38"

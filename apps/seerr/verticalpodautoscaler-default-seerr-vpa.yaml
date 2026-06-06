@@ -2,14 +2,14 @@ apiVersion: autoscaling.k8s.io/v1
 kind: VerticalPodAutoscaler
 metadata:
   labels:
-    app: overseerr
+    app: seerr
     environment: prod
-  name: overseerr-vpa
+  name: seerr-vpa
   namespace: default
 spec:
   resourcePolicy:
     containerPolicies:
-    - containerName: overseerr
+    - containerName: seerr
       maxAllowed:
         cpu: '1'
         memory: 1Gi
@@ -26,6 +26,6 @@ spec:
   targetRef:
     apiVersion: apps/v1
     kind: Deployment
-    name: overseerr
+    name: seerr
   updatePolicy:
     updateMode: 'Off'

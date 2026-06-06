@@ -4,11 +4,11 @@ metadata:
   labels:
     app: seerr
     environment: prod
-    migration-role: rollback-backup
-  name: overseerr-litestream
+    migration-role: active-backup
+  name: seerr-litestream
   namespace: default
 spec:
   bucketAccessClassName: seaweedfs-readwrite
-  bucketClaimName: overseerr-litestream
-  credentialsSecretName: overseerr-litestream-s3
+  bucketClaimName: seerr-litestream
+  credentialsSecretName: seerr-litestream-s3
   protocol: s3

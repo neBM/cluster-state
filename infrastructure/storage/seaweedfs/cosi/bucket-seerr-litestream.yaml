@@ -4,15 +4,15 @@ metadata:
   labels:
     app: seerr
     environment: prod
-    migration-role: rollback-backup
-  name: overseerr-litestream
+    migration-role: active-backup
+  name: seerr-litestream
 spec:
   bucketClaim:
-    name: overseerr-litestream
+    name: seerr-litestream
     namespace: default
   bucketClassName: seaweedfs
   deletionPolicy: Retain
   driverName: seaweedfs.objectstorage.k8s.io
-  existingBucketID: overseerr-litestream
+  existingBucketID: seerr-litestream
   protocols:
     - s3

@@ -4,8 +4,9 @@ metadata:
   finalizers:
   - kubernetes.io/pvc-protection
   labels:
-    app: overseerr
+    app: seerr
     environment: prod
+    migration-source: overseerr
   name: overseerr-config-sw
   namespace: default
 spec:
