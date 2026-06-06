@@ -21,13 +21,26 @@ the current Seerr deployment defined in `apps/seerr/`.
    kubectl kustomize clusters/k3s-homelab > /dev/null
    ```
 
-2. Ensure the new bucket resources exist after reconciliation:
+2. If `seerr-litestream` is modeled as a brownfield-import bucket, ensure the
+   named SeaweedFS filer bucket exists before the COSI credentials are used:
+
+   ```bash
+   kubectl exec -n default seaweedfs-master-0 -- sh -lc \
+     "printf 'fs.ls /buckets\n' | weed shell -master=seaweedfs-master:9333"
+   kubectl exec -n default seaweedfs-master-0 -- sh -lc \
+     "printf 'fs.mkdir /buckets/seerr-litestream\n' | weed shell -master=seaweedfs-master:9333"
+   ```
+
+   Only run the `fs.mkdir` command if `seerr-litestream` is missing from the
+   `/buckets` listing.
+
+3. Ensure the new bucket resources exist after reconciliation:
 
    ```bash
    kubectl get bucket,bucketclaim,bucketaccess -n default | rg 'seerr-litestream|overseerr-litestream'
    ```
 
-3. Quiesce request traffic if possible. Prefer a forced final snapshot from the
+4. Quiesce request traffic if possible. Prefer a forced final snapshot from the
    current Overseerr Litestream sidecar; if you cannot do that, allow at least
    one full `sync-interval` window (5 minutes) after the last user-visible
    mutation before cutover.
@@ -81,7 +94,7 @@ the current Seerr deployment defined in `apps/seerr/`.
 - the main `seerr` container reaches readiness on
   `/api/v1/settings/public`.
 - the Litestream sidecar logs a sync or snapshot against `seerr-litestream`.
-- `https://overseerr.brmartin.co.uk` returns a redirect to
+- `https://overseerr.brmartin.co.uk` returns a temporary redirect to
   `https://seerr.brmartin.co.uk`.
 
 ## Rollback

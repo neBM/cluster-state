@@ -22,8 +22,8 @@ until each bucket is migrated and verified.
 | Bucket | Status | COSI resources | Workload consumption | Verification |
 |---|---|---|---|---|
 | `plex-backup` | Migrated | `Bucket/plex-backup`, `BucketClaim/default/plex-backup`, `BucketAccess/default/plex-backup` | `Secret/default/plex-backup-s3` mounted as `BucketInfo` by `Deployment/plex` db-restore init and `CronJob/plex-db-backup` | Manual `plex-db-backup` job completed on 2026-05-12; scoped credentials were denied against `overseerr-litestream` |
-| `seerr-litestream` | Active | `Bucket/seerr-litestream`, `BucketClaim/default/seerr-litestream`, `BucketAccess/default/seerr-litestream` | `Secret/default/seerr-litestream-s3` mounted as `BucketInfo` by `Deployment/seerr` restore init and Litestream sidecar | Seerr restores from `seerr-litestream` first and seeds it on fallback restore; keep `overseerr-litestream` as the rollback boundary until cleanup |
-| `overseerr-litestream` | Rollback-only | `Bucket/overseerr-litestream`, `BucketClaim/default/overseerr-litestream`, `BucketAccess/default/overseerr-litestream` | `Secret/default/overseerr-litestream-s3` mounted as `BucketInfo` by `Deployment/seerr` restore init as a fallback restore source | Restore init completed and Litestream uploaded LTX on 2026-05-12; retained for Seerr rollback only |
+| `seerr-litestream` | Active | `Bucket/seerr-litestream`, `BucketClaim/default/seerr-litestream`, `BucketAccess/default/seerr-litestream` | `Secret/default/seerr-litestream-s3` mounted as `BucketInfo` by `Deployment/seerr` restore init and Litestream sidecar | Live Seerr cutover completed on 2026-06-06; Seerr served `/api/v1/settings/public`, completed the Overseerr-to-Seerr migration, and Litestream uploaded new LTX data to `seerr-litestream` |
+| `overseerr-litestream` | Rollback-only | `Bucket/overseerr-litestream`, `BucketClaim/default/overseerr-litestream`, `BucketAccess/default/overseerr-litestream` | `Secret/default/overseerr-litestream-s3` mounted as `BucketInfo` by `Deployment/seerr` restore init as a fallback restore source | Retained as the Seerr rollback restore boundary after the 2026-06-06 cutover |
 | `victoriametrics` | Migrated | `Bucket/victoriametrics`, `BucketClaim/default/victoriametrics`, `BucketAccess/default/victoriametrics` | `Secret/default/victoriametrics-cosi-s3` mounted as `BucketInfo` by `Deployment/victoriametrics` vmrestore init and vmbackup sidecar | Restore and backup completed on 2026-05-12; scoped credentials were denied against `plex-backup` |
 | `loki` | Migrated | `Bucket/loki`, `BucketClaim/default/loki`, `BucketAccess/default/loki` | `Secret/default/loki-cosi-s3` mounted as `BucketInfo` by `StatefulSet/loki` render-config init | Loki restarted with rendered COSI config on 2026-05-12 and read TSDB index files from S3; scoped credentials were denied against `plex-backup` |
 | `athenaeum-attachments` | Migrated | `Bucket/athenaeum-attachments`, `BucketClaim/default/athenaeum-attachments`, `BucketAccess/default/athenaeum-attachments` | `Secret/default/athenaeum-attachments-s3` mounted as `BucketInfo` by `Deployment/athenaeum-backend` | Backend restarted healthy on 2026-05-12; scoped credentials wrote/read/deleted a smoke object and were denied against `plex-backup` |
@@ -94,7 +94,12 @@ Before migrating production data, prove that COSI can grant access to an
 existing SeaweedFS bucket without recreating it.
 
 1. Create a non-production bucket outside COSI, for example
-   `cosi-brownfield`.
+   `cosi-brownfield`. In this cluster the direct filer path is:
+
+   ```bash
+   kubectl exec -n default seaweedfs-master-0 -- sh -lc \
+     "printf 'fs.mkdir /buckets/cosi-brownfield\n' | weed shell -master=seaweedfs-master:9333"
+   ```
 2. Create a matching COSI `Bucket` with `existingBucketID` set to that bucket
    name:
 
