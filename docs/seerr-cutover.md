@@ -6,17 +6,15 @@ current Seerr deployment defined in `apps/seerr/`.
 For the later SQLite-to-PostgreSQL migration, use
 [seerr-postgres-migration.md](seerr-postgres-migration.md).
 
-This document remains relevant for the legacy redirect and rollback storage
-boundaries introduced during that cutover.
+This document remains relevant only for the legacy hostname redirect. The
+rollback storage boundaries from the original cutover were retired after the
+PostgreSQL migration completed and Seerr stabilized.
 
 ## Current Boundaries
 
 - `seerr.brmartin.co.uk` is the primary hostname.
 - `overseerr.brmartin.co.uk` redirects to the new host after cutover.
 - `seerr-config-sw` is the writable Seerr config PVC.
-- `overseerr-config-sw` is retained as the legacy rollback config source.
-- `seerr-litestream` is the active Litestream bucket.
-- `overseerr-litestream` is retained as the rollback restore source.
 
 ## Pre-Cutover
 
@@ -75,10 +73,10 @@ boundaries introduced during that cutover.
 3. Check the bootstrap path:
 
    ```bash
-   kubectl logs -n default deploy/seerr -c prepare-config-and-data --tail=100
-   kubectl logs -n default deploy/seerr -c litestream-restore --tail=100
-   kubectl logs -n default deploy/seerr -c seerr --tail=100
-   kubectl logs -n default deploy/seerr -c litestream --tail=100
+  kubectl logs -n default deploy/seerr -c prepare-config-and-data --tail=100
+  kubectl logs -n default deploy/seerr -c litestream-restore --tail=100
+  kubectl logs -n default deploy/seerr -c seerr --tail=100
+  kubectl logs -n default deploy/seerr -c litestream --tail=100
    ```
 
 4. Verify the public paths:
@@ -93,8 +91,8 @@ boundaries introduced during that cutover.
 
 ## Healthy Signs
 
-- `prepare-config-and-data` reports that the Seerr PVC was initialized or was
-  already initialized.
+- `prepare-config-and-data` completes and leaves `seerr-config-sw` writable for
+  the main Seerr container.
 - `litestream-restore` restores from `seerr-litestream` or falls back to
   `overseerr-litestream`, then seeds `seerr-litestream`.
 - the main `seerr` container reaches readiness on
@@ -111,6 +109,3 @@ Rollback is a GitOps revert, not a live patch:
 2. Reconcile `storage-cosi` and `apps`.
 3. Confirm the legacy app restores from `overseerr-litestream` and reads
    `overseerr-config-sw`.
-
-Keep `overseerr-config-sw` and `overseerr-litestream` in desired state until the
-Seerr stability window is closed and bookmark migration is no longer needed.

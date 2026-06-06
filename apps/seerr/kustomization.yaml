@@ -5,7 +5,6 @@ resources:
 - ingressroute-default-overseerr-redirect.yaml
 - ingressroute-default-seerr.yaml
 - middleware-default-overseerr-redirect.yaml
-- persistentvolumeclaim-default-overseerr-config-sw.yaml
 - persistentvolumeclaim-default-seerr-config-sw.yaml
 - service-default-seerr.yaml
 - verticalpodautoscaler-default-seerr-vpa.yaml

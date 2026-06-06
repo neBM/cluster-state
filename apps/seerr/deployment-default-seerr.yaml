@@ -121,18 +121,6 @@ spec:
               set -eu
 
               mkdir -p /config
-
-              if [ ! -f /config/settings.json ]; then
-                echo "Initializing Seerr config PVC from Overseerr rollback PVC"
-                for entry in /legacy/settings.json /legacy/settings.json.uninitialized-* /legacy/cache /legacy/logs; do
-                  if [ -e "$entry" ]; then
-                    cp -a "$entry" /config/
-                  fi
-                done
-              else
-                echo "Seerr config PVC already initialized"
-              fi
-
               mkdir -p /config/cache /config/logs /config/db /config/migration/postgres-import
               chown -R 1000:1000 /config
           image: busybox
@@ -145,10 +133,6 @@ spec:
             - mountPath: /config
               mountPropagation: HostToContainer
               name: config
-            - mountPath: /legacy
-              mountPropagation: HostToContainer
-              name: legacy-config
-              readOnly: true
       restartPolicy: Always
       schedulerName: default-scheduler
       securityContext:
@@ -160,6 +144,3 @@ spec:
         - name: config
           persistentVolumeClaim:
             claimName: seerr-config-sw
-        - name: legacy-config
-          persistentVolumeClaim:
-            claimName: overseerr-config-sw
