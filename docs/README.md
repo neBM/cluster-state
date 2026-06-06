@@ -8,6 +8,10 @@ This directory contains documentation for the K8s (K3s) cluster infrastructure.
 
 - **[elasticsearch-pipelines.md](elasticsearch-pipelines.md)** - Historical Elasticsearch ingest pipeline notes.
 
+### Applications
+
+- **[seerr-cutover.md](seerr-cutover.md)** - Seerr cutover and rollback runbook, including the legacy Overseerr redirect and storage boundaries.
+
 ### Storage
 
 - **[storage-troubleshooting.md](storage-troubleshooting.md)** - Current storage troubleshooting for SeaweedFS, local-path volumes, Synology NFS static PVs, and disk pressure.

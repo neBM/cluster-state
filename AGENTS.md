@@ -440,7 +440,7 @@ glab api "projects/<id>/pipelines?ref=main&status=success&per_page=1"
 | searxng | Deployment | Search engine |
 | nginx-sites | Deployment | Static sites (brmartin.co.uk, martinilink.co.uk) |
 | vaultwarden | Deployment | Password manager |
-| overseerr | StatefulSet | Media requests, litestream backup |
+| seerr | Deployment | Media requests, Seerr runtime, Litestream backup; `overseerr.brmartin.co.uk` redirects here during bookmark migration |
 | ollama | Deployment | LLM inference, GPU on Hestia |
 | seaweedfs-s3 | Deployment | S3-compatible object storage endpoint |
 | keycloak | Deployment | SSO/OAuth |

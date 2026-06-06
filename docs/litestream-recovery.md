@@ -5,8 +5,9 @@ Litestream-backed SQLite data.
 
 Current live consumer:
 
-- `overseerr` stores Litestream LTX files in bucket
-  `overseerr-litestream`, prefix `db`
+- `seerr` stores Litestream LTX files in bucket
+  `seerr-litestream`, prefix `db`
+- `overseerr-litestream` is retained only as the Seerr rollback restore source
 
 Related references:
 
@@ -42,24 +43,24 @@ S3 at startup, so the durable recovery target is the bucket contents.
   does not block Litestream object recovery because the bucket stores
   LTX files, not the live local WAL/shm files.
 
-## Overseerr Recovery
+## Seerr Recovery
 
 Set the recovery variables:
 
 ```bash
 NS=default
-WORKLOAD=deployment/overseerr
-BUCKET=overseerr-litestream
+WORKLOAD=deployment/seerr
+BUCKET=seerr-litestream
 PREFIX=db
-COSI_SECRET=overseerr-litestream-s3
+COSI_SECRET=seerr-litestream-s3
 HELPER=litestream-recovery
 ```
 
-Stop Overseerr so nothing keeps mutating the bucket while you restore:
+Stop Seerr so nothing keeps mutating the bucket while you restore:
 
 ```bash
 kubectl scale "$WORKLOAD" -n "$NS" --replicas=0
-kubectl wait -n "$NS" --for=delete pod -l app=overseerr --timeout=180s
+kubectl wait -n "$NS" --for=delete pod -l app=seerr --timeout=180s
 ```
 
 Create a helper pod on `hestia` with:
@@ -215,7 +216,7 @@ rclone lsf ":s3:$BUCKET/$PREFIX" \
 exit
 ```
 
-Delete the helper pod and start Overseerr again:
+Delete the helper pod and start Seerr again:
 
 ```bash
 kubectl delete pod/"$HELPER" -n "$NS"
@@ -226,16 +227,16 @@ kubectl rollout status "$WORKLOAD" -n "$NS" --timeout=300s
 Validate the restore:
 
 ```bash
-kubectl logs -n "$NS" deploy/overseerr -c litestream-restore --tail=100
-kubectl logs -n "$NS" deploy/overseerr -c overseerr --tail=100
-kubectl get deploy overseerr -n "$NS"
+kubectl logs -n "$NS" deploy/seerr -c litestream-restore --tail=100
+kubectl logs -n "$NS" deploy/seerr -c seerr --tail=100
+kubectl get deploy seerr -n "$NS"
 ```
 
 Healthy signs:
 
 - `litestream-restore` logs `Database restored successfully from S3`
 - the final size check passes
-- the main `overseerr` container reaches `Server ready on port 5055`
+- the main `seerr` container reaches `Server ready on port 5055`
 
 ## Known SeaweedFS-Specific Failure Mode
 
