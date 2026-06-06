@@ -1,7 +1,13 @@
 # Seerr Cutover
 
-This runbook covers the manual cutover from the archived Overseerr runtime to
-the current Seerr deployment defined in `apps/seerr/`.
+This runbook covers the completed June 6, 2026 cutover from Overseerr to the
+current Seerr deployment defined in `apps/seerr/`.
+
+For the later SQLite-to-PostgreSQL migration, use
+[seerr-postgres-migration.md](seerr-postgres-migration.md).
+
+This document remains relevant for the legacy redirect and rollback storage
+boundaries introduced during that cutover.
 
 ## Current Boundaries
 

@@ -3,11 +3,13 @@
 This runbook covers the current SeaweedFS-era recovery flow for
 Litestream-backed SQLite data.
 
-Current live consumer:
+Current SQLite-era Seerr boundary:
 
-- `seerr` stores Litestream LTX files in bucket
-  `seerr-litestream`, prefix `db`
-- `overseerr-litestream` is retained only as the Seerr rollback restore source
+- Before the PostgreSQL cutover in
+  [seerr-postgres-migration.md](seerr-postgres-migration.md), `seerr` stores
+  Litestream LTX files in bucket `seerr-litestream`, prefix `db`
+- After the PostgreSQL cutover, `seerr-litestream` and `overseerr-litestream`
+  remain only as Seerr migration-window and rollback restore sources
 
 Related references:
 

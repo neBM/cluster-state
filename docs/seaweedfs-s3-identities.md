@@ -40,8 +40,8 @@ named-bucket cleanup candidates, see
 | COSI `BucketAccess/default/athenaeum-attachments` | `athenaeum-attachments` | `athenaeum-attachments-s3` | `BucketInfo.spec.secretS3` | Deployment/athenaeum-backend |
 | COSI `BucketAccess/default/gitlab-runner-cache` | `gitlab-runner-cache` | `gitlab-runner-cache-cosi-s3` | `BucketInfo.spec.secretS3` | Deployments gitlab-runner-{amd64,any,arm64,services} config-generator init |
 | COSI `BucketAccess/default/renovate-cache` | `renovate-cache` | `renovate-cache-s3` synced into GitLab CI variables in `infrastructure/renovate-runner` | `BucketInfo.spec.secretS3` -> `S3_ACCESS_KEY`, `S3_SECRET_KEY` | Scheduled Renovate runner job |
-| COSI `BucketAccess/default/seerr-litestream` | `seerr-litestream` | `seerr-litestream-s3` | `BucketInfo.spec.secretS3` | Deployment/seerr restore init and Litestream sidecar |
-| COSI `BucketAccess/default/overseerr-litestream` | `overseerr-litestream` | `overseerr-litestream-s3` | `BucketInfo.spec.secretS3` | Deployment/seerr restore init fallback source during rollback window |
+| COSI `BucketAccess/default/seerr-litestream` | `seerr-litestream` | `seerr-litestream-s3` | `BucketInfo.spec.secretS3` | Seerr PostgreSQL migration helper pod in `docs/seerr-postgres-migration.md`, plus rollback procedures in `docs/litestream-recovery.md` |
+| COSI `BucketAccess/default/overseerr-litestream` | `overseerr-litestream` | `overseerr-litestream-s3` | `BucketInfo.spec.secretS3` | Seerr fallback restore procedures in `docs/seerr-postgres-migration.md` and `docs/litestream-recovery.md` |
 | `admin` | *(unscoped, full Admin)* | *(not in any workload secret)* | — | Operator use only |
 
 All scoped identities have actions `Read,Write,List,Tagging` on their

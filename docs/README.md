@@ -11,6 +11,7 @@ This directory contains documentation for the K8s (K3s) cluster infrastructure.
 ### Applications
 
 - **[seerr-cutover.md](seerr-cutover.md)** - Seerr cutover and rollback runbook, including the legacy Overseerr redirect and storage boundaries.
+- **[seerr-postgres-migration.md](seerr-postgres-migration.md)** - Planned Seerr SQLite-to-PostgreSQL migration runbook, including the maintenance-window pgloader flow and rollback caveats.
 
 ### Storage
 
