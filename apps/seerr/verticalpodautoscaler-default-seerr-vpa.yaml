@@ -16,13 +16,6 @@ spec:
       minAllowed:
         cpu: 50m
         memory: 128Mi
-    - containerName: litestream
-      maxAllowed:
-        cpu: 500m
-        memory: 512Mi
-      minAllowed:
-        cpu: 10m
-        memory: 32Mi
   targetRef:
     apiVersion: apps/v1
     kind: Deployment
