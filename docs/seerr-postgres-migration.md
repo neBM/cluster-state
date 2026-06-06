@@ -270,7 +270,14 @@ spec:
   containers:
   - name: pgloader
     image: ghcr.io/ralgar/pgloader:pr-1531
-    command: ["sh", "-lc", "sleep 7d"]
+    command: ["pgloader"]
+    args:
+    - --with
+    - quote identifiers
+    - --with
+    - data only
+    - /config/migration/postgres-import/db.sqlite3
+    - postgresql://seerr:$(DB_PASS)@192.168.1.10:5433/seerr
     env:
     - name: DB_PASS
       valueFrom:
@@ -286,19 +293,13 @@ spec:
     persistentVolumeClaim:
       claimName: seerr-config-sw
 EOF
-
-kubectl wait -n default --for=condition=Ready pod/seerr-pgloader --timeout=180s
 ```
 
-Run the import:
+Run the import and wait for completion:
 
 ```bash
-kubectl exec -n default pod/seerr-pgloader -c pgloader -- sh -lc '
-set -eu
-pgloader --with "quote identifiers" --with "data only" \
-  /config/migration/postgres-import/db.sqlite3 \
-  "postgresql://seerr:${DB_PASS}@192.168.1.10:5433/seerr"
-'
+kubectl logs -n default pod/seerr-pgloader -f
+kubectl wait -n default --for=jsonpath='{.status.phase}'=Succeeded pod/seerr-pgloader --timeout=600s
 ```
 
 ## Cut Over to the Postgres Deployment
