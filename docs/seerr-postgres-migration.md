@@ -64,8 +64,16 @@ the SQLite data import has completed.
 2. Force a final Litestream snapshot from the live Seerr pod:
 
    ```bash
-   kubectl exec -n default deploy/seerr -c litestream -- \
-     litestream replicate -config /tmp/litestream.yml -once -force-snapshot
+   kubectl exec -n default deploy/seerr -c litestream -- sh -lc '
+   set -eu
+   COSI_BUCKET_INFO=/cosi/seerr-litestream/BucketInfo
+   parse_cosi_field() {
+     sed -n "s/.*\"$1\"[[:space:]]*:[[:space:]]*\"\([^\"]*\)\".*/\1/p" "$2"
+   }
+   export LITESTREAM_ACCESS_KEY_ID=$(parse_cosi_field accessKeyID "$COSI_BUCKET_INFO")
+   export LITESTREAM_SECRET_ACCESS_KEY=$(parse_cosi_field accessSecretKey "$COSI_BUCKET_INFO")
+   exec litestream replicate -config /tmp/litestream.yml -once -force-snapshot
+   '
    ```
 
 3. Stop the live Seerr Deployment:
@@ -151,6 +159,49 @@ kubectl delete pod seerr-postgres-bootstrap -n default
 ```
 
 Healthy sign: logs reach `Server ready on port 5055`.
+
+Important: Seerr seeds built-in rows such as `discover_slider` during this
+bootstrap. Do not leave those rows in place for the `data only` import.
+
+Before the pgloader step, truncate the seeded tables back to empty schema:
+
+```bash
+kubectl delete pod seerr-db-query -n default --ignore-not-found
+cat <<'EOF' | kubectl apply -f -
+apiVersion: v1
+kind: Pod
+metadata:
+  name: seerr-db-query
+  namespace: default
+spec:
+  automountServiceAccountToken: false
+  restartPolicy: Never
+  containers:
+  - name: psql
+    image: postgres:16-alpine
+    command:
+    - sh
+    - -lc
+    - |
+      set -eu
+      export PGDATABASE=seerr
+      psql "$DATABASE_URL" -v ON_ERROR_STOP=1 <<'SQL'
+      SELECT 'TRUNCATE TABLE ' || string_agg(format('%I.%I', schemaname, tablename), ', ') || ' RESTART IDENTITY CASCADE;'
+      FROM pg_tables
+      WHERE schemaname = 'public'\gexec
+      SQL
+    env:
+    - name: DATABASE_URL
+      valueFrom:
+        secretKeyRef:
+          name: postgres-superuser
+          key: DATABASE_URL
+          optional: false
+EOF
+
+kubectl wait -n default --for=jsonpath='{.status.phase}'=Succeeded pod/seerr-db-query --timeout=180s
+kubectl logs -n default pod/seerr-db-query
+```
 
 ## Restore the SQLite Snapshot
 
@@ -267,6 +318,8 @@ metadata:
 spec:
   automountServiceAccountToken: false
   restartPolicy: Never
+  nodeSelector:
+    kubernetes.io/arch: amd64
   containers:
   - name: pgloader
     image: ghcr.io/ralgar/pgloader:pr-1531
@@ -300,6 +353,63 @@ Run the import and wait for completion:
 ```bash
 kubectl logs -n default pod/seerr-pgloader -f
 kubectl wait -n default --for=jsonpath='{.status.phase}'=Succeeded pod/seerr-pgloader --timeout=600s
+```
+
+Important: pgloader imports the SQLite `migrations` rows, but Seerr's
+PostgreSQL runtime expects its own Postgres migration history. Rewrite the
+`migrations` table before starting the Postgres Deployment:
+
+```bash
+kubectl delete pod seerr-db-fixmigrations -n default --ignore-not-found
+cat <<'EOF' | kubectl apply -f -
+apiVersion: v1
+kind: Pod
+metadata:
+  name: seerr-db-fixmigrations
+  namespace: default
+spec:
+  automountServiceAccountToken: false
+  restartPolicy: Never
+  containers:
+  - name: psql
+    image: postgres:16-alpine
+    command:
+    - sh
+    - -lc
+    - |
+      set -eu
+      export PGDATABASE=seerr
+      psql "$DATABASE_URL" -v ON_ERROR_STOP=1 <<'SQL'
+      TRUNCATE TABLE migrations RESTART IDENTITY;
+      INSERT INTO migrations (id, timestamp, name) VALUES
+        (1, 1734786061496, 'InitialMigration1734786061496'),
+        (2, 1734786596045, 'AddTelegramMessageThreadId1734786596045'),
+        (3, 1734805738349, 'AddOverrideRules1734805738349'),
+        (4, 1734809898562, 'FixNullFields1734809898562'),
+        (5, 1737320080282, 'AddBlacklistTagsColumn1737320080282'),
+        (6, 1743023615532, 'UpdateWebPush1743023615532'),
+        (7, 1743107707465, 'AddUserAvatarCacheFields1743107707465'),
+        (8, 1745492376568, 'UpdateWebPush1745492376568'),
+        (9, 1746811308203, 'FixIssueTimestamps1746811308203'),
+        (10, 1765233385034, 'AddUniqueConstraintToPushSubscription1765233385034'),
+        (11, 1770627987304, 'AddPerformanceIndexes1770627987304'),
+        (12, 1771080196816, 'RenameBlacklistToBlocklist1771080196816'),
+        (13, 1771259406751, 'AddForeignKeyIndexes1771259406751'),
+        (14, 1771337333450, 'RecoveryLinkExpirationDateTime1771337333450'),
+        (15, 1772000000000, 'FixBlocklistIdDefault1772000000000'),
+        (16, 1772048000333, 'AddMediaTypeToUniqueConstraints1772048000333');
+      SQL
+    env:
+    - name: DATABASE_URL
+      valueFrom:
+        secretKeyRef:
+          name: postgres-superuser
+          key: DATABASE_URL
+          optional: false
+EOF
+
+kubectl wait -n default --for=jsonpath='{.status.phase}'=Succeeded pod/seerr-db-fixmigrations --timeout=180s
+kubectl logs -n default pod/seerr-db-fixmigrations
 ```
 
 ## Cut Over to the Postgres Deployment
@@ -337,9 +447,50 @@ Unless the shared PostgreSQL host's backup coverage has already been verified
 for the new `seerr` database, take an immediate first logical backup after the
 cutover:
 
+Use a client matching the server major version. As of June 6, 2026 the external
+host is PostgreSQL `17.10`, so `postgres:17-alpine` is the correct helper:
+
 ```bash
-docker run --rm -e PGPASSWORD='<seerr-db-password>' postgres:16-alpine \
-  pg_dump -h 192.168.1.10 -p 5433 -U seerr -Fc seerr > seerr-initial-postgres.dump
+kubectl delete pod seerr-pgdump -n default --ignore-not-found
+cat <<'EOF' | kubectl apply -f -
+apiVersion: v1
+kind: Pod
+metadata:
+  name: seerr-pgdump
+  namespace: default
+spec:
+  automountServiceAccountToken: false
+  restartPolicy: Never
+  containers:
+  - name: pgdump
+    image: postgres:17-alpine
+    command:
+    - sh
+    - -lc
+    - |
+      set -eu
+      mkdir -p /config/migration/postgres-import
+      pg_dump -h 192.168.1.10 -p 5433 -U seerr -d seerr -Fc \
+        -f /config/migration/postgres-import/seerr-initial-postgres.dump
+      stat -c '%n %s bytes' /config/migration/postgres-import/seerr-initial-postgres.dump
+    env:
+    - name: PGPASSWORD
+      valueFrom:
+        secretKeyRef:
+          name: seerr-secrets
+          key: DB_PASS
+          optional: false
+    volumeMounts:
+    - name: config
+      mountPath: /config
+  volumes:
+  - name: config
+    persistentVolumeClaim:
+      claimName: seerr-config-sw
+EOF
+
+kubectl wait -n default --for=jsonpath='{.status.phase}'=Succeeded pod/seerr-pgdump --timeout=180s
+kubectl logs -n default pod/seerr-pgdump
 ```
 
 ## Rollback
