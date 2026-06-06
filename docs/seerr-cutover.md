@@ -94,7 +94,7 @@ the current Seerr deployment defined in `apps/seerr/`.
 - the main `seerr` container reaches readiness on
   `/api/v1/settings/public`.
 - the Litestream sidecar logs a sync or snapshot against `seerr-litestream`.
-- `https://overseerr.brmartin.co.uk` returns a temporary redirect to
+- `https://overseerr.brmartin.co.uk` returns a permanent redirect to
   `https://seerr.brmartin.co.uk`.
 
 ## Rollback

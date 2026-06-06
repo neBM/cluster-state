@@ -8,6 +8,6 @@ metadata:
   namespace: default
 spec:
   redirectRegex:
-    permanent: false
+    permanent: true
     regex: ^https?://overseerr\.brmartin\.co\.uk(.*)$
     replacement: https://seerr.brmartin.co.uk$1
