@@ -47,4 +47,4 @@ replacements:
 
 images:
 - name: postgrest/postgrest
-  newTag: v14.12
+  newTag: v14.13

@@ -7,4 +7,4 @@ resources:
 
 images:
 - name: "quay.io/keycloak/keycloak"
-  newTag: "26.6.2"
+  newTag: "26.6.3"
