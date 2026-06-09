@@ -35,6 +35,8 @@ spec:
         - -port.grpc=18888
         - -defaultReplicaPlacement=000
         - -ip=$(POD_NAME).seaweedfs-filer.default.svc.cluster.local
+        - -metricsPort=9324
+        - -metricsIp=0.0.0.0
         env:
         - name: POD_NAME
           valueFrom:
@@ -60,6 +62,9 @@ spec:
           protocol: TCP
         - containerPort: 18888
           name: grpc
+          protocol: TCP
+        - containerPort: 9324
+          name: metrics
           protocol: TCP
         readinessProbe:
           failureThreshold: 3

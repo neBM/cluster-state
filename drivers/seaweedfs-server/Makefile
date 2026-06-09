@@ -7,7 +7,7 @@ REGISTRY_NAME ?= chrislusf
 IMAGE_NAME    ?= seaweedfs
 # Tag scheme: <upstream base tag>-nebm-<short fork commit>. Unique enough
 # that k3s will not try to pull from docker hub when IfNotPresent.
-SEAWEEDFS_COMMIT ?= 2df29443f380caa2c1c04743c7793cb81d54ab6e
+SEAWEEDFS_COMMIT ?= 9c7451f7f371300609638be4047d8345553678d5
 BASE_TAG         ?= 4.18
 SHORT_COMMIT     := $(shell echo $(SEAWEEDFS_COMMIT) | cut -c1-8)
 VERSION          ?= $(BASE_TAG)-nebm-$(SHORT_COMMIT)
@@ -19,6 +19,8 @@ ARM64_TAR  := $(OUTPUT_DIR)/seaweedfs-$(VERSION)-arm64.tar
 
 AMD64_NODES ?= hestia.lan
 ARM64_NODES ?= heracles.lan nyx.lan
+SSH ?= ssh
+SCP ?= scp
 
 .PHONY: tars build-amd64 build-arm64 sideload sideload-amd64 sideload-arm64 verify clean
 
@@ -51,21 +53,21 @@ sideload: sideload-amd64 sideload-arm64
 sideload-amd64: $(AMD64_TAR)
 	@for node in $(AMD64_NODES); do \
 	  echo ">>> sideloading $(IMAGE_TAG) -> $$node (amd64)"; \
-	  scp $(AMD64_TAR) $$node:/tmp/seaweedfs-server.tar; \
-	  ssh $$node "sudo k3s ctr -n k8s.io images import /tmp/seaweedfs-server.tar && rm /tmp/seaweedfs-server.tar"; \
+	  $(SCP) $(AMD64_TAR) $$node:/tmp/seaweedfs-server.tar; \
+	  $(SSH) $$node "sudo k3s ctr -n k8s.io images import /tmp/seaweedfs-server.tar && rm /tmp/seaweedfs-server.tar"; \
 	done
 
 sideload-arm64: $(ARM64_TAR)
 	@for node in $(ARM64_NODES); do \
 	  echo ">>> sideloading $(IMAGE_TAG) -> $$node (arm64)"; \
-	  scp $(ARM64_TAR) $$node:/tmp/seaweedfs-server.tar; \
-	  ssh $$node "sudo k3s ctr -n k8s.io images import /tmp/seaweedfs-server.tar && rm /tmp/seaweedfs-server.tar"; \
+	  $(SCP) $(ARM64_TAR) $$node:/tmp/seaweedfs-server.tar; \
+	  $(SSH) $$node "sudo k3s ctr -n k8s.io images import /tmp/seaweedfs-server.tar && rm /tmp/seaweedfs-server.tar"; \
 	done
 
 verify:
 	@for node in $(AMD64_NODES) $(ARM64_NODES); do \
 	  echo ">>> $$node:"; \
-	  ssh $$node "sudo k3s ctr -n k8s.io images ls | grep $(VERSION) || echo '  MISSING'"; \
+	  $(SSH) $$node "sudo k3s ctr -n k8s.io images ls | grep $(VERSION) || echo '  MISSING'"; \
 	done
 
 clean:

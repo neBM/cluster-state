@@ -33,6 +33,8 @@ spec:
         - s3
         - -filer=seaweedfs-filer:8888
         - -port=8333
+        - -metricsPort=9325
+        - -metricsIp=0.0.0.0
         image: chrislusf/seaweedfs
         imagePullPolicy: IfNotPresent
         livenessProbe:
@@ -47,6 +49,9 @@ spec:
         ports:
         - containerPort: 8333
           name: http
+          protocol: TCP
+        - containerPort: 9325
+          name: metrics
           protocol: TCP
         readinessProbe:
           failureThreshold: 3
