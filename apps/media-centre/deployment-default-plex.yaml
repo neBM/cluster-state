@@ -129,6 +129,45 @@ spec:
 
               load_cosi_bucket_info
 
+              list_backup_keys() {
+                local prefix=$1
+                local start_after=""
+
+                while true; do
+                  local url="$MINIO_ENDPOINT/$BACKUP_BUCKET?list-type=2&prefix=$prefix"
+                  if [ -n "$start_after" ]; then
+                    url="$url&start-after=$start_after"
+                  fi
+
+                  local response
+                  if ! response=$(curl -sf \
+                    --aws-sigv4 "aws:amz:${S3_REGION}:s3" \
+                    --user "$MINIO_ACCESS_KEY:$MINIO_SECRET_KEY" \
+                    "$url" 2>/dev/null); then
+                    echo "ERROR: Failed to list backups for $prefix"
+                    return 1
+                  fi
+
+                  local keys
+                  keys=$(printf '%s' "$response" | tr '<' '\n' | sed -n 's#^Key>\(.*\)#\1#p')
+                  if [ -n "$keys" ]; then
+                    printf '%s\n' "$keys"
+                  fi
+
+                  local truncated
+                  truncated=$(printf '%s' "$response" | tr '<' '\n' | sed -n 's#^IsTruncated>\(.*\)#\1#p' | tail -1)
+                  if [ "$truncated" != "true" ]; then
+                    break
+                  fi
+
+                  start_after=$(printf '%s\n' "$keys" | tail -1)
+                  if [ -z "$start_after" ]; then
+                    echo "ERROR: Backup listing for $prefix is truncated but contains no keys"
+                    return 1
+                  fi
+                done
+              }
+
               # Function to download latest backup from SeaweedFS S3
               download_latest() {
                 local prefix=$1
@@ -136,12 +175,12 @@ spec:
 
                 echo "Finding latest backup for $prefix..."
 
-                # List objects and find the most recent one (use sed - alpine grep lacks -P)
-                LATEST=$(curl -sf \
-                  --aws-sigv4 "aws:amz:${S3_REGION}:s3" \
-                  --user "$MINIO_ACCESS_KEY:$MINIO_SECRET_KEY" \
-                  "$MINIO_ENDPOINT/$BACKUP_BUCKET?prefix=$prefix&list-type=2" \
-                  2>/dev/null | sed -n 's/.*<Key>\([^<]*\)<\/Key>.*/\1/p' | sort -r | head -1)
+                local keys
+                if ! keys=$(list_backup_keys "$prefix"); then
+                  return 1
+                fi
+
+                LATEST=$(printf '%s\n' "$keys" | sort -r | head -1)
 
                 if [ -z "$LATEST" ]; then
                   echo "ERROR: No backup found for $prefix"

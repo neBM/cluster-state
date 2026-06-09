@@ -124,6 +124,45 @@ spec:
                     return 0
                   }
 
+                  list_backup_keys() {
+                    local prefix=$1
+                    local start_after=""
+
+                    while true; do
+                      local url="$MINIO_ENDPOINT/$BACKUP_BUCKET?list-type=2&prefix=$prefix"
+                      if [ -n "$start_after" ]; then
+                        url="$url&start-after=$start_after"
+                      fi
+
+                      local response
+                      if ! response=$(curl -sf \
+                        --aws-sigv4 "aws:amz:${S3_REGION}:s3" \
+                        --user "$MINIO_ACCESS_KEY:$MINIO_SECRET_KEY" \
+                        "$url" 2>/dev/null); then
+                        echo "ERROR: Failed to list backups for $prefix"
+                        return 1
+                      fi
+
+                      local keys
+                      keys=$(printf '%s' "$response" | tr '<' '\n' | sed -n 's#^Key>\(.*\)#\1#p')
+                      if [ -n "$keys" ]; then
+                        printf '%s\n' "$keys"
+                      fi
+
+                      local truncated
+                      truncated=$(printf '%s' "$response" | tr '<' '\n' | sed -n 's#^IsTruncated>\(.*\)#\1#p' | tail -1)
+                      if [ "$truncated" != "true" ]; then
+                        break
+                      fi
+
+                      start_after=$(printf '%s\n' "$keys" | tail -1)
+                      if [ -z "$start_after" ]; then
+                        echo "ERROR: Backup listing for $prefix is truncated but contains no keys"
+                        return 1
+                      fi
+                    done
+                  }
+
                   # Function to cleanup old backups (keep last N)
                   cleanup_old_backups() {
                     local prefix=$1
@@ -131,23 +170,44 @@ spec:
 
                     echo "Cleaning up old backups for $prefix (keeping last $keep)..."
 
-                    # List all objects with prefix (use sed - busybox grep lacks -P)
-                    OBJECTS=$(curl -sf \
-                      --aws-sigv4 "aws:amz:${S3_REGION}:s3" \
-                      --user "$MINIO_ACCESS_KEY:$MINIO_SECRET_KEY" \
-                      "$MINIO_ENDPOINT/$BACKUP_BUCKET?prefix=$prefix&list-type=2" \
-                      2>/dev/null | sed -n 's/.*<Key>\([^<]*\)<\/Key>.*/\1/p' | sort -r)
+                    local objects
+                    if ! objects=$(list_backup_keys "$prefix"); then
+                      return 1
+                    fi
+                    objects=$(printf '%s\n' "$objects" | sort -r)
+
+                    local count
+                    count=$(printf '%s\n' "$objects" | sed '/^$/d' | wc -l | tr -d ' ')
+                    echo "Found $count backup objects for $prefix"
 
                     # Skip the first N (newest), delete the rest
-                    printf '%s\n' "$OBJECTS" | tail -n +$((keep + 1)) | while read -r key; do
+                    local delete_list
+                    delete_list=$(printf '%s\n' "$objects" | tail -n +$((keep + 1)))
+                    if [ -z "$delete_list" ]; then
+                      echo "No old backups to delete for $prefix"
+                      return 0
+                    fi
+
+                    local delete_file
+                    delete_file=$(mktemp)
+                    printf '%s\n' "$delete_list" > "$delete_file"
+
+                    local delete_failed=0
+                    while IFS= read -r key; do
                       if [ -n "$key" ]; then
                         echo "Deleting old backup: $key"
-                        curl -sf -X DELETE \
+                        if ! curl -sf -X DELETE \
                           --aws-sigv4 "aws:amz:${S3_REGION}:s3" \
                           --user "$MINIO_ACCESS_KEY:$MINIO_SECRET_KEY" \
-                          "$MINIO_ENDPOINT/$BACKUP_BUCKET/$key" || true
+                          "$MINIO_ENDPOINT/$BACKUP_BUCKET/$key"; then
+                          echo "ERROR: Failed to delete old backup: $key"
+                          delete_failed=1
+                        fi
                       fi
-                    done
+                    done < "$delete_file"
+                    rm -f "$delete_file"
+
+                    return "$delete_failed"
                   }
 
                   # Perform backups
@@ -162,8 +222,13 @@ spec:
                   fi
 
                   # Cleanup old backups (keep last 48 = 24 hours at 30-min intervals)
-                  cleanup_old_backups "library/" 48
-                  cleanup_old_backups "blobs/" 48
+                  cleanup_old_backups "library/" 48 || FAILED=1
+                  cleanup_old_backups "blobs/" 48 || FAILED=1
+
+                  if [ "$FAILED" -eq 1 ]; then
+                    echo "ERROR: Backup cleanup failed!"
+                    exit 1
+                  fi
 
                   echo "=== Backup complete ==="
               command:
@@ -178,7 +243,7 @@ spec:
                   cpu: 1500m
                   memory: 512Mi
                 requests:
-                  cpu: 600m
+                  cpu: 100m
                   memory: 256Mi
               terminationMessagePath: /dev/termination-log
               terminationMessagePolicy: File
@@ -192,8 +257,6 @@ spec:
                   readOnly: true
           dnsPolicy: ClusterFirst
           enableServiceLinks: true
-          nodeSelector:
-            kubernetes.io/hostname: hestia
           restartPolicy: Never
           schedulerName: default-scheduler
           securityContext: {}
@@ -207,6 +270,7 @@ spec:
               secret:
                 secretName: plex-backup-s3
       ttlSecondsAfterFinished: 3600
+      activeDeadlineSeconds: 1800
   schedule: '*/30 * * * *'
   successfulJobsHistoryLimit: 3
   suspend: false
