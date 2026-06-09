@@ -10,4 +10,4 @@ resources:
 
 images:
 - name: "grafana/alloy"
-  newTag: "v1.16.1"
+  newTag: "v1.16.3"
