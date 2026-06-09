@@ -3,7 +3,6 @@ kind: Kustomization
 resources:
 - clusterrole-victoriametrics-server.yaml
 - clusterrolebinding-victoriametrics-server.yaml
-- configmap-default-victoriametrics-backup-script.yaml
 - configmap-default-victoriametrics-config.yaml
 - deployment-default-victoriametrics.yaml
 - ingressroute-default-victoriametrics.yaml
@@ -13,8 +12,4 @@ resources:
 
 images:
 - name: "victoriametrics/victoria-metrics"
-  newTag: "v1.145.0"
-- name: "victoriametrics/vmbackup"
-  newTag: "v1.145.0"
-- name: "victoriametrics/vmrestore"
   newTag: "v1.145.0"

@@ -35,7 +35,7 @@ named-bucket cleanup candidates, see
 | Identity | Bucket | K8s Secret | Key names | Consumers |
 |---|---|---|---|---|
 | COSI `BucketAccess/default/loki` | `loki` | `loki-cosi-s3` | `BucketInfo.spec.secretS3` | StatefulSet/loki render-config init |
-| COSI `BucketAccess/default/victoriametrics` | `victoriametrics` | `victoriametrics-cosi-s3` | `BucketInfo.spec.secretS3` | Deployment/victoriametrics vmrestore init and vmbackup sidecar |
+| COSI `BucketAccess/default/victoriametrics` | `victoriametrics` | `victoriametrics-cosi-s3` | `BucketInfo.spec.secretS3` | Retained, unused; Deployment/victoriametrics now relies on local retention only |
 | COSI `BucketAccess/default/plex-backup` | `plex-backup` | `plex-backup-s3` | `BucketInfo.spec.secretS3` | Deployment/plex (db-restore init), CronJob/plex-db-backup |
 | COSI `BucketAccess/default/athenaeum-attachments` | `athenaeum-attachments` | `athenaeum-attachments-s3` | `BucketInfo.spec.secretS3` | Deployment/athenaeum-backend |
 | COSI `BucketAccess/default/gitlab-runner-cache` | `gitlab-runner-cache` | `gitlab-runner-cache-cosi-s3` | `BucketInfo.spec.secretS3` | Deployments gitlab-runner-{amd64,any,arm64,services} config-generator init |

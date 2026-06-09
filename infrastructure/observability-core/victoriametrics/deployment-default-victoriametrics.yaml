@@ -20,7 +20,6 @@ spec:
   template:
     metadata:
       annotations:
-        checksum/backup-script: 92a28df90972b9b8178530cafbebf4c88de64efc6b6b1226675134329738c57e
         checksum/scrape-config: c7b417d659212330bc46640e59dc024b23aab3b1cf9b8f683f9490d612dda636
         prometheus.io/port: '8428'
         prometheus.io/scrape: 'true'
@@ -81,64 +80,8 @@ spec:
         - mountPath: /victoria-metrics-data
           mountPropagation: None
           name: data
-      - command:
-        - /bin/sh
-        - /scripts/backup.sh
-        env: []
-        image: victoriametrics/vmbackup
-        imagePullPolicy: IfNotPresent
-        lifecycle:
-          preStop:
-            exec:
-              command:
-              - /bin/sh
-              - -c
-              - 'echo ''preStop: waiting for vmbackup-prod to finish''; while pidof
-                vmbackup-prod >/dev/null 2>&1; do sleep 1; done; echo ''preStop: vmbackup
-                idle, allowing termination'''
-        name: vmbackup
-        resources:
-          limits:
-            memory: 1Gi
-          requests:
-            cpu: 10m
-            memory: 256Mi
-        terminationMessagePath: /dev/termination-log
-        terminationMessagePolicy: File
-        volumeMounts:
-        - mountPath: /victoria-metrics-data
-          mountPropagation: None
-          name: data
-          readOnly: true
-        - mountPath: /scripts
-          mountPropagation: None
-          name: scripts
-        - mountPath: /cosi/victoriametrics
-          name: victoriametrics-cosi
-          readOnly: true
       dnsPolicy: ClusterFirst
       enableServiceLinks: true
-      initContainers:
-      - command:
-        - /bin/sh
-        - /scripts/restore.sh
-        env: []
-        image: victoriametrics/vmrestore
-        imagePullPolicy: IfNotPresent
-        name: vmrestore
-        resources: {}
-        terminationMessagePath: /dev/termination-log
-        terminationMessagePolicy: File
-        volumeMounts:
-        - mountPath: /victoria-metrics-data
-          mountPropagation: None
-          name: data
-        - mountPath: /scripts
-          mountPropagation: None
-          name: scripts
-        - mountPath: /cosi/victoriametrics
-          name: victoriametrics-cosi
-          readOnly: true
       nodeSelector:
         kubernetes.io/hostname: hestia
       restartPolicy: Always
@@ -154,14 +97,6 @@ spec:
           name: victoriametrics-config
           optional: false
         name: config
-      - configMap:
-          defaultMode: 493
-          name: victoriametrics-backup-script
-          optional: false
-        name: scripts
       - name: data
         persistentVolumeClaim:
           claimName: victoriametrics-data
-      - name: victoriametrics-cosi
-        secret:
-          secretName: victoriametrics-cosi-s3
