@@ -7,7 +7,7 @@ REGISTRY_NAME ?= chrislusf
 IMAGE_NAME    ?= seaweedfs
 # Tag scheme: <upstream base tag>-nebm-<short fork commit>. Unique enough
 # that k3s will not try to pull from docker hub when IfNotPresent.
-SEAWEEDFS_COMMIT ?= 9c7451f7f371300609638be4047d8345553678d5
+SEAWEEDFS_COMMIT ?= bd6c54cab677e9f17bed2c3565005e4300147c8f
 BASE_TAG         ?= 4.18
 SHORT_COMMIT     := $(shell echo $(SEAWEEDFS_COMMIT) | cut -c1-8)
 VERSION          ?= $(BASE_TAG)-nebm-$(SHORT_COMMIT)

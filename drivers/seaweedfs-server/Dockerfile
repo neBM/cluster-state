@@ -1,13 +1,14 @@
 # SeaweedFS server image built from the neBM fork so the vidMap stale-entry
 # invalidation fix (ReadChunkWithReLookup), the EmptyFolderCleaner
-# default-off fix, and S3 list traversal metrics reach the running
-# master / filer / volume / s3 binaries.
+# default-off fix, and topology-id replay repair reach the running
+# master / filer / volume binaries. Build the S3 list traversal metrics
+# image by overriding SEAWEEDFS_COMMIT to the metrics commit.
 # Mirrors the pin pattern used in the sibling
 # drivers/seaweedfs-csi-driver/cmd/seaweedfs-mount/Dockerfile.
 #
 # Override for upstream-merge cleanup:
 #   docker build --build-arg SEAWEEDFS_COMMIT=<merged-sha> --build-arg SEAWEEDFS_REPO=https://github.com/seaweedfs/seaweedfs
-ARG SEAWEEDFS_COMMIT=9c7451f7f371300609638be4047d8345553678d5
+ARG SEAWEEDFS_COMMIT=bd6c54cab677e9f17bed2c3565005e4300147c8f
 ARG SEAWEEDFS_REPO=https://github.com/neBM/seaweedfs
 
 FROM golang:1.26-alpine AS builder
