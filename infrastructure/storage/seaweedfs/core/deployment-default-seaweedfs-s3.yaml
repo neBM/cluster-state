@@ -35,7 +35,7 @@ spec:
         - -port=8333
         - -metricsPort=9325
         - -metricsIp=0.0.0.0
-        image: chrislusf/seaweedfs-s3-list-metrics
+        image: chrislusf/seaweedfs
         imagePullPolicy: IfNotPresent
         livenessProbe:
           failureThreshold: 3
