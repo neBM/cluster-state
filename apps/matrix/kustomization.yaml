@@ -39,7 +39,7 @@ images:
 - name: "ghcr.io/cinnyapp/cinny"
   newTag: "v4.12.2"
 - name: "docker.io/vectorim/element-web"
-  newTag: "v1.12.20"
+  newTag: "v1.12.21"
 - name: "oci.element.io/element-admin"
   newTag: "latest"
 - name: "ghcr.io/element-hq/matrix-authentication-service"
