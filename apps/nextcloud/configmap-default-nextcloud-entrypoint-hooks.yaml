@@ -1,0 +1,37 @@
+apiVersion: v1
+data:
+  10-nextcloud-startup-guard.sh: |
+    #!/bin/sh
+    set -eu
+
+    needs_db_upgrade="$(
+      php -r '$status = json_decode(shell_exec("php /var/www/html/occ status --output=json 2>/dev/null"), true); echo is_array($status) && !empty($status["needsDbUpgrade"]) ? "1" : "0";'
+    )"
+
+    if [ "$needs_db_upgrade" = "1" ]; then
+      echo "Detected pending Nextcloud database upgrade; running occ upgrade"
+      php /var/www/html/occ upgrade --no-interaction
+    fi
+
+    cat > /var/www/html/k8s-ready.php <<'EOPHP'
+    <?php
+    $statusJson = @file_get_contents('http://127.0.0.1/status.php');
+    $status = json_decode($statusJson ?: '', true);
+
+    if (is_array($status) && !empty($status['installed']) && empty($status['maintenance']) && empty($status['needsDbUpgrade'])) {
+        http_response_code(204);
+        exit;
+    }
+
+    http_response_code(503);
+    header('Content-Type: application/json');
+    echo json_encode(array('ready' => false, 'status' => is_array($status) ? $status : null));
+    EOPHP
+immutable: false
+kind: ConfigMap
+metadata:
+  labels:
+    app: nextcloud
+    component: nextcloud
+  name: nextcloud-entrypoint-hooks
+  namespace: default

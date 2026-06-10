@@ -99,10 +99,22 @@ spec:
             httpHeaders:
             - name: Host
               value: cloud.brmartin.co.uk
-            path: /status.php
+            path: /k8s-ready.php
             port: 80
             scheme: HTTP
           initialDelaySeconds: 30
+          periodSeconds: 10
+          successThreshold: 1
+          timeoutSeconds: 5
+        startupProbe:
+          failureThreshold: 60
+          httpGet:
+            httpHeaders:
+            - name: Host
+              value: cloud.brmartin.co.uk
+            path: /status.php
+            port: 80
+            scheme: HTTP
           periodSeconds: 10
           successThreshold: 1
           timeoutSeconds: 5
@@ -137,6 +149,10 @@ spec:
           name: config-secrets
           readOnly: true
           subPath: zz-secrets.config.php
+        - mountPath: /docker-entrypoint-hooks.d/before-starting
+          mountPropagation: None
+          name: entrypoint-hooks
+          readOnly: true
       - command:
         - sh
         - -c
@@ -290,3 +306,8 @@ spec:
         name: config-override
       - emptyDir: {}
         name: config-secrets
+      - configMap:
+          defaultMode: 493
+          name: nextcloud-entrypoint-hooks
+          optional: false
+        name: entrypoint-hooks
