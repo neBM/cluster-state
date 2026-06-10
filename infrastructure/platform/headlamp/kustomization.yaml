@@ -10,4 +10,4 @@ resources:
 
 images:
 - name: "ghcr.io/headlamp-k8s/headlamp"
-  newTag: "v0.42.0"
+  newTag: "v0.43.0"
