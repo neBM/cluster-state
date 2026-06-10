@@ -25,7 +25,7 @@ RUN cd /go/src/github.com/seaweedfs/seaweedfs/weed \
     && CGO_ENABLED=0 go install -ldflags "-extldflags -static ${LDFLAGS}" \
     && go clean -cache -modcache
 
-FROM alpine:3.23 AS final
+FROM alpine:3.24 AS final
 LABEL author="Chris Lu"
 COPY --from=builder /go/bin/weed /usr/bin/
 RUN mkdir -p /etc/seaweedfs
