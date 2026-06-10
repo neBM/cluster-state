@@ -97,8 +97,6 @@ data:
           cron: "0 * * * *"
         pipeline_schedule_worker:
           cron: "19 * * * *"
-        expire_build_artifacts_worker:
-          cron: "50 * * * *"
         repository_archive_cache_worker:
           cron: "0 * * * *"
         repository_check_worker:
