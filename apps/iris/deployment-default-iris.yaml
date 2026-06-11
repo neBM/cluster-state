@@ -59,13 +59,13 @@ spec:
         - name: HLS_TMP_BASE_DIR
           value: /data/iris/hls-sessions
         - name: DB_MAX_CONNS
-          value: '10'
+          value: '6'
         - name: MAX_CONCURRENT_SESSIONS
           value: '0'
         - name: TRANSCODE_WORKERS
           value: '1'
         - name: SCANNER_PARALLELISM
-          value: '4'
+          value: '2'
         - name: IMAGE_CACHE_MAX_SIZE
           value: '0'
         - name: TRUSTED_PROXIES
