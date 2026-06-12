@@ -127,3 +127,19 @@ func TestListCandidates_SkipsMountDaemonAndRecycler(t *testing.T) {
 		t.Fatalf("want no candidates, got %v", got)
 	}
 }
+
+func TestGetLocalMountDaemon(t *testing.T) {
+	mp := pod("seaweedfs-mount-abc", "nyx")
+	mp.Labels = map[string]string{"component": "seaweedfs-mount"}
+	app := pod("app1", "nyx", "app1-data")
+	c := newFakeClient(mp, app, pvc("app1-data", "pv-1"), pv("pv-1", csiDriverName))
+	lookup := &PVLookup{Client: c, NodeName: "nyx", Driver: csiDriverName}
+
+	got, err := lookup.GetLocalMountDaemon(context.Background())
+	if err != nil {
+		t.Fatalf("GetLocalMountDaemon: %v", err)
+	}
+	if got == nil || got.Name != mp.Name {
+		t.Fatalf("want mount daemon %q, got %#v", mp.Name, got)
+	}
+}

@@ -91,7 +91,33 @@ func (r *Reconciler) HandleVolumeServerEvent(ctx context.Context, volumePod *cor
 	}
 
 	TriggersTotal.WithLabelValues("volume_restart").Inc()
-	logger.Info("volume server replacement detected, enumerating local candidates",
+	logger.Info("volume server replacement detected, reconciling local recovery",
+		"volumePod", volumePod.Name, "volumeNode", volumePod.Spec.NodeName, "node", r.NodeName)
+
+	mountPod, err := r.Lookup.GetLocalMountDaemon(ctx)
+	if err != nil {
+		logger.Error(err, "GetLocalMountDaemon failed")
+		return
+	}
+	if mountPod != nil {
+		if r.Cycler != nil && r.Cycler.Debounce != nil {
+			r.Cycler.Debounce.Forget(mountPod.UID)
+		}
+		logger.Info("cycling local mount daemon to clear stale routing",
+			"mountPod", mountPod.Name, "volumePod", volumePod.Name, "volumeNode", volumePod.Spec.NodeName, "node", r.NodeName)
+		if r.Recorder != nil {
+			r.Recorder.Eventf(volumePod, corev1.EventTypeNormal, "RecycleTriggeredByVolumeRestart",
+				"volume pod replacement on node %s detected; cycling local mount daemon %s on node %s",
+				volumePod.Spec.NodeName, mountPod.Name, r.NodeName)
+		}
+		if err := r.Cycler.CycleOne(log.IntoContext(ctx, logger), mountPod); err != nil {
+			logger.Error(err, "cycle local mount daemon failed",
+				"mountPod", mountPod.Name, "volumePod", volumePod.Name, "volumeNode", volumePod.Spec.NodeName, "node", r.NodeName)
+		}
+		return
+	}
+
+	logger.Info("local mount daemon not found; falling back to direct consumer cycling",
 		"volumePod", volumePod.Name, "volumeNode", volumePod.Spec.NodeName, "node", r.NodeName)
 
 	candidates, err := r.Lookup.ListCandidates(ctx)
@@ -115,7 +141,7 @@ func (r *Reconciler) HandleVolumeServerEvent(ctx context.Context, volumePod *cor
 		"count", len(candidates), "pods", names, "volumePod", volumePod.Name, "volumeNode", volumePod.Spec.NodeName, "node", r.NodeName)
 	if r.Recorder != nil {
 		r.Recorder.Eventf(volumePod, corev1.EventTypeNormal, "RecycleTriggeredByVolumeRestart",
-			"volume pod replacement on node %s detected; cycling %d consumer pod(s) on node %s",
+			"volume pod replacement on node %s detected; mount daemon missing, cycling %d consumer pod(s) on node %s",
 			volumePod.Spec.NodeName, len(candidates), r.NodeName)
 	}
 	r.Cycler.CycleBatch(log.IntoContext(ctx, logger), candidates)

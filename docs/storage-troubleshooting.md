@@ -84,8 +84,10 @@ Volume servers run on Heracles and Nyx with host data at `/data/seaweedfs`. The 
 A `seaweedfs-volume` replacement can stale the volume-server routing cached by
 healthy `seaweedfs-mount` daemons on every node, not only the node that hosts
 the replaced volume pod. The consumer recycler now watches cluster-wide volume
-pod replacements and should cycle SeaweedFS-backed consumers on each node after
-the replacement pod becomes Ready.
+pod replacements, cycles the local `seaweedfs-mount` daemon on each node after
+the replacement pod becomes Ready, and then relies on the existing
+mount-restart path to recycle local SeaweedFS consumers after the mount daemon
+returns.
 
 Check the rollout in this order:
 
@@ -98,8 +100,9 @@ kubectl logs -n default -l app=seaweedfs,component=seaweedfs-mount --since=15m
 Healthy rollout signals:
 
 - each replacement `seaweedfs-volume` pod is `Running` and `Ready`
-- recycler logs show `volume server replacement detected` on each node and
-  `cycling consumer pods` for local SeaweedFS consumers
+- recycler logs show `volume server replacement detected` on each node, then
+  `cycling local mount daemon to clear stale routing`, and then
+  `mount daemon restart detected` followed by `cycling consumer pods`
 - mount logs do not keep repeating `retry reading in` or `dial tcp ... i/o timeout`
   against old volume-pod IPs after the recycler has fired
 

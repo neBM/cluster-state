@@ -24,17 +24,14 @@ type PVLookup struct {
 // default) work. In production the manager's cache is scoped by nodeName,
 // so the List here still only sees this node's pods.
 func (l *PVLookup) ListCandidates(ctx context.Context) ([]corev1.Pod, error) {
-	var pods corev1.PodList
-	if err := l.Client.List(ctx, &pods); err != nil {
-		return nil, fmt.Errorf("list pods: %w", err)
+	pods, err := l.listNodePods(ctx)
+	if err != nil {
+		return nil, err
 	}
 
 	var out []corev1.Pod
 	for i := range pods.Items {
 		p := &pods.Items[i]
-		if p.Spec.NodeName != l.NodeName {
-			continue
-		}
 		if p.DeletionTimestamp != nil {
 			continue
 		}
@@ -53,6 +50,42 @@ func (l *PVLookup) ListCandidates(ctx context.Context) ([]corev1.Pod, error) {
 		}
 	}
 	return out, nil
+}
+
+// GetLocalMountDaemon returns the seaweedfs-mount pod for this node, if one is
+// currently present and not terminating.
+func (l *PVLookup) GetLocalMountDaemon(ctx context.Context) (*corev1.Pod, error) {
+	pods, err := l.listNodePods(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	for i := range pods.Items {
+		p := &pods.Items[i]
+		if p.DeletionTimestamp != nil {
+			continue
+		}
+		if p.Labels["component"] == "seaweedfs-mount" {
+			return p.DeepCopy(), nil
+		}
+	}
+	return nil, nil
+}
+
+func (l *PVLookup) listNodePods(ctx context.Context) (*corev1.PodList, error) {
+	var pods corev1.PodList
+	if err := l.Client.List(ctx, &pods); err != nil {
+		return nil, fmt.Errorf("list pods: %w", err)
+	}
+
+	filtered := make([]corev1.Pod, 0, len(pods.Items))
+	for i := range pods.Items {
+		if pods.Items[i].Spec.NodeName == l.NodeName {
+			filtered = append(filtered, pods.Items[i])
+		}
+	}
+	pods.Items = filtered
+	return &pods, nil
 }
 
 func (l *PVLookup) podUsesDriver(ctx context.Context, p *corev1.Pod) (bool, error) {
