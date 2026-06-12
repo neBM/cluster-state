@@ -604,3 +604,51 @@ groups:
           labels:
             severity: critical
           isPaused: false
+    - orgId: 1
+      name: backup-health
+      folder: Infrastructure Alerts
+      interval: 1m
+      rules:
+        - uid: restic-backup-stale-api
+          title: Restic Backup Stale
+          condition: C
+          data:
+            - refId: A
+              relativeTimeRange:
+                from: 600
+                to: 0
+              datasourceUid: prometheus
+              model:
+                datasource:
+                    type: prometheus
+                    uid: prometheus
+                expr: time() - kube_cronjob_status_last_successful_time{namespace="default",cronjob="restic-backup"}
+                instant: true
+                intervalMs: 1000
+                maxDataPoints: 43200
+                refId: A
+            - refId: C
+              datasourceUid: "-100"
+              model:
+                conditions:
+                    - evaluator:
+                        params:
+                            - 129600
+                        type: gt
+                datasource:
+                    type: __expr__
+                    uid: "-100"
+                expression: A
+                intervalMs: 1000
+                maxDataPoints: 43200
+                refId: C
+                type: threshold
+          noDataState: OK
+          execErrState: OK
+          for: 10m
+          annotations:
+            description: default/restic-backup has not recorded a successful run for more than 36 hours. Failed Jobs can remain after a later successful recovery, so do not page on retained failures alone. Confirm the CronJob is not suspended, inspect the latest Job status, and check `kubectl logs job/<latest-restic-job> -n default`.
+            summary: Restic backup has been stale for more than 36 hours
+          labels:
+            severity: critical
+          isPaused: false
