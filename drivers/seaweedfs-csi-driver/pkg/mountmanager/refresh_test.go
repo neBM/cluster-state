@@ -7,48 +7,18 @@ import (
 	"sync/atomic"
 	"testing"
 
+	"github.com/seaweedfs/seaweedfs/weed/pb/mount_pb"
 	"google.golang.org/grpc"
-	"google.golang.org/protobuf/types/known/emptypb"
 )
 
 type fakeSeaweedMountServer struct {
+	mount_pb.UnimplementedSeaweedMountServer
 	refreshCalls atomic.Int32
 }
 
-func (s *fakeSeaweedMountServer) RefreshVolumeLocations(context.Context, *emptypb.Empty) (*emptypb.Empty, error) {
+func (s *fakeSeaweedMountServer) RefreshVolumeLocations(context.Context, *mount_pb.RefreshVolumeLocationsRequest) (*mount_pb.RefreshVolumeLocationsResponse, error) {
 	s.refreshCalls.Add(1)
-	return &emptypb.Empty{}, nil
-}
-
-type testRefreshService interface {
-	RefreshVolumeLocations(context.Context, *emptypb.Empty) (*emptypb.Empty, error)
-}
-
-var testRefreshServiceDesc = grpc.ServiceDesc{
-	ServiceName: "messaging_pb.SeaweedMount",
-	HandlerType: (*testRefreshService)(nil),
-	Methods: []grpc.MethodDesc{
-		{
-			MethodName: "RefreshVolumeLocations",
-			Handler: func(srv interface{}, ctx context.Context, dec func(any) error, interceptor grpc.UnaryServerInterceptor) (any, error) {
-				in := new(emptypb.Empty)
-				if err := dec(in); err != nil {
-					return nil, err
-				}
-				if interceptor == nil {
-					return srv.(testRefreshService).RefreshVolumeLocations(ctx, in)
-				}
-				info := &grpc.UnaryServerInfo{
-					Server:     srv,
-					FullMethod: "/messaging_pb.SeaweedMount/RefreshVolumeLocations",
-				}
-				handler := func(ctx context.Context, req any) (any, error) {
-					return srv.(testRefreshService).RefreshVolumeLocations(ctx, req.(*emptypb.Empty))
-				}
-				return interceptor(ctx, in, info, handler)
-			},
-		},
-	},
+	return &mount_pb.RefreshVolumeLocationsResponse{}, nil
 }
 
 func newUnixMountGRPCServer(t *testing.T) (socketPath string, server *fakeSeaweedMountServer, closeFn func()) {
@@ -63,7 +33,7 @@ func newUnixMountGRPCServer(t *testing.T) (socketPath string, server *fakeSeawee
 
 	grpcServer := grpc.NewServer()
 	server = &fakeSeaweedMountServer{}
-	grpcServer.RegisterService(&testRefreshServiceDesc, server)
+	mount_pb.RegisterSeaweedMountServer(grpcServer, server)
 	go grpcServer.Serve(ln) //nolint:errcheck
 
 	return socketPath, server, func() {

@@ -4,12 +4,10 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/seaweedfs/seaweedfs/weed/pb/mount_pb"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
-	"google.golang.org/protobuf/types/known/emptypb"
 )
-
-const refreshVolumeLocationsMethod = "/messaging_pb.SeaweedMount/RefreshVolumeLocations"
 
 func invokeRefreshVolumeLocations(ctx context.Context, localSocket string) error {
 	target := fmt.Sprintf("passthrough:///unix://%s", localSocket)
@@ -19,6 +17,7 @@ func invokeRefreshVolumeLocations(ctx context.Context, localSocket string) error
 	}
 	defer clientConn.Close()
 
-	var resp emptypb.Empty
-	return clientConn.Invoke(ctx, refreshVolumeLocationsMethod, &emptypb.Empty{}, &resp)
+	client := mount_pb.NewSeaweedMountClient(clientConn)
+	_, err = client.RefreshVolumeLocations(ctx, &mount_pb.RefreshVolumeLocationsRequest{})
+	return err
 }
