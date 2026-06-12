@@ -131,4 +131,18 @@ assert_contains backup "${clean_dir}/restic.log"
 assert_contains forget "${clean_dir}/restic.log"
 assert_contains check "${clean_dir}/restic.log"
 
+run_backup forget_exit_1 RESTIC_FAKE_BACKUP_EXIT=0 RESTIC_FAKE_FORGET_EXIT=1
+forget_dir="$(case_dir forget_exit_1)"
+[ "$(cat "${forget_dir}/status")" -eq 1 ] || fail "forget exit 1 should fail the script"
+assert_contains backup "${forget_dir}/restic.log"
+assert_contains forget "${forget_dir}/restic.log"
+assert_not_contains check "${forget_dir}/restic.log"
+
+run_backup check_exit_1 RESTIC_FAKE_BACKUP_EXIT=0 RESTIC_FAKE_CHECK_EXIT=1
+check_dir="$(case_dir check_exit_1)"
+[ "$(cat "${check_dir}/status")" -eq 1 ] || fail "check exit 1 should fail the script"
+assert_contains backup "${check_dir}/restic.log"
+assert_contains forget "${check_dir}/restic.log"
+assert_contains check "${check_dir}/restic.log"
+
 printf 'restic backup script tests passed\n'
