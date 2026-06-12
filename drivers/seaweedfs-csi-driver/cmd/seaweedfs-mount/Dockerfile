@@ -1,23 +1,17 @@
-# SEAWEEDFS_COMMIT + SEAWEEDFS_REPO should match the replace directive in
-# go.mod for reproducibility. Override via:
-#   docker build --build-arg SEAWEEDFS_COMMIT=<hash> --build-arg SEAWEEDFS_REPO=<url>
-# Currently pinned to neBM fork which carries the vidMap stale-relookup fix
-# and the EmptyFolderCleaner default-off fix until they land upstream.
-ARG SEAWEEDFS_COMMIT=2df29443f380
-ARG SEAWEEDFS_REPO=https://github.com/neBM/seaweedfs
+# Build `weed` from the local SeaweedFS checkout so the mount daemon picks up
+# the current vidMap stale-relookup fix without depending on a remote clone.
+ARG SEAWEEDFS_COMMIT=local
 
 FROM golang:1.26-alpine AS builder
 
-RUN apk add git g++
+RUN apk add g++
 
-# Build weed binary from a specific commit for reproducibility
 ARG SEAWEEDFS_COMMIT
-ARG SEAWEEDFS_REPO
-RUN git clone ${SEAWEEDFS_REPO} /go/src/github.com/seaweedfs/seaweedfs \
-    && cd /go/src/github.com/seaweedfs/seaweedfs \
-    && git checkout ${SEAWEEDFS_COMMIT} \
-    && cd weed \
-    && go install \
+COPY --from=seaweedfs . /go/src/github.com/seaweedfs/seaweedfs
+
+RUN cd /go/src/github.com/seaweedfs/seaweedfs/weed \
+    && export LDFLAGS="-X github.com/seaweedfs/seaweedfs/weed/util/version.COMMIT=${SEAWEEDFS_COMMIT}" \
+    && CGO_ENABLED=0 go install -ldflags "-extldflags -static ${LDFLAGS}" \
     && go clean -cache -modcache
 
 # Build seaweedfs-mount from current context
