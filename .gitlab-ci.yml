@@ -281,6 +281,7 @@ validate:manifests:
   stage: validate
   needs: []
   script:
+    - ./scripts/test_restic_backup.sh
     - ./scripts/validate_kustomize.sh
   rules: *validate_manifest_rules
 
