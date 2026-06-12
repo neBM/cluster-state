@@ -42,7 +42,7 @@ images:
 - name: "registry.brmartin.co.uk/ben/seaweedfs-mount"
   newTag: "v0.1.11"
 - name: "chrislusf/seaweedfs"
-  newTag: "4.19-nebm-e053242d0"
+  newTag: "4.19-nebm-94d7cf20a"
 - name: "registry.k8s.io/sig-storage/csi-provisioner"
   newTag: "v6.3.0"
 - name: "registry.k8s.io/sig-storage/csi-attacher"
