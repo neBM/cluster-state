@@ -22,6 +22,25 @@ type UnmountRequest struct {
 // UnmountResponse is the response of a successful unmount request.
 type UnmountResponse struct{}
 
+// RefreshVolumeLocationsRequest triggers an in-place volume-location cache
+// refresh across all live weed mount subprocesses managed on the node.
+type RefreshVolumeLocationsRequest struct{}
+
+// RefreshVolumeLocationsFailure records a per-mount refresh failure.
+type RefreshVolumeLocationsFailure struct {
+	VolumeID    string `json:"volumeId"`
+	LocalSocket string `json:"localSocket"`
+	Error       string `json:"error"`
+}
+
+// RefreshVolumeLocationsResponse reports which local mounts were refreshed and
+// which failed. Per-mount failures are reported in-band so callers can decide
+// whether to fail closed without losing successful refreshes.
+type RefreshVolumeLocationsResponse struct {
+	Refreshed []string                        `json:"refreshed,omitempty"`
+	Failed    []RefreshVolumeLocationsFailure `json:"failed,omitempty"`
+}
+
 // ErrorResponse is returned when the mount service encounters a failure.
 type ErrorResponse struct {
 	Error string `json:"error"`

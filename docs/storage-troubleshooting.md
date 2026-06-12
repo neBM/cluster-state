@@ -84,10 +84,11 @@ Volume servers run on Heracles and Nyx with host data at `/data/seaweedfs`. The 
 A `seaweedfs-volume` replacement can stale the volume-server routing cached by
 healthy `seaweedfs-mount` daemons on every node, not only the node that hosts
 the replaced volume pod. The consumer recycler now watches cluster-wide volume
-pod replacements, cycles the local `seaweedfs-mount` daemon on each node after
-the replacement pod becomes Ready, and then relies on the existing
-mount-restart path to recycle local SeaweedFS consumers after the mount daemon
-returns.
+pod replacements and triggers an in-place routing refresh through the local
+mount service on each node after the replacement pod becomes Ready. This path
+must not restart `seaweedfs-mount` or recycle application pods during a routine
+volume rollout. The disruptive mount-restart path remains reserved for actual
+mount-daemon failure or stale FUSE repair.
 
 Check the rollout in this order:
 
@@ -100,16 +101,25 @@ kubectl logs -n default -l app=seaweedfs,component=seaweedfs-mount --since=15m
 Healthy rollout signals:
 
 - each replacement `seaweedfs-volume` pod is `Running` and `Ready`
-- recycler logs show `volume server replacement detected` on each node, then
-  `cycling local mount daemon to clear stale routing`, and then
-  `mount daemon restart detected` followed by `cycling consumer pods`
+- recycler logs show `volume server replacement detected`, then
+  `refreshed local mount routing after volume replacement`
+- Kubernetes events on the replaced volume pod show
+  `VolumeRefreshStarted` followed by `VolumeRefreshSucceeded`
 - mount logs do not keep repeating `retry reading in` or `dial tcp ... i/o timeout`
-  against old volume-pod IPs after the recycler has fired
+  against old volume-pod IPs after the refresh has fired
+- there are no rollout-path `mount daemon restart detected` logs and no
+  recycler-triggered application evictions
 
-If recycler fanout did not happen, expect user-facing latency rather than
-`Transport endpoint is not connected`: mail and other SeaweedFS-backed services
-can hang on cold reads while `seaweedfs-mount` retries stale remote volume
-addresses.
+Failure signals:
+
+- recycler events show `VolumeRefreshFailed`
+- recycler metrics increment `seaweedfs_recycler_volume_refreshes_total{result="failed"}`
+- stale-IP mount retries continue after the replacement volume pod is Ready
+
+Treat a refresh failure as a blocked storage rollout, not as permission to
+restart `seaweedfs-mount` or arbitrary RWX consumers automatically. The
+disruptive remount-and-recycle path is emergency repair, not routine rollout
+behavior.
 
 ## local-path Issues
 

@@ -2,9 +2,11 @@ package recycler
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/go-logr/logr"
+	"github.com/seaweedfs/seaweedfs-csi-driver/pkg/mountmanager"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/tools/record"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -17,11 +19,16 @@ type Reconciler struct {
 	NodeName    string
 	Lookup      *PVLookup
 	Cycler      *Cycler
+	Mounts      mountServiceRefresher
 	Baseline    *BaselineTracker
 	VolumeReady *ReadyIdentityTracker
 	ColdStart   *ColdStartWindow
 	Recorder    record.EventRecorder // may be nil in tests
 	Log         logr.Logger
+}
+
+type mountServiceRefresher interface {
+	RefreshVolumeLocations(ctx context.Context) (*mountmanager.RefreshVolumeLocationsResponse, error)
 }
 
 // HandleMountDaemonEvent is invoked by the Pod informer whenever a
@@ -94,57 +101,60 @@ func (r *Reconciler) HandleVolumeServerEvent(ctx context.Context, volumePod *cor
 	logger.Info("volume server replacement detected, reconciling local recovery",
 		"volumePod", volumePod.Name, "volumeNode", volumePod.Spec.NodeName, "node", r.NodeName)
 
-	mountPod, err := r.Lookup.GetLocalMountDaemon(ctx)
-	if err != nil {
-		logger.Error(err, "GetLocalMountDaemon failed")
-		return
-	}
-	if mountPod != nil {
-		if r.Cycler != nil && r.Cycler.Debounce != nil {
-			r.Cycler.Debounce.Forget(mountPod.UID)
-		}
-		logger.Info("cycling local mount daemon to clear stale routing",
-			"mountPod", mountPod.Name, "volumePod", volumePod.Name, "volumeNode", volumePod.Spec.NodeName, "node", r.NodeName)
-		if r.Recorder != nil {
-			r.Recorder.Eventf(volumePod, corev1.EventTypeNormal, "RecycleTriggeredByVolumeRestart",
-				"volume pod replacement on node %s detected; cycling local mount daemon %s on node %s",
-				volumePod.Spec.NodeName, mountPod.Name, r.NodeName)
-		}
-		if err := r.Cycler.CycleOne(log.IntoContext(ctx, logger), mountPod); err != nil {
-			logger.Error(err, "cycle local mount daemon failed",
-				"mountPod", mountPod.Name, "volumePod", volumePod.Name, "volumeNode", volumePod.Spec.NodeName, "node", r.NodeName)
-		}
-		return
-	}
-
-	logger.Info("local mount daemon not found; falling back to direct consumer cycling",
-		"volumePod", volumePod.Name, "volumeNode", volumePod.Spec.NodeName, "node", r.NodeName)
-
-	candidates, err := r.Lookup.ListCandidates(ctx)
-	if err != nil {
-		logger.Error(err, "ListCandidates failed")
-		return
-	}
-	if len(candidates) == 0 {
-		logger.Info("no candidates to cycle")
-		return
-	}
-
-	names := make([]string, len(candidates))
-	for i := range candidates {
-		names[i] = candidates[i].Name
-		if r.Cycler != nil && r.Cycler.Debounce != nil {
-			r.Cycler.Debounce.Forget(candidates[i].UID)
-		}
-	}
-	logger.Info("cycling consumer pods",
-		"count", len(candidates), "pods", names, "volumePod", volumePod.Name, "volumeNode", volumePod.Spec.NodeName, "node", r.NodeName)
+	VolumeRefreshesTotal.WithLabelValues("started").Inc()
 	if r.Recorder != nil {
-		r.Recorder.Eventf(volumePod, corev1.EventTypeNormal, "RecycleTriggeredByVolumeRestart",
-			"volume pod replacement on node %s detected; mount daemon missing, cycling %d consumer pod(s) on node %s",
-			volumePod.Spec.NodeName, len(candidates), r.NodeName)
+		r.Recorder.Eventf(volumePod, corev1.EventTypeNormal, "VolumeRefreshStarted",
+			"volume pod replacement on node %s detected; refreshing local mount routing on node %s",
+			volumePod.Spec.NodeName, r.NodeName)
 	}
-	r.Cycler.CycleBatch(log.IntoContext(ctx, logger), candidates)
+	if r.Mounts == nil {
+		VolumeRefreshesTotal.WithLabelValues("failed").Inc()
+		logger.Error(fmt.Errorf("mount refresh client not configured"), "volume location refresh unavailable",
+			"volumePod", volumePod.Name, "volumeNode", volumePod.Spec.NodeName, "node", r.NodeName)
+		if r.Recorder != nil {
+			r.Recorder.Eventf(volumePod, corev1.EventTypeWarning, "VolumeRefreshFailed",
+				"volume pod replacement on node %s detected, but the local mount refresh client is not configured on node %s",
+				volumePod.Spec.NodeName, r.NodeName)
+		}
+		return
+	}
+
+	resp, err := r.Mounts.RefreshVolumeLocations(log.IntoContext(ctx, logger))
+	if err != nil {
+		VolumeRefreshesTotal.WithLabelValues("failed").Inc()
+		logger.Error(err, "volume location refresh failed",
+			"volumePod", volumePod.Name, "volumeNode", volumePod.Spec.NodeName, "node", r.NodeName)
+		if r.Recorder != nil {
+			r.Recorder.Eventf(volumePod, corev1.EventTypeWarning, "VolumeRefreshFailed",
+				"volume pod replacement on node %s detected; local mount refresh failed on node %s: %v",
+				volumePod.Spec.NodeName, r.NodeName, err)
+		}
+		return
+	}
+	if resp == nil {
+		resp = &mountmanager.RefreshVolumeLocationsResponse{}
+	}
+	if len(resp.Failed) > 0 {
+		VolumeRefreshesTotal.WithLabelValues("failed").Inc()
+		logger.Error(fmt.Errorf("one or more mount refreshes failed"), "volume location refresh reported failures",
+			"volumePod", volumePod.Name, "volumeNode", volumePod.Spec.NodeName, "node", r.NodeName,
+			"refreshed", resp.Refreshed, "failed", resp.Failed)
+		if r.Recorder != nil {
+			r.Recorder.Eventf(volumePod, corev1.EventTypeWarning, "VolumeRefreshFailed",
+				"volume pod replacement on node %s detected; %d local mount refresh(es) failed on node %s",
+				volumePod.Spec.NodeName, len(resp.Failed), r.NodeName)
+		}
+		return
+	}
+	VolumeRefreshesTotal.WithLabelValues("succeeded").Inc()
+	logger.Info("refreshed local mount routing after volume replacement",
+		"volumePod", volumePod.Name, "volumeNode", volumePod.Spec.NodeName, "node", r.NodeName,
+		"refreshedCount", len(resp.Refreshed), "refreshed", resp.Refreshed)
+	if r.Recorder != nil {
+		r.Recorder.Eventf(volumePod, corev1.EventTypeNormal, "VolumeRefreshSucceeded",
+			"volume pod replacement on node %s detected; refreshed %d local mount routing cache(s) on node %s",
+			volumePod.Spec.NodeName, len(resp.Refreshed), r.NodeName)
+	}
 }
 
 // HandleProbeFailure is invoked by the Prober for each unhealthy mountpoint.

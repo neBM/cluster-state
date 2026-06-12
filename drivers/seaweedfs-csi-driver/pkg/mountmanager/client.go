@@ -71,6 +71,16 @@ func (c *Client) Unmount(ctx context.Context, req *UnmountRequest) (*UnmountResp
 	return &resp, nil
 }
 
+// RefreshVolumeLocations triggers an in-place refresh across all live local
+// weed mount subprocesses managed by the mount service.
+func (c *Client) RefreshVolumeLocations(ctx context.Context) (*RefreshVolumeLocationsResponse, error) {
+	var resp RefreshVolumeLocationsResponse
+	if err := c.doPost(ctx, "/refresh-volume-locations", &RefreshVolumeLocationsRequest{}, &resp); err != nil {
+		return nil, err
+	}
+	return &resp, nil
+}
+
 func (c *Client) doPost(ctx context.Context, path string, payload any, out any) error {
 	body := &bytes.Buffer{}
 	if err := json.NewEncoder(body).Encode(payload); err != nil {

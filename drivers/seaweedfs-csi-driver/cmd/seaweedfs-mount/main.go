@@ -58,6 +58,7 @@ func main() {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/mount", makePostHandler(manager.Mount))
 	mux.HandleFunc("/unmount", makePostHandler(manager.Unmount))
+	mux.HandleFunc("/refresh-volume-locations", makePostHandler(manager.RefreshVolumeLocations))
 
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)

@@ -18,6 +18,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
+	"github.com/seaweedfs/seaweedfs-csi-driver/pkg/mountmanager"
 	"github.com/seaweedfs/seaweedfs-csi-driver/pkg/recycler"
 )
 
@@ -26,6 +27,7 @@ const (
 	coldStartGrace   = 60 * time.Second
 	probeInterval    = 30 * time.Second
 	statTimeout      = 2 * time.Second
+	mountEndpoint    = "unix:///var/lib/seaweedfs-mount/seaweedfs-mount.sock"
 	stagger          = 5 * time.Second
 	debounceTTL      = 120 * time.Second
 	evictionRetry    = 5 * time.Second
@@ -37,11 +39,13 @@ func main() {
 	var probeAddr string
 	var procRoot string
 	var statPath string
+	var mountServiceEndpoint string
 
 	flag.StringVar(&metricsAddr, "metrics-bind-address", ":9090", "Address for the metrics server.")
 	flag.StringVar(&probeAddr, "health-probe-bind-address", ":9808", "Address for the health probe server.")
 	flag.StringVar(&procRoot, "proc-root", "/host/proc", "Host /proc mount path.")
 	flag.StringVar(&statPath, "stat-path", "/usr/bin/stat", "Path to the stat binary.")
+	flag.StringVar(&mountServiceEndpoint, "mount-endpoint", mountEndpoint, "mount service endpoint for in-place routing refreshes")
 	flag.Parse()
 
 	nodeName := os.Getenv("NODE_NAME")
@@ -87,6 +91,11 @@ func main() {
 		logger.Error(err, "unable to create clientset")
 		os.Exit(1)
 	}
+	mountClient, err := mountmanager.NewClient(mountServiceEndpoint)
+	if err != nil {
+		logger.Error(err, "unable to create mount service client", "endpoint", mountServiceEndpoint)
+		os.Exit(1)
+	}
 
 	broadcaster := record.NewBroadcaster()
 	broadcaster.StartRecordingToSink(&typedcorev1.EventSinkImpl{Interface: clientset.CoreV1().Events("")})
@@ -111,6 +120,7 @@ func main() {
 		NodeName:    nodeName,
 		Lookup:      lookup,
 		Cycler:      cycler,
+		Mounts:      mountClient,
 		Baseline:    recycler.NewBaselineTracker(),
 		VolumeReady: recycler.NewReadyIdentityTracker(),
 		ColdStart:   recycler.NewColdStartWindow(coldStartGrace),

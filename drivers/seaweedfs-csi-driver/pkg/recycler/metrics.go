@@ -47,6 +47,13 @@ var (
 		},
 		[]string{"reason"}, // "pdb" | "other"
 	)
+	VolumeRefreshesTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "seaweedfs_recycler_volume_refreshes_total",
+			Help: "Node-local mount routing refresh attempts triggered by volume replacement.",
+		},
+		[]string{"result"}, // "started" | "succeeded" | "failed"
+	)
 )
 
 func init() {
@@ -57,5 +64,6 @@ func init() {
 		ProbeFailuresTotal,
 		ColdStartSuppressedTotal,
 		EvictionBlockedTotal,
+		VolumeRefreshesTotal,
 	)
 }

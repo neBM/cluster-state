@@ -2,11 +2,13 @@ package mountmanager
 
 import (
 	"bufio"
+	"context"
 	"errors"
 	"fmt"
 	"io"
 	"os"
 	"os/exec"
+	"sort"
 	"strings"
 	"sync"
 	"syscall"
@@ -131,10 +133,62 @@ func (m *Manager) Unmount(req *UnmountRequest) (*UnmountResponse, error) {
 	return &UnmountResponse{}, nil
 }
 
+// RefreshVolumeLocations fans a cache-refresh RPC out to every live local weed
+// mount subprocess tracked by the manager. Per-mount failures are reported
+// in-band in the response so callers can fail closed without losing successful
+// refreshes that already completed.
+func (m *Manager) RefreshVolumeLocations(req *RefreshVolumeLocationsRequest) (*RefreshVolumeLocationsResponse, error) {
+	if req == nil {
+		return nil, errors.New("refresh request is nil")
+	}
+
+	resp := &RefreshVolumeLocationsResponse{}
+	for _, entry := range m.listMounts() {
+		if entry == nil {
+			continue
+		}
+		if entry.localSocket == "" {
+			resp.Failed = append(resp.Failed, RefreshVolumeLocationsFailure{
+				VolumeID: entry.volumeID,
+				Error:    "localSocket is empty",
+			})
+			continue
+		}
+
+		if err := invokeRefreshVolumeLocations(context.Background(), entry.localSocket); err != nil {
+			resp.Failed = append(resp.Failed, RefreshVolumeLocationsFailure{
+				VolumeID:    entry.volumeID,
+				LocalSocket: entry.localSocket,
+				Error:       err.Error(),
+			})
+			continue
+		}
+		resp.Refreshed = append(resp.Refreshed, entry.volumeID)
+	}
+	return resp, nil
+}
+
 func (m *Manager) getMount(volumeID string) *mountEntry {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return m.mounts[volumeID]
+}
+
+func (m *Manager) listMounts() []*mountEntry {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	volumeIDs := make([]string, 0, len(m.mounts))
+	for volumeID := range m.mounts {
+		volumeIDs = append(volumeIDs, volumeID)
+	}
+	sort.Strings(volumeIDs)
+
+	entries := make([]*mountEntry, 0, len(volumeIDs))
+	for _, volumeID := range volumeIDs {
+		entries = append(entries, m.mounts[volumeID])
+	}
+	return entries
 }
 
 func (m *Manager) removeMount(volumeID string) *mountEntry {

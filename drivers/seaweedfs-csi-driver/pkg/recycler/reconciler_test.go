@@ -6,10 +6,25 @@ import (
 	"testing"
 	"time"
 
+	"github.com/seaweedfs/seaweedfs-csi-driver/pkg/mountmanager"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 )
+
+type fakeMountService struct {
+	calls    int
+	response *mountmanager.RefreshVolumeLocationsResponse
+	err      error
+}
+
+func (f *fakeMountService) RefreshVolumeLocations(ctx context.Context) (*mountmanager.RefreshVolumeLocationsResponse, error) {
+	f.calls++
+	if f.response != nil {
+		return f.response, f.err
+	}
+	return &mountmanager.RefreshVolumeLocationsResponse{}, f.err
+}
 
 func TestReconciler_CycleAllCandidatesOnRestart(t *testing.T) {
 	mountPod := &corev1.Pod{
@@ -141,23 +156,22 @@ func TestReconciler_ColdStartSuppressesPathA(t *testing.T) {
 	}
 }
 
-func TestReconciler_CyclesLocalMountDaemonOnReadyVolumeReplacement(t *testing.T) {
+func TestReconciler_RefreshesLocalMountsOnReadyVolumeReplacement(t *testing.T) {
 	volumePod := readyVolumePod("seaweedfs-volume-nyx-a", "nyx", "vol-uid-1")
-	mountPod := pod("seaweedfs-mount-hestia", "hestia")
-	mountPod.Labels = map[string]string{"component": "seaweedfs-mount"}
 	c := newFakeClient(
 		volumePod,
-		mountPod,
 		pod("app1", "hestia", "app1-data"), pvc("app1-data", "pv-1"), pv("pv-1", csiDriverName),
 		pod("app2", "hestia", "app2-data"), pvc("app2-data", "pv-2"), pv("pv-2", csiDriverName),
 	)
 
 	ev := &fakeEvictor{}
+	mountService := &fakeMountService{}
 	r := &Reconciler{
 		Client:      c,
 		NodeName:    "hestia",
 		Lookup:      &PVLookup{Client: c, NodeName: "hestia", Driver: csiDriverName},
 		Cycler:      &Cycler{Evictor: ev, Debounce: NewDebouncer(time.Minute), EvictionRetry: 1 * time.Millisecond, EvictionDeadline: 10 * time.Millisecond},
+		Mounts:      mountService,
 		Baseline:    NewBaselineTracker(),
 		VolumeReady: NewReadyIdentityTracker(),
 		ColdStart:   &ColdStartWindow{startedAt: time.Now().Add(-10 * time.Minute), grace: time.Minute},
@@ -171,15 +185,15 @@ func TestReconciler_CyclesLocalMountDaemonOnReadyVolumeReplacement(t *testing.T)
 	replacement := readyVolumePod("seaweedfs-volume-nyx-b", "nyx", "vol-uid-2")
 	r.HandleVolumeServerEvent(context.Background(), replacement)
 
-	if len(ev.attempts) != 1 {
-		t.Fatalf("want 1 eviction attempt after ready replacement, got %d", len(ev.attempts))
+	if mountService.calls != 1 {
+		t.Fatalf("want 1 refresh call after ready replacement, got %d", mountService.calls)
 	}
-	if ev.attempts[0].Name != mountPod.Name {
-		t.Fatalf("want mount pod %q to be cycled, got %q", mountPod.Name, ev.attempts[0].Name)
+	if len(ev.attempts) != 0 {
+		t.Fatalf("volume refresh path should not evict pods, got %d attempts", len(ev.attempts))
 	}
 }
 
-func TestReconciler_VolumeReplacementFallsBackToConsumersWithoutLocalMountDaemon(t *testing.T) {
+func TestReconciler_VolumeReplacementStopsOnRefreshFailure(t *testing.T) {
 	volumePod := readyVolumePod("seaweedfs-volume-nyx-a", "nyx", "vol-uid-1")
 	c := newFakeClient(
 		volumePod,
@@ -188,60 +202,65 @@ func TestReconciler_VolumeReplacementFallsBackToConsumersWithoutLocalMountDaemon
 	)
 
 	ev := &fakeEvictor{}
-	tracker := NewReadyIdentityTracker()
-	tracker.ObserveReady("nyx", "vol-uid-1")
+	mountService := &fakeMountService{
+		response: &mountmanager.RefreshVolumeLocationsResponse{
+			Failed: []mountmanager.RefreshVolumeLocationsFailure{
+				{VolumeID: "vol-a", Error: "dial unix:///missing.sock: connect: no such file"},
+			},
+		},
+	}
 
 	r := &Reconciler{
 		Client:      c,
 		NodeName:    "hestia",
 		Lookup:      &PVLookup{Client: c, NodeName: "hestia", Driver: csiDriverName},
 		Cycler:      &Cycler{Evictor: ev, Debounce: NewDebouncer(time.Minute), EvictionRetry: 1 * time.Millisecond, EvictionDeadline: 10 * time.Millisecond},
+		Mounts:      mountService,
 		Baseline:    NewBaselineTracker(),
-		VolumeReady: tracker,
+		VolumeReady: NewReadyIdentityTracker(),
 		ColdStart:   &ColdStartWindow{startedAt: time.Now().Add(-10 * time.Minute), grace: time.Minute},
 	}
 
+	r.HandleVolumeServerEvent(context.Background(), volumePod)
 	r.HandleVolumeServerEvent(context.Background(), readyVolumePod("seaweedfs-volume-nyx-b", "nyx", "vol-uid-2"))
 
-	if len(ev.attempts) != 2 {
-		t.Fatalf("want consumer fallback to evict 2 pods, got %d attempts", len(ev.attempts))
+	if mountService.calls != 1 {
+		t.Fatalf("want 1 refresh call, got %d", mountService.calls)
+	}
+	if len(ev.attempts) != 0 {
+		t.Fatalf("refresh failure should not evict consumers automatically, got %d attempts", len(ev.attempts))
 	}
 }
 
-func TestReconciler_VolumeReplacementBypassesRecentMountDebounce(t *testing.T) {
+func TestReconciler_VolumeReplacementTreatsRefreshErrorAsFailure(t *testing.T) {
 	volumePod := readyVolumePod("seaweedfs-volume-nyx-a", "nyx", "vol-uid-1")
-	mountPod := pod("seaweedfs-mount-hestia", "hestia")
-	mountPod.Labels = map[string]string{"component": "seaweedfs-mount"}
 	c := newFakeClient(
 		volumePod,
-		mountPod,
 		pod("app1", "hestia", "app1-data"), pvc("app1-data", "pv-1"), pv("pv-1", csiDriverName),
 	)
 
 	ev := &fakeEvictor{}
-	debounce := NewDebouncer(time.Minute)
-	debounce.Mark(mountPod.UID)
-
-	tracker := NewReadyIdentityTracker()
-	tracker.ObserveReady("nyx", "vol-uid-1")
+	mountService := &fakeMountService{err: context.DeadlineExceeded}
 
 	r := &Reconciler{
 		Client:      c,
 		NodeName:    "hestia",
 		Lookup:      &PVLookup{Client: c, NodeName: "hestia", Driver: csiDriverName},
-		Cycler:      &Cycler{Evictor: ev, Debounce: debounce, EvictionRetry: 1 * time.Millisecond, EvictionDeadline: 10 * time.Millisecond},
+		Cycler:      &Cycler{Evictor: ev, Debounce: NewDebouncer(time.Minute), EvictionRetry: 1 * time.Millisecond, EvictionDeadline: 10 * time.Millisecond},
+		Mounts:      mountService,
 		Baseline:    NewBaselineTracker(),
-		VolumeReady: tracker,
+		VolumeReady: NewReadyIdentityTracker(),
 		ColdStart:   &ColdStartWindow{startedAt: time.Now().Add(-10 * time.Minute), grace: time.Minute},
 	}
 
+	r.HandleVolumeServerEvent(context.Background(), volumePod)
 	r.HandleVolumeServerEvent(context.Background(), readyVolumePod("seaweedfs-volume-nyx-b", "nyx", "vol-uid-2"))
 
-	if len(ev.attempts) != 1 {
-		t.Fatalf("want debounce bypass to evict once, got %d attempts", len(ev.attempts))
+	if mountService.calls != 1 {
+		t.Fatalf("want 1 refresh call, got %d", mountService.calls)
 	}
-	if ev.attempts[0].Name != mountPod.Name {
-		t.Fatalf("want mount pod %q to be cycled, got %q", mountPod.Name, ev.attempts[0].Name)
+	if len(ev.attempts) != 0 {
+		t.Fatalf("refresh error should not evict consumers automatically, got %d attempts", len(ev.attempts))
 	}
 }
 
@@ -253,23 +272,27 @@ func TestReconciler_IgnoresUnreadyVolumeReplacement(t *testing.T) {
 	)
 
 	ev := &fakeEvictor{}
-	tracker := NewReadyIdentityTracker()
-	tracker.ObserveReady("nyx", "vol-uid-1")
+	mountService := &fakeMountService{}
 
 	r := &Reconciler{
 		Client:      c,
 		NodeName:    "hestia",
 		Lookup:      &PVLookup{Client: c, NodeName: "hestia", Driver: csiDriverName},
 		Cycler:      &Cycler{Evictor: ev, Debounce: NewDebouncer(time.Minute), EvictionRetry: 1 * time.Millisecond, EvictionDeadline: 10 * time.Millisecond},
+		Mounts:      mountService,
 		Baseline:    NewBaselineTracker(),
-		VolumeReady: tracker,
+		VolumeReady: NewReadyIdentityTracker(),
 		ColdStart:   &ColdStartWindow{startedAt: time.Now().Add(-10 * time.Minute), grace: time.Minute},
 	}
 
+	r.HandleVolumeServerEvent(context.Background(), volumePod)
 	unreadyReplacement := readyVolumePod("seaweedfs-volume-nyx-b", "nyx", "vol-uid-2")
 	unreadyReplacement.Status.Conditions = []corev1.PodCondition{{Type: corev1.PodReady, Status: corev1.ConditionFalse}}
 	r.HandleVolumeServerEvent(context.Background(), unreadyReplacement)
 
+	if mountService.calls != 0 {
+		t.Fatalf("unready replacement should not refresh mounts, got %d calls", mountService.calls)
+	}
 	if len(ev.attempts) != 0 {
 		t.Fatalf("unready replacement should not cycle, got %d attempts", len(ev.attempts))
 	}
