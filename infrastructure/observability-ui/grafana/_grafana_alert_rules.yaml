@@ -557,3 +557,50 @@ groups:
           labels:
             severity: warning
           isPaused: false
+    - orgId: 1
+      name: seaweedfs-health
+      folder: Infrastructure Alerts
+      interval: 1m
+      rules:
+        - uid: seaweedfs-volume-refresh-failed-api
+          title: SeaweedFS Volume Refresh Failed
+          condition: C
+          data:
+            - refId: A
+              relativeTimeRange:
+                from: 900
+                to: 0
+              datasourceUid: prometheus
+              model:
+                datasource:
+                    type: prometheus
+                    uid: prometheus
+                expr: sum by(instance, kubernetes_name, kubernetes_namespace) (increase(seaweedfs_recycler_volume_refreshes_total{job="kubernetes-service-endpoints",kubernetes_name="seaweedfs-consumer-recycler-metrics",kubernetes_namespace="default",result="failed"}[15m]))
+                instant: true
+                intervalMs: 1000
+                maxDataPoints: 43200
+                refId: A
+            - refId: C
+              datasourceUid: "-100"
+              model:
+                conditions:
+                    - evaluator:
+                        params:
+                            - 0
+                        type: gt
+                datasource:
+                    type: __expr__
+                    uid: "-100"
+                expression: A
+                intervalMs: 1000
+                maxDataPoints: 43200
+                refId: C
+                type: threshold
+          noDataState: OK
+          execErrState: OK
+          annotations:
+            description: SeaweedFS recycler metrics on {{ $labels.instance }} have reported {{ $values.A }} failed in-place volume routing refresh(es) in the last 15 minutes for {{ $labels.kubernetes_namespace }}/{{ $labels.kubernetes_name }}. This indicates a blocked storage rollout or stale-routing repair failure and should be treated as critical.
+            summary: SeaweedFS volume refresh failed on {{ $labels.instance }}
+          labels:
+            severity: critical
+          isPaused: false
