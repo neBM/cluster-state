@@ -8,6 +8,7 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 )
 
 func TestReconciler_CycleAllCandidatesOnRestart(t *testing.T) {
@@ -137,5 +138,116 @@ func TestReconciler_ColdStartSuppressesPathA(t *testing.T) {
 	r.HandleMountDaemonEvent(context.Background(), mountPod)
 	if len(ev.attempts) != 0 {
 		t.Fatalf("cold-start window should suppress Path A, got %d attempts", len(ev.attempts))
+	}
+}
+
+func TestReconciler_CycleLocalCandidatesOnReadyVolumeReplacement(t *testing.T) {
+	volumePod := readyVolumePod("seaweedfs-volume-nyx-a", "nyx", "vol-uid-1")
+	c := newFakeClient(
+		volumePod,
+		pod("app1", "hestia", "app1-data"), pvc("app1-data", "pv-1"), pv("pv-1", csiDriverName),
+		pod("app2", "hestia", "app2-data"), pvc("app2-data", "pv-2"), pv("pv-2", csiDriverName),
+	)
+
+	ev := &fakeEvictor{}
+	r := &Reconciler{
+		Client:      c,
+		NodeName:    "hestia",
+		Lookup:      &PVLookup{Client: c, NodeName: "hestia", Driver: csiDriverName},
+		Cycler:      &Cycler{Evictor: ev, Debounce: NewDebouncer(time.Minute), EvictionRetry: 1 * time.Millisecond, EvictionDeadline: 10 * time.Millisecond},
+		Baseline:    NewBaselineTracker(),
+		VolumeReady: NewReadyIdentityTracker(),
+		ColdStart:   &ColdStartWindow{startedAt: time.Now().Add(-10 * time.Minute), grace: time.Minute},
+	}
+
+	r.HandleVolumeServerEvent(context.Background(), volumePod)
+	if len(ev.attempts) != 0 {
+		t.Fatalf("first ready observation should not cycle: got %d attempts", len(ev.attempts))
+	}
+
+	replacement := readyVolumePod("seaweedfs-volume-nyx-b", "nyx", "vol-uid-2")
+	r.HandleVolumeServerEvent(context.Background(), replacement)
+
+	if len(ev.attempts) != 2 {
+		t.Fatalf("want 2 eviction attempts after ready replacement, got %d", len(ev.attempts))
+	}
+}
+
+func TestReconciler_VolumeReplacementBypassesRecentDebounce(t *testing.T) {
+	volumePod := readyVolumePod("seaweedfs-volume-nyx-a", "nyx", "vol-uid-1")
+	c := newFakeClient(
+		volumePod,
+		pod("app1", "hestia", "app1-data"), pvc("app1-data", "pv-1"), pv("pv-1", csiDriverName),
+	)
+
+	ev := &fakeEvictor{}
+	debounce := NewDebouncer(time.Minute)
+	debounce.Mark(pkUID("app1"))
+
+	tracker := NewReadyIdentityTracker()
+	tracker.ObserveReady("nyx", "vol-uid-1")
+
+	r := &Reconciler{
+		Client:      c,
+		NodeName:    "hestia",
+		Lookup:      &PVLookup{Client: c, NodeName: "hestia", Driver: csiDriverName},
+		Cycler:      &Cycler{Evictor: ev, Debounce: debounce, EvictionRetry: 1 * time.Millisecond, EvictionDeadline: 10 * time.Millisecond},
+		Baseline:    NewBaselineTracker(),
+		VolumeReady: tracker,
+		ColdStart:   &ColdStartWindow{startedAt: time.Now().Add(-10 * time.Minute), grace: time.Minute},
+	}
+
+	r.HandleVolumeServerEvent(context.Background(), readyVolumePod("seaweedfs-volume-nyx-b", "nyx", "vol-uid-2"))
+
+	if len(ev.attempts) != 1 {
+		t.Fatalf("want debounce bypass to evict once, got %d attempts", len(ev.attempts))
+	}
+}
+
+func TestReconciler_IgnoresUnreadyVolumeReplacement(t *testing.T) {
+	volumePod := readyVolumePod("seaweedfs-volume-nyx-a", "nyx", "vol-uid-1")
+	c := newFakeClient(
+		volumePod,
+		pod("app1", "hestia", "app1-data"), pvc("app1-data", "pv-1"), pv("pv-1", csiDriverName),
+	)
+
+	ev := &fakeEvictor{}
+	tracker := NewReadyIdentityTracker()
+	tracker.ObserveReady("nyx", "vol-uid-1")
+
+	r := &Reconciler{
+		Client:      c,
+		NodeName:    "hestia",
+		Lookup:      &PVLookup{Client: c, NodeName: "hestia", Driver: csiDriverName},
+		Cycler:      &Cycler{Evictor: ev, Debounce: NewDebouncer(time.Minute), EvictionRetry: 1 * time.Millisecond, EvictionDeadline: 10 * time.Millisecond},
+		Baseline:    NewBaselineTracker(),
+		VolumeReady: tracker,
+		ColdStart:   &ColdStartWindow{startedAt: time.Now().Add(-10 * time.Minute), grace: time.Minute},
+	}
+
+	unreadyReplacement := readyVolumePod("seaweedfs-volume-nyx-b", "nyx", "vol-uid-2")
+	unreadyReplacement.Status.Conditions = []corev1.PodCondition{{Type: corev1.PodReady, Status: corev1.ConditionFalse}}
+	r.HandleVolumeServerEvent(context.Background(), unreadyReplacement)
+
+	if len(ev.attempts) != 0 {
+		t.Fatalf("unready replacement should not cycle, got %d attempts", len(ev.attempts))
+	}
+}
+
+func readyVolumePod(name, node, uid string) *corev1.Pod {
+	return &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      name,
+			Namespace: "default",
+			UID:       types.UID(uid),
+			Labels:    map[string]string{"component": "volume"},
+		},
+		Spec: corev1.PodSpec{NodeName: node},
+		Status: corev1.PodStatus{
+			Phase: corev1.PodRunning,
+			Conditions: []corev1.PodCondition{
+				{Type: corev1.PodReady, Status: corev1.ConditionTrue},
+			},
+		},
 	}
 }

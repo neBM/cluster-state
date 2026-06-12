@@ -36,6 +36,29 @@ func TestBaselineTracker_SameStateDoesNotTrigger(t *testing.T) {
 	}
 }
 
+func TestReadyIdentityTracker_FirstReadyObservationDoesNotTrigger(t *testing.T) {
+	tt := NewReadyIdentityTracker()
+	if tt.ObserveReady("nyx", "uid1") {
+		t.Fatal("first ready observation must not trigger")
+	}
+}
+
+func TestReadyIdentityTracker_UIDChangeTriggers(t *testing.T) {
+	tt := NewReadyIdentityTracker()
+	tt.ObserveReady("nyx", "uid1")
+	if !tt.ObserveReady("nyx", "uid2") {
+		t.Fatal("ready identity change must trigger")
+	}
+}
+
+func TestReadyIdentityTracker_SameReadyIdentityDoesNotTrigger(t *testing.T) {
+	tt := NewReadyIdentityTracker()
+	tt.ObserveReady("nyx", "uid1")
+	if tt.ObserveReady("nyx", "uid1") {
+		t.Fatal("same ready identity must not trigger")
+	}
+}
+
 func TestColdStartWindow_SuppressesPathADuringGrace(t *testing.T) {
 	w := NewColdStartWindow(60 * time.Second)
 	if !w.Suppressed(w.startedAt.Add(30 * time.Second)) {

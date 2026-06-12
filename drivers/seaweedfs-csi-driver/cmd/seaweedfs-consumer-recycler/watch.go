@@ -34,3 +34,25 @@ func setupMountDaemonWatch(mgr ctrl.Manager, nodeName string, r *recycler.Reconc
 			return reconcile.Result{}, nil
 		}))
 }
+
+func setupVolumeServerWatch(mgr ctrl.Manager, r *recycler.Reconciler) error {
+	pred := predicate.NewPredicateFuncs(func(obj client.Object) bool {
+		p, ok := obj.(*corev1.Pod)
+		if !ok {
+			return false
+		}
+		return p.Labels["component"] == "volume"
+	})
+
+	return ctrl.NewControllerManagedBy(mgr).
+		Named("seaweedfs-volume-watcher").
+		For(&corev1.Pod{}, builder.WithPredicates(pred)).
+		Complete(reconcile.Func(func(ctx context.Context, req reconcile.Request) (reconcile.Result, error) {
+			var pod corev1.Pod
+			if err := mgr.GetClient().Get(ctx, req.NamespacedName, &pod); err != nil {
+				return reconcile.Result{}, client.IgnoreNotFound(err)
+			}
+			r.HandleVolumeServerEvent(ctx, &pod)
+			return reconcile.Result{}, nil
+		}))
+}

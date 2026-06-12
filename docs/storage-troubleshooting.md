@@ -79,6 +79,35 @@ kubectl logs -n default -l app=seaweedfs,component=filer --tail=100
 
 Volume servers run on Heracles and Nyx with host data at `/data/seaweedfs`. The filer metadata backend is Postgres-backed through the `seaweedfs-filer` configuration.
 
+### SeaweedFS Volume Rollout Smoke Check
+
+A `seaweedfs-volume` replacement can stale the volume-server routing cached by
+healthy `seaweedfs-mount` daemons on every node, not only the node that hosts
+the replaced volume pod. The consumer recycler now watches cluster-wide volume
+pod replacements and should cycle SeaweedFS-backed consumers on each node after
+the replacement pod becomes Ready.
+
+Check the rollout in this order:
+
+```bash
+kubectl get pods -n default -l app=seaweedfs,component=volume -o wide
+kubectl logs -n default -l app.kubernetes.io/name=seaweedfs-consumer-recycler --since=15m
+kubectl logs -n default -l app=seaweedfs,component=seaweedfs-mount --since=15m
+```
+
+Healthy rollout signals:
+
+- each replacement `seaweedfs-volume` pod is `Running` and `Ready`
+- recycler logs show `volume server replacement detected` on each node and
+  `cycling consumer pods` for local SeaweedFS consumers
+- mount logs do not keep repeating `retry reading in` or `dial tcp ... i/o timeout`
+  against old volume-pod IPs after the recycler has fired
+
+If recycler fanout did not happen, expect user-facing latency rather than
+`Transport endpoint is not connected`: mail and other SeaweedFS-backed services
+can hang on cold reads while `seaweedfs-mount` retries stale remote volume
+addresses.
+
 ## local-path Issues
 
 `local-path` and `local-path-retain` are node-local. Check the scheduled node before deleting or rescheduling workloads:

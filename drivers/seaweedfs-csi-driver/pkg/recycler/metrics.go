@@ -11,7 +11,7 @@ var (
 			Name: "seaweedfs_recycler_triggers_total",
 			Help: "Number of reconcile triggers by signal path.",
 		},
-		[]string{"path"}, // "event" | "probe"
+		[]string{"path"}, // "mount_restart" | "volume_restart" | "probe_failure"
 	)
 	CyclesTotal = prometheus.NewCounterVec(
 		prometheus.CounterOpts{

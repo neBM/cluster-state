@@ -51,6 +51,29 @@ func (b *BaselineTracker) Forget(uid types.UID) {
 	delete(b.baseline, uid)
 }
 
+// ReadyIdentityTracker remembers the last Ready pod UID per logical key so
+// the next Ready replacement can trigger exactly once without firing on the
+// first observation after startup.
+type ReadyIdentityTracker struct {
+	mu       sync.Mutex
+	baseline map[string]types.UID
+}
+
+func NewReadyIdentityTracker() *ReadyIdentityTracker {
+	return &ReadyIdentityTracker{baseline: map[string]types.UID{}}
+}
+
+// ObserveReady records the Ready pod identity for key and returns true iff
+// the previous Ready pod identity for that key differed.
+func (t *ReadyIdentityTracker) ObserveReady(key string, uid types.UID) bool {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	prev, seen := t.baseline[key]
+	t.baseline[key] = uid
+	return seen && prev != uid
+}
+
 // ColdStartWindow suppresses Path A triggers for the first `grace` duration
 // after recycler startup. Path B (the prober) is unaffected.
 type ColdStartWindow struct {

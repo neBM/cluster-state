@@ -129,6 +129,12 @@ func (d *Debouncer) Mark(uid types.UID) {
 	d.m[uid] = time.Now()
 }
 
+func (d *Debouncer) Forget(uid types.UID) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	delete(d.m, uid)
+}
+
 // KubeEvictor is the production implementation of Evictor backed by client-go.
 type KubeEvictor struct {
 	Clientset kubernetes.Interface

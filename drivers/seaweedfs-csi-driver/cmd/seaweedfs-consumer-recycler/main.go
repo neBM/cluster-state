@@ -8,13 +8,10 @@ import (
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/client-go/kubernetes"
 	typedcorev1 "k8s.io/client-go/kubernetes/typed/core/v1"
 	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
-	"sigs.k8s.io/controller-runtime/pkg/cache"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
@@ -70,13 +67,6 @@ func main() {
 			BindAddress: metricsAddr,
 		},
 		HealthProbeBindAddress: probeAddr,
-		Cache: cache.Options{
-			ByObject: map[client.Object]cache.ByObject{
-				&corev1.Pod{}: {
-					Field: fields.OneTermEqualSelector("spec.nodeName", nodeName),
-				},
-			},
-		},
 	})
 	if err != nil {
 		logger.Error(err, "unable to create manager")
@@ -117,18 +107,23 @@ func main() {
 		Driver:   driverName,
 	}
 	rec := &recycler.Reconciler{
-		Client:    mgr.GetClient(),
-		NodeName:  nodeName,
-		Lookup:    lookup,
-		Cycler:    cycler,
-		Baseline:  recycler.NewBaselineTracker(),
-		ColdStart: recycler.NewColdStartWindow(coldStartGrace),
-		Recorder:  recorder,
-		Log:       logger,
+		Client:      mgr.GetClient(),
+		NodeName:    nodeName,
+		Lookup:      lookup,
+		Cycler:      cycler,
+		Baseline:    recycler.NewBaselineTracker(),
+		VolumeReady: recycler.NewReadyIdentityTracker(),
+		ColdStart:   recycler.NewColdStartWindow(coldStartGrace),
+		Recorder:    recorder,
+		Log:         logger,
 	}
 
 	if err := setupMountDaemonWatch(mgr, nodeName, rec); err != nil {
 		logger.Error(err, "unable to set up mount daemon watch")
+		os.Exit(1)
+	}
+	if err := setupVolumeServerWatch(mgr, rec); err != nil {
+		logger.Error(err, "unable to set up volume server watch")
 		os.Exit(1)
 	}
 

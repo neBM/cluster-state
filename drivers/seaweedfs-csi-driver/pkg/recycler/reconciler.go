@@ -13,14 +13,15 @@ import (
 
 // Reconciler wires the two signal paths into a shared cycling pipeline.
 type Reconciler struct {
-	Client    client.Client
-	NodeName  string
-	Lookup    *PVLookup
-	Cycler    *Cycler
-	Baseline  *BaselineTracker
-	ColdStart *ColdStartWindow
-	Recorder  record.EventRecorder // may be nil in tests
-	Log       logr.Logger
+	Client      client.Client
+	NodeName    string
+	Lookup      *PVLookup
+	Cycler      *Cycler
+	Baseline    *BaselineTracker
+	VolumeReady *ReadyIdentityTracker
+	ColdStart   *ColdStartWindow
+	Recorder    record.EventRecorder // may be nil in tests
+	Log         logr.Logger
 }
 
 // HandleMountDaemonEvent is invoked by the Pod informer whenever a
@@ -47,7 +48,7 @@ func (r *Reconciler) HandleMountDaemonEvent(ctx context.Context, mountPod *corev
 		return
 	}
 
-	TriggersTotal.WithLabelValues("event").Inc()
+	TriggersTotal.WithLabelValues("mount_restart").Inc()
 	logger.Info("mount daemon restart detected, enumerating candidates",
 		"mountPod", mountPod.Name, "restartCount", restartCount, "node", r.NodeName)
 
@@ -73,11 +74,58 @@ func (r *Reconciler) HandleMountDaemonEvent(ctx context.Context, mountPod *corev
 	r.Cycler.CycleBatch(log.IntoContext(ctx, logger), candidates)
 }
 
+// HandleVolumeServerEvent is invoked by the Pod informer whenever any
+// seaweedfs-volume pod transitions. Each recycler instance watches the
+// cluster-wide volume pods, but only cycles candidates on its own node.
+func (r *Reconciler) HandleVolumeServerEvent(ctx context.Context, volumePod *corev1.Pod) {
+	logger := r.logger(ctx)
+
+	if !podReady(volumePod) {
+		return
+	}
+	if r.VolumeReady == nil {
+		return
+	}
+	if !r.VolumeReady.ObserveReady(volumePod.Spec.NodeName, volumePod.UID) {
+		return
+	}
+
+	TriggersTotal.WithLabelValues("volume_restart").Inc()
+	logger.Info("volume server replacement detected, enumerating local candidates",
+		"volumePod", volumePod.Name, "volumeNode", volumePod.Spec.NodeName, "node", r.NodeName)
+
+	candidates, err := r.Lookup.ListCandidates(ctx)
+	if err != nil {
+		logger.Error(err, "ListCandidates failed")
+		return
+	}
+	if len(candidates) == 0 {
+		logger.Info("no candidates to cycle")
+		return
+	}
+
+	names := make([]string, len(candidates))
+	for i := range candidates {
+		names[i] = candidates[i].Name
+		if r.Cycler != nil && r.Cycler.Debounce != nil {
+			r.Cycler.Debounce.Forget(candidates[i].UID)
+		}
+	}
+	logger.Info("cycling consumer pods",
+		"count", len(candidates), "pods", names, "volumePod", volumePod.Name, "volumeNode", volumePod.Spec.NodeName, "node", r.NodeName)
+	if r.Recorder != nil {
+		r.Recorder.Eventf(volumePod, corev1.EventTypeNormal, "RecycleTriggeredByVolumeRestart",
+			"volume pod replacement on node %s detected; cycling %d consumer pod(s) on node %s",
+			volumePod.Spec.NodeName, len(candidates), r.NodeName)
+	}
+	r.Cycler.CycleBatch(log.IntoContext(ctx, logger), candidates)
+}
+
 // HandleProbeFailure is invoked by the Prober for each unhealthy mountpoint.
 // Not subject to the cold-start window.
 func (r *Reconciler) HandleProbeFailure(ctx context.Context, mountpoint string) {
 	logger := r.logger(ctx)
-	TriggersTotal.WithLabelValues("probe").Inc()
+	TriggersTotal.WithLabelValues("probe_failure").Inc()
 
 	uid := ResolvePodUIDFromMountpoint(mountpoint)
 	if uid == "" {
@@ -108,4 +156,13 @@ func (r *Reconciler) logger(ctx context.Context) logr.Logger {
 		return r.Log
 	}
 	return log.FromContext(ctx)
+}
+
+func podReady(pod *corev1.Pod) bool {
+	for _, condition := range pod.Status.Conditions {
+		if condition.Type == corev1.PodReady {
+			return condition.Status == corev1.ConditionTrue
+		}
+	}
+	return false
 }
