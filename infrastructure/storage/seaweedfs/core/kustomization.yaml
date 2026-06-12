@@ -32,15 +32,15 @@ resources:
 
 images:
 - name: "registry.brmartin.co.uk/ben/seaweedfs-consumer-recycler"
-  newTag: "v0.1.14"
+  newTag: "v0.1.4"
 - name: "registry.brmartin.co.uk/ben/seaweedfs-csi-driver"
-  newTag: "v0.1.14"
+  newTag: "v0.1.12"
 - name: "registry.k8s.io/sig-storage/csi-node-driver-registrar"
   newTag: "v2.17.0"
 - name: "registry.k8s.io/sig-storage/livenessprobe"
   newTag: "v2.19.0"
 - name: "registry.brmartin.co.uk/ben/seaweedfs-mount"
-  newTag: "v0.1.14"
+  newTag: "v0.1.11"
 - name: "chrislusf/seaweedfs"
   newTag: "4.19-nebm-3dd40871"
 - name: "registry.k8s.io/sig-storage/csi-provisioner"
