@@ -1,27 +1,21 @@
-# SeaweedFS server image built from the neBM fork so the vidMap stale-entry
-# invalidation fix (ReadChunkWithReLookup), the EmptyFolderCleaner
-# default-off fix, S3 list traversal metrics, and topology-id replay repair
-# reach the running master / filer / volume / s3 binaries.
-# Mirrors the pin pattern used in the sibling
-# drivers/seaweedfs-csi-driver/cmd/seaweedfs-mount/Dockerfile.
+# SeaweedFS server image built from the local neBM checkout so the current
+# vidMap stale-entry invalidation fix reaches the running master / filer /
+# volume / s3 binaries.
 #
-# Override for upstream-merge cleanup:
-#   docker build --build-arg SEAWEEDFS_COMMIT=<merged-sha> --build-arg SEAWEEDFS_REPO=https://github.com/seaweedfs/seaweedfs
-ARG SEAWEEDFS_COMMIT=2a0129fcb696e5676fa45e30d0a5510f4bb48c4f
-ARG SEAWEEDFS_REPO=https://github.com/neBM/seaweedfs
+# The build context is injected from the local SeaweedFS repo by the
+# cluster-state Makefile. That keeps this sideload path offline and avoids
+# depending on an unpublished remote ref.
+ARG SEAWEEDFS_COMMIT=local
 
 FROM golang:1.26-alpine AS builder
 
-RUN apk add --no-cache git g++
+RUN apk add --no-cache g++
 
 ARG SEAWEEDFS_COMMIT
-ARG SEAWEEDFS_REPO
-RUN git clone ${SEAWEEDFS_REPO} /go/src/github.com/seaweedfs/seaweedfs \
-    && cd /go/src/github.com/seaweedfs/seaweedfs \
-    && git checkout ${SEAWEEDFS_COMMIT}
+COPY --from=seaweedfs . /go/src/github.com/seaweedfs/seaweedfs
 
 RUN cd /go/src/github.com/seaweedfs/seaweedfs/weed \
-    && export LDFLAGS="-X github.com/seaweedfs/seaweedfs/weed/util/version.COMMIT=$(git -C /go/src/github.com/seaweedfs/seaweedfs rev-parse --short HEAD)" \
+    && export LDFLAGS="-X github.com/seaweedfs/seaweedfs/weed/util/version.COMMIT=${SEAWEEDFS_COMMIT}" \
     && CGO_ENABLED=0 go install -ldflags "-extldflags -static ${LDFLAGS}" \
     && go clean -cache -modcache
 

@@ -7,11 +7,12 @@ REGISTRY_NAME ?= chrislusf
 IMAGE_NAME    ?= seaweedfs
 # Tag scheme: <upstream base tag>-nebm-<short fork commit>. Unique enough
 # that k3s will not try to pull from docker hub when IfNotPresent.
-SEAWEEDFS_COMMIT ?= 2a0129fcb696e5676fa45e30d0a5510f4bb48c4f
+SEAWEEDFS_SOURCE ?= /home/ben/Documents/Personal/projects/seaweedfs
+SEAWEEDFS_COMMIT ?= $(shell git -C $(SEAWEEDFS_SOURCE) rev-parse --short HEAD)
 BASE_TAG         ?= 4.19
 SHORT_COMMIT     := $(shell echo $(SEAWEEDFS_COMMIT) | cut -c1-8)
 VERSION          ?= $(BASE_TAG)-nebm-$(SHORT_COMMIT)
-IMAGE_TAG        := $(REGISTRY_NAME)/$(IMAGE_NAME):$(VERSION)
+IMAGE_TAG        = $(REGISTRY_NAME)/$(IMAGE_NAME):$(VERSION)
 
 OUTPUT_DIR := _output
 AMD64_TAR  := $(OUTPUT_DIR)/seaweedfs-$(VERSION)-amd64.tar
@@ -31,16 +32,18 @@ tars: $(AMD64_TAR) $(ARM64_TAR)
 
 $(AMD64_TAR): Dockerfile | $(OUTPUT_DIR)
 	docker buildx build \
+	  --build-context seaweedfs=$(SEAWEEDFS_SOURCE) \
 	  --platform linux/amd64 \
-	  --build-arg SEAWEEDFS_COMMIT=$(SEAWEEDFS_COMMIT) \
+	  --build-arg SEAWEEDFS_COMMIT=$(SHORT_COMMIT) \
 	  -t $(IMAGE_TAG) \
 	  --output type=docker,dest=$@ \
 	  -f Dockerfile .
 
 $(ARM64_TAR): Dockerfile | $(OUTPUT_DIR)
 	docker buildx build \
+	  --build-context seaweedfs=$(SEAWEEDFS_SOURCE) \
 	  --platform linux/arm64 \
-	  --build-arg SEAWEEDFS_COMMIT=$(SEAWEEDFS_COMMIT) \
+	  --build-arg SEAWEEDFS_COMMIT=$(SHORT_COMMIT) \
 	  -t $(IMAGE_TAG) \
 	  --output type=docker,dest=$@ \
 	  -f Dockerfile .
