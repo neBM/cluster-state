@@ -35,7 +35,7 @@ spec:
       automountServiceAccountToken: true
       containers:
       - args:
-        - weed volume -dir=/data -max=0 -mserver=seaweedfs-master:9333 -port=8080
+        - weed volume -dir=/data -max=0 -mserver=seaweedfs-master:9333 -filer=seaweedfs-filer:18888 -port=8080
           -port.grpc=18080 -dataCenter=home -rack=$NODE_NAME -ip=$POD_IP
         command:
         - sh
