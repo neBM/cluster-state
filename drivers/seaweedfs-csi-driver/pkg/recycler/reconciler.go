@@ -49,7 +49,7 @@ func (r *Reconciler) HandleMountDaemonEvent(ctx context.Context, mountPod *corev
 		return
 	}
 
-	if r.ColdStart.Suppressed(time.Now()) {
+	if r.coldStartSuppressed(time.Now()) {
 		ColdStartSuppressedTotal.Inc()
 		logger.Info("cold-start window suppressing Path A", "mountPod", mountPod.Name, "restartCount", restartCount)
 		return
@@ -158,10 +158,15 @@ func (r *Reconciler) HandleVolumeServerEvent(ctx context.Context, volumePod *cor
 }
 
 // HandleProbeFailure is invoked by the Prober for each unhealthy mountpoint.
-// Not subject to the cold-start window.
 func (r *Reconciler) HandleProbeFailure(ctx context.Context, mountpoint string) {
 	logger := r.logger(ctx)
 	TriggersTotal.WithLabelValues("probe_failure").Inc()
+
+	if r.coldStartSuppressed(time.Now()) {
+		ColdStartSuppressedTotal.Inc()
+		logger.Info("cold-start window suppressing probe-triggered recycle", "mountpoint", mountpoint)
+		return
+	}
 
 	uid := ResolvePodUIDFromMountpoint(mountpoint)
 	if uid == "" {
@@ -192,6 +197,10 @@ func (r *Reconciler) logger(ctx context.Context) logr.Logger {
 		return r.Log
 	}
 	return log.FromContext(ctx)
+}
+
+func (r *Reconciler) coldStartSuppressed(now time.Time) bool {
+	return r.ColdStart != nil && r.ColdStart.Suppressed(now)
 }
 
 func podReady(pod *corev1.Pod) bool {

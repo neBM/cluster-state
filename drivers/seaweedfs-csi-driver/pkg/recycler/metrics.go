@@ -37,7 +37,7 @@ var (
 	ColdStartSuppressedTotal = prometheus.NewCounter(
 		prometheus.CounterOpts{
 			Name: "seaweedfs_recycler_cold_start_suppressed_total",
-			Help: "Path A triggers suppressed by the cold-start window.",
+			Help: "Recycler recovery actions suppressed by the cold-start window.",
 		},
 	)
 	EvictionBlockedTotal = prometheus.NewCounterVec(

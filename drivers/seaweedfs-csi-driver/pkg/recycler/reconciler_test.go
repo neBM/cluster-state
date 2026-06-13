@@ -156,6 +156,48 @@ func TestReconciler_ColdStartSuppressesPathA(t *testing.T) {
 	}
 }
 
+func TestReconciler_ColdStartSuppressesProbeFailure(t *testing.T) {
+	c := newFakeClient(
+		pod("app1", "nyx", "app1-data"), pvc("app1-data", "pv-1"), pv("pv-1", csiDriverName),
+	)
+	ev := &fakeEvictor{}
+	r := &Reconciler{
+		Client:    c,
+		NodeName:  "nyx",
+		Lookup:    &PVLookup{Client: c, NodeName: "nyx", Driver: csiDriverName},
+		Cycler:    &Cycler{Evictor: ev, Debounce: NewDebouncer(time.Minute), EvictionRetry: 1 * time.Millisecond, EvictionDeadline: 10 * time.Millisecond},
+		Baseline:  NewBaselineTracker(),
+		ColdStart: &ColdStartWindow{startedAt: time.Now(), grace: time.Minute},
+	}
+
+	r.HandleProbeFailure(context.Background(), "/var/lib/kubelet/pods/uid-app1/volumes/kubernetes.io~csi/app1-data/mount")
+
+	if len(ev.attempts) != 0 {
+		t.Fatalf("cold-start window should suppress probe-triggered cycling, got %d attempts", len(ev.attempts))
+	}
+}
+
+func TestReconciler_ProbeFailureCyclesAfterColdStart(t *testing.T) {
+	c := newFakeClient(
+		pod("app1", "nyx", "app1-data"), pvc("app1-data", "pv-1"), pv("pv-1", csiDriverName),
+	)
+	ev := &fakeEvictor{}
+	r := &Reconciler{
+		Client:    c,
+		NodeName:  "nyx",
+		Lookup:    &PVLookup{Client: c, NodeName: "nyx", Driver: csiDriverName},
+		Cycler:    &Cycler{Evictor: ev, Debounce: NewDebouncer(time.Minute), EvictionRetry: 1 * time.Millisecond, EvictionDeadline: 10 * time.Millisecond},
+		Baseline:  NewBaselineTracker(),
+		ColdStart: &ColdStartWindow{startedAt: time.Now().Add(-10 * time.Minute), grace: time.Minute},
+	}
+
+	r.HandleProbeFailure(context.Background(), "/var/lib/kubelet/pods/uid-app1/volumes/kubernetes.io~csi/app1-data/mount")
+
+	if len(ev.attempts) != 1 {
+		t.Fatalf("probe-triggered cycling should still evict after cold start, got %d attempts", len(ev.attempts))
+	}
+}
+
 func TestReconciler_RefreshesLocalMountsOnReadyVolumeReplacement(t *testing.T) {
 	volumePod := readyVolumePod("seaweedfs-volume-nyx-a", "nyx", "vol-uid-1")
 	c := newFakeClient(

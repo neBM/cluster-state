@@ -74,8 +74,9 @@ func (t *ReadyIdentityTracker) ObserveReady(key string, uid types.UID) bool {
 	return seen && prev != uid
 }
 
-// ColdStartWindow suppresses Path A triggers for the first `grace` duration
-// after recycler startup. Path B (the prober) is unaffected.
+// ColdStartWindow suppresses recycler-triggered recovery during the first
+// `grace` duration after startup so a recycler rollout does not immediately
+// re-evict workloads based only on pre-existing observations.
 type ColdStartWindow struct {
 	startedAt time.Time
 	grace     time.Duration
@@ -85,7 +86,8 @@ func NewColdStartWindow(grace time.Duration) *ColdStartWindow {
 	return &ColdStartWindow{startedAt: time.Now(), grace: grace}
 }
 
-// Suppressed reports whether Path A should be suppressed at time `now`.
+// Suppressed reports whether recycler recovery should be suppressed at time
+// `now`.
 func (w *ColdStartWindow) Suppressed(now time.Time) bool {
 	return now.Before(w.startedAt.Add(w.grace))
 }
