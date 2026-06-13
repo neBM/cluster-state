@@ -16,14 +16,18 @@ const (
 	kubeletPodsPrefix    = "/var/lib/kubelet/pods/"
 )
 
-// Prober runs the periodic /proc/mountinfo + stat probe. Each unhealthy
-// mountpoint is forwarded to Trigger as a string.
+// Prober runs the periodic /proc/mountinfo + stat probe. It baselines the
+// first observed failing mountpoints after startup and only forwards
+// mountpoints that transition from healthy to failing.
 type Prober struct {
 	ProcRoot    string
 	StatPath    string
 	StatTimeout time.Duration
 	Interval    time.Duration
 	Trigger     func(ctx context.Context, mountpoint string)
+	probeFunc   func(ctx context.Context, mountpoint string) error
+	failing     map[string]struct{}
+	initialized bool
 }
 
 // Run blocks, running the probe every Interval until ctx is cancelled.
@@ -64,18 +68,53 @@ func (p *Prober) sweep(ctx context.Context) {
 		ProbeFailuresTotal.WithLabelValues("mountinfo-read").Inc()
 		return
 	}
+	var failing []string
 	for _, mp := range parseMountinfo(string(data)) {
-		if err := p.probeOne(ctx, mp); err != nil {
+		if err := p.probe(ctx, mp); err != nil {
 			if errors.Is(err, context.DeadlineExceeded) {
 				ProbeFailuresTotal.WithLabelValues("stat-timeout").Inc()
 			} else {
 				ProbeFailuresTotal.WithLabelValues("stat-error").Inc()
 			}
-			if p.Trigger != nil {
-				p.Trigger(ctx, mp)
-			}
+			failing = append(failing, mp)
 		}
 	}
+	if p.Trigger == nil {
+		p.observeFailures(failing)
+		return
+	}
+	for _, mp := range p.observeFailures(failing) {
+		p.Trigger(ctx, mp)
+	}
+}
+
+func (p *Prober) probe(ctx context.Context, mountpoint string) error {
+	if p.probeFunc != nil {
+		return p.probeFunc(ctx, mountpoint)
+	}
+	return p.probeOne(ctx, mountpoint)
+}
+
+func (p *Prober) observeFailures(failing []string) []string {
+	current := make(map[string]struct{}, len(failing))
+	for _, mountpoint := range failing {
+		current[mountpoint] = struct{}{}
+	}
+
+	if !p.initialized {
+		p.failing = current
+		p.initialized = true
+		return nil
+	}
+
+	var newlyFailing []string
+	for mountpoint := range current {
+		if _, seen := p.failing[mountpoint]; !seen {
+			newlyFailing = append(newlyFailing, mountpoint)
+		}
+	}
+	p.failing = current
+	return newlyFailing
 }
 
 // probeOne execs <StatPath> <mountpoint> with a hard timeout.
