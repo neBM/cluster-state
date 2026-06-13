@@ -29,6 +29,12 @@ OUTPUT_DIR := _output
 DRIVER_BINARY := $(OUTPUT_DIR)/seaweedfs-csi-driver
 MOUNT_BINARY := $(OUTPUT_DIR)/seaweedfs-mount
 RECYCLER_BINARY := $(OUTPUT_DIR)/seaweedfs-consumer-recycler
+MOUNT_WEED_AMD64_BINARY := $(OUTPUT_DIR)/weed-amd64
+MOUNT_WEED_ARM64_BINARY := $(OUTPUT_DIR)/weed-arm64
+MOUNT_WRAPPER_AMD64_BINARY := $(OUTPUT_DIR)/seaweedfs-mount-amd64
+MOUNT_WRAPPER_ARM64_BINARY := $(OUTPUT_DIR)/seaweedfs-mount-arm64
+MOUNT_AMD64_CONTEXT := $(OUTPUT_DIR)/mount-image-amd64
+MOUNT_ARM64_CONTEXT := $(OUTPUT_DIR)/mount-image-arm64
 
 DRIVER_IMAGE_TAG := $(REGISTRY_NAME)/$(DRIVER_IMAGE_NAME):$(VERSION)
 MOUNT_IMAGE_TAG := $(REGISTRY_NAME)/$(MOUNT_IMAGE_NAME):$(VERSION)
@@ -60,6 +66,36 @@ $(DRIVER_BINARY): | $(OUTPUT_DIR)
 
 $(MOUNT_BINARY): | $(OUTPUT_DIR)
 	CGO_ENABLED=0 GOOS=linux go build -a -ldflags '$(LDFLAGS)' -o $@ ./cmd/seaweedfs-mount/main.go
+
+$(MOUNT_WEED_AMD64_BINARY): | $(OUTPUT_DIR)
+	cd $(SEAWEEDFS_SOURCE) && \
+	  GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build \
+	    -ldflags "-X github.com/seaweedfs/seaweedfs/weed/util/version.COMMIT=$(SEAWEEDFS_COMMIT)" \
+	    -o $(abspath $@) ./weed
+
+$(MOUNT_WEED_ARM64_BINARY): | $(OUTPUT_DIR)
+	cd $(SEAWEEDFS_SOURCE) && \
+	  GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build \
+	    -ldflags "-X github.com/seaweedfs/seaweedfs/weed/util/version.COMMIT=$(SEAWEEDFS_COMMIT)" \
+	    -o $(abspath $@) ./weed
+
+$(MOUNT_WRAPPER_AMD64_BINARY): | $(OUTPUT_DIR)
+	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags '$(LDFLAGS)' -o $@ ./cmd/seaweedfs-mount/main.go
+
+$(MOUNT_WRAPPER_ARM64_BINARY): | $(OUTPUT_DIR)
+	CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -ldflags '$(LDFLAGS)' -o $@ ./cmd/seaweedfs-mount/main.go
+
+$(MOUNT_AMD64_CONTEXT): $(MOUNT_WEED_AMD64_BINARY) $(MOUNT_WRAPPER_AMD64_BINARY)
+	rm -rf $@
+	mkdir -p $@
+	cp $(MOUNT_WEED_AMD64_BINARY) $@/weed
+	cp $(MOUNT_WRAPPER_AMD64_BINARY) $@/seaweedfs-mount
+
+$(MOUNT_ARM64_CONTEXT): $(MOUNT_WEED_ARM64_BINARY) $(MOUNT_WRAPPER_ARM64_BINARY)
+	rm -rf $@
+	mkdir -p $@
+	cp $(MOUNT_WEED_ARM64_BINARY) $@/weed
+	cp $(MOUNT_WRAPPER_ARM64_BINARY) $@/seaweedfs-mount
 
 $(RECYCLER_BINARY): | $(OUTPUT_DIR)
 	CGO_ENABLED=0 GOOS=linux go build -a -ldflags '$(LDFLAGS)' -o $@ ./cmd/seaweedfs-consumer-recycler/
@@ -110,23 +146,21 @@ $(DRIVER_ARM64_TAR): cmd/seaweedfs-csi-driver/Dockerfile | $(OUTPUT_DIR)
 	  --output type=docker,dest=$@ \
 	  -f cmd/seaweedfs-csi-driver/Dockerfile .
 
-$(MOUNT_AMD64_TAR): cmd/seaweedfs-mount/Dockerfile | $(OUTPUT_DIR)
+$(MOUNT_AMD64_TAR): cmd/seaweedfs-mount/Dockerfile.prebuilt $(MOUNT_AMD64_CONTEXT) | $(OUTPUT_DIR)
 	docker buildx build \
-	  --build-context seaweedfs=$(SEAWEEDFS_SOURCE) \
-	  --build-arg SEAWEEDFS_COMMIT=$(SEAWEEDFS_COMMIT) \
 	  --platform linux/amd64 \
 	  -t $(MOUNT_IMAGE_TAG) \
 	  --output type=docker,dest=$@ \
-	  -f cmd/seaweedfs-mount/Dockerfile .
+	  -f cmd/seaweedfs-mount/Dockerfile.prebuilt \
+	  $(MOUNT_AMD64_CONTEXT)
 
-$(MOUNT_ARM64_TAR): cmd/seaweedfs-mount/Dockerfile | $(OUTPUT_DIR)
+$(MOUNT_ARM64_TAR): cmd/seaweedfs-mount/Dockerfile.prebuilt $(MOUNT_ARM64_CONTEXT) | $(OUTPUT_DIR)
 	docker buildx build \
-	  --build-context seaweedfs=$(SEAWEEDFS_SOURCE) \
-	  --build-arg SEAWEEDFS_COMMIT=$(SEAWEEDFS_COMMIT) \
 	  --platform linux/arm64 \
 	  -t $(MOUNT_IMAGE_TAG) \
 	  --output type=docker,dest=$@ \
-	  -f cmd/seaweedfs-mount/Dockerfile .
+	  -f cmd/seaweedfs-mount/Dockerfile.prebuilt \
+	  $(MOUNT_ARM64_CONTEXT)
 
 $(RECYCLER_AMD64_TAR): cmd/seaweedfs-consumer-recycler/Dockerfile | $(OUTPUT_DIR)
 	docker buildx build \

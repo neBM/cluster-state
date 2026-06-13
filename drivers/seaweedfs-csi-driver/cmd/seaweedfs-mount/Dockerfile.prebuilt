@@ -1,0 +1,12 @@
+FROM alpine AS final
+
+RUN apk add fuse
+
+LABEL author="Chris Lu"
+
+COPY weed /usr/bin/weed
+COPY seaweedfs-mount /seaweedfs-mount
+
+RUN chmod +x /seaweedfs-mount
+
+ENTRYPOINT ["/seaweedfs-mount"]
