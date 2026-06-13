@@ -109,6 +109,8 @@ func main() {
 		Stagger:          stagger,
 		EvictionRetry:    evictionRetry,
 		EvictionDeadline: evictionDeadline,
+		RolloutSmoke:     &recycler.HTTPRolloutSmoker{},
+		Recorder:         recorder,
 	}
 	lookup := &recycler.PVLookup{
 		Client:   mgr.GetClient(),

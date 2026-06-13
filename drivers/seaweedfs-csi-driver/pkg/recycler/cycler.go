@@ -2,6 +2,7 @@ package recycler
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -12,6 +13,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/tools/record"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 )
 
@@ -30,6 +32,8 @@ type Cycler struct {
 	Stagger          time.Duration
 	EvictionRetry    time.Duration
 	EvictionDeadline time.Duration
+	RolloutSmoke     RolloutSmoke
+	Recorder         record.EventRecorder
 }
 
 // CycleOne cycles a single candidate pod. Idempotent against the debounce
@@ -86,9 +90,44 @@ func (c *Cycler) CycleOne(ctx context.Context, pod *corev1.Pod) error {
 
 // CycleBatch cycles all pods in candidates, sleeping Stagger between each.
 func (c *Cycler) CycleBatch(ctx context.Context, candidates []corev1.Pod) {
-	for i := range candidates {
-		_ = c.CycleOne(ctx, &candidates[i])
-		if i < len(candidates)-1 && c.Stagger > 0 {
+	ordered := c.orderCandidates(candidates)
+	for i := range ordered {
+		pod := &ordered[i]
+		if c.RolloutSmoke != nil && c.RolloutSmoke.HasGate(pod) {
+			duration, err := c.RolloutSmoke.Wait(ctx, pod)
+			if err != nil {
+				if errors.Is(err, context.Canceled) {
+					return
+				}
+				outcome := "request_error"
+				var smokeErr *RolloutSmokeWaitError
+				if errors.As(err, &smokeErr) && smokeErr.Outcome != "" {
+					outcome = smokeErr.Outcome
+				}
+				RolloutSmokeChecksTotal.WithLabelValues(outcome).Inc()
+				RolloutSmokeWaitDurationSeconds.Observe(duration.Seconds())
+				log.FromContext(ctx).Error(err, "rollout smoke blocked pod recycle", "pod", pod.Name, "namespace", pod.Namespace, "duration", duration)
+				if c.Recorder != nil {
+					reason := "RolloutSmokeBlocked"
+					if outcome == "invalid_config" {
+						reason = "RolloutSmokeInvalid"
+					}
+					c.Recorder.Eventf(pod, corev1.EventTypeWarning, reason,
+						"rollout smoke blocked recycler-triggered restart after %s: %v", duration.Round(time.Millisecond), err)
+				}
+				continue
+			}
+			RolloutSmokeChecksTotal.WithLabelValues("passed").Inc()
+			RolloutSmokeWaitDurationSeconds.Observe(duration.Seconds())
+			log.FromContext(ctx).Info("rollout smoke passed, cycling pod", "pod", pod.Name, "namespace", pod.Namespace, "duration", duration)
+			if c.Recorder != nil {
+				c.Recorder.Eventf(pod, corev1.EventTypeNormal, "RolloutSmokePassed",
+					"rollout smoke passed after %s; recycler proceeding with restart", duration.Round(time.Millisecond))
+			}
+		}
+
+		_ = c.CycleOne(ctx, pod)
+		if i < len(ordered)-1 && c.Stagger > 0 {
 			select {
 			case <-ctx.Done():
 				return
@@ -96,6 +135,25 @@ func (c *Cycler) CycleBatch(ctx context.Context, candidates []corev1.Pod) {
 			}
 		}
 	}
+}
+
+func (c *Cycler) orderCandidates(candidates []corev1.Pod) []corev1.Pod {
+	if c.RolloutSmoke == nil {
+		return candidates
+	}
+
+	ordered := make([]corev1.Pod, 0, len(candidates))
+	for i := range candidates {
+		if !c.RolloutSmoke.HasGate(&candidates[i]) {
+			ordered = append(ordered, candidates[i])
+		}
+	}
+	for i := range candidates {
+		if c.RolloutSmoke.HasGate(&candidates[i]) {
+			ordered = append(ordered, candidates[i])
+		}
+	}
+	return ordered
 }
 
 // Debouncer tracks pod UIDs that have been cycled recently so we skip them.

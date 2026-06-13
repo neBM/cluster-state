@@ -9,7 +9,7 @@ RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o /seaweedfs-consumer-re
     && go clean -cache -modcache
 
 FROM alpine AS final
-RUN apk add --no-cache coreutils
+RUN apk add --no-cache ca-certificates coreutils
 LABEL author="Ben Martin"
 COPY --from=builder /seaweedfs-consumer-recycler /
 

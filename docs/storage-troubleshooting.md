@@ -69,6 +69,14 @@ kubectl delete pod -n <namespace> <pod-name>
 
 New pods remount cleanly through kubelet. If a registry-backed image pull is blocked by stale registry storage, cordon the affected node, reschedule the registry, then uncordon.
 
+Apps that both mount SeaweedFS PVCs and pull from the internal GitLab registry
+can now declare a recycler rollout smoke with pod-template annotations under
+`seaweedfs.csi.brmartin.co.uk/`. During a `seaweedfs-mount` restart wave, the
+recycler evicts ungated consumers first, then waits for each gated pod's HTTP
+smoke to pass before cycling it. `iris` uses this to hold its recycler-driven
+restart until GitLab JWT auth is back at `/jwt/auth`, preventing transient
+`ErrImagePull` / `ImagePullBackOff` windows while GitLab web/workhorse recycle.
+
 ### SeaweedFS Volume or Filer Health
 
 ```bash

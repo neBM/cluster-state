@@ -54,6 +54,20 @@ var (
 		},
 		[]string{"result"}, // "started" | "succeeded" | "failed"
 	)
+	RolloutSmokeChecksTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "seaweedfs_recycler_rollout_smoke_checks_total",
+			Help: "Recycler rollout-smoke outcomes for gated pod restarts.",
+		},
+		[]string{"outcome"}, // "passed" | "timeout" | "request_error" | "invalid_config"
+	)
+	RolloutSmokeWaitDurationSeconds = prometheus.NewHistogram(
+		prometheus.HistogramOpts{
+			Name:    "seaweedfs_recycler_rollout_smoke_wait_duration_seconds",
+			Help:    "Time spent waiting on app-declared rollout smoke checks.",
+			Buckets: prometheus.DefBuckets,
+		},
+	)
 )
 
 func init() {
@@ -65,5 +79,7 @@ func init() {
 		ColdStartSuppressedTotal,
 		EvictionBlockedTotal,
 		VolumeRefreshesTotal,
+		RolloutSmokeChecksTotal,
+		RolloutSmokeWaitDurationSeconds,
 	)
 }

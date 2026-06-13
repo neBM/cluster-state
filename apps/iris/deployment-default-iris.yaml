@@ -22,6 +22,9 @@ spec:
     type: RollingUpdate
   template:
     metadata:
+      annotations:
+        seaweedfs.csi.brmartin.co.uk/rollout-smoke-http-expected-statuses: 401,403
+        seaweedfs.csi.brmartin.co.uk/rollout-smoke-http-url: https://git.brmartin.co.uk/jwt/auth?service=container_registry&scope=repository:ben/iris:pull
       labels:
         app: iris
         component: server
