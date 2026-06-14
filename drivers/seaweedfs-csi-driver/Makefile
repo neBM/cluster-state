@@ -5,7 +5,7 @@
 # Sideload ONLY — the in-cluster registry is backed by SeaweedFS itself,
 # so pushing would be a chicken-and-egg dep. See
 # memory/feedback_always_sideload_seaweedfs_images.md.
-.PHONY: build container container-csi container-mount container-recycler \
+.PHONY: FORCE build container container-csi container-mount container-recycler \
         push push-csi push-mount push-recycler \
         tars-csi tars-mount tars-recycler tars-runtime \
         sideload-csi sideload-csi-amd64 sideload-csi-arm64 \
@@ -56,33 +56,35 @@ SCP ?= scp
 deps:
 	go mod tidy
 
+FORCE:
+
 build: $(DRIVER_BINARY) $(MOUNT_BINARY) $(RECYCLER_BINARY)
 
 $(OUTPUT_DIR):
 	mkdir -p $@
 
-$(DRIVER_BINARY): | $(OUTPUT_DIR)
+$(DRIVER_BINARY): FORCE | $(OUTPUT_DIR)
 	CGO_ENABLED=0 GOOS=linux go build -a -ldflags '$(LDFLAGS)' -o $@ ./cmd/seaweedfs-csi-driver/main.go
 
-$(MOUNT_BINARY): | $(OUTPUT_DIR)
+$(MOUNT_BINARY): FORCE | $(OUTPUT_DIR)
 	CGO_ENABLED=0 GOOS=linux go build -a -ldflags '$(LDFLAGS)' -o $@ ./cmd/seaweedfs-mount/main.go
 
-$(MOUNT_WEED_AMD64_BINARY): | $(OUTPUT_DIR)
+$(MOUNT_WEED_AMD64_BINARY): FORCE | $(OUTPUT_DIR)
 	cd $(SEAWEEDFS_SOURCE) && \
 	  GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build \
 	    -ldflags "-X github.com/seaweedfs/seaweedfs/weed/util/version.COMMIT=$(SEAWEEDFS_COMMIT)" \
 	    -o $(abspath $@) ./weed
 
-$(MOUNT_WEED_ARM64_BINARY): | $(OUTPUT_DIR)
+$(MOUNT_WEED_ARM64_BINARY): FORCE | $(OUTPUT_DIR)
 	cd $(SEAWEEDFS_SOURCE) && \
 	  GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build \
 	    -ldflags "-X github.com/seaweedfs/seaweedfs/weed/util/version.COMMIT=$(SEAWEEDFS_COMMIT)" \
 	    -o $(abspath $@) ./weed
 
-$(MOUNT_WRAPPER_AMD64_BINARY): | $(OUTPUT_DIR)
+$(MOUNT_WRAPPER_AMD64_BINARY): FORCE | $(OUTPUT_DIR)
 	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags '$(LDFLAGS)' -o $@ ./cmd/seaweedfs-mount/main.go
 
-$(MOUNT_WRAPPER_ARM64_BINARY): | $(OUTPUT_DIR)
+$(MOUNT_WRAPPER_ARM64_BINARY): FORCE | $(OUTPUT_DIR)
 	CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -ldflags '$(LDFLAGS)' -o $@ ./cmd/seaweedfs-mount/main.go
 
 $(MOUNT_AMD64_CONTEXT): $(MOUNT_WEED_AMD64_BINARY) $(MOUNT_WRAPPER_AMD64_BINARY)
@@ -97,7 +99,7 @@ $(MOUNT_ARM64_CONTEXT): $(MOUNT_WEED_ARM64_BINARY) $(MOUNT_WRAPPER_ARM64_BINARY)
 	cp $(MOUNT_WEED_ARM64_BINARY) $@/weed
 	cp $(MOUNT_WRAPPER_ARM64_BINARY) $@/seaweedfs-mount
 
-$(RECYCLER_BINARY): | $(OUTPUT_DIR)
+$(RECYCLER_BINARY): FORCE | $(OUTPUT_DIR)
 	CGO_ENABLED=0 GOOS=linux go build -a -ldflags '$(LDFLAGS)' -o $@ ./cmd/seaweedfs-consumer-recycler/
 
 container: container-csi container-mount container-recycler
