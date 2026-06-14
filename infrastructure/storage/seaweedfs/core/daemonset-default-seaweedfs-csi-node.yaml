@@ -35,6 +35,7 @@ spec:
         - --driverName=seaweedfs-csi-driver
         - --mountEndpoint=$(MOUNT_ENDPOINT)
         - --cacheDir=/var/cache/seaweedfs
+        - --cacheMetaTtlSec=0
         - --components=node
         env:
         - name: CSI_ENDPOINT
