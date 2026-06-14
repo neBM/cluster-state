@@ -575,7 +575,7 @@ groups:
                 datasource:
                     type: prometheus
                     uid: prometheus
-                expr: sum by(instance, kubernetes_name, kubernetes_namespace) (SeaweedFS_volumeServer_read_only_volumes{job="kubernetes-service-endpoints",kubernetes_name="seaweedfs-volume",kubernetes_namespace="default"})
+                expr: sum by(instance, kubernetes_name, kubernetes_namespace, collection) (SeaweedFS_volumeServer_read_only_volumes{job="kubernetes-service-endpoints",kubernetes_name="seaweedfs-volume",kubernetes_namespace="default",type="IsReadOnly"})
                 instant: true
                 intervalMs: 1000
                 maxDataPoints: 43200
@@ -600,8 +600,8 @@ groups:
           execErrState: OK
           for: 5m
           annotations:
-            description: 'SeaweedFS volume metrics on {{ $labels.instance }} are reporting {{ $values.A }} read-only volume(s) for {{ $labels.kubernetes_namespace }}/{{ $labels.kubernetes_name }}. Treat any non-zero value as a storage incident: capture `vol/status`, scrub the affected volumes, and repair tail-only corruption before marking volumes writable again.'
-            summary: 'SeaweedFS volume server on {{ $labels.instance }} has read-only volumes'
+            description: 'SeaweedFS volume metrics on {{ $labels.instance }} are reporting {{ $values.A }} read-only volume(s) in collection {{ if $labels.collection }}{{ $labels.collection }}{{ else }}<root>{{ end }} for {{ $labels.kubernetes_namespace }}/{{ $labels.kubernetes_name }}. Treat any non-zero value as a storage incident: capture `vol/status`, scrub the affected volumes, and repair tail-only corruption before marking volumes writable again.'
+            summary: 'SeaweedFS volume server on {{ $labels.instance }} has read-only volumes in {{ if $labels.collection }}{{ $labels.collection }}{{ else }}<root>{{ end }}'
           labels:
             severity: critical
           isPaused: false
