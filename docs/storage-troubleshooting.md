@@ -87,6 +87,58 @@ kubectl logs -n default -l app=seaweedfs,component=filer --tail=100
 
 Volume servers run on Heracles and Nyx with host data at `/data/seaweedfs`. The filer metadata backend is Postgres-backed through the `seaweedfs-filer` configuration.
 
+### SeaweedFS Read-Only Mail Volumes
+
+Maildir delete incidents can leave single-replica SeaweedFS volumes latched
+read-only. The first response is evidence capture, not forcing the volume
+writable again.
+
+Capture the current state before mutating:
+
+```bash
+kubectl exec -n default deploy/seaweedfs-s3 -- weed shell -master=seaweedfs-master:9333 -exec='volume.list'
+kubectl logs -n default -l app=seaweedfs,component=filer --since=1h | rg 'max retry attempts \(10\) reached|read only'
+kubectl logs -n default -l app=seaweedfs,component=seaweedfs-mount --since=1h | rg 'metadata revision mismatch|dovecot-uidlist'
+kubectl logs -n default deploy/sogo --since=1h | rg 'folderINBOX/batchDelete'
+```
+
+Tail-only corruption on a regular single-replica volume is now repaired through
+the forked SeaweedFS shell command `volume.repair.tail`. Run it under the shell
+lock, against the affected volume server gRPC port, with a host backup
+directory:
+
+```bash
+kubectl exec -n default deploy/seaweedfs-s3 -- \
+  weed shell -master=seaweedfs-master:9333 -lock=true \
+  -exec='volume.repair.tail -node <volume-server-host:port> -volumeId 894,895 -apply -markWritable -backupDir /data/seaweedfs/incident-20260614-backup'
+```
+
+Use the exact volume server address shown for the affected volume in
+`volume.list`; do not route the repair through the shared `seaweedfs-volume`
+Service.
+
+Guardrails:
+
+- The command refuses non-tail corruption; do not mark a volume writable if the
+  post-repair scrub is not clean.
+- The volume must already be read-only before `-apply`; the server unmounts,
+  backs up, truncates, remounts, and re-scrubs before it can mark the volume
+  writable.
+- Back up `.dat`, `.idx`, and `.vif` first. For Heracles and Nyx the live host
+  path is `/data/seaweedfs`.
+
+Resume checks after the repair:
+
+```bash
+kubectl exec -n default deploy/seaweedfs-s3 -- weed shell -master=seaweedfs-master:9333 -exec='volume.list'
+kubectl logs -n default -l app=seaweedfs,component=filer --since=15m | rg 'max retry attempts \(10\) reached|read only'
+kubectl logs -n default deploy/sogo --since=30m | rg 'folderINBOX/batchDelete'
+```
+
+Recovery is not done until a canary hard delete from `Trash` succeeds, filer
+delete retry exhaustion stays absent, and the original mail delete window is
+replayed.
+
 ### SeaweedFS Volume Rollout Smoke Check
 
 A `seaweedfs-volume` replacement can stale the volume-server routing cached by

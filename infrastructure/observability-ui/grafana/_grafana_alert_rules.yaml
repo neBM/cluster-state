@@ -562,6 +562,49 @@ groups:
       folder: Infrastructure Alerts
       interval: 1m
       rules:
+        - uid: seaweedfs-readonly-volumes-api
+          title: SeaweedFS Read-Only Volumes
+          condition: C
+          data:
+            - refId: A
+              relativeTimeRange:
+                from: 600
+                to: 0
+              datasourceUid: prometheus
+              model:
+                datasource:
+                    type: prometheus
+                    uid: prometheus
+                expr: sum by(instance, kubernetes_name, kubernetes_namespace) (SeaweedFS_volumeServer_read_only_volumes{job="kubernetes-service-endpoints",kubernetes_name="seaweedfs-volume",kubernetes_namespace="default"})
+                instant: true
+                intervalMs: 1000
+                maxDataPoints: 43200
+                refId: A
+            - refId: C
+              datasourceUid: "-100"
+              model:
+                conditions:
+                    - evaluator:
+                        params:
+                            - 0
+                        type: gt
+                datasource:
+                    type: __expr__
+                    uid: "-100"
+                expression: A
+                intervalMs: 1000
+                maxDataPoints: 43200
+                refId: C
+                type: threshold
+          noDataState: OK
+          execErrState: OK
+          for: 5m
+          annotations:
+            description: 'SeaweedFS volume metrics on {{ $labels.instance }} are reporting {{ $values.A }} read-only volume(s) for {{ $labels.kubernetes_namespace }}/{{ $labels.kubernetes_name }}. Treat any non-zero value as a storage incident: capture `vol/status`, scrub the affected volumes, and repair tail-only corruption before marking volumes writable again.'
+            summary: 'SeaweedFS volume server on {{ $labels.instance }} has read-only volumes'
+          labels:
+            severity: critical
+          isPaused: false
         - uid: seaweedfs-volume-refresh-failed-api
           title: SeaweedFS Volume Refresh Failed
           condition: C
@@ -603,6 +646,98 @@ groups:
             summary: SeaweedFS volume refresh failed on {{ $labels.instance }}
           labels:
             severity: critical
+          isPaused: false
+        - uid: seaweedfs-filer-delete-retries-api
+          title: SeaweedFS Filer Delete Retries Exhausted
+          condition: C
+          data:
+            - refId: A
+              queryType: instant
+              relativeTimeRange:
+                from: 900
+                to: 0
+              datasourceUid: loki
+              model:
+                datasource:
+                    type: loki
+                    uid: loki
+                editorMode: code
+                expr: sum by(pod, container) (count_over_time({namespace="default",pod=~"seaweedfs-filer-.*",container="filer"} |= "max retry attempts (10) reached" |= "read only" [15m]))
+                instant: true
+                intervalMs: 1000
+                maxDataPoints: 43200
+                queryType: instant
+                refId: A
+            - refId: C
+              datasourceUid: "-100"
+              model:
+                conditions:
+                    - evaluator:
+                        params:
+                            - 0
+                        type: gt
+                datasource:
+                    type: __expr__
+                    uid: "-100"
+                expression: A
+                intervalMs: 1000
+                maxDataPoints: 43200
+                refId: C
+                type: threshold
+          noDataState: OK
+          execErrState: OK
+          for: 5m
+          annotations:
+            description: '{{ $labels.pod }} is still logging {{ $values.A }} SeaweedFS filer delete retry exhaustion event(s) in the last 15 minutes. This usually means a backing volume is read-only and mail hard-delete is still failing.'
+            summary: 'SeaweedFS filer delete retries exhausted on {{ $labels.pod }}'
+          labels:
+            severity: critical
+          isPaused: false
+        - uid: seaweedfs-maildir-metadata-mismatch-api
+          title: SeaweedFS Maildir Metadata Mismatch Burst
+          condition: C
+          data:
+            - refId: A
+              queryType: instant
+              relativeTimeRange:
+                from: 900
+                to: 0
+              datasourceUid: loki
+              model:
+                datasource:
+                    type: loki
+                    uid: loki
+                editorMode: code
+                expr: sum by(pod, container) (count_over_time({namespace="default",pod=~"seaweedfs-(mount|filer)-.*"} |= "metadata revision mismatch" |= "Maildir" |= "dovecot-uidlist" [15m]))
+                instant: true
+                intervalMs: 1000
+                maxDataPoints: 43200
+                queryType: instant
+                refId: A
+            - refId: C
+              datasourceUid: "-100"
+              model:
+                conditions:
+                    - evaluator:
+                        params:
+                            - 5
+                        type: gt
+                datasource:
+                    type: __expr__
+                    uid: "-100"
+                expression: A
+                intervalMs: 1000
+                maxDataPoints: 43200
+                refId: C
+                type: threshold
+          noDataState: OK
+          execErrState: OK
+          for: 5m
+          annotations:
+            description: '{{ $labels.pod }} has logged {{ $values.A }} Maildir `dovecot-uidlist` metadata revision mismatch event(s) in the last 15 minutes. This is an early warning for remote Maildir metadata contention and mailbox delete latency.'
+            summary: 'SeaweedFS Maildir metadata mismatch burst on {{ $labels.pod }}'
+          labels:
+            severity: warning
           isPaused: false
     - orgId: 1
       name: backup-health
