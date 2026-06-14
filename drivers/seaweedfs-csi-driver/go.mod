@@ -12,7 +12,7 @@ require (
 require (
 	github.com/go-logr/logr v1.4.3
 	github.com/prometheus/client_golang v1.23.2
-	github.com/seaweedfs/seaweedfs v0.0.0-20260612170625-850de2457ff4
+	github.com/seaweedfs/seaweedfs v0.0.0-20260614105938-b00b47eb663d
 	k8s.io/api v0.35.0
 	k8s.io/apimachinery v0.35.0
 	k8s.io/mount-utils v0.35.4
@@ -95,4 +95,4 @@ require (
 	sigs.k8s.io/yaml v1.6.0 // indirect
 )
 
-replace github.com/seaweedfs/seaweedfs => github.com/neBM/seaweedfs v0.0.0-20260612170625-850de2457ff4
+replace github.com/seaweedfs/seaweedfs => github.com/neBM/seaweedfs v0.0.0-20260614105938-b00b47eb663d
