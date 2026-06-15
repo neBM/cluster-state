@@ -254,6 +254,17 @@ func TestTakeoverFromImportsMount(t *testing.T) {
 	if !strings.Contains(strings.Join(importedArgs, " "), "-hotRestart.adoptLiveFd=true") {
 		t.Fatalf("imported args missing hotRestart.adoptLiveFd=true: %v", importedArgs)
 	}
+
+	status, err := manager.StartupStatus(&StartupStatusRequest{})
+	if err != nil {
+		t.Fatalf("StartupStatus: %v", err)
+	}
+	if status.Mode != StartupModeTakeover {
+		t.Fatalf("StartupStatus mode = %q, want %q", status.Mode, StartupModeTakeover)
+	}
+	if status.ImportedMounts != 1 {
+		t.Fatalf("StartupStatus imported mounts = %d, want 1", status.ImportedMounts)
+	}
 }
 
 func TestTakeoverInventoryDrainsUntilRelease(t *testing.T) {

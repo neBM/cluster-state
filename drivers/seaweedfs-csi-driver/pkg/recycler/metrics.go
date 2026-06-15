@@ -54,6 +54,13 @@ var (
 		},
 		[]string{"result"}, // "started" | "succeeded" | "failed"
 	)
+	MountRestartSuppressionsTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "seaweedfs_recycler_mount_restart_suppressions_total",
+			Help: "Mount restart events suppressed because the replacement preserved live mounts.",
+		},
+		[]string{"reason"}, // "takeover"
+	)
 	RolloutSmokeChecksTotal = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
 			Name: "seaweedfs_recycler_rollout_smoke_checks_total",
@@ -79,6 +86,7 @@ func init() {
 		ColdStartSuppressedTotal,
 		EvictionBlockedTotal,
 		VolumeRefreshesTotal,
+		MountRestartSuppressionsTotal,
 		RolloutSmokeChecksTotal,
 		RolloutSmokeWaitDurationSeconds,
 	)

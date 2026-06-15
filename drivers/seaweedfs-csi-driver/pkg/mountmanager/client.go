@@ -81,6 +81,14 @@ func (c *Client) RefreshVolumeLocations(ctx context.Context) (*RefreshVolumeLoca
 	return &resp, nil
 }
 
+func (c *Client) StartupStatus(ctx context.Context) (*StartupStatusResponse, error) {
+	var resp StartupStatusResponse
+	if err := c.doPost(ctx, "/startup-status", &StartupStatusRequest{}, &resp); err != nil {
+		return nil, err
+	}
+	return &resp, nil
+}
+
 func (c *Client) TakeoverInventory(ctx context.Context) (*TakeoverInventoryResponse, error) {
 	var resp TakeoverInventoryResponse
 	if err := c.doPost(ctx, "/takeover/inventory", &TakeoverInventoryRequest{}, &resp); err != nil {

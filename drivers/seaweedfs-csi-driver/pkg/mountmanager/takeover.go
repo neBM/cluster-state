@@ -172,11 +172,17 @@ func (m *Manager) TakeoverFrom(ctx context.Context, endpoint string) error {
 
 	nonce := strconv.Itoa(os.Getpid())
 	handoffDir := filepath.Dir(address)
+	importedMounts := 0
 	for _, mount := range inventory.Mounts {
 		if err := m.takeoverMount(ctx, client, handoffDir, nonce, mount); err != nil {
 			return err
 		}
+		importedMounts++
 	}
+	m.SetStartupStatus(StartupStatusResponse{
+		Mode:           StartupModeTakeover,
+		ImportedMounts: importedMounts,
+	})
 	releaseOnFailure = false
 	return nil
 }

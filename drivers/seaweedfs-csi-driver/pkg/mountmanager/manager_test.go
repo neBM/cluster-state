@@ -7,6 +7,21 @@ import (
 	"time"
 )
 
+func TestManager_DefaultStartupStatusIsFresh(t *testing.T) {
+	m := NewManager(Config{})
+
+	status, err := m.StartupStatus(&StartupStatusRequest{})
+	if err != nil {
+		t.Fatalf("StartupStatus: %v", err)
+	}
+	if status.Mode != StartupModeFresh {
+		t.Fatalf("StartupStatus mode = %q, want %q", status.Mode, StartupModeFresh)
+	}
+	if status.ImportedMounts != 0 {
+		t.Fatalf("StartupStatus imported mounts = %d, want 0", status.ImportedMounts)
+	}
+}
+
 // TestMount_StaleDeadEntry_FallsThroughToRespawn covers Bug A (v0.1.7):
 // when m.mounts has a cached entry whose weed mount process has already
 // exited, a new Mount RPC must NOT return the stale localSocket. It must

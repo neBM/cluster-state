@@ -58,13 +58,21 @@ func main() {
 	// reconciler re-triggers NodeStage/NodePublishVolume via the CSI plugin's
 	// existing self-heal path. Must run before the HTTP listener opens so
 	// cleanup finishes before the first /mount call arrives.
-	mountmanager.ReconcileStaleMounts(filepath.Dir(address))
+	recoveredStaleMounts := mountmanager.ReconcileStaleMounts(filepath.Dir(address))
 
 	if err := os.Remove(address); err != nil && !errors.Is(err, os.ErrNotExist) {
 		glog.Fatalf("removing existing socket: %v", err)
 	}
 
-	startMountService(address, mountmanager.NewManager(mountmanager.Config{WeedBinary: *weedBinary}))
+	manager := mountmanager.NewManager(mountmanager.Config{WeedBinary: *weedBinary})
+	if recoveredStaleMounts > 0 {
+		manager.SetStartupStatus(mountmanager.StartupStatusResponse{
+			Mode:                 mountmanager.StartupModeCrashRecovery,
+			RecoveredStaleMounts: recoveredStaleMounts,
+		})
+	}
+
+	startMountService(address, manager)
 }
 
 func writeJSON(w http.ResponseWriter, status int, data interface{}) {
@@ -93,6 +101,7 @@ func startMountService(address string, manager *mountmanager.Manager) {
 	mux.HandleFunc("/mount", makePostHandler(manager.Mount))
 	mux.HandleFunc("/unmount", makePostHandler(manager.Unmount))
 	mux.HandleFunc("/refresh-volume-locations", makePostHandler(manager.RefreshVolumeLocations))
+	mux.HandleFunc("/startup-status", makePostHandler(manager.StartupStatus))
 	mux.HandleFunc("/takeover/inventory", makePostHandler(manager.TakeoverInventory))
 	mux.HandleFunc("/takeover/export", makePostHandler(manager.ExportTakeover))
 	mux.HandleFunc("/takeover/finalize", makePostHandler(manager.FinalizeTakeover))

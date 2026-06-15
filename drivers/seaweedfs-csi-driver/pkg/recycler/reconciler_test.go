@@ -13,9 +13,12 @@ import (
 )
 
 type fakeMountService struct {
-	calls    int
-	response *mountmanager.RefreshVolumeLocationsResponse
-	err      error
+	calls         int
+	response      *mountmanager.RefreshVolumeLocationsResponse
+	err           error
+	startupCalls  int
+	startupStatus *mountmanager.StartupStatusResponse
+	startupErr    error
 }
 
 func (f *fakeMountService) RefreshVolumeLocations(ctx context.Context) (*mountmanager.RefreshVolumeLocationsResponse, error) {
@@ -26,12 +29,23 @@ func (f *fakeMountService) RefreshVolumeLocations(ctx context.Context) (*mountma
 	return &mountmanager.RefreshVolumeLocationsResponse{}, f.err
 }
 
+func (f *fakeMountService) StartupStatus(ctx context.Context) (*mountmanager.StartupStatusResponse, error) {
+	f.startupCalls++
+	if f.startupStatus != nil {
+		return f.startupStatus, f.startupErr
+	}
+	return &mountmanager.StartupStatusResponse{Mode: mountmanager.StartupModeFresh}, f.startupErr
+}
+
 func TestReconciler_CycleAllCandidatesOnRestart(t *testing.T) {
 	mountPod := &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{Name: "seaweedfs-mount-nyx", Namespace: "default", UID: "mp-uid-2"},
 		Spec:       corev1.PodSpec{NodeName: "nyx"},
 		Status: corev1.PodStatus{
 			Phase: corev1.PodRunning,
+			Conditions: []corev1.PodCondition{
+				{Type: corev1.PodReady, Status: corev1.ConditionTrue},
+			},
 			ContainerStatuses: []corev1.ContainerStatus{
 				{Name: "seaweedfs-mount", RestartCount: 0, Ready: true},
 			},
@@ -75,12 +89,188 @@ func TestReconciler_CycleAllCandidatesOnRestart(t *testing.T) {
 	}
 }
 
+func TestReconciler_DoesNotCycleUnreadyReplacementUntilReady(t *testing.T) {
+	mountPod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{Name: "seaweedfs-mount-nyx-a", Namespace: "default", UID: "mp-uid-old"},
+		Spec:       corev1.PodSpec{NodeName: "nyx"},
+		Status: corev1.PodStatus{
+			Phase: corev1.PodRunning,
+			Conditions: []corev1.PodCondition{
+				{Type: corev1.PodReady, Status: corev1.ConditionTrue},
+			},
+			ContainerStatuses: []corev1.ContainerStatus{
+				{Name: "seaweedfs-mount", RestartCount: 0, Ready: true},
+			},
+		},
+	}
+	mountPod.Labels = map[string]string{"component": "seaweedfs-mount"}
+
+	replacement := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{Name: "seaweedfs-mount-nyx-b", Namespace: "default", UID: "mp-uid-new"},
+		Spec:       corev1.PodSpec{NodeName: "nyx"},
+		Status: corev1.PodStatus{
+			Phase: corev1.PodRunning,
+			Conditions: []corev1.PodCondition{
+				{Type: corev1.PodReady, Status: corev1.ConditionFalse},
+			},
+			ContainerStatuses: []corev1.ContainerStatus{
+				{Name: "seaweedfs-mount", RestartCount: 0, Ready: false},
+			},
+		},
+	}
+	replacement.Labels = map[string]string{"component": "seaweedfs-mount"}
+
+	c := newFakeClient(
+		mountPod,
+		pod("app1", "nyx", "app1-data"), pvc("app1-data", "pv-1"), pv("pv-1", csiDriverName),
+	)
+	ev := &fakeEvictor{}
+	r := &Reconciler{
+		Client:   c,
+		NodeName: "nyx",
+		Lookup:   &PVLookup{Client: c, NodeName: "nyx", Driver: csiDriverName},
+		Cycler: &Cycler{
+			Evictor:          ev,
+			Debounce:         NewDebouncer(time.Minute),
+			EvictionRetry:    1 * time.Millisecond,
+			EvictionDeadline: 10 * time.Millisecond,
+		},
+		Baseline:  NewBaselineTracker(),
+		ColdStart: &ColdStartWindow{startedAt: time.Now().Add(-10 * time.Minute), grace: time.Minute},
+	}
+
+	r.HandleMountDaemonEvent(context.Background(), mountPod)
+	r.HandleMountDaemonEvent(context.Background(), replacement)
+	if len(ev.attempts) != 0 {
+		t.Fatalf("unready replacement should not cycle consumers, got %d attempts", len(ev.attempts))
+	}
+
+	replacement.Status.Conditions[0].Status = corev1.ConditionTrue
+	replacement.Status.ContainerStatuses[0].Ready = true
+	r.HandleMountDaemonEvent(context.Background(), replacement)
+	if len(ev.attempts) != 1 {
+		t.Fatalf("ready replacement should cycle consumers once, got %d attempts", len(ev.attempts))
+	}
+}
+
+func TestReconciler_SuppressesCleanTakeoverReplacement(t *testing.T) {
+	mountPod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{Name: "seaweedfs-mount-nyx", Namespace: "default", UID: "mp-uid-4"},
+		Spec:       corev1.PodSpec{NodeName: "nyx"},
+		Status: corev1.PodStatus{
+			Phase: corev1.PodRunning,
+			Conditions: []corev1.PodCondition{
+				{Type: corev1.PodReady, Status: corev1.ConditionTrue},
+			},
+			ContainerStatuses: []corev1.ContainerStatus{
+				{Name: "seaweedfs-mount", RestartCount: 0, Ready: true},
+			},
+		},
+	}
+	mountPod.Labels = map[string]string{"component": "seaweedfs-mount"}
+
+	c := newFakeClient(
+		mountPod,
+		pod("app1", "nyx", "app1-data"), pvc("app1-data", "pv-1"), pv("pv-1", csiDriverName),
+		pod("app2", "nyx", "app2-data"), pvc("app2-data", "pv-2"), pv("pv-2", csiDriverName),
+	)
+	ev := &fakeEvictor{}
+	mountService := &fakeMountService{
+		startupStatus: &mountmanager.StartupStatusResponse{
+			Mode:           mountmanager.StartupModeTakeover,
+			ImportedMounts: 2,
+		},
+	}
+	r := &Reconciler{
+		Client:   c,
+		NodeName: "nyx",
+		Lookup:   &PVLookup{Client: c, NodeName: "nyx", Driver: csiDriverName},
+		Cycler: &Cycler{
+			Evictor:          ev,
+			Debounce:         NewDebouncer(time.Minute),
+			EvictionRetry:    1 * time.Millisecond,
+			EvictionDeadline: 10 * time.Millisecond,
+		},
+		Mounts:    mountService,
+		Baseline:  NewBaselineTracker(),
+		ColdStart: &ColdStartWindow{startedAt: time.Now().Add(-10 * time.Minute), grace: time.Minute},
+	}
+
+	r.HandleMountDaemonEvent(context.Background(), mountPod)
+	if len(ev.attempts) != 0 {
+		t.Fatalf("first observation should not cycle: got %d attempts", len(ev.attempts))
+	}
+
+	replacement := mountPod.DeepCopy()
+	replacement.Name = "seaweedfs-mount-nyx-replacement"
+	replacement.UID = "mp-uid-5"
+	r.HandleMountDaemonEvent(context.Background(), replacement)
+
+	if len(ev.attempts) != 0 {
+		t.Fatalf("clean takeover should suppress consumer recycling, got %d attempts", len(ev.attempts))
+	}
+	if mountService.startupCalls != 1 {
+		t.Fatalf("expected one startup-status probe, got %d", mountService.startupCalls)
+	}
+}
+
+func TestReconciler_FailsClosedWhenStartupStatusProbeFails(t *testing.T) {
+	mountPod := &corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{Name: "seaweedfs-mount-nyx", Namespace: "default", UID: "mp-uid-6"},
+		Spec:       corev1.PodSpec{NodeName: "nyx"},
+		Status: corev1.PodStatus{
+			Phase: corev1.PodRunning,
+			Conditions: []corev1.PodCondition{
+				{Type: corev1.PodReady, Status: corev1.ConditionTrue},
+			},
+			ContainerStatuses: []corev1.ContainerStatus{
+				{Name: "seaweedfs-mount", RestartCount: 0, Ready: true},
+			},
+		},
+	}
+	mountPod.Labels = map[string]string{"component": "seaweedfs-mount"}
+
+	c := newFakeClient(
+		mountPod,
+		pod("app1", "nyx", "app1-data"), pvc("app1-data", "pv-1"), pv("pv-1", csiDriverName),
+	)
+	ev := &fakeEvictor{}
+	mountService := &fakeMountService{startupErr: context.DeadlineExceeded}
+	r := &Reconciler{
+		Client:   c,
+		NodeName: "nyx",
+		Lookup:   &PVLookup{Client: c, NodeName: "nyx", Driver: csiDriverName},
+		Cycler: &Cycler{
+			Evictor:          ev,
+			Debounce:         NewDebouncer(time.Minute),
+			EvictionRetry:    1 * time.Millisecond,
+			EvictionDeadline: 10 * time.Millisecond,
+		},
+		Mounts:    mountService,
+		Baseline:  NewBaselineTracker(),
+		ColdStart: &ColdStartWindow{startedAt: time.Now().Add(-10 * time.Minute), grace: time.Minute},
+	}
+
+	r.HandleMountDaemonEvent(context.Background(), mountPod)
+	replacement := mountPod.DeepCopy()
+	replacement.Name = "seaweedfs-mount-nyx-replacement"
+	replacement.UID = "mp-uid-7"
+	r.HandleMountDaemonEvent(context.Background(), replacement)
+
+	if len(ev.attempts) != 1 {
+		t.Fatalf("startup-status probe failure should fail closed and cycle, got %d attempts", len(ev.attempts))
+	}
+}
+
 func TestReconciler_LogsCyclingWithCandidateNames(t *testing.T) {
 	mountPod := &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{Name: "seaweedfs-mount-nyx", Namespace: "default", UID: "mp-log-1"},
 		Spec:       corev1.PodSpec{NodeName: "nyx"},
 		Status: corev1.PodStatus{
-			Phase:             corev1.PodRunning,
+			Phase: corev1.PodRunning,
+			Conditions: []corev1.PodCondition{
+				{Type: corev1.PodReady, Status: corev1.ConditionTrue},
+			},
 			ContainerStatuses: []corev1.ContainerStatus{{Name: "seaweedfs-mount", RestartCount: 1, Ready: true}},
 		},
 	}
@@ -129,6 +319,9 @@ func TestReconciler_ColdStartSuppressesPathA(t *testing.T) {
 		Spec:       corev1.PodSpec{NodeName: "nyx"},
 		Status: corev1.PodStatus{
 			Phase: corev1.PodRunning,
+			Conditions: []corev1.PodCondition{
+				{Type: corev1.PodReady, Status: corev1.ConditionTrue},
+			},
 			ContainerStatuses: []corev1.ContainerStatus{
 				{Name: "seaweedfs-mount", RestartCount: 5, Ready: true},
 			},

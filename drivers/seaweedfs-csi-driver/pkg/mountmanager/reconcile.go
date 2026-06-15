@@ -29,11 +29,11 @@ import (
 // This is intended to be invoked at mount service startup, before the HTTP
 // listener begins accepting requests, so that cleanup completes before any
 // /mount call arrives.
-func ReconcileStaleMounts(socketDir string) {
+func ReconcileStaleMounts(socketDir string) int {
 	mounts, err := findSeaweedFuseMounts()
 	if err != nil {
 		glog.Errorf("reconcile: failed to scan mountinfo: %v", err)
-		return
+		return 0
 	}
 
 	if len(mounts) == 0 {
@@ -54,6 +54,7 @@ func ReconcileStaleMounts(socketDir string) {
 		socketDir = DefaultSocketDir
 	}
 	cleanupStaleVolumeSockets(socketDir)
+	return len(mounts)
 }
 
 // findSeaweedFuseMounts returns mount points of fuse.seaweedfs entries in

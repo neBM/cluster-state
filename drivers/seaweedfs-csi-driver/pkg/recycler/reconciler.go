@@ -19,7 +19,7 @@ type Reconciler struct {
 	NodeName    string
 	Lookup      *PVLookup
 	Cycler      *Cycler
-	Mounts      mountServiceRefresher
+	Mounts      mountServiceClient
 	Baseline    *BaselineTracker
 	VolumeReady *ReadyIdentityTracker
 	ColdStart   *ColdStartWindow
@@ -27,8 +27,9 @@ type Reconciler struct {
 	Log         logr.Logger
 }
 
-type mountServiceRefresher interface {
+type mountServiceClient interface {
 	RefreshVolumeLocations(ctx context.Context) (*mountmanager.RefreshVolumeLocationsResponse, error)
+	StartupStatus(ctx context.Context) (*mountmanager.StartupStatusResponse, error)
 }
 
 // HandleMountDaemonEvent is invoked by the Pod informer whenever a
@@ -44,6 +45,12 @@ func (r *Reconciler) HandleMountDaemonEvent(ctx context.Context, mountPod *corev
 		}
 	}
 
+	if !podReady(mountPod) {
+		logger.Info("mount daemon replacement not ready yet, waiting before evaluating Path A",
+			"mountPod", mountPod.Name, "restartCount", restartCount, "node", r.NodeName)
+		return
+	}
+
 	triggered := r.Baseline.ObserveRestart(mountPod.UID, restartCount)
 	if !triggered {
 		return
@@ -52,6 +59,10 @@ func (r *Reconciler) HandleMountDaemonEvent(ctx context.Context, mountPod *corev
 	if r.coldStartSuppressed(time.Now()) {
 		ColdStartSuppressedTotal.Inc()
 		logger.Info("cold-start window suppressing Path A", "mountPod", mountPod.Name, "restartCount", restartCount)
+		return
+	}
+
+	if r.suppressCleanTakeoverRestart(ctx, logger, mountPod, restartCount) {
 		return
 	}
 
@@ -79,6 +90,36 @@ func (r *Reconciler) HandleMountDaemonEvent(ctx context.Context, mountPod *corev
 			"restart detected; cycling %d consumer pod(s) on node %s", len(candidates), r.NodeName)
 	}
 	r.Cycler.CycleBatch(log.IntoContext(ctx, logger), candidates)
+}
+
+func (r *Reconciler) suppressCleanTakeoverRestart(ctx context.Context, logger logr.Logger, mountPod *corev1.Pod, restartCount int32) bool {
+	if r.Mounts == nil {
+		return false
+	}
+
+	status, err := r.Mounts.StartupStatus(ctx)
+	if err != nil {
+		logger.Error(err, "mount startup-status probe failed, failing closed for Path A",
+			"mountPod", mountPod.Name, "restartCount", restartCount, "node", r.NodeName)
+		return false
+	}
+	if status == nil || status.Mode != mountmanager.StartupModeTakeover {
+		return false
+	}
+
+	MountRestartSuppressionsTotal.WithLabelValues("takeover").Inc()
+	logger.Info("mount daemon replacement preserved live mounts, suppressing Path A",
+		"mountPod", mountPod.Name,
+		"restartCount", restartCount,
+		"node", r.NodeName,
+		"startupMode", status.Mode,
+		"importedMounts", status.ImportedMounts)
+	if r.Recorder != nil {
+		r.Recorder.Eventf(mountPod, corev1.EventTypeNormal, "RecycleSuppressedTakeover",
+			"replacement imported %d live mount(s); skipping consumer recycle on node %s",
+			status.ImportedMounts, r.NodeName)
+	}
+	return true
 }
 
 // HandleVolumeServerEvent is invoked by the Pod informer whenever any

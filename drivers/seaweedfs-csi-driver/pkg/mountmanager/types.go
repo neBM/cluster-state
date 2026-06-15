@@ -41,6 +41,22 @@ type RefreshVolumeLocationsResponse struct {
 	Failed    []RefreshVolumeLocationsFailure `json:"failed,omitempty"`
 }
 
+type StartupMode string
+
+const (
+	StartupModeFresh         StartupMode = "fresh"
+	StartupModeTakeover      StartupMode = "takeover"
+	StartupModeCrashRecovery StartupMode = "crash_recovery"
+)
+
+type StartupStatusRequest struct{}
+
+type StartupStatusResponse struct {
+	Mode                 StartupMode `json:"mode"`
+	ImportedMounts       int         `json:"importedMounts,omitempty"`
+	RecoveredStaleMounts int         `json:"recoveredStaleMounts,omitempty"`
+}
+
 type TakeoverMount struct {
 	VolumeID    string   `json:"volumeId"`
 	TargetPath  string   `json:"targetPath"`

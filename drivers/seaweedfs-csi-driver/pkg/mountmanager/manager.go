@@ -33,6 +33,7 @@ type Manager struct {
 	mounts   map[string]*mountEntry
 	locks    *keyMutex
 	takeover bool
+	startup  StartupStatusResponse
 }
 
 // Config configures a Manager instance.
@@ -50,6 +51,9 @@ func NewManager(cfg Config) *Manager {
 		weedBinary: binary,
 		mounts:     make(map[string]*mountEntry),
 		locks:      newKeyMutex(),
+		startup: StartupStatusResponse{
+			Mode: StartupModeFresh,
+		},
 	}
 }
 
@@ -183,6 +187,18 @@ func (m *Manager) RefreshVolumeLocations(req *RefreshVolumeLocationsRequest) (*R
 	return resp, nil
 }
 
+func (m *Manager) StartupStatus(req *StartupStatusRequest) (*StartupStatusResponse, error) {
+	if req == nil {
+		return nil, errors.New("startup status request is nil")
+	}
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	status := m.startup
+	return &status, nil
+}
+
 func (m *Manager) getMount(volumeID string) *mountEntry {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -198,6 +214,12 @@ func (m *Manager) takeoverInProgress() bool {
 func (m *Manager) setTakeoverInProgress(active bool) {
 	m.mu.Lock()
 	m.takeover = active
+	m.mu.Unlock()
+}
+
+func (m *Manager) SetStartupStatus(status StartupStatusResponse) {
+	m.mu.Lock()
+	m.startup = status
 	m.mu.Unlock()
 }
 
