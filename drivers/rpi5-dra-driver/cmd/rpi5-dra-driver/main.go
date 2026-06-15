@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
@@ -38,6 +39,7 @@ func main() {
 	if err := resource.Publish(ctx, client, nodeName, devices, found); err != nil {
 		klog.Fatalf("publish ResourceSlice: %v", err)
 	}
+	go resource.RepublishLoop(ctx, client, nodeName, time.Minute, driver.Discover)
 
 	if !found {
 		klog.Info("no Pi5 decode devices found — idling")

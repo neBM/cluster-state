@@ -3,6 +3,7 @@ package resource
 import (
 	"context"
 	"fmt"
+	"time"
 
 	resourcev1 "k8s.io/api/resource/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
@@ -17,6 +18,8 @@ const (
 	DriverName = "rpi5.brmartin.co.uk"
 	DeviceName = "drm-decoder-0"
 )
+
+type DiscoverFunc func() (*driver.Devices, bool)
 
 // Publish creates or replaces this node's ResourceSlice. Pass found=false to
 // delete any existing slice (used when no Pi5 devices are present).
@@ -72,6 +75,32 @@ func Publish(ctx context.Context, client kubernetes.Interface, nodeName string, 
 	}
 	klog.Infof("updated ResourceSlice %s", sliceName)
 	return nil
+}
+
+func RepublishLoop(ctx context.Context, client kubernetes.Interface, nodeName string, interval time.Duration, discover DiscoverFunc) {
+	if interval <= 0 {
+		interval = time.Minute
+	}
+
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			if discover == nil {
+				klog.Warning("republish loop has no discover function; skipping tick")
+				continue
+			}
+
+			devices, found := discover()
+			if err := Publish(ctx, client, nodeName, devices, found); err != nil {
+				klog.Warningf("republish ResourceSlice for node %s: %v", nodeName, err)
+			}
+		}
+	}
 }
 
 func ptr[T any](v T) *T { return &v }
