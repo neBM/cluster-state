@@ -120,9 +120,15 @@ func startMountService(address string, manager *mountmanager.Manager, readiness 
 	if err != nil {
 		glog.Fatalf("failed to listen on %s: %v", address, err)
 	}
+	listenerInfo, err := os.Stat(address)
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		glog.Fatalf("stat mount service socket %s: %v", address, err)
+	}
 	defer func() {
 		_ = listener.Close()
-		_ = os.Remove(address)
+		if err := removeSocketIfOwned(address, listenerInfo); err != nil {
+			glog.Warningf("remove mount service socket %s: %v", address, err)
+		}
 	}()
 
 	mux := http.NewServeMux()
