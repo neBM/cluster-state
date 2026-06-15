@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/seaweedfs/seaweedfs/weed/pb/mount_pb"
+	"github.com/seaweedfs/seaweedfs-csi-driver/pkg/mountpb"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 )
@@ -17,7 +17,7 @@ func invokeRefreshVolumeLocations(ctx context.Context, localSocket string) error
 	}
 	defer clientConn.Close()
 
-	client := mount_pb.NewSeaweedMountClient(clientConn)
-	_, err = client.RefreshVolumeLocations(ctx, &mount_pb.RefreshVolumeLocationsRequest{})
+	client := mountpb.NewSeaweedMountClient(clientConn)
+	_, err = client.RefreshVolumeLocations(ctx, &mountpb.RefreshVolumeLocationsRequest{})
 	return err
 }

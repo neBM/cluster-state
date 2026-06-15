@@ -6,8 +6,8 @@ import (
 	"os"
 
 	"github.com/seaweedfs/seaweedfs-csi-driver/pkg/mountmanager"
+	"github.com/seaweedfs/seaweedfs-csi-driver/pkg/mountpb"
 	"github.com/seaweedfs/seaweedfs/weed/glog"
-	"github.com/seaweedfs/seaweedfs/weed/pb/mount_pb"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 	"k8s.io/mount-utils"
@@ -98,8 +98,8 @@ func (vol *Volume) Quota(sizeByte int64) error {
 		sizeByte = 0
 	}
 
-	client := mount_pb.NewSeaweedMountClient(clientConn)
-	_, err = client.Configure(context.Background(), &mount_pb.ConfigureRequest{
+	client := mountpb.NewSeaweedMountClient(clientConn)
+	_, err = client.Configure(context.Background(), &mountpb.ConfigureRequest{
 		CollectionCapacity: sizeByte,
 	})
 	return err

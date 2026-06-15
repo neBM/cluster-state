@@ -7,18 +7,18 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/seaweedfs/seaweedfs/weed/pb/mount_pb"
+	"github.com/seaweedfs/seaweedfs-csi-driver/pkg/mountpb"
 	"google.golang.org/grpc"
 )
 
 type fakeSeaweedMountServer struct {
-	mount_pb.UnimplementedSeaweedMountServer
+	mountpb.UnimplementedSeaweedMountServer
 	refreshCalls atomic.Int32
 }
 
-func (s *fakeSeaweedMountServer) RefreshVolumeLocations(context.Context, *mount_pb.RefreshVolumeLocationsRequest) (*mount_pb.RefreshVolumeLocationsResponse, error) {
+func (s *fakeSeaweedMountServer) RefreshVolumeLocations(context.Context, *mountpb.RefreshVolumeLocationsRequest) (*mountpb.RefreshVolumeLocationsResponse, error) {
 	s.refreshCalls.Add(1)
-	return &mount_pb.RefreshVolumeLocationsResponse{}, nil
+	return &mountpb.RefreshVolumeLocationsResponse{}, nil
 }
 
 func newUnixMountGRPCServer(t *testing.T) (socketPath string, server *fakeSeaweedMountServer, closeFn func()) {
@@ -33,7 +33,7 @@ func newUnixMountGRPCServer(t *testing.T) (socketPath string, server *fakeSeawee
 
 	grpcServer := grpc.NewServer()
 	server = &fakeSeaweedMountServer{}
-	mount_pb.RegisterSeaweedMountServer(grpcServer, server)
+	mountpb.RegisterSeaweedMountServer(grpcServer, server)
 	go grpcServer.Serve(ln) //nolint:errcheck
 
 	return socketPath, server, func() {

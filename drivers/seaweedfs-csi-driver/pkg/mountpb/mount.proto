@@ -1,0 +1,52 @@
+syntax = "proto3";
+
+package messaging_pb;
+
+// Keep this contract in sync with the SeaweedFS worker-side mount service in
+// /home/ben/Documents/Personal/projects/seaweedfs/weed/pb/mount.proto.
+option go_package = "github.com/seaweedfs/seaweedfs-csi-driver/pkg/mountpb";
+option java_package = "seaweedfs.client";
+option java_outer_classname = "MountProto";
+
+service SeaweedMount {
+  rpc Configure(ConfigureRequest) returns (ConfigureResponse) {}
+
+  rpc RefreshVolumeLocations(RefreshVolumeLocationsRequest) returns (RefreshVolumeLocationsResponse) {}
+
+  rpc HotRestartStatus(HotRestartStatusRequest) returns (HotRestartStatusResponse) {}
+
+  rpc PrepareHotRestart(PrepareHotRestartRequest) returns (PrepareHotRestartResponse) {}
+
+  rpc CancelHotRestart(CancelHotRestartRequest) returns (CancelHotRestartResponse) {}
+}
+
+message ConfigureRequest {
+  int64 collection_capacity = 1;
+}
+
+message ConfigureResponse {}
+
+message RefreshVolumeLocationsRequest {}
+
+message RefreshVolumeLocationsResponse {}
+
+message HotRestartStatusRequest {}
+
+message HotRestartStatusResponse {
+  uint64 open_file_handles = 1;
+  uint64 open_directory_handles = 2;
+  uint64 pending_async_flushes = 3;
+  bool quiescent = 4;
+  bool blocking_new_handles = 5;
+}
+
+message PrepareHotRestartRequest {}
+
+message PrepareHotRestartResponse {
+  bool accepted = 1;
+  HotRestartStatusResponse status = 2;
+}
+
+message CancelHotRestartRequest {}
+
+message CancelHotRestartResponse {}
