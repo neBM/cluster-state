@@ -285,6 +285,22 @@ func TestTakeoverInventoryDrainsUntilRelease(t *testing.T) {
 	}
 }
 
+func TestTakeoverFromReturnsUnsupportedForLegacyManager(t *testing.T) {
+	oldServicePath, closeOld := newUnixHTTPServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/takeover/inventory" {
+			t.Fatalf("unexpected takeover path: %s", r.URL.Path)
+		}
+		http.NotFound(w, r)
+	}))
+	defer closeOld()
+
+	manager := NewManager(Config{})
+	err := manager.TakeoverFrom(context.Background(), "unix://"+oldServicePath)
+	if !errors.Is(err, ErrTakeoverUnsupported) {
+		t.Fatalf("TakeoverFrom err = %v, want %v", err, ErrTakeoverUnsupported)
+	}
+}
+
 func writeJSONTest(w http.ResponseWriter, data any) {
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(data); err != nil {

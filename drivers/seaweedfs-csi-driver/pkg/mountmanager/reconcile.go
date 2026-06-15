@@ -2,10 +2,12 @@ package mountmanager
 
 import (
 	"bufio"
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/seaweedfs/seaweedfs/weed/glog"
 )
@@ -30,6 +32,35 @@ import (
 // listener begins accepting requests, so that cleanup completes before any
 // /mount call arrives.
 func ReconcileStaleMounts(socketDir string) int {
+	return reconcileStaleMounts(socketDir, true)
+}
+
+// WatchStaleMounts polls for stale SeaweedFS FUSE mounts and lazily unmounts
+// them as they appear. This is used during the one-time bridge from legacy
+// mount-service versions that cannot hand off their worker inventory.
+func WatchStaleMounts(ctx context.Context, socketDir string, interval time.Duration) {
+	if interval <= 0 {
+		interval = time.Second
+	}
+
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+
+	for {
+		recovered := reconcileStaleMounts(socketDir, false)
+		if recovered > 0 {
+			glog.Infof("reconcile: background legacy bridge recovered %d stale mount(s)", recovered)
+		}
+
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+		}
+	}
+}
+
+func reconcileStaleMounts(socketDir string, logWhenEmpty bool) int {
 	mounts, err := findSeaweedFuseMounts()
 	if err != nil {
 		glog.Errorf("reconcile: failed to scan mountinfo: %v", err)
@@ -37,7 +68,9 @@ func ReconcileStaleMounts(socketDir string) int {
 	}
 
 	if len(mounts) == 0 {
-		glog.Infof("reconcile: no fuse.seaweedfs mounts found")
+		if logWhenEmpty {
+			glog.Infof("reconcile: no fuse.seaweedfs mounts found")
+		}
 	} else {
 		glog.Infof("reconcile: found %d fuse.seaweedfs mount(s), lazy-unmounting unconditionally", len(mounts))
 	}

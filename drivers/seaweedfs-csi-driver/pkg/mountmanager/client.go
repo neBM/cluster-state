@@ -9,6 +9,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/seaweedfs/seaweedfs/weed/glog"
@@ -167,6 +168,9 @@ func (c *Client) doPost(ctx context.Context, path string, payload any, out any) 
 		defer resp.Body.Close()
 
 		if resp.StatusCode >= 400 {
+			if resp.StatusCode == http.StatusNotFound && strings.HasPrefix(path, "/takeover/") {
+				return false, fmt.Errorf("%w: %s", ErrTakeoverUnsupported, path)
+			}
 			var errResp ErrorResponse
 			if err := json.NewDecoder(resp.Body).Decode(&errResp); err == nil && errResp.Error != "" {
 				if resp.StatusCode == http.StatusServiceUnavailable && errResp.Error == ErrTakeoverInProgress.Error() {

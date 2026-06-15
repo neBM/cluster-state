@@ -47,6 +47,7 @@ const (
 	StartupModeFresh         StartupMode = "fresh"
 	StartupModeTakeover      StartupMode = "takeover"
 	StartupModeCrashRecovery StartupMode = "crash_recovery"
+	StartupModeLegacyBridge  StartupMode = "legacy_bridge"
 )
 
 type StartupStatusRequest struct{}

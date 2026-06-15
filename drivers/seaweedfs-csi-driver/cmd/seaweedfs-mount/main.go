@@ -54,6 +54,22 @@ func main() {
 	if liveService {
 		manager := mountmanager.NewManager(mountmanager.Config{WeedBinary: *weedBinary})
 		if err := manager.TakeoverFrom(context.Background(), *endpoint); err != nil {
+			if errors.Is(err, mountmanager.ErrTakeoverUnsupported) {
+				glog.Warningf("legacy mount service at %s does not support live takeover, starting bridge mode", *endpoint)
+				manager.SetStartupStatus(mountmanager.StartupStatusResponse{
+					Mode: mountmanager.StartupModeLegacyBridge,
+				})
+				legacyCleanupCtx, legacyCleanupCancel := context.WithTimeout(context.Background(), 2*time.Minute)
+				defer legacyCleanupCancel()
+				go mountmanager.WatchStaleMounts(legacyCleanupCtx, filepath.Dir(address), time.Second)
+
+				if err := os.Remove(address); err != nil && !errors.Is(err, os.ErrNotExist) {
+					glog.Fatalf("removing live mount service socket before rebinding: %v", err)
+				}
+
+				startMountService(address, manager, readiness)
+				return
+			}
 			glog.Fatalf("take over live mount service at %s: %v", *endpoint, err)
 		}
 

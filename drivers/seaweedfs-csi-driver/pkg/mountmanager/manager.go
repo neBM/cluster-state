@@ -24,6 +24,7 @@ var invokeCancelHotRestartFunc = invokeCancelHotRestart
 var invokeHotRestartStatusFunc = invokeHotRestartStatus
 var startWeedMountProcessWithOptionsFunc = startWeedMountProcessWithOptions
 var ErrTakeoverInProgress = errors.New("mount service takeover in progress")
+var ErrTakeoverUnsupported = errors.New("mount service takeover unsupported by predecessor")
 
 // Manager owns weed mount processes and exposes helpers to start and stop them.
 type Manager struct {

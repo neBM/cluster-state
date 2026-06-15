@@ -161,12 +161,18 @@ func (m *Manager) TakeoverFrom(ctx context.Context, endpoint string) error {
 		releaseCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		if _, releaseErr := client.ReleaseTakeover(releaseCtx); releaseErr != nil {
+			if errors.Is(releaseErr, ErrTakeoverUnsupported) {
+				return
+			}
 			glog.Warningf("release old mount-service takeover state at %s: %v", endpoint, releaseErr)
 		}
 	}()
 
 	inventory, err := client.TakeoverInventory(ctx)
 	if err != nil {
+		if errors.Is(err, ErrTakeoverUnsupported) {
+			releaseOnFailure = false
+		}
 		return err
 	}
 
