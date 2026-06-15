@@ -115,15 +115,12 @@ func writeError(w http.ResponseWriter, status int, message string) {
 }
 
 func startMountService(address string, manager *mountmanager.Manager, readiness *readinessGate) {
-	listener, listenerInfo, err := listenOwnedUnixSocket(address)
+	listener, err := listenOwnedUnixSocket(address)
 	if err != nil {
 		glog.Fatalf("failed to listen on %s: %v", address, err)
 	}
 	defer func() {
 		_ = listener.Close()
-		if err := removeSocketIfOwned(address, listenerInfo); err != nil {
-			glog.Warningf("remove mount service socket %s: %v", address, err)
-		}
 	}()
 
 	mux := http.NewServeMux()
