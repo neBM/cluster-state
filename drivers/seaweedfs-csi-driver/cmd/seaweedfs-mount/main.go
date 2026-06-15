@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"flag"
+	"fmt"
 	"net/http"
 	"os"
 	"os/signal"
@@ -115,9 +116,17 @@ func writeError(w http.ResponseWriter, status int, message string) {
 }
 
 func startMountService(address string, manager *mountmanager.Manager, readiness *readinessGate) {
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+	if err := runMountService(ctx, address, manager, readiness); err != nil {
+		glog.Fatalf("mount service failed: %v", err)
+	}
+}
+
+func runMountService(ctx context.Context, address string, manager *mountmanager.Manager, readiness *readinessGate) error {
 	listener, err := listenOwnedUnixSocket(address)
 	if err != nil {
-		glog.Fatalf("failed to listen on %s: %v", address, err)
+		return fmt.Errorf("listen on %s: %w", address, err)
 	}
 	defer func() {
 		_ = listener.Close()
@@ -133,21 +142,19 @@ func startMountService(address string, manager *mountmanager.Manager, readiness 
 	mux.HandleFunc("/takeover/finalize", makePostHandler(manager.FinalizeTakeover))
 	mux.HandleFunc("/takeover/cancel", makePostHandler(manager.CancelTakeover))
 	mux.HandleFunc("/takeover/release", makePostHandler(manager.ReleaseTakeover))
-
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ok"))
 	})
 
 	server := &http.Server{Handler: mux}
-
-	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
-	defer stop()
-
+	serveErrCh := make(chan error, 1)
 	go func() {
 		if err := server.Serve(listener); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			glog.Fatalf("server error: %v", err)
+			serveErrCh <- err
+			return
 		}
+		serveErrCh <- nil
 	}()
 	if readiness != nil {
 		readiness.SetReady(true)
@@ -155,7 +162,17 @@ func startMountService(address string, manager *mountmanager.Manager, readiness 
 
 	glog.Infof("mount service listening on unix://%s", address)
 
-	<-ctx.Done()
+	select {
+	case err := <-serveErrCh:
+		if readiness != nil {
+			readiness.SetReady(false)
+		}
+		if err != nil {
+			return fmt.Errorf("serve mount service on %s: %w", address, err)
+		}
+		return nil
+	case <-ctx.Done():
+	}
 	if readiness != nil {
 		readiness.SetReady(false)
 	}
@@ -163,10 +180,14 @@ func startMountService(address string, manager *mountmanager.Manager, readiness 
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	if err := server.Shutdown(shutdownCtx); err != nil {
-		glog.Errorf("server shutdown error: %v", err)
+		return fmt.Errorf("shutdown mount service on %s: %w", address, err)
+	}
+	if err := <-serveErrCh; err != nil {
+		return fmt.Errorf("serve mount service on %s after shutdown: %w", address, err)
 	}
 
 	glog.Infof("mount service stopped")
+	return nil
 }
 
 // makePostHandler creates a generic HTTP POST handler that decodes JSON request,
