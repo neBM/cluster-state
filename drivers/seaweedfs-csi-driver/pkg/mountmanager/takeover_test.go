@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"sync/atomic"
 	"testing"
 )
@@ -355,6 +356,113 @@ func TestTakeoverFromCreatesMissingTargetPathForImportedMount(t *testing.T) {
 					TargetPath:  targetPath,
 					CacheDir:    filepath.Join(t.TempDir(), "cache"),
 					MountArgs:   []string{"mount", "-dir=" + targetPath, "-localSocket=" + localSocket},
+					LocalSocket: filepath.Join(socketDir, "vol-a.sock"),
+				},
+				Status: &HotRestartStatus{Quiescent: true, BlockingNewHandles: true},
+			})
+		case "/takeover/finalize":
+			writeJSONTest(w, TakeoverFinalizeResponse{})
+		case "/takeover/release":
+			writeJSONTest(w, TakeoverReleaseResponse{})
+		default:
+			t.Fatalf("unexpected takeover path: %s", r.URL.Path)
+		}
+	})}
+	go srv.Serve(ln) //nolint:errcheck
+	defer func() {
+		_ = srv.Close()
+		_ = os.Remove(oldServicePath)
+		_ = os.RemoveAll(serverDir)
+	}()
+
+	manager := NewManager(Config{})
+	if err := manager.TakeoverFrom(context.Background(), "unix://"+oldServicePath); err != nil {
+		t.Fatalf("TakeoverFrom: %v", err)
+	}
+}
+
+func TestTakeoverFromAcceptsCorruptedExistingTargetPath(t *testing.T) {
+	prevStart := startWeedMountProcessWithOptionsFunc
+	prevProbe := takeoverTargetMountProbeFunc
+	defer func() {
+		startWeedMountProcessWithOptionsFunc = prevStart
+		takeoverTargetMountProbeFunc = prevProbe
+	}()
+
+	baseDir, err := os.MkdirTemp("", "takeover-target-")
+	if err != nil {
+		t.Fatalf("create base dir: %v", err)
+	}
+	defer os.RemoveAll(baseDir)
+
+	targetPath := filepath.Join(baseDir, "globalmount")
+	if err := os.WriteFile(targetPath, []byte("occupied"), 0o644); err != nil {
+		t.Fatalf("seed occupied target path: %v", err)
+	}
+
+	takeoverTargetMountProbeFunc = func(path string) (bool, error) {
+		if path != targetPath {
+			t.Fatalf("unexpected target path probe: %s", path)
+		}
+		return false, &os.PathError{Op: "stat", Path: path, Err: syscall.ENOTCONN}
+	}
+
+	startWeedMountProcessWithOptionsFunc = func(command string, args []string, target string, volumeID string, onExit func(), opts weedMountStartOptions) (*weedMountProcess, error) {
+		if target != targetPath {
+			t.Fatalf("start target path = %s, want %s", target, targetPath)
+		}
+		return &weedMountProcess{done: make(chan struct{}), mountFD: -1}, nil
+	}
+
+	socketDir := t.TempDir()
+	serverDir, err := os.MkdirTemp("", "takeover-srv-")
+	if err != nil {
+		t.Fatalf("create server dir: %v", err)
+	}
+	oldServicePath := filepath.Join(serverDir, "mount.sock")
+	ln, err := net.Listen("unix", oldServicePath)
+	if err != nil {
+		t.Fatalf("listen unix: %v", err)
+	}
+	srv := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/takeover/inventory":
+			writeJSONTest(w, TakeoverInventoryResponse{
+				Mounts: []TakeoverMount{{
+					VolumeID:    "vol-a",
+					TargetPath:  targetPath,
+					CacheDir:    filepath.Join(t.TempDir(), "cache"),
+					MountArgs:   []string{"mount", "-dir=" + targetPath, "-localSocket=/tmp/vol-a.sock"},
+					LocalSocket: filepath.Join(socketDir, "vol-a.sock"),
+				}},
+			})
+		case "/takeover/export":
+			var req TakeoverExportRequest
+			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+				t.Fatalf("decode export request: %v", err)
+			}
+			payload := filepath.Join(t.TempDir(), "handoff")
+			if err := os.WriteFile(payload, []byte("fd"), 0o644); err != nil {
+				t.Fatalf("write export payload: %v", err)
+			}
+			go func() {
+				file, err := os.Open(payload)
+				if err != nil {
+					t.Errorf("open payload: %v", err)
+					return
+				}
+				defer file.Close()
+				if err := sendFileDescriptor(req.HandoffSocket, file); err != nil {
+					t.Errorf("send export fd: %v", err)
+				}
+			}()
+			writeJSONTest(w, TakeoverExportResponse{
+				Accepted: true,
+				Mount: &TakeoverMount{
+					VolumeID:    "vol-a",
+					TargetPath:  targetPath,
+					CacheDir:    filepath.Join(t.TempDir(), "cache"),
+					MountArgs:   []string{"mount", "-dir=" + targetPath, "-localSocket=/tmp/vol-a.sock"},
 					LocalSocket: filepath.Join(socketDir, "vol-a.sock"),
 				},
 				Status: &HotRestartStatus{Quiescent: true, BlockingNewHandles: true},

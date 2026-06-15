@@ -10,9 +10,14 @@ import (
 	"time"
 
 	"github.com/seaweedfs/seaweedfs/weed/glog"
+	"k8s.io/mount-utils"
 )
 
 const takeoverReadyTimeout = 10 * time.Second
+
+var takeoverTargetMountProbeFunc = func(targetPath string) (bool, error) {
+	return kubeMounter.IsLikelyNotMountPoint(targetPath)
+}
 
 func (m *Manager) TakeoverInventory(req *TakeoverInventoryRequest) (*TakeoverInventoryResponse, error) {
 	if req == nil {
@@ -246,7 +251,7 @@ func (m *Manager) importTakeoverMount(mount TakeoverMount, fdFile *os.File) erro
 	lock.Lock()
 	defer lock.Unlock()
 
-	if err := os.MkdirAll(mount.TargetPath, 0o755); err != nil {
+	if err := ensureTakeoverTargetPath(mount.TargetPath); err != nil {
 		return fmt.Errorf("prepare takeover target path for volume %s: %w", mount.VolumeID, err)
 	}
 
@@ -288,6 +293,36 @@ func (m *Manager) importTakeoverMount(mount TakeoverMount, fdFile *os.File) erro
 	}
 	m.mu.Unlock()
 	return nil
+}
+
+func ensureTakeoverTargetPath(targetPath string) error {
+	notMount, err := takeoverTargetMountProbeFunc(targetPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return os.MkdirAll(targetPath, 0o755)
+		}
+		if mount.IsCorruptedMnt(err) {
+			glog.Warningf("takeover target path %s is a corrupted mount, preserving it for live fd adoption", targetPath)
+			return nil
+		}
+		return err
+	}
+	if !notMount {
+		return nil
+	}
+
+	info, statErr := os.Stat(targetPath)
+	switch {
+	case statErr == nil:
+		if !info.IsDir() {
+			return fmt.Errorf("target path %s exists and is not a directory", targetPath)
+		}
+		return nil
+	case os.IsNotExist(statErr):
+		return os.MkdirAll(targetPath, 0o755)
+	default:
+		return statErr
+	}
 }
 
 func takeoverMountFromEntry(entry *mountEntry) TakeoverMount {
