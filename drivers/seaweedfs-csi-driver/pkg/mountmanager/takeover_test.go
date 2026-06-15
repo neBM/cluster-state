@@ -13,6 +13,8 @@ import (
 	"sync/atomic"
 	"syscall"
 	"testing"
+
+	mount "k8s.io/mount-utils"
 )
 
 func TestExportTakeoverTransfersLiveFD(t *testing.T) {
@@ -384,12 +386,14 @@ func TestTakeoverFromCreatesMissingTargetPathForImportedMount(t *testing.T) {
 	}
 }
 
-func TestTakeoverFromAcceptsCorruptedExistingTargetPath(t *testing.T) {
+func TestTakeoverFromUnmountsCorruptedTargetPathBeforeImport(t *testing.T) {
 	prevStart := startWeedMountProcessWithOptionsFunc
 	prevProbe := takeoverTargetMountProbeFunc
+	prevMounter := kubeMounter
 	defer func() {
 		startWeedMountProcessWithOptionsFunc = prevStart
 		takeoverTargetMountProbeFunc = prevProbe
+		kubeMounter = prevMounter
 	}()
 
 	baseDir, err := os.MkdirTemp("", "takeover-target-")
@@ -399,9 +403,11 @@ func TestTakeoverFromAcceptsCorruptedExistingTargetPath(t *testing.T) {
 	defer os.RemoveAll(baseDir)
 
 	targetPath := filepath.Join(baseDir, "globalmount")
-	if err := os.WriteFile(targetPath, []byte("occupied"), 0o644); err != nil {
-		t.Fatalf("seed occupied target path: %v", err)
+	if err := os.MkdirAll(targetPath, 0o755); err != nil {
+		t.Fatalf("seed target path: %v", err)
 	}
+	fakeMounter := mount.NewFakeMounter([]mount.MountPoint{{Device: "seaweedfs", Path: targetPath, Type: "fuse.seaweedfs"}})
+	kubeMounter = fakeMounter
 
 	takeoverTargetMountProbeFunc = func(path string) (bool, error) {
 		if path != targetPath {
@@ -488,6 +494,11 @@ func TestTakeoverFromAcceptsCorruptedExistingTargetPath(t *testing.T) {
 	manager := NewManager(Config{})
 	if err := manager.TakeoverFrom(context.Background(), "unix://"+oldServicePath); err != nil {
 		t.Fatalf("TakeoverFrom: %v", err)
+	}
+
+	actions := fakeMounter.GetLog()
+	if len(actions) == 0 || actions[0].Action != mount.FakeActionUnmount || actions[0].Target != targetPath {
+		t.Fatalf("corrupted target path was not unmounted before import: %+v", actions)
 	}
 }
 

@@ -303,8 +303,11 @@ func ensureTakeoverTargetPath(targetPath string) error {
 			return os.MkdirAll(targetPath, 0o755)
 		}
 		if mount.IsCorruptedMnt(err) {
-			glog.Warningf("takeover target path %s is a corrupted mount, preserving it for live fd adoption", targetPath)
-			return nil
+			glog.Warningf("takeover target path %s is a corrupted mount, unmounting before live fd adoption", targetPath)
+			if unmountErr := kubeMounter.Unmount(targetPath); unmountErr != nil {
+				return fmt.Errorf("unmount corrupted takeover target path %s: %w", targetPath, unmountErr)
+			}
+			return os.MkdirAll(targetPath, 0o755)
 		}
 		return err
 	}
