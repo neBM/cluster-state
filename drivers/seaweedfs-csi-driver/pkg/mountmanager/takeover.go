@@ -246,6 +246,10 @@ func (m *Manager) importTakeoverMount(mount TakeoverMount, fdFile *os.File) erro
 	lock.Lock()
 	defer lock.Unlock()
 
+	if err := os.MkdirAll(mount.TargetPath, 0o755); err != nil {
+		return fmt.Errorf("prepare takeover target path for volume %s: %w", mount.VolumeID, err)
+	}
+
 	if err := os.Remove(mount.LocalSocket); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return fmt.Errorf("remove stale local socket for volume %s: %w", mount.VolumeID, err)
 	}
