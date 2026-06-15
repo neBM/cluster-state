@@ -14,11 +14,43 @@ import (
 type fakeSeaweedMountServer struct {
 	mountpb.UnimplementedSeaweedMountServer
 	refreshCalls atomic.Int32
+	cancelCalls  atomic.Int32
+
+	hotRestartStatus  HotRestartStatus
+	prepareHotRestart PrepareHotRestartResult
 }
 
 func (s *fakeSeaweedMountServer) RefreshVolumeLocations(context.Context, *mountpb.RefreshVolumeLocationsRequest) (*mountpb.RefreshVolumeLocationsResponse, error) {
 	s.refreshCalls.Add(1)
 	return &mountpb.RefreshVolumeLocationsResponse{}, nil
+}
+
+func (s *fakeSeaweedMountServer) HotRestartStatus(context.Context, *mountpb.HotRestartStatusRequest) (*mountpb.HotRestartStatusResponse, error) {
+	return &mountpb.HotRestartStatusResponse{
+		OpenFileHandles:      s.hotRestartStatus.OpenFileHandles,
+		OpenDirectoryHandles: s.hotRestartStatus.OpenDirectoryHandles,
+		PendingAsyncFlushes:  s.hotRestartStatus.PendingAsyncFlushes,
+		Quiescent:            s.hotRestartStatus.Quiescent,
+		BlockingNewHandles:   s.hotRestartStatus.BlockingNewHandles,
+	}, nil
+}
+
+func (s *fakeSeaweedMountServer) PrepareHotRestart(context.Context, *mountpb.PrepareHotRestartRequest) (*mountpb.PrepareHotRestartResponse, error) {
+	return &mountpb.PrepareHotRestartResponse{
+		Accepted: s.prepareHotRestart.Accepted,
+		Status: &mountpb.HotRestartStatusResponse{
+			OpenFileHandles:      s.prepareHotRestart.Status.OpenFileHandles,
+			OpenDirectoryHandles: s.prepareHotRestart.Status.OpenDirectoryHandles,
+			PendingAsyncFlushes:  s.prepareHotRestart.Status.PendingAsyncFlushes,
+			Quiescent:            s.prepareHotRestart.Status.Quiescent,
+			BlockingNewHandles:   s.prepareHotRestart.Status.BlockingNewHandles,
+		},
+	}, nil
+}
+
+func (s *fakeSeaweedMountServer) CancelHotRestart(context.Context, *mountpb.CancelHotRestartRequest) (*mountpb.CancelHotRestartResponse, error) {
+	s.cancelCalls.Add(1)
+	return &mountpb.CancelHotRestartResponse{}, nil
 }
 
 func newUnixMountGRPCServer(t *testing.T) (socketPath string, server *fakeSeaweedMountServer, closeFn func()) {
