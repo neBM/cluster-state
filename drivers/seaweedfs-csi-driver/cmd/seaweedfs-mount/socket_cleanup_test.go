@@ -52,3 +52,43 @@ func TestRemoveSocketIfOwnedPreservesReplacementPath(t *testing.T) {
 		t.Fatalf("replacement contents = %q, want %q", string(data), "replacement")
 	}
 }
+
+func TestListenOwnedUnixSocketPredecessorClosePreservesReplacementPath(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "socket")
+
+	oldListener, oldOwned, err := listenOwnedUnixSocket(path)
+	if err != nil {
+		t.Fatalf("listen old socket: %v", err)
+	}
+	oldClosed := false
+	t.Cleanup(func() {
+		if !oldClosed {
+			_ = oldListener.Close()
+		}
+	})
+
+	if err := os.Remove(path); err != nil {
+		t.Fatalf("remove old socket path for successor bind: %v", err)
+	}
+
+	newListener, newOwned, err := listenOwnedUnixSocket(path)
+	if err != nil {
+		t.Fatalf("listen replacement socket: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = newListener.Close()
+		_ = removeSocketIfOwned(path, newOwned)
+	})
+
+	if err := oldListener.Close(); err != nil {
+		t.Fatalf("close old listener: %v", err)
+	}
+	oldClosed = true
+	if err := removeSocketIfOwned(path, oldOwned); err != nil {
+		t.Fatalf("old owner cleanup: %v", err)
+	}
+
+	if _, err := os.Stat(path); err != nil {
+		t.Fatalf("replacement socket path removed by predecessor close: %v", err)
+	}
+}

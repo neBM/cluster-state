@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"flag"
-	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -116,13 +115,9 @@ func writeError(w http.ResponseWriter, status int, message string) {
 }
 
 func startMountService(address string, manager *mountmanager.Manager, readiness *readinessGate) {
-	listener, err := net.Listen("unix", address)
+	listener, listenerInfo, err := listenOwnedUnixSocket(address)
 	if err != nil {
 		glog.Fatalf("failed to listen on %s: %v", address, err)
-	}
-	listenerInfo, err := os.Stat(address)
-	if err != nil && !errors.Is(err, os.ErrNotExist) {
-		glog.Fatalf("stat mount service socket %s: %v", address, err)
 	}
 	defer func() {
 		_ = listener.Close()
