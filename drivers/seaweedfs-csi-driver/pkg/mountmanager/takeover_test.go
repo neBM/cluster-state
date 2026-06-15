@@ -207,7 +207,7 @@ func TestTakeoverFromImportsMount(t *testing.T) {
 					VolumeID:    "vol-a",
 					TargetPath:  "/tmp/mount",
 					CacheDir:    "/tmp/cache",
-					MountArgs:   []string{"mount", "-dir=/tmp/mount", "-localSocket=/tmp/vol-a.sock"},
+					MountArgs:   []string{"mount", "-dirAutoCreate=false", "-dir=/tmp/mount", "-localSocket=/tmp/vol-a.sock"},
 					LocalSocket: filepath.Join(socketDir, "vol-a.sock"),
 				}},
 			})
@@ -237,7 +237,7 @@ func TestTakeoverFromImportsMount(t *testing.T) {
 					VolumeID:    "vol-a",
 					TargetPath:  "/tmp/mount",
 					CacheDir:    "/tmp/cache",
-					MountArgs:   []string{"mount", "-dir=/tmp/mount", "-localSocket=/tmp/vol-a.sock"},
+					MountArgs:   []string{"mount", "-dirAutoCreate=false", "-dir=/tmp/mount", "-localSocket=/tmp/vol-a.sock"},
 					LocalSocket: filepath.Join(socketDir, "vol-a.sock"),
 				},
 				Status: &HotRestartStatus{Quiescent: true, BlockingNewHandles: true},
@@ -269,6 +269,9 @@ func TestTakeoverFromImportsMount(t *testing.T) {
 	}
 	if !strings.Contains(strings.Join(importedArgs, " "), "-hotRestart.adoptLiveFd=true") {
 		t.Fatalf("imported args missing hotRestart.adoptLiveFd=true: %v", importedArgs)
+	}
+	if !strings.Contains(strings.Join(importedArgs, " "), "-dirAutoCreate=true") {
+		t.Fatalf("imported args missing dirAutoCreate override: %v", importedArgs)
 	}
 
 	status, err := manager.StartupStatus(&StartupStatusRequest{})

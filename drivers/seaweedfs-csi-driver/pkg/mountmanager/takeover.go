@@ -261,6 +261,7 @@ func (m *Manager) importTakeoverMount(mount TakeoverMount, fdFile *os.File) erro
 
 	args := append([]string(nil), mount.MountArgs...)
 	args = append(args,
+		"-dirAutoCreate=true",
 		"-hotRestart.mountFd=3",
 		"-hotRestart.adoptLiveFd=true",
 	)
