@@ -19,14 +19,20 @@ import (
 )
 
 var kubeMounter = mount.New("")
+var invokePrepareHotRestartFunc = invokePrepareHotRestart
+var invokeCancelHotRestartFunc = invokeCancelHotRestart
+var invokeHotRestartStatusFunc = invokeHotRestartStatus
+var startWeedMountProcessWithOptionsFunc = startWeedMountProcessWithOptions
+var ErrTakeoverInProgress = errors.New("mount service takeover in progress")
 
 // Manager owns weed mount processes and exposes helpers to start and stop them.
 type Manager struct {
 	weedBinary string
 
-	mu     sync.Mutex
-	mounts map[string]*mountEntry
-	locks  *keyMutex
+	mu       sync.Mutex
+	mounts   map[string]*mountEntry
+	locks    *keyMutex
+	takeover bool
 }
 
 // Config configures a Manager instance.
@@ -49,6 +55,9 @@ func NewManager(cfg Config) *Manager {
 
 // Mount starts a weed mount process using the provided request.
 func (m *Manager) Mount(req *MountRequest) (*MountResponse, error) {
+	if m.takeoverInProgress() {
+		return nil, ErrTakeoverInProgress
+	}
 	if req == nil {
 		return nil, errors.New("mount request is nil")
 	}
@@ -96,6 +105,9 @@ func (m *Manager) Mount(req *MountRequest) (*MountResponse, error) {
 
 // Unmount terminates the weed mount process associated with the provided request.
 func (m *Manager) Unmount(req *UnmountRequest) (*UnmountResponse, error) {
+	if m.takeoverInProgress() {
+		return nil, ErrTakeoverInProgress
+	}
 	if req == nil {
 		return nil, errors.New("unmount request is nil")
 	}
@@ -138,6 +150,9 @@ func (m *Manager) Unmount(req *UnmountRequest) (*UnmountResponse, error) {
 // in-band in the response so callers can fail closed without losing successful
 // refreshes that already completed.
 func (m *Manager) RefreshVolumeLocations(req *RefreshVolumeLocationsRequest) (*RefreshVolumeLocationsResponse, error) {
+	if m.takeoverInProgress() {
+		return nil, ErrTakeoverInProgress
+	}
 	if req == nil {
 		return nil, errors.New("refresh request is nil")
 	}
@@ -172,6 +187,18 @@ func (m *Manager) getMount(volumeID string) *mountEntry {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return m.mounts[volumeID]
+}
+
+func (m *Manager) takeoverInProgress() bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.takeover
+}
+
+func (m *Manager) setTakeoverInProgress(active bool) {
+	m.mu.Lock()
+	m.takeover = active
+	m.mu.Unlock()
 }
 
 func (m *Manager) listMounts() []*mountEntry {
@@ -248,6 +275,7 @@ func (m *Manager) startMount(req *MountRequest) (*mountEntry, error) {
 		volumeID:    volumeID,
 		targetPath:  targetPath,
 		cacheDir:    cacheDir,
+		mountArgs:   append([]string(nil), args...),
 		localSocket: localSocket,
 		process:     process,
 	}, nil
@@ -301,24 +329,45 @@ type mountEntry struct {
 	volumeID    string
 	targetPath  string
 	cacheDir    string
+	mountArgs   []string
 	localSocket string
 	process     *weedMountProcess
 }
 
 type weedMountProcess struct {
-	cmd    *exec.Cmd
-	target string
-	done   chan struct{}
+	mu      sync.Mutex
+	cmd     *exec.Cmd
+	target  string
+	done    chan struct{}
+	mountFD int
 	// onExit is invoked after the weed mount process has terminated and
 	// wait() has finished its cleanup (lazy-unmount + close(done)). It is
 	// used by the Manager to detach the stale mountEntry from m.mounts so
 	// that future Mount RPCs respawn a fresh process instead of returning
 	// a dead-but-cached localSocket. Nilable.
 	onExit func()
+
+	preserveMountOnExit bool
+	dupMountFDHook      func() (*os.File, error)
+	stopHook            func() error
+}
+
+type waitForProcessReadyFunc func() error
+
+type weedMountStartOptions struct {
+	extraFiles []*os.File
+	ready      waitForProcessReadyFunc
 }
 
 func startWeedMountProcess(command string, args []string, target string, volumeID string, onExit func()) (*weedMountProcess, error) {
+	return startWeedMountProcessWithOptions(command, args, target, volumeID, onExit, weedMountStartOptions{})
+}
+
+func startWeedMountProcessWithOptions(command string, args []string, target string, volumeID string, onExit func(), opts weedMountStartOptions) (*weedMountProcess, error) {
 	cmd := exec.Command(command, args...)
+	if len(opts.extraFiles) > 0 {
+		cmd.ExtraFiles = append([]*os.File(nil), opts.extraFiles...)
+	}
 
 	// Capture stdout/stderr and log with volume ID prefix for better debugging
 	stdoutPipe, err := cmd.StdoutPipe()
@@ -341,19 +390,31 @@ func startWeedMountProcess(command string, args []string, target string, volumeI
 	go forwardLogs(stderrPipe, volumeID, "stderr")
 
 	process := &weedMountProcess{
-		cmd:    cmd,
-		target: target,
-		done:   make(chan struct{}),
-		onExit: onExit,
+		cmd:     cmd,
+		target:  target,
+		done:    make(chan struct{}),
+		onExit:  onExit,
+		mountFD: -1,
 	}
 
 	go process.wait()
 
-	if err := waitForMount(target, 10*time.Second); err != nil {
+	ready := opts.ready
+	if ready == nil {
+		ready = func() error {
+			return waitForMount(target, 10*time.Second)
+		}
+	}
+	if err := ready(); err != nil {
 		if stopErr := process.stop(); stopErr != nil {
 			glog.Warningf("[%s] failed to stop mount process after mount wait failure: %v", volumeID, stopErr)
 		}
 		return nil, err
+	}
+	if mountFD, err := discoverMountFD(cmd.Process.Pid); err != nil {
+		glog.Warningf("[%s] failed to discover weed mount FUSE fd: %v", volumeID, err)
+	} else {
+		process.mountFD = mountFD
 	}
 
 	return process, nil
@@ -366,9 +427,11 @@ func (p *weedMountProcess) wait() {
 		glog.Infof("weed mount exit (pid: %d, target: %s)", p.cmd.Process.Pid, p.target)
 	}
 
-	// Brief delay to allow FUSE cleanup and pending I/O to complete before unmounting
-	time.Sleep(100 * time.Millisecond)
-	_ = kubeMounter.Unmount(p.target)
+	if !p.PreserveMountOnExit() {
+		// Brief delay to allow FUSE cleanup and pending I/O to complete before unmounting
+		time.Sleep(100 * time.Millisecond)
+		_ = kubeMounter.Unmount(p.target)
+	}
 
 	close(p.done)
 
@@ -390,6 +453,9 @@ func (p *weedMountProcess) wait() {
 }
 
 func (p *weedMountProcess) stop() error {
+	if p.stopHook != nil {
+		return p.stopHook()
+	}
 	if err := p.cmd.Process.Signal(syscall.SIGTERM); err != nil {
 		glog.Warningf("sending SIGTERM to weed mount failed: %v", err)
 	}
@@ -410,6 +476,65 @@ func (p *weedMountProcess) stop() error {
 	case <-time.After(1 * time.Second):
 		return errors.New("timed out waiting for weed mount to stop")
 	}
+}
+
+func (p *weedMountProcess) SetPreserveMountOnExit(preserve bool) {
+	p.mu.Lock()
+	p.preserveMountOnExit = preserve
+	p.mu.Unlock()
+}
+
+func (p *weedMountProcess) PreserveMountOnExit() bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.preserveMountOnExit
+}
+
+func (p *weedMountProcess) dupMountFD() (*os.File, error) {
+	if p.dupMountFDHook != nil {
+		return p.dupMountFDHook()
+	}
+	if p.cmd == nil || p.cmd.Process == nil {
+		return nil, errors.New("weed mount process has no child pid")
+	}
+	p.mu.Lock()
+	mountFD := p.mountFD
+	p.mu.Unlock()
+	if mountFD < 0 {
+		return nil, fmt.Errorf("weed mount process %d has no recorded FUSE fd", p.cmd.Process.Pid)
+	}
+
+	fdPath := fmt.Sprintf("/proc/%d/fd/%d", p.cmd.Process.Pid, mountFD)
+	file, err := os.Open(fdPath)
+	if err != nil {
+		return nil, fmt.Errorf("open duplicated FUSE fd %s: %w", fdPath, err)
+	}
+	return file, nil
+}
+
+func discoverMountFD(pid int) (int, error) {
+	entries, err := os.ReadDir(fmt.Sprintf("/proc/%d/fd", pid))
+	if err != nil {
+		return -1, err
+	}
+
+	for _, entry := range entries {
+		target, err := os.Readlink(fmt.Sprintf("/proc/%d/fd/%s", pid, entry.Name()))
+		if err != nil {
+			continue
+		}
+		if target != "/dev/fuse" {
+			continue
+		}
+
+		var fd int
+		if _, err := fmt.Sscanf(entry.Name(), "%d", &fd); err != nil {
+			continue
+		}
+		return fd, nil
+	}
+
+	return -1, fmt.Errorf("no /dev/fuse fd found for pid %d", pid)
 }
 
 func waitForMount(path string, timeout time.Duration) error {

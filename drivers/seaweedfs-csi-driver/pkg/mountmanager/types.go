@@ -41,6 +41,47 @@ type RefreshVolumeLocationsResponse struct {
 	Failed    []RefreshVolumeLocationsFailure `json:"failed,omitempty"`
 }
 
+type TakeoverMount struct {
+	VolumeID    string   `json:"volumeId"`
+	TargetPath  string   `json:"targetPath"`
+	CacheDir    string   `json:"cacheDir"`
+	MountArgs   []string `json:"mountArgs"`
+	LocalSocket string   `json:"localSocket"`
+}
+
+type TakeoverInventoryRequest struct{}
+
+type TakeoverInventoryResponse struct {
+	Mounts []TakeoverMount `json:"mounts,omitempty"`
+}
+
+type TakeoverExportRequest struct {
+	VolumeID      string `json:"volumeId"`
+	HandoffSocket string `json:"handoffSocket"`
+}
+
+type TakeoverExportResponse struct {
+	Accepted bool              `json:"accepted"`
+	Mount    *TakeoverMount    `json:"mount,omitempty"`
+	Status   *HotRestartStatus `json:"status,omitempty"`
+}
+
+type TakeoverFinalizeRequest struct {
+	VolumeID string `json:"volumeId"`
+}
+
+type TakeoverFinalizeResponse struct{}
+
+type TakeoverCancelRequest struct {
+	VolumeID string `json:"volumeId"`
+}
+
+type TakeoverCancelResponse struct{}
+
+type TakeoverReleaseRequest struct{}
+
+type TakeoverReleaseResponse struct{}
+
 // ErrorResponse is returned when the mount service encounters a failure.
 type ErrorResponse struct {
 	Error string `json:"error"`

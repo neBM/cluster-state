@@ -81,6 +81,46 @@ func (c *Client) RefreshVolumeLocations(ctx context.Context) (*RefreshVolumeLoca
 	return &resp, nil
 }
 
+func (c *Client) TakeoverInventory(ctx context.Context) (*TakeoverInventoryResponse, error) {
+	var resp TakeoverInventoryResponse
+	if err := c.doPost(ctx, "/takeover/inventory", &TakeoverInventoryRequest{}, &resp); err != nil {
+		return nil, err
+	}
+	return &resp, nil
+}
+
+func (c *Client) ExportTakeover(ctx context.Context, req *TakeoverExportRequest) (*TakeoverExportResponse, error) {
+	var resp TakeoverExportResponse
+	if err := c.doPost(ctx, "/takeover/export", req, &resp); err != nil {
+		return nil, err
+	}
+	return &resp, nil
+}
+
+func (c *Client) FinalizeTakeover(ctx context.Context, req *TakeoverFinalizeRequest) (*TakeoverFinalizeResponse, error) {
+	var resp TakeoverFinalizeResponse
+	if err := c.doPost(ctx, "/takeover/finalize", req, &resp); err != nil {
+		return nil, err
+	}
+	return &resp, nil
+}
+
+func (c *Client) CancelTakeover(ctx context.Context, req *TakeoverCancelRequest) (*TakeoverCancelResponse, error) {
+	var resp TakeoverCancelResponse
+	if err := c.doPost(ctx, "/takeover/cancel", req, &resp); err != nil {
+		return nil, err
+	}
+	return &resp, nil
+}
+
+func (c *Client) ReleaseTakeover(ctx context.Context) (*TakeoverReleaseResponse, error) {
+	var resp TakeoverReleaseResponse
+	if err := c.doPost(ctx, "/takeover/release", &TakeoverReleaseRequest{}, &resp); err != nil {
+		return nil, err
+	}
+	return &resp, nil
+}
+
 func (c *Client) doPost(ctx context.Context, path string, payload any, out any) error {
 	body := &bytes.Buffer{}
 	if err := json.NewEncoder(body).Encode(payload); err != nil {
@@ -121,6 +161,14 @@ func (c *Client) doPost(ctx context.Context, path string, payload any, out any) 
 		if resp.StatusCode >= 400 {
 			var errResp ErrorResponse
 			if err := json.NewDecoder(resp.Body).Decode(&errResp); err == nil && errResp.Error != "" {
+				if resp.StatusCode == http.StatusServiceUnavailable && errResp.Error == ErrTakeoverInProgress.Error() {
+					lastErr = errors.New(errResp.Error)
+					if !warned {
+						glog.Warningf("mount service at %s is handing over to a replacement, retrying (budget=%s)", c.endpoint, c.retry.budget)
+						warned = true
+					}
+					return false, nil
+				}
 				return false, errors.New(errResp.Error)
 			}
 			data, readErr := io.ReadAll(resp.Body)

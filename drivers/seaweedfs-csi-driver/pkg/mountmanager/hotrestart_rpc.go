@@ -10,11 +10,11 @@ import (
 )
 
 type HotRestartStatus struct {
-	OpenFileHandles      uint64
-	OpenDirectoryHandles uint64
-	PendingAsyncFlushes  uint64
-	Quiescent            bool
-	BlockingNewHandles   bool
+	OpenFileHandles      uint64 `json:"openFileHandles"`
+	OpenDirectoryHandles uint64 `json:"openDirectoryHandles"`
+	PendingAsyncFlushes  uint64 `json:"pendingAsyncFlushes"`
+	Quiescent            bool   `json:"quiescent"`
+	BlockingNewHandles   bool   `json:"blockingNewHandles"`
 }
 
 type PrepareHotRestartResult struct {

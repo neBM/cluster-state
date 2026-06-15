@@ -40,7 +40,17 @@ func main() {
 		glog.Fatalf("probing existing mount service: %v", probeErr)
 	}
 	if liveService {
-		glog.Fatalf("live mount service already owns %s; refusing stale-mount recovery until automatic takeover is implemented", *endpoint)
+		manager := mountmanager.NewManager(mountmanager.Config{WeedBinary: *weedBinary})
+		if err := manager.TakeoverFrom(context.Background(), *endpoint); err != nil {
+			glog.Fatalf("take over live mount service at %s: %v", *endpoint, err)
+		}
+
+		if err := os.Remove(address); err != nil && !errors.Is(err, os.ErrNotExist) {
+			glog.Fatalf("removing live mount service socket before rebinding: %v", err)
+		}
+
+		startMountService(address, manager)
+		return
 	}
 
 	// Recover from prior mount service instance that died holding live FUSE
@@ -54,6 +64,22 @@ func main() {
 		glog.Fatalf("removing existing socket: %v", err)
 	}
 
+	startMountService(address, mountmanager.NewManager(mountmanager.Config{WeedBinary: *weedBinary}))
+}
+
+func writeJSON(w http.ResponseWriter, status int, data interface{}) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	if err := json.NewEncoder(w).Encode(data); err != nil {
+		glog.Errorf("writing response failed: %v", err)
+	}
+}
+
+func writeError(w http.ResponseWriter, status int, message string) {
+	writeJSON(w, status, mountmanager.ErrorResponse{Error: message})
+}
+
+func startMountService(address string, manager *mountmanager.Manager) {
 	listener, err := net.Listen("unix", address)
 	if err != nil {
 		glog.Fatalf("failed to listen on %s: %v", address, err)
@@ -63,12 +89,15 @@ func main() {
 		_ = os.Remove(address)
 	}()
 
-	manager := mountmanager.NewManager(mountmanager.Config{WeedBinary: *weedBinary})
-
 	mux := http.NewServeMux()
 	mux.HandleFunc("/mount", makePostHandler(manager.Mount))
 	mux.HandleFunc("/unmount", makePostHandler(manager.Unmount))
 	mux.HandleFunc("/refresh-volume-locations", makePostHandler(manager.RefreshVolumeLocations))
+	mux.HandleFunc("/takeover/inventory", makePostHandler(manager.TakeoverInventory))
+	mux.HandleFunc("/takeover/export", makePostHandler(manager.ExportTakeover))
+	mux.HandleFunc("/takeover/finalize", makePostHandler(manager.FinalizeTakeover))
+	mux.HandleFunc("/takeover/cancel", makePostHandler(manager.CancelTakeover))
+	mux.HandleFunc("/takeover/release", makePostHandler(manager.ReleaseTakeover))
 
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -86,7 +115,7 @@ func main() {
 		}
 	}()
 
-	glog.Infof("mount service listening on %s", *endpoint)
+	glog.Infof("mount service listening on unix://%s", address)
 
 	<-ctx.Done()
 
@@ -97,18 +126,6 @@ func main() {
 	}
 
 	glog.Infof("mount service stopped")
-}
-
-func writeJSON(w http.ResponseWriter, status int, data interface{}) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	if err := json.NewEncoder(w).Encode(data); err != nil {
-		glog.Errorf("writing response failed: %v", err)
-	}
-}
-
-func writeError(w http.ResponseWriter, status int, message string) {
-	writeJSON(w, status, mountmanager.ErrorResponse{Error: message})
 }
 
 // makePostHandler creates a generic HTTP POST handler that decodes JSON request,
@@ -128,6 +145,10 @@ func makePostHandler[Req any, Resp any](managerFunc func(*Req) (*Resp, error)) h
 
 		resp, err := managerFunc(&req)
 		if err != nil {
+			if errors.Is(err, mountmanager.ErrTakeoverInProgress) {
+				writeError(w, http.StatusServiceUnavailable, err.Error())
+				return
+			}
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
 		}

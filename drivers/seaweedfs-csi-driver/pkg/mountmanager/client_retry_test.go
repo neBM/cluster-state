@@ -2,6 +2,7 @@ package mountmanager
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -219,6 +220,35 @@ func TestDoPost_ContextCancelled(t *testing.T) {
 	}
 	if elapsed > 200*time.Millisecond {
 		t.Errorf("elapsed = %v, want <200ms (cancel should short-circuit)", elapsed)
+	}
+}
+
+func TestDoPost_RetriesTakeoverServiceUnavailable(t *testing.T) {
+	resetCounters(t)
+	var calls atomic.Int64
+	sockPath, closeSrv := newUnixHTTPServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		current := calls.Add(1)
+		if current < 3 {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			_ = json.NewEncoder(w).Encode(ErrorResponse{Error: ErrTakeoverInProgress.Error()})
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{}`))
+	}))
+	defer closeSrv()
+
+	c := newClientForTest(t, sockPath)
+	c.retry = clientRetryConfig{budget: 2 * time.Second, interval: 10 * time.Millisecond}
+	var resp MountResponse
+	if err := c.doPost(context.Background(), "/mount", &MountRequest{}, &resp); err != nil {
+		t.Fatalf("doPost: %v", err)
+	}
+	if got := calls.Load(); got != 3 {
+		t.Fatalf("server saw %d calls, want 3", got)
+	}
+	if got := testutil.ToFloat64(dialRetriesTotal.WithLabelValues("recovered")); got != 1 {
+		t.Errorf("recovered counter = %v, want 1", got)
 	}
 }
 

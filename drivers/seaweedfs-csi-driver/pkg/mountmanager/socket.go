@@ -21,3 +21,14 @@ func LocalSocketPath(baseDir, volumeID string) string {
 	hashStr := hex.EncodeToString(h[:8]) // 16 hex chars = 64 bits
 	return filepath.Join(baseDir, fmt.Sprintf("seaweedfs-mount-%s.sock", hashStr))
 }
+
+// HandoffSocketPath returns a short-lived unixpacket socket path used to
+// transfer a live FUSE device fd between overlapping mount-service pods.
+func HandoffSocketPath(baseDir, nonce, volumeID string) string {
+	if baseDir == "" {
+		baseDir = DefaultSocketDir
+	}
+	h := sha256.Sum256([]byte(nonce + ":" + volumeID))
+	hashStr := hex.EncodeToString(h[:8])
+	return filepath.Join(baseDir, fmt.Sprintf("seaweedfs-handoff-%s.sock", hashStr))
+}
