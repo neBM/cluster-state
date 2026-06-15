@@ -18,7 +18,7 @@ RUN cd /go/src/github.com/seaweedfs/seaweedfs/weed \
 WORKDIR /go/src/github.com/seaweedfs/seaweedfs-csi-driver
 COPY . .
 
-RUN go build -ldflags="-s -w" -o /seaweedfs-mount ./cmd/seaweedfs-mount/main.go && go clean -cache -modcache
+RUN go build -ldflags="-s -w" -o /seaweedfs-mount ./cmd/seaweedfs-mount && go clean -cache -modcache
 
 FROM alpine AS final
 RUN apk add fuse

@@ -64,10 +64,10 @@ $(OUTPUT_DIR):
 	mkdir -p $@
 
 $(DRIVER_BINARY): FORCE | $(OUTPUT_DIR)
-	CGO_ENABLED=0 GOOS=linux go build -a -ldflags '$(LDFLAGS)' -o $@ ./cmd/seaweedfs-csi-driver/main.go
+	CGO_ENABLED=0 GOOS=linux go build -a -ldflags '$(LDFLAGS)' -o $@ ./cmd/seaweedfs-csi-driver
 
 $(MOUNT_BINARY): FORCE | $(OUTPUT_DIR)
-	CGO_ENABLED=0 GOOS=linux go build -a -ldflags '$(LDFLAGS)' -o $@ ./cmd/seaweedfs-mount/main.go
+	CGO_ENABLED=0 GOOS=linux go build -a -ldflags '$(LDFLAGS)' -o $@ ./cmd/seaweedfs-mount
 
 $(MOUNT_WEED_AMD64_BINARY): FORCE | $(OUTPUT_DIR)
 	cd $(SEAWEEDFS_SOURCE) && \
@@ -82,10 +82,10 @@ $(MOUNT_WEED_ARM64_BINARY): FORCE | $(OUTPUT_DIR)
 	    -o $(abspath $@) ./weed
 
 $(MOUNT_WRAPPER_AMD64_BINARY): FORCE | $(OUTPUT_DIR)
-	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags '$(LDFLAGS)' -o $@ ./cmd/seaweedfs-mount/main.go
+	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags '$(LDFLAGS)' -o $@ ./cmd/seaweedfs-mount
 
 $(MOUNT_WRAPPER_ARM64_BINARY): FORCE | $(OUTPUT_DIR)
-	CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -ldflags '$(LDFLAGS)' -o $@ ./cmd/seaweedfs-mount/main.go
+	CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -ldflags '$(LDFLAGS)' -o $@ ./cmd/seaweedfs-mount
 
 $(MOUNT_AMD64_CONTEXT): $(MOUNT_WEED_AMD64_BINARY) $(MOUNT_WRAPPER_AMD64_BINARY)
 	rm -rf $@

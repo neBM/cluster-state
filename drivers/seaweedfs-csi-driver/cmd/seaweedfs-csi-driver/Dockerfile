@@ -5,7 +5,7 @@ RUN apk add git g++
 WORKDIR /go/src/github.com/seaweedfs/seaweedfs-csi-driver
 COPY . .
 
-RUN go build -ldflags="-s -w" -o /seaweedfs-csi-driver ./cmd/seaweedfs-csi-driver/main.go && go clean -cache -modcache
+RUN go build -ldflags="-s -w" -o /seaweedfs-csi-driver ./cmd/seaweedfs-csi-driver && go clean -cache -modcache
 
 FROM alpine AS final
 RUN apk add fuse
