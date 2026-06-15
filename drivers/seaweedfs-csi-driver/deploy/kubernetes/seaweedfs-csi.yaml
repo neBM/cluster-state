@@ -243,6 +243,12 @@ spec:
             initialDelaySeconds: 5
             timeoutSeconds: 1
             periodSeconds: 5
+          resources:
+            limits:
+              memory: 2Gi
+            requests:
+              cpu: 10m
+              memory: 352Mi
           volumeMounts:
             - name: plugins-dir
               mountPath: /var/lib/kubelet/plugins

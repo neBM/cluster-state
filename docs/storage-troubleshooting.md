@@ -87,6 +87,12 @@ Healthy takeover behavior is: old pod still `Ready`, new pod `Running` but not
 rollout that stalls on busy mounts is a safe block, not permission to force a
 disruptive restart.
 
+If the new pod never schedules and `kubectl describe pod` shows
+`FailedScheduling` with `Insufficient memory` or `Insufficient cpu` on the
+target node, the rollout budget is wrong: the mount pod request must leave room
+for one extra pod on the smallest node during `maxSurge` handoff. Fix the
+request in desired state rather than force-deleting the old mount pod.
+
 Apps that both mount SeaweedFS PVCs and pull from the internal GitLab registry
 can now declare a recycler rollout smoke with pod-template annotations under
 `seaweedfs.csi.brmartin.co.uk/`. During a `seaweedfs-mount` restart wave, the

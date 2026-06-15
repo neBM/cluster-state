@@ -62,8 +62,9 @@ spec:
           limits:
             memory: 2Gi
           requests:
-            cpu: 50m
-            memory: 640Mi
+            # Surge rollout needs one extra mount pod to fit on the smallest node.
+            cpu: 10m
+            memory: 352Mi
         securityContext:
           allowPrivilegeEscalation: true
           privileged: true

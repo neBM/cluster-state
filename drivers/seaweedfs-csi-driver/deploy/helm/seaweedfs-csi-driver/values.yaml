@@ -117,7 +117,15 @@ mountService:
     periodSeconds: 5
   affinity: {}
   tolerations:
-  resources: {}
+  # Keep enough headroom for one extra mount pod on the smallest node during
+  # maxSurge handoff; live overlap safety depends on the replacement pod
+  # actually scheduling before the old pod is removed.
+  resources:
+    limits:
+      memory: 2Gi
+    requests:
+      cpu: 10m
+      memory: 352Mi
   priorityClassName: system-node-critical
   serviceAccountName: ""
 
