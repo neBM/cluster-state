@@ -18,8 +18,9 @@ import (
 )
 
 var (
-	endpoint   = flag.String("endpoint", "unix:///tmp/seaweedfs-mount.sock", "endpoint the mount service listens on")
-	weedBinary = flag.String("weedBinary", mountmanager.DefaultWeedBinary, "path to the weed binary")
+	endpoint          = flag.String("endpoint", "unix:///tmp/seaweedfs-mount.sock", "endpoint the mount service listens on")
+	weedBinary        = flag.String("weedBinary", mountmanager.DefaultWeedBinary, "path to the weed binary")
+	healthBindAddress = flag.String("health-bind-address", ":9807", "TCP address for health and readiness probes")
 )
 
 func main() {
@@ -32,6 +33,17 @@ func main() {
 	if scheme != "unix" {
 		glog.Fatalf("unsupported endpoint scheme: %s", scheme)
 	}
+
+	readiness := newReadinessGate()
+	healthServer, err := startHealthServer(*healthBindAddress, readiness)
+	if err != nil {
+		glog.Fatalf("starting health server: %v", err)
+	}
+	defer func() {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		shutdownHealthServer(shutdownCtx, healthServer)
+	}()
 
 	probeCtx, probeCancel := context.WithTimeout(context.Background(), 2*time.Second)
 	liveService, probeErr := mountmanager.HasLiveService(probeCtx, *endpoint)
@@ -49,7 +61,7 @@ func main() {
 			glog.Fatalf("removing live mount service socket before rebinding: %v", err)
 		}
 
-		startMountService(address, manager)
+		startMountService(address, manager, readiness)
 		return
 	}
 
@@ -72,7 +84,7 @@ func main() {
 		})
 	}
 
-	startMountService(address, manager)
+	startMountService(address, manager, readiness)
 }
 
 func writeJSON(w http.ResponseWriter, status int, data interface{}) {
@@ -87,7 +99,7 @@ func writeError(w http.ResponseWriter, status int, message string) {
 	writeJSON(w, status, mountmanager.ErrorResponse{Error: message})
 }
 
-func startMountService(address string, manager *mountmanager.Manager) {
+func startMountService(address string, manager *mountmanager.Manager, readiness *readinessGate) {
 	listener, err := net.Listen("unix", address)
 	if err != nil {
 		glog.Fatalf("failed to listen on %s: %v", address, err)
@@ -123,10 +135,16 @@ func startMountService(address string, manager *mountmanager.Manager) {
 			glog.Fatalf("server error: %v", err)
 		}
 	}()
+	if readiness != nil {
+		readiness.SetReady(true)
+	}
 
 	glog.Infof("mount service listening on unix://%s", address)
 
 	<-ctx.Done()
+	if readiness != nil {
+		readiness.SetReady(false)
+	}
 
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
