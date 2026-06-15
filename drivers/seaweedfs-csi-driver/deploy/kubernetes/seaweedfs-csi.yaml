@@ -198,8 +198,10 @@ spec:
     matchLabels:
       app: seaweedfs-mount
   updateStrategy:
-    
-    type: OnDelete
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
   template:
     metadata:
       labels:
@@ -222,6 +224,25 @@ spec:
           env:
             - name: MOUNT_ENDPOINT
               value: "unix:///var/lib/seaweedfs-mount/seaweedfs-mount.sock"
+          ports:
+            - name: healthz
+              containerPort: 9807
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: healthz
+            failureThreshold: 3
+            initialDelaySeconds: 15
+            timeoutSeconds: 1
+            periodSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: healthz
+            failureThreshold: 3
+            initialDelaySeconds: 5
+            timeoutSeconds: 1
+            periodSeconds: 5
           volumeMounts:
             - name: plugins-dir
               mountPath: /var/lib/kubelet/plugins

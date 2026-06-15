@@ -109,17 +109,18 @@ helm uninstall seaweedfs-csi-driver
 ```
 
 # Update (Safe rollout)
-Updating seaweed-csi-driver DaemonSet (DS) will break processeses who implement fuse mount:
-newly created pods will not remount net device.
+The CSI node DaemonSet and the separate `seaweedfs-mount` DaemonSet now have
+different rollout behavior:
 
-For safe update set `node.updateStrategy.type: OnDelete` for manual update. Steps:
+1. `seaweedfs-node` can use `RollingUpdate`; it no longer owns the live FUSE workers.
+2. `seaweedfs-mount` should use surge rollout with `maxSurge: 1` and
+   `maxUnavailable: 0`. The replacement pod performs a live takeover and stays
+   unready until any quiescent mounts have been imported.
+3. If a mount is busy, the new pod remains unready and the rollout stalls
+   safely instead of killing the live mount.
 
-  1. delete DS pods on the node where there is no seaweedfs PV
-  2. cordon or taint node
-  3. evict or delete pods with seaweedfs PV
-  4. delete DS pod on node
-  5. uncordon or remove taint on node
-  6. repeat all steps on [all nodes]
+Do not force-delete the old `seaweedfs-mount` pod during a stalled rollout
+unless you are intentionally taking the disruptive repair path.
 
 # Testing
 

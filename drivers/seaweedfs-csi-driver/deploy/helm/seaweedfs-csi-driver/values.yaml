@@ -96,10 +96,25 @@ mountService:
     capabilities:
       add: ["SYS_ADMIN"]
     allowPrivilegeEscalation: true
-  # Use OnDelete strategy since mount service is not yet resilient to its own restarts.
-  # This allows manual, controlled updates to prevent automated disruption of active mounts.
+  # The mount service now performs a live handoff during surge rollouts. A new
+  # pod stays unready until it has imported any quiescent mounts from the old
+  # pod, so routine updates converge declaratively instead of requiring
+  # operator-driven OnDelete rotation.
   updateStrategy:
-    type: OnDelete
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  livenessProbe:
+    failureThreshold: 3
+    initialDelaySeconds: 15
+    timeoutSeconds: 1
+    periodSeconds: 30
+  readinessProbe:
+    failureThreshold: 3
+    initialDelaySeconds: 5
+    timeoutSeconds: 1
+    periodSeconds: 5
   affinity: {}
   tolerations:
   resources: {}

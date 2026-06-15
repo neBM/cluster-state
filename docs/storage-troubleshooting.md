@@ -60,7 +60,11 @@ Common causes:
 
 ### Mounted Pod Reports Stale FUSE Mount
 
-SeaweedFS CSI uses FUSE mounts. A rollout of `seaweedfs-csi-node` or `seaweedfs-mount` can leave existing pods with `Transport endpoint is not connected`.
+SeaweedFS CSI uses FUSE mounts. An unexpected `seaweedfs-mount` crash, a
+forced old-pod deletion during takeover, or a previously broken mount can leave
+existing pods with `Transport endpoint is not connected`. Routine
+`seaweedfs-mount` upgrades should now use a surge rollout and stall safely on
+busy mounts rather than dropping live sessions.
 
 ```bash
 kubectl get pods -A -o wide | grep <node>
@@ -68,6 +72,20 @@ kubectl delete pod -n <namespace> <pod-name>
 ```
 
 New pods remount cleanly through kubelet. If a registry-backed image pull is blocked by stale registry storage, cordon the affected node, reschedule the registry, then uncordon.
+
+If a routine `seaweedfs-mount` rollout looks stuck, inspect the replacement pod
+before deleting anything:
+
+```bash
+kubectl get pods -n default -l app=seaweedfs,component=seaweedfs-mount -o wide
+kubectl describe pod -n default <new-mount-pod>
+kubectl logs -n default <new-mount-pod>
+```
+
+Healthy takeover behavior is: old pod still `Ready`, new pod `Running` but not
+`Ready` until `/readyz` flips green, then the DaemonSet removes the old pod. A
+rollout that stalls on busy mounts is a safe block, not permission to force a
+disruptive restart.
 
 Apps that both mount SeaweedFS PVCs and pull from the internal GitLab registry
 can now declare a recycler rollout smoke with pod-template annotations under

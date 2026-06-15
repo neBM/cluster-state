@@ -47,6 +47,45 @@ spec:
             - name: WEED_GRPC_CA
               value: /var/run/secrets/app/tls/ca.crt
             {{- end }}
+          ports:
+            - name: healthz
+              containerPort: 9807
+          {{- with .Values.mountService.livenessProbe }}
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: healthz
+            {{- with .failureThreshold }}
+            failureThreshold: {{ . }}
+            {{- end }}
+            {{- with .initialDelaySeconds }}
+            initialDelaySeconds: {{ . }}
+            {{- end }}
+            {{- with .timeoutSeconds }}
+            timeoutSeconds: {{ . }}
+            {{- end }}
+            {{- with .periodSeconds }}
+            periodSeconds: {{ . }}
+            {{- end }}
+          {{- end }}
+          {{- with .Values.mountService.readinessProbe }}
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: healthz
+            {{- with .failureThreshold }}
+            failureThreshold: {{ . }}
+            {{- end }}
+            {{- with .initialDelaySeconds }}
+            initialDelaySeconds: {{ . }}
+            {{- end }}
+            {{- with .timeoutSeconds }}
+            timeoutSeconds: {{ . }}
+            {{- end }}
+            {{- with .periodSeconds }}
+            periodSeconds: {{ . }}
+            {{- end }}
+          {{- end }}
           volumeMounts:
             - name: plugins-dir
               mountPath: {{ .Values.node.volumes.plugins_dir }}
