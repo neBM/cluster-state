@@ -33,6 +33,16 @@ func main() {
 		glog.Fatalf("unsupported endpoint scheme: %s", scheme)
 	}
 
+	probeCtx, probeCancel := context.WithTimeout(context.Background(), 2*time.Second)
+	liveService, probeErr := mountmanager.HasLiveService(probeCtx, *endpoint)
+	probeCancel()
+	if probeErr != nil {
+		glog.Fatalf("probing existing mount service: %v", probeErr)
+	}
+	if liveService {
+		glog.Fatalf("live mount service already owns %s; refusing stale-mount recovery until automatic takeover is implemented", *endpoint)
+	}
+
 	// Recover from prior mount service instance that died holding live FUSE
 	// mounts. This lazy-unmounts any stale fuse.seaweedfs entries so kubelet's
 	// reconciler re-triggers NodeStage/NodePublishVolume via the CSI plugin's
