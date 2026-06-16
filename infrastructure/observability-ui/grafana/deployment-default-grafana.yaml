@@ -167,6 +167,11 @@ spec:
           name: alerting
           readOnly: true
           subPath: policies.yaml
+        - mountPath: /etc/grafana/provisioning/alerting/rules.yaml
+          mountPropagation: None
+          name: alerting
+          readOnly: true
+          subPath: rules.yaml
       dnsPolicy: ClusterFirst
       enableServiceLinks: true
       restartPolicy: Always
