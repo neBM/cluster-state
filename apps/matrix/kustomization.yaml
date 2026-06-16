@@ -51,4 +51,4 @@ images:
 - name: "ghcr.io/element-hq/synapse"
   newTag: "v1.154.0"
 - name: "dock.mau.dev/mautrix/whatsapp"
-  newTag: "v0.2605.0"
+  newTag: "v0.2606.0"
