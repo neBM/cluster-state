@@ -1,0 +1,55 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  labels:
+    app: gitlab-runner-host-storage
+  name: gitlab-runner-host-storage
+  namespace: ci
+spec:
+  selector:
+    matchLabels:
+      app: gitlab-runner-host-storage
+  template:
+    metadata:
+      labels:
+        app: gitlab-runner-host-storage
+    spec:
+      containers:
+      - command:
+        - /bin/bash
+        - -ceu
+        - |
+          for dir in /host/ci-builds /host/ci-cache /host/ci-containers; do
+            mkdir -p "$dir"
+            if ! lsattr -d "$dir" | grep -q 'C'; then
+              chattr +C "$dir"
+            fi
+          done
+
+          exec sleep infinity
+        image: ubuntu:24.04
+        imagePullPolicy: IfNotPresent
+        name: host-storage
+        securityContext:
+          privileged: true
+        volumeMounts:
+        - mountPath: /host/ci-builds
+          name: ci-builds
+        - mountPath: /host/ci-cache
+          name: ci-cache
+        - mountPath: /host/ci-containers
+          name: ci-containers
+      serviceAccountName: gitlab-runner
+      volumes:
+      - hostPath:
+          path: /var/lib/ci-builds-nocow
+          type: DirectoryOrCreate
+        name: ci-builds
+      - hostPath:
+          path: /var/lib/ci-cache-nocow
+          type: DirectoryOrCreate
+        name: ci-cache
+      - hostPath:
+          path: /var/lib/ci-containers-nocow
+          type: DirectoryOrCreate
+        name: ci-containers

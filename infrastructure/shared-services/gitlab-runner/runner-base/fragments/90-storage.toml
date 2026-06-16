@@ -1,15 +1,25 @@
-# Persistent node-local cache for build tool dependencies (Maven, Gradle, pip, uv, npm, Bun).
+# Fresh nodatacow-backed workspace so package installs and build outputs do not
+# hit btrfs copy-on-write on the control-plane root filesystem.
+[[runners.kubernetes.volumes.host_path]]
+  name = "repo"
+  mount_path = "/builds"
+  host_path = "/var/lib/ci-builds-nocow"
+  read_only = false
+
+# Fresh nodatacow-backed cache for build tool dependencies (Maven, Gradle,
+# pip, uv, npm, Bun).
 [[runners.kubernetes.volumes.host_path]]
   name = "ci-cache"
   mount_path = "/ci-cache"
-  host_path = "/var/lib/ci-cache"
+  host_path = "/var/lib/ci-cache-nocow"
   read_only = false
 
-# Persistent container storage for buildah/podman (base images, layers).
+# Fresh nodatacow-backed container storage for buildah/podman base images and
+# writable layers.
 [[runners.kubernetes.volumes.host_path]]
   name = "containers-storage"
   mount_path = "/var/lib/containers"
-  host_path = "/var/lib/ci-containers"
+  host_path = "/var/lib/ci-containers-nocow"
   read_only = false
 
 # In-cluster registry bypass.

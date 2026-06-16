@@ -2,6 +2,7 @@ apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 resources:
 - configmap-ci-gitlab-runner-registries-conf.yaml
+- daemonset-ci-gitlab-runner-host-storage.yaml
 - namespace-ci.yaml
 - role-ci-gitlab-runner.yaml
 - rolebinding-ci-gitlab-runner.yaml
