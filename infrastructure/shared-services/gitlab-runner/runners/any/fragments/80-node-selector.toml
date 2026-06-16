@@ -1,1 +1,4 @@
-
+[runners.kubernetes.node_selector]
+  # General-purpose CI stays on amd64 so bursty default jobs do not contend
+  # with the arm64 control-plane nodes that also host embedded etcd.
+  "kubernetes.io/arch" = "amd64"
