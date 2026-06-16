@@ -17,6 +17,9 @@ spec:
     type: Recreate
   template:
     metadata:
+      annotations:
+        reloader.stakater.com/auto: 'true'
+        reloader.stakater.com/rollout-strategy: restart
       labels:
         app: gitlab-runner
         managed-by: terraform
