@@ -10,6 +10,7 @@ configMapGenerator:
   files:
   - fragments/05-concurrent.toml
   - fragments/35-env-extra.toml
+  - fragments/55-kubernetes-resources.toml
   - fragments/60-pull-policy.toml
   - fragments/65-helper-image.toml
   - fragments/75-kubernetes-services.toml

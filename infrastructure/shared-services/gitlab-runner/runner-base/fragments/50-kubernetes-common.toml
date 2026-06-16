@@ -5,9 +5,8 @@
     privileged = true
     enable_service_links = false
 
-    # Resource defaults for build containers.
-    # No CPU limits: burstable QoS lets short-lived CI jobs use full node CPU.
-    cpu_request = "100m"
+    # Shared resource defaults for build containers.
+    # Runner-specific CPU requests and limits live in each runner variant.
     memory_request = "512Mi"
     memory_limit = "6Gi"
 

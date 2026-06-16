@@ -1,6 +1,5 @@
-  [runners.kubernetes]
-    # k8s-any carries generic MR/default workloads. Give the scheduler an
-    # honest request and keep the build container bounded so embedded etcd
-    # retains headroom on the 4-core control-plane nodes.
-    cpu_request = "1000m"
-    cpu_limit = "1000m"
+  # k8s-any carries generic MR/default workloads. Give the scheduler an
+  # honest request and keep the build container bounded so embedded etcd
+  # retains headroom on the 4-core control-plane nodes.
+  cpu_request = "1000m"
+  cpu_limit = "1000m"

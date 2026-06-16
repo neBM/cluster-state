@@ -1,0 +1,3 @@
+  # Keep the architecture-pinned runners burstable; only k8s-any needs a stricter
+  # CPU envelope because it carries generic MR/default workloads on the control-plane.
+  cpu_request = "100m"

@@ -108,3 +108,5 @@ fi
 for path in "${paths[@]}"; do
   render "${path}"
 done
+
+"${repo_root}/scripts/validate_gitlab_runner_templates.py"
