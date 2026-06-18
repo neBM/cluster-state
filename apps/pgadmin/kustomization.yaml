@@ -11,4 +11,4 @@ configMapGenerator:
   - config_local.py=files/config_local.py
 images:
 - name: dpage/pgadmin4
-  newTag: "9.15"
+  newTag: "9.16"
