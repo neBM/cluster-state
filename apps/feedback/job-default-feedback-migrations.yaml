@@ -4,7 +4,7 @@ metadata:
   labels:
     app: feedback-api
     component: migrations
-  name: feedback-migrations-placeholder
+  name: feedback-migrations-version-run
   namespace: default
 spec:
   backoffLimit: 3

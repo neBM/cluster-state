@@ -16,12 +16,12 @@ configMapGenerator:
 - name: feedback-release
   literals:
   - migrationVersion=v2
-  - migrationRun=v2
+  - migrationRunSuffix=r1
 replacements:
 - source:
     kind: ConfigMap
     name: feedback-release
-    fieldPath: data.migrationRun
+    fieldPath: data.migrationVersion
   targets:
   - select:
       kind: Job
@@ -31,6 +31,19 @@ replacements:
     options:
       delimiter: '-'
       index: 2
+- source:
+    kind: ConfigMap
+    name: feedback-release
+    fieldPath: data.migrationRunSuffix
+  targets:
+  - select:
+      kind: Job
+      labelSelector: app=feedback-api,component=migrations
+    fieldPaths:
+    - metadata.name
+    options:
+      delimiter: '-'
+      index: 3
 - source:
     kind: ConfigMap
     name: feedback-release

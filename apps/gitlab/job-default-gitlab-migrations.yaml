@@ -1,7 +1,7 @@
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: gitlab-migrations-placeholder
+  name: gitlab-migrations-version-run
   namespace: default
   labels:
     app: gitlab

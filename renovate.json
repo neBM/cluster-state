@@ -136,12 +136,12 @@
   "customManagers": [
     {
       "customType": "regex",
-      "description": "Update GitLab CNG app and migration versions used by Kustomize replacements",
+      "description": "Update only the GitLab migration version used by the two-step Kustomize upgrade flow",
       "managerFilePatterns": [
         "/^apps/gitlab/kustomization\\.yaml$/"
       ],
       "matchStrings": [
-        "# renovate: datasource=(?<datasource>[a-zA-Z0-9._-]+) depName=(?<depName>[^\\s]+)\\s+- (?:appVersion|migrationVersion)=(?<currentValue>[^\\s]+)"
+        "# renovate: datasource=(?<datasource>[a-zA-Z0-9._-]+) depName=(?<depName>[^\\s]+)\\s+- migrationVersion=(?<currentValue>[^\\s]+)"
       ],
       "versioningTemplate": "docker"
     }

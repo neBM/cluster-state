@@ -34,16 +34,15 @@ generatorOptions:
 configMapGenerator:
 - name: gitlab-release
   literals:
-  # renovate: datasource=docker depName=registry.gitlab.com/gitlab-org/build/cng/gitlab-webservice-ce
-  - appVersion=v19.1.0
+  - appVersion=v19.0.2
   # renovate: datasource=docker depName=registry.gitlab.com/gitlab-org/build/cng/gitlab-webservice-ce
   - migrationVersion=v19.1.0
-  - migrationRun=v19.0.2-r1
+  - migrationRunSuffix=r1
 replacements:
 - source:
     kind: ConfigMap
     name: gitlab-release
-    fieldPath: data.migrationRun
+    fieldPath: data.migrationVersion
   targets:
   - select:
       kind: Job
@@ -53,6 +52,19 @@ replacements:
     options:
       delimiter: '-'
       index: 2
+- source:
+    kind: ConfigMap
+    name: gitlab-release
+    fieldPath: data.migrationRunSuffix
+  targets:
+  - select:
+      kind: Job
+      labelSelector: app=gitlab,component=migrations
+    fieldPaths:
+    - metadata.name
+    options:
+      delimiter: '-'
+      index: 3
 - source:
     kind: ConfigMap
     name: gitlab-release
