@@ -33,8 +33,11 @@ data:
     database = "POSTGRES_DATABASE_PLACEHOLDER"
     schema = ""
     sslmode = "disable"
-    connection_max_idle = 10
-    connection_max_open = 50
+    # This filer shares the external PostgreSQL host with other services.
+    # Keep the pool below the shared budget so registry and PVC metadata
+    # lookups cannot exhaust the cluster-wide connection limit.
+    connection_max_idle = 5
+    connection_max_open = 25
     connection_max_lifetime_seconds = 300
     pgbouncer_compatible = false
     enableUpsert = true
