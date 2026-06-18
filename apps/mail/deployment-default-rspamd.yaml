@@ -175,5 +175,6 @@ spec:
           optional: false
           secretName: rspamd-controller
       - name: data
-        persistentVolumeClaim:
-          claimName: rspamd-data-local
+        # Bayes lives in Redis; /var/lib/rspamd is transient controller/cache state.
+        # Keep this ephemeral so rspamd can restart on any node without storage affinity.
+        emptyDir: {}

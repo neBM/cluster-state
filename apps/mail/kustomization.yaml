@@ -20,7 +20,6 @@ resources:
 - deployment-default-sogo.yaml
 - ingress-default-sogo.yaml
 - persistentvolumeclaim-default-postfix-spool-local.yaml
-- persistentvolumeclaim-default-rspamd-data-local.yaml
 - service-default-dovecot.yaml
 - service-default-mail-redis.yaml
 - service-default-postfix.yaml
