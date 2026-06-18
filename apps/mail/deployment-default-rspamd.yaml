@@ -176,4 +176,4 @@ spec:
           secretName: rspamd-controller
       - name: data
         persistentVolumeClaim:
-          claimName: rspamd-data-sw
+          claimName: rspamd-data-local
