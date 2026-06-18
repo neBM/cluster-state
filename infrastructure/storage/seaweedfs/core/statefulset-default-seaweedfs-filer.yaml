@@ -21,6 +21,9 @@ spec:
   serviceName: seaweedfs-filer
   template:
     metadata:
+      annotations:
+        reloader.stakater.com/auto: 'true'
+        reloader.stakater.com/rollout-strategy: restart
       labels:
         app: seaweedfs
         component: filer
