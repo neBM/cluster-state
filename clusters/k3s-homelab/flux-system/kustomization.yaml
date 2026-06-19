@@ -24,4 +24,4 @@ images:
 - name: "ghcr.io/fluxcd/kustomize-controller"
   newTag: "v1.9.0"
 - name: "ghcr.io/fluxcd/notification-controller"
-  newTag: "v1.8.4"
+  newTag: "v1.9.0"
