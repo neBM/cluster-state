@@ -18,10 +18,10 @@ OUTPUT_DIR := _output
 AMD64_TAR  := $(OUTPUT_DIR)/seaweedfs-$(VERSION)-amd64.tar
 ARM64_TAR  := $(OUTPUT_DIR)/seaweedfs-$(VERSION)-arm64.tar
 
-AMD64_NODES ?= hestia.lan
-ARM64_NODES ?= heracles.lan nyx.lan
-SSH ?= ssh
-SCP ?= scp
+AMD64_NODES ?= local
+ARM64_NODES ?= 192.168.1.6 192.168.1.7
+SSH ?= /usr/bin/ssh
+SCP ?= /usr/bin/scp
 
 .PHONY: tars build-amd64 build-arm64 sideload sideload-amd64 sideload-arm64 verify clean
 
@@ -31,22 +31,22 @@ $(OUTPUT_DIR):
 tars: $(AMD64_TAR) $(ARM64_TAR)
 
 $(AMD64_TAR): Dockerfile | $(OUTPUT_DIR)
-	docker buildx build \
+	docker build \
 	  --build-context seaweedfs=$(SEAWEEDFS_SOURCE) \
 	  --platform linux/amd64 \
 	  --build-arg SEAWEEDFS_COMMIT=$(SHORT_COMMIT) \
 	  -t $(IMAGE_TAG) \
-	  --output type=docker,dest=$@ \
 	  -f Dockerfile .
+	docker save -o $@ $(IMAGE_TAG)
 
 $(ARM64_TAR): Dockerfile | $(OUTPUT_DIR)
-	docker buildx build \
+	docker build \
 	  --build-context seaweedfs=$(SEAWEEDFS_SOURCE) \
 	  --platform linux/arm64 \
 	  --build-arg SEAWEEDFS_COMMIT=$(SHORT_COMMIT) \
 	  -t $(IMAGE_TAG) \
-	  --output type=docker,dest=$@ \
 	  -f Dockerfile .
+	docker save -o $@ $(IMAGE_TAG)
 
 build-amd64: $(AMD64_TAR)
 build-arm64: $(ARM64_TAR)
@@ -56,8 +56,12 @@ sideload: sideload-amd64 sideload-arm64
 sideload-amd64: $(AMD64_TAR)
 	@for node in $(AMD64_NODES); do \
 	  echo ">>> sideloading $(IMAGE_TAG) -> $$node (amd64)"; \
-	  $(SCP) $(AMD64_TAR) $$node:/tmp/seaweedfs-server.tar; \
-	  $(SSH) $$node "sudo k3s ctr -n k8s.io images import /tmp/seaweedfs-server.tar && rm /tmp/seaweedfs-server.tar"; \
+	  if [ "$$node" = "local" ]; then \
+	    sudo k3s ctr -n k8s.io images import $(AMD64_TAR); \
+	  else \
+	    $(SCP) $(AMD64_TAR) $$node:/tmp/seaweedfs-server.tar; \
+	    $(SSH) $$node "sudo k3s ctr -n k8s.io images import /tmp/seaweedfs-server.tar && rm /tmp/seaweedfs-server.tar"; \
+	  fi; \
 	done
 
 sideload-arm64: $(ARM64_TAR)
@@ -70,7 +74,11 @@ sideload-arm64: $(ARM64_TAR)
 verify:
 	@for node in $(AMD64_NODES) $(ARM64_NODES); do \
 	  echo ">>> $$node:"; \
-	  $(SSH) $$node "sudo k3s ctr -n k8s.io images ls | grep $(VERSION) || echo '  MISSING'"; \
+	  if [ "$$node" = "local" ]; then \
+	    sudo k3s ctr -n k8s.io images ls | grep $(VERSION) || echo '  MISSING'; \
+	  else \
+	    $(SSH) $$node "sudo k3s ctr -n k8s.io images ls | grep $(VERSION) || echo '  MISSING'"; \
+	  fi; \
 	done
 
 clean:

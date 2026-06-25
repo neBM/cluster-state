@@ -6,17 +6,20 @@
 # cluster-state Makefile. That keeps this sideload path offline and avoids
 # depending on an unpublished remote ref.
 ARG SEAWEEDFS_COMMIT=local
+ARG BUILDPLATFORM
 
-FROM golang:1.26-alpine AS builder
+FROM --platform=$BUILDPLATFORM golang:1.26-alpine AS builder
 
 RUN apk add --no-cache g++
 
 ARG SEAWEEDFS_COMMIT
+ARG TARGETOS
+ARG TARGETARCH
 COPY --from=seaweedfs . /go/src/github.com/seaweedfs/seaweedfs
 
 RUN cd /go/src/github.com/seaweedfs/seaweedfs/weed \
     && export LDFLAGS="-X github.com/seaweedfs/seaweedfs/weed/util/version.COMMIT=${SEAWEEDFS_COMMIT}" \
-    && CGO_ENABLED=0 go install -ldflags "-extldflags -static ${LDFLAGS}" \
+    && CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH:-amd64} go build -ldflags "-extldflags -static ${LDFLAGS}" -o /go/bin/weed . \
     && go clean -cache -modcache
 
 FROM alpine:3.24 AS final

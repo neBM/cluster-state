@@ -40,7 +40,66 @@ Check the affected node:
 kubectl describe node <node>
 ```
 
+When working directly on Hestia, local `sudo` is available and avoids SSH:
+
+```bash
+df -h / /var/lib/rancher/k3s /var/lib/kubelet /var/log /home
+sudo du -xhd1 / /var/lib
+kubectl get --raw /api/v1/nodes/hestia/proxy/stats/summary | \
+  jq '{node: .node.nodeName, fs: .node.fs, runtime: .node.runtime}'
+```
+
+Do not assume image data is the largest consumer. The GitLab runner currently
+uses the `*-nocow` host paths declared under
+`infrastructure/shared-services/gitlab-runner/`. If old non-`nocow` paths such
+as `/var/lib/ci-cache` or `/var/lib/ci-containers` are large, remove them only
+after verifying that no live pod or manifest still references them:
+
+```bash
+rg -n '/var/lib/ci-(cache|containers)([^-]|$)' infrastructure docs
+kubectl get pods -A -o json | jq -r '
+  .items[] | .metadata.namespace + "/" + .metadata.name as $pod |
+  (.spec.volumes // [])[]? | select(.hostPath) |
+  [$pod, .name, .hostPath.path] | @tsv
+' | rg '/var/lib/ci-(cache|containers)(\s|$)'
+sudo findmnt -R /var/lib/ci-cache /var/lib/ci-containers
+```
+
 If `DiskPressure=False` and `df` has recovered, recent events may only be historical. Re-check after the next kubelet image GC interval before taking more action.
+
+## SeaweedFS Sideloaded Server Images
+
+The `chrislusf/seaweedfs:<base>-nebm-<commit>` server image is sideload-only:
+do not push it to `registry.brmartin.co.uk`, because the registry depends on
+SeaweedFS. If kubelet image GC removes a sideloaded server image from a node,
+pods can enter `ImagePullBackOff` even though desired state is correct.
+
+Build from the hard fork's current master, sideload all node architectures, then
+bump the tag in `infrastructure/storage/seaweedfs/core/kustomization.yaml`:
+
+```bash
+git clone https://git.brmartin.co.uk/ben/seaweedfs.git /tmp/seaweedfs
+git -C /tmp/seaweedfs fetch origin master
+git -C /tmp/seaweedfs checkout origin/master
+SEAWEEDFS_COMMIT=$(git -C /tmp/seaweedfs rev-parse --short HEAD)
+
+make -C drivers/seaweedfs-server tars \
+  SEAWEEDFS_SOURCE=/tmp/seaweedfs \
+  SEAWEEDFS_COMMIT=$SEAWEEDFS_COMMIT
+
+make -C drivers/seaweedfs-server sideload \
+  SEAWEEDFS_SOURCE=/tmp/seaweedfs \
+  SEAWEEDFS_COMMIT=$SEAWEEDFS_COMMIT
+```
+
+Before rolling `seaweedfs-master`, restore a failed master pod first when
+possible so the rollout starts from 3/3 quorum. After the rollout, verify:
+
+```bash
+kubectl get statefulsets,deployments,daemonsets -n default -l app=seaweedfs -o wide
+kubectl exec -n default seaweedfs-master-0 -- /usr/bin/weed version
+kubectl exec -n default seaweedfs-master-1 -- /usr/bin/weed version
+```
 
 ## SeaweedFS PVC Issues
 
