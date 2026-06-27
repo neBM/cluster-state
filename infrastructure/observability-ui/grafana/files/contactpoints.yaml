@@ -20,13 +20,13 @@ contactPoints:
       url: http://hermes-webhook.default.svc.cluster.local:8644/webhooks/grafana-alerts
     type: webhook
     uid: hermes-alerts
-- name: critical-email-and-hermes
+- name: email-and-hermes
   orgId: 1
   receivers:
   - settings:
       addresses: ${GF_ALERT_EMAIL_TO}
     type: email
-    uid: critical-email-alerts
+    uid: email-and-hermes-email-alerts
   - disableResolveMessage: false
     settings:
       hmacConfig:
@@ -36,4 +36,4 @@ contactPoints:
       maxAlerts: '10'
       url: http://hermes-webhook.default.svc.cluster.local:8644/webhooks/grafana-alerts
     type: webhook
-    uid: critical-hermes-alerts
+    uid: email-and-hermes-webhook-alerts
