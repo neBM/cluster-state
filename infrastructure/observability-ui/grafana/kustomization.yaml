@@ -2,9 +2,11 @@ apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 resources:
 - deployment-default-grafana.yaml
+- endpointslice-default-hermes-webhook.yaml
 - ingressroute-default-grafana.yaml
 - persistentvolumeclaim-default-grafana-data.yaml
 - service-default-grafana.yaml
+- service-default-hermes-webhook.yaml
 namespace: default
 configMapGenerator:
 - name: grafana-datasources

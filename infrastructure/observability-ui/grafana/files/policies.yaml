@@ -1,4 +1,10 @@
 apiVersion: 1
 policies:
 - orgId: 1
-  receiver: email
+  receiver: hermes
+  routes:
+  - receiver: critical-email-and-hermes
+    object_matchers:
+    - - severity
+      - '='
+      - critical

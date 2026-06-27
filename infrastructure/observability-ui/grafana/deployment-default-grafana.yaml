@@ -98,6 +98,12 @@ spec:
               key: GF_ALERT_EMAIL_TO
               name: grafana-smtp
               optional: false
+        - name: GF_HERMES_WEBHOOK_HMAC_SECRET
+          valueFrom:
+            secretKeyRef:
+              key: HMAC_SECRET
+              name: grafana-hermes-webhook
+              optional: false
         - name: GF_PATHS_DATA
           value: /var/lib/grafana
         - name: GF_PATHS_LOGS

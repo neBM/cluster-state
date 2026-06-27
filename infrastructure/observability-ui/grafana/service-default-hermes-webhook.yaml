@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: hermes-webhook
+  namespace: default
+  labels:
+    app.kubernetes.io/name: hermes-webhook
+    app.kubernetes.io/component: automation
+spec:
+  type: ClusterIP
+  ports:
+  - name: http
+    port: 8644
+    protocol: TCP
+    targetPort: 8644
