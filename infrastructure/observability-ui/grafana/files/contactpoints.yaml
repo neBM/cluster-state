@@ -10,7 +10,7 @@ contactPoints:
 - name: hermes
   orgId: 1
   receivers:
-  - disableResolveMessage: false
+  - disableResolveMessage: true
     settings:
       hmacConfig:
         header: X-Webhook-Signature
@@ -27,7 +27,7 @@ contactPoints:
       addresses: ${GF_ALERT_EMAIL_TO}
     type: email
     uid: email-and-hermes-email-alerts
-  - disableResolveMessage: false
+  - disableResolveMessage: true
     settings:
       hmacConfig:
         header: X-Webhook-Signature
