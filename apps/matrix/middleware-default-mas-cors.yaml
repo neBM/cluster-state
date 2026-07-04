@@ -19,3 +19,6 @@ spec:
     - OPTIONS
     accessControlAllowOriginList:
     - https://matrix-admin.brmartin.co.uk
+    - https://element.brmartin.co.uk
+    - https://cinny.brmartin.co.uk
+    - https://matrix.brmartin.co.uk
