@@ -60,10 +60,11 @@ spec:
           timeoutSeconds: 1
         resources:
           limits:
+            cpu: "2"
             memory: 2Gi
           requests:
             # Surge rollout needs one extra mount pod to fit on the smallest node.
-            cpu: 10m
+            cpu: 250m
             memory: 352Mi
         securityContext:
           allowPrivilegeEscalation: true
@@ -124,6 +125,9 @@ spec:
         name: dev
   updateStrategy:
     rollingUpdate:
-      maxSurge: 1
-      maxUnavailable: 0
+      # The mount process owns a per-node Unix socket and live FUSE state.
+      # Surge pods can fail takeover while workloads hold file handles, so
+      # replace one node at a time instead of running old+new side-by-side.
+      maxSurge: 0
+      maxUnavailable: 1
     type: RollingUpdate
