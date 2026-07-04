@@ -693,6 +693,92 @@ groups:
           labels:
             severity: critical
           isPaused: false
+        - uid: seaweedfs-filerstore-latency-api
+          title: SeaweedFS Filer Metadata Latency
+          condition: C
+          data:
+            - refId: A
+              relativeTimeRange:
+                from: 900
+                to: 0
+              datasourceUid: prometheus
+              model:
+                datasource:
+                    type: prometheus
+                    uid: prometheus
+                expr: histogram_quantile(0.99, sum by(le, type) (rate(SeaweedFS_filerStore_request_seconds_bucket{store="postgres2"}[5m])))
+                instant: true
+                intervalMs: 1000
+                maxDataPoints: 43200
+                refId: A
+            - refId: C
+              datasourceUid: "-100"
+              model:
+                conditions:
+                    - evaluator:
+                        params:
+                            - 2
+                        type: gt
+                datasource:
+                    type: __expr__
+                    uid: "-100"
+                expression: A
+                intervalMs: 1000
+                maxDataPoints: 43200
+                refId: C
+                type: threshold
+          noDataState: OK
+          execErrState: OK
+          for: 5m
+          annotations:
+            description: 'SeaweedFS filer metadata store p99 for {{ $labels.type }} has exceeded 2s for more than 5 minutes. This is the latency path behind FUSE `SLOWREADDIR`/`SLOWUNLINK` events; inspect SeaweedFS mount logs and the filer PostgreSQL backend before blaming applications.'
+            summary: 'SeaweedFS filer metadata latency is high for {{ $labels.type }}'
+          labels:
+            severity: warning
+          isPaused: false
+        - uid: seaweedfs-mount-cpu-throttling-api
+          title: SeaweedFS Mount CPU Throttling
+          condition: C
+          data:
+            - refId: A
+              relativeTimeRange:
+                from: 900
+                to: 0
+              datasourceUid: prometheus
+              model:
+                datasource:
+                    type: prometheus
+                    uid: prometheus
+                expr: sum by(pod, container) (rate(container_cpu_cfs_throttled_seconds_total{namespace="default",container="seaweedfs-mount"}[5m]))
+                instant: true
+                intervalMs: 1000
+                maxDataPoints: 43200
+                refId: A
+            - refId: C
+              datasourceUid: "-100"
+              model:
+                conditions:
+                    - evaluator:
+                        params:
+                            - 0.1
+                        type: gt
+                datasource:
+                    type: __expr__
+                    uid: "-100"
+                expression: A
+                intervalMs: 1000
+                maxDataPoints: 43200
+                refId: C
+                type: threshold
+          noDataState: OK
+          execErrState: OK
+          for: 5m
+          annotations:
+            description: '{{ $labels.pod }} is spending more than 0.1 CPU-seconds/sec throttled. SeaweedFS mount throttling can produce node-wide FUSE latency and contaminate filer/Postgres RCA.'
+            summary: 'SeaweedFS mount CPU throttling on {{ $labels.pod }}'
+          labels:
+            severity: warning
+          isPaused: false
         - uid: seaweedfs-maildir-metadata-mismatch-api
           title: SeaweedFS Maildir Metadata Mismatch Burst
           condition: C
