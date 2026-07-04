@@ -94,14 +94,13 @@ spec:
         - containerPort: 80
           protocol: TCP
         readinessProbe:
+          exec:
+            command:
+            - sh
+            - -c
+            - |
+              php -r '$status = json_decode(@file_get_contents("http://127.0.0.1/status.php") ?: "", true); exit((is_array($status) && !empty($status["installed"]) && empty($status["maintenance"]) && empty($status["needsDbUpgrade"])) ? 0 : 1);'
           failureThreshold: 3
-          httpGet:
-            httpHeaders:
-            - name: Host
-              value: cloud.brmartin.co.uk
-            path: /k8s-ready.php
-            port: 80
-            scheme: HTTP
           initialDelaySeconds: 30
           periodSeconds: 10
           successThreshold: 1
