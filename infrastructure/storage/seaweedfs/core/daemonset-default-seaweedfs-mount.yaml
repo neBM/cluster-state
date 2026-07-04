@@ -63,8 +63,9 @@ spec:
             cpu: "2"
             memory: 2Gi
           requests:
-            # Surge rollout needs one extra mount pod to fit on the smallest node.
-            cpu: 250m
+            # Request stays modest to avoid starving bursty CI/job pods; the CPU limit above
+            # is what prevents mount-process throttling during metadata bursts.
+            cpu: 50m
             memory: 352Mi
         securityContext:
           allowPrivilegeEscalation: true
