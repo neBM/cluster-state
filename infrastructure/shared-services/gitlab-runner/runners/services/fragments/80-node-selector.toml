@@ -1,1 +1,4 @@
-
+# Keep service/testcontainer jobs off the Pi embedded-etcd nodes. These jobs can
+# create high local image/container churn through kubedock/Testcontainers.
+[runners.kubernetes.node_selector]
+  "kubernetes.io/arch" = "amd64"

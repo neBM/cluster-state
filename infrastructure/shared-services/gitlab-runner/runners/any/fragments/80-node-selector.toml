@@ -1,2 +1,5 @@
-# Intentionally no hard node selector here: k8s-any keeps multi-arch
-# scheduling capability across the runner fleet.
+# Keep generic jobs off the Pi embedded-etcd nodes. Generic CI is mostly
+# architecture-neutral, and running it on Heracles/Nyx has caused etcd WAL
+# fsync stalls through /var/lib/ci-* hostPath churn.
+[runners.kubernetes.node_selector]
+  "kubernetes.io/arch" = "amd64"
