@@ -87,5 +87,5 @@ spec:
               secretName: restic-backup-secrets
   schedule: 0 3 * * *
   successfulJobsHistoryLimit: 3
-  suspend: false
+  suspend: true
   timeZone: Europe/London
