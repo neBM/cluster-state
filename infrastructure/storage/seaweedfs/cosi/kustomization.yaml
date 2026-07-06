@@ -19,9 +19,6 @@ resources:
 - bucket-loki.yaml
 - bucketclaim-default-loki.yaml
 - bucketaccess-default-loki.yaml
-- bucket-athenaeum-attachments.yaml
-- bucketclaim-default-athenaeum-attachments.yaml
-- bucketaccess-default-athenaeum-attachments.yaml
 - bucket-gitlab-runner-cache.yaml
 - bucketclaim-default-gitlab-runner-cache.yaml
 - bucketaccess-default-gitlab-runner-cache.yaml
