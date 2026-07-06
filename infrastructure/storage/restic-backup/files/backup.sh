@@ -3,7 +3,8 @@ set -e
 
 export RESTIC_REPOSITORY=/repo
 export RESTIC_PASSWORD_FILE=/secrets/password
-LOCK_WAIT=30m
+export RESTIC_READ_CONCURRENCY=${RESTIC_READ_CONCURRENCY:-1}
+LOCK_WAIT=5m
 
 # Initialize repo if needed
 if ! restic snapshots >/dev/null 2>&1; then
@@ -16,6 +17,7 @@ echo "Starting backup of SeaweedFS volumes..."
 backup_status=0
 restic backup /data-seaweedfs \
   --retry-lock "$LOCK_WAIT" \
+  --read-concurrency "$RESTIC_READ_CONCURRENCY" \
   --host restic-backup \
   --group-by paths,tags \
   --tag seaweedfs \

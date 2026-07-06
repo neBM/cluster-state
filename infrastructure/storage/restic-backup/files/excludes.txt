@@ -20,6 +20,18 @@ cache
 logs
 log
 
+# Observability data is regenerated/retained by the running services and is
+# too high-churn for the emergency whole-SeaweedFS restic sweep. The 2026-07-06
+# incident showed /buckets-wide scans reading Loki chunks and VictoriaMetrics
+# blocks through a single hestia SeaweedFS FUSE mount until the mount OOMKilled.
+/data-seaweedfs/loki
+/data-seaweedfs/victoriametrics
+
+# Rspamd runtime statistics are mutable cache/state and produced read I/O
+# errors during the 2026-07-06 backup incident. Preserve mail data elsewhere;
+# do not let this file fail the full-tree safety backup.
+stats.ucl
+
 # Postfix queue state is transient and unsafe to snapshot live.
 /data-seaweedfs/pvc-ec04d9bd-bae1-4e43-9cb0-1134e6875936
 
@@ -31,3 +43,4 @@ updates
 media
 metadata
 transcodes
+plug-in support/data

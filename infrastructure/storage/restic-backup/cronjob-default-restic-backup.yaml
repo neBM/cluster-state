@@ -13,7 +13,8 @@ spec:
       labels:
         app: restic-backup
     spec:
-      backoffLimit: 2
+      activeDeadlineSeconds: 14400
+      backoffLimit: 0
       completions: 1
       manualSelector: false
       parallelism: 1
@@ -32,6 +33,7 @@ spec:
             name: restic
             resources:
               limits:
+                cpu: 500m
                 memory: 2Gi
               requests:
                 cpu: 200m
