@@ -1,1 +1,4 @@
-concurrent = 2
+# Keep arm64 CI from running simultaneous disk-heavy jobs on the Pi
+# control-plane/etcd nodes. etcd WAL fsync stalls were observed when multiple
+# build/test jobs churned /var/lib/ci-* on the same USB SSDs.
+concurrent = 1

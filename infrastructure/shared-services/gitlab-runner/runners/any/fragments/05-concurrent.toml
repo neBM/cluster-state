@@ -1,1 +1,3 @@
-concurrent = 3
+# Keep generic CI conservative on this three-node embedded-etcd cluster. The
+# same nodes host etcd, so generic jobs should not stack up with arm64 builds.
+concurrent = 1

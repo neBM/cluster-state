@@ -1,3 +1,4 @@
-    # Always refresh mutable shared toolchain tags like ben/act:latest.
-    pull_policy = ["always"]
+    # Avoid re-pulling large mutable service images on every job; the repeated
+    # image-pull/write churn shares disks with embedded etcd.
+    pull_policy = ["if-not-present"]
     allowed_pull_policies = ["always", "if-not-present", "never"]
