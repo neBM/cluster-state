@@ -3,7 +3,6 @@
 set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-backup_script="${repo_root}/infrastructure/storage/restic-backup/files/backup.sh"
 scoped_backup_script="${repo_root}/infrastructure/storage/restic-backup/files/backup-critical-pvc.sh"
 maintenance_script="${repo_root}/infrastructure/storage/restic-backup/files/maintenance.sh"
 
@@ -82,13 +81,6 @@ assert_contains_text() {
   fi
 }
 
-run_backup() {
-  local name="$1"
-  shift
-
-  run_script "${backup_script}" "${name}" "$@"
-}
-
 run_scoped_backup() {
   local name="$1"
   shift
@@ -132,42 +124,6 @@ run_script() {
 case_dir() {
   printf '%s/%s\n' "${tmpdir}" "$1"
 }
-
-run_backup warning_exit_3 RESTIC_FAKE_BACKUP_EXIT=3
-warning_dir="$(case_dir warning_exit_3)"
-[ "$(cat "${warning_dir}/status")" -eq 0 ] || fail "backup exit 3 should be treated as non-fatal"
-assert_contains backup "${warning_dir}/restic.log"
-assert_contains forget "${warning_dir}/restic.log"
-assert_contains check "${warning_dir}/restic.log"
-assert_contains_text "WARNING: restic backup completed with unreadable source files; continuing after exit code 3." "${warning_dir}/stdout.log"
-
-run_backup fatal_exit_2 RESTIC_FAKE_BACKUP_EXIT=2
-fatal_dir="$(case_dir fatal_exit_2)"
-[ "$(cat "${fatal_dir}/status")" -eq 2 ] || fail "backup exit 2 should fail the script"
-assert_contains backup "${fatal_dir}/restic.log"
-assert_not_contains forget "${fatal_dir}/restic.log"
-assert_not_contains check "${fatal_dir}/restic.log"
-
-run_backup clean_exit_0 RESTIC_FAKE_BACKUP_EXIT=0
-clean_dir="$(case_dir clean_exit_0)"
-[ "$(cat "${clean_dir}/status")" -eq 0 ] || fail "backup exit 0 should succeed"
-assert_contains backup "${clean_dir}/restic.log"
-assert_contains forget "${clean_dir}/restic.log"
-assert_contains check "${clean_dir}/restic.log"
-
-run_backup forget_exit_1 RESTIC_FAKE_BACKUP_EXIT=0 RESTIC_FAKE_FORGET_EXIT=1
-forget_dir="$(case_dir forget_exit_1)"
-[ "$(cat "${forget_dir}/status")" -eq 1 ] || fail "forget exit 1 should fail the script"
-assert_contains backup "${forget_dir}/restic.log"
-assert_contains forget "${forget_dir}/restic.log"
-assert_not_contains check "${forget_dir}/restic.log"
-
-run_backup check_exit_1 RESTIC_FAKE_BACKUP_EXIT=0 RESTIC_FAKE_CHECK_EXIT=1
-check_dir="$(case_dir check_exit_1)"
-[ "$(cat "${check_dir}/status")" -eq 1 ] || fail "check exit 1 should fail the script"
-assert_contains backup "${check_dir}/restic.log"
-assert_contains forget "${check_dir}/restic.log"
-assert_contains check "${check_dir}/restic.log"
 
 paths_file="${tmpdir}/critical-paths.txt"
 mkdir -p "${tmpdir}/data/dovecot" "${tmpdir}/data/matrix-media"

@@ -1,7 +1,8 @@
 # Runtime backup policy for SeaweedFS data protection.
 # This file is packaged into restic-backup-scripts so the in-cluster policy and
 # GitOps source stay together. The scheduled jobs mount only the selected PVCs;
-# /buckets whole-root scans are intentionally not part of scheduled backups.
+# /buckets whole-root scans are intentionally not part of backups; the legacy
+# restic-backup CronJob/PV/PVC has been removed.
 version: 1
 repository:
   hostPath: /mnt/csi/backups/restic
