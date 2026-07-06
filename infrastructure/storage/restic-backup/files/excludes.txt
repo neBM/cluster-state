@@ -5,8 +5,11 @@
 *.lock
 
 # Dovecot regenerable index/cache files
+# Archived corrupt uidlist copies are not active mailbox data and may be
+# unreadable after the original metadata incident.
 dovecot.index*
 dovecot.list.index*
+/data/dovecot-mailboxes-sw/**/dovecot-uidlist.corrupt-*
 
 # SQLite temp files
 *-wal
