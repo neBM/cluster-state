@@ -830,8 +830,8 @@ groups:
       folder: Infrastructure Alerts
       interval: 1m
       rules:
-        - uid: restic-backup-stale-api
-          title: Restic Backup Stale
+        - uid: restic-critical-pvc-backup-stale-api
+          title: Restic Critical PVC Backup Stale
           condition: C
           data:
             - refId: A
@@ -843,7 +843,7 @@ groups:
                 datasource:
                     type: prometheus
                     uid: prometheus
-                expr: time() - kube_cronjob_status_last_successful_time{namespace="default",cronjob="restic-backup"}
+                expr: time() - kube_cronjob_status_last_successful_time{namespace="default",cronjob="restic-critical-pvc-backup"}
                 instant: true
                 intervalMs: 1000
                 maxDataPoints: 43200
@@ -868,8 +868,94 @@ groups:
           execErrState: OK
           for: 10m
           annotations:
-            description: default/restic-backup has not recorded a successful run for more than 36 hours. Failed Jobs can remain after a later successful recovery, so do not page on retained failures alone. Confirm the CronJob is not suspended, inspect the latest Job status, and check `kubectl logs job/<latest-restic-job> -n default`.
-            summary: Restic backup has been stale for more than 36 hours
+            description: default/restic-critical-pvc-backup has not completed successfully for more than 36 hours. This backup-only job mounts only restore-critical SeaweedFS PVCs; check the latest Job logs before investigating repository maintenance.
+            summary: Restic critical PVC backup has been stale for more than 36 hours
           labels:
             severity: critical
+          isPaused: false
+        - uid: restic-critical-pvc-backup-suspended-api
+          title: Restic Critical PVC Backup Suspended
+          condition: C
+          data:
+            - refId: A
+              relativeTimeRange:
+                from: 600
+                to: 0
+              datasourceUid: prometheus
+              model:
+                datasource:
+                    type: prometheus
+                    uid: prometheus
+                expr: kube_cronjob_spec_suspend{namespace="default",cronjob="restic-critical-pvc-backup"}
+                instant: true
+                intervalMs: 1000
+                maxDataPoints: 43200
+                refId: A
+            - refId: C
+              datasourceUid: "-100"
+              model:
+                conditions:
+                    - evaluator:
+                        params:
+                            - 0.5
+                        type: gt
+                datasource:
+                    type: __expr__
+                    uid: "-100"
+                expression: A
+                intervalMs: 1000
+                maxDataPoints: 43200
+                refId: C
+                type: threshold
+          noDataState: OK
+          execErrState: OK
+          for: 10m
+          annotations:
+            description: default/restic-critical-pvc-backup is suspended. The legacy whole-root restic-backup CronJob may remain suspended intentionally; this scoped backup job should not be disabled without an active incident containment reason.
+            summary: Restic critical PVC backup CronJob is suspended
+          labels:
+            severity: critical
+          isPaused: false
+        - uid: restic-repo-maintenance-stale-api
+          title: Restic Repository Maintenance Stale
+          condition: C
+          data:
+            - refId: A
+              relativeTimeRange:
+                from: 600
+                to: 0
+              datasourceUid: prometheus
+              model:
+                datasource:
+                    type: prometheus
+                    uid: prometheus
+                expr: time() - kube_cronjob_status_last_successful_time{namespace="default",cronjob="restic-repo-maintenance"}
+                instant: true
+                intervalMs: 1000
+                maxDataPoints: 43200
+                refId: A
+            - refId: C
+              datasourceUid: "-100"
+              model:
+                conditions:
+                    - evaluator:
+                        params:
+                            - 691200
+                        type: gt
+                datasource:
+                    type: __expr__
+                    uid: "-100"
+                expression: A
+                intervalMs: 1000
+                maxDataPoints: 43200
+                refId: C
+                type: threshold
+          noDataState: OK
+          execErrState: OK
+          for: 30m
+          annotations:
+            description: default/restic-repo-maintenance has not completed successfully for more than 8 days. This is retention/check maintenance only; do not page it as missing backup coverage unless restic-critical-pvc-backup is also stale.
+            summary: Restic repository maintenance has been stale for more than 8 days
+          labels:
+            severity: warning
           isPaused: false

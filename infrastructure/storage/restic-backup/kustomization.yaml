@@ -2,6 +2,8 @@ apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 resources:
 - cronjob-default-restic-backup.yaml
+- cronjob-default-restic-critical-pvc-backup.yaml
+- cronjob-default-restic-repo-maintenance.yaml
 - persistentvolume-restic-seaweedfs-filer-root.yaml
 - persistentvolumeclaim-default-restic-seaweedfs-filer-root.yaml
 
@@ -10,7 +12,11 @@ configMapGenerator:
   namespace: default
   files:
   - backup.sh=files/backup.sh
+  - backup-critical-pvc.sh=files/backup-critical-pvc.sh
+  - maintenance.sh=files/maintenance.sh
+  - critical-pvc-paths.txt=files/critical-pvc-paths.txt
   - excludes.txt=files/excludes.txt
+  - backup-policy.yaml=files/backup-policy.yaml
   options:
     disableNameSuffixHash: true
     labels:

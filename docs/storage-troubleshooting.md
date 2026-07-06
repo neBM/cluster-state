@@ -10,7 +10,7 @@ This runbook covers the current storage stack. GlusterFS and NFS-Ganesha were re
 | SeaweedFS S3/COSI | Object buckets for backups, cache, and attachments | `infrastructure/storage/seaweedfs/cosi/` |
 | `local-path` / `local-path-retain` | Node-local RWO data, especially database-heavy services | `infrastructure/storage/storage-classes/` |
 | `synology-nfs-static` | Static read-only media shares | `apps/iris/`, `apps/media-centre/` |
-| `/mnt/csi/backups/restic` on Hestia | Restic repository host path | `infrastructure/storage/restic-backup/` |
+| `/mnt/csi/backups/restic` on Hestia | Restic repository host path for scoped SeaweedFS PVC backups and repository maintenance | `infrastructure/storage/restic-backup/` |
 
 ## First Checks
 

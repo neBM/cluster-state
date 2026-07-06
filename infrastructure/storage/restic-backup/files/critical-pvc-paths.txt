@@ -1,0 +1,15 @@
+# Critical SeaweedFS PVC paths mounted by restic-critical-pvc-backup.
+# Keep this scoped. Do not reintroduce /buckets whole-root scans.
+/data/dovecot-mailboxes-sw
+/data/gitlab-repositories-sw
+/data/gitlab-shared-sw
+/data/gitlab-uploads-sw
+/data/glitchtip-uploads
+/data/matrix-config-sw
+/data/matrix-media-store-sw
+/data/matrix-synapse-data-sw
+/data/matrix-whatsapp-data-sw
+/data/nextcloud-config
+/data/nextcloud-custom-apps
+/data/nextcloud-data
+/data/vaultwarden-data-sw

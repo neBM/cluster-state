@@ -279,7 +279,7 @@ SeaweedFS master quorum (all nodes) ──────┘
 - `seaweedfs` is the RWX StorageClass for shared app data.
 - `local-path-retain` is used for node-local RWO data such as Loki, VictoriaMetrics, and Postfix spool.
 - Static Synology NFS PVs are used for read-only media shares.
-- Restic backs up the SeaweedFS filer root through `restic-seaweedfs-filer-root`.
+- Restic backs up restore-critical SeaweedFS PVCs through explicit read-only PVC mounts (`restic-critical-pvc-backup`) and runs repository prune/check separately (`restic-repo-maintenance`). The legacy whole-root `/buckets` job remains suspended as an operator fallback; do not re-enable scheduled filer-root scans.
 - GlusterFS and NFS-Ganesha were retired from live hosts on May 30, 2026; archived history is in `docs/archived/`.
 
 ### SeaweedFS PVC Issues
@@ -448,7 +448,7 @@ glab api "projects/<id>/pipelines?ref=main&status=success&per_page=1"
 | nextcloud | Deployment | File sync |
 | matrix | Multiple | 6 components (synapse, mas, whatsapp-bridge, nginx, element, cinny) |
 | gitlab | Multiple | CNG multi-container (webservice, workhorse, sidekiq, gitaly, redis, registry), SSH via NodePort 30022, external PostgreSQL |
-| restic-backup | CronJob | SeaweedFS filer-root backup (daily 3am) |
+| restic-critical-pvc-backup | CronJob | Scoped restore-critical SeaweedFS PVC backup (daily 3am); legacy whole-root `restic-backup` stays suspended |
 | gitlab-runner | Deployment | CI runners (amd64 + arm64) |
 | open-webui | Deployment | LLM chat UI, with valkey + postgres sidecars |
 | plextraktsync | CronJob | Plex/Trakt sync (every 2 hours) |

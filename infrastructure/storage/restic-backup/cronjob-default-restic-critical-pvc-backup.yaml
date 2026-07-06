@@ -1,0 +1,183 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  labels:
+    app: restic-backup
+    component: critical-pvc-backup
+  name: restic-critical-pvc-backup
+  namespace: default
+spec:
+  concurrencyPolicy: Forbid
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    metadata:
+      labels:
+        app: restic-backup
+        component: critical-pvc-backup
+    spec:
+      activeDeadlineSeconds: 14400
+      backoffLimit: 0
+      completions: 1
+      manualSelector: false
+      parallelism: 1
+      template:
+        metadata:
+          labels:
+            app: restic-backup
+            component: critical-pvc-backup
+        spec:
+          automountServiceAccountToken: false
+          containers:
+          - command:
+            - /bin/sh
+            - /config/backup-critical-pvc.sh
+            env:
+            - name: BACKUP_SCOPE
+              value: critical-pvc
+            - name: BACKUP_PATHS_FILE
+              value: /config/critical-pvc-paths.txt
+            - name: RESTIC_READ_CONCURRENCY
+              value: "1"
+            image: restic/restic
+            imagePullPolicy: IfNotPresent
+            name: restic
+            resources:
+              limits:
+                cpu: 500m
+                memory: 2Gi
+              requests:
+                cpu: 100m
+                memory: 512Mi
+            terminationMessagePath: /dev/termination-log
+            terminationMessagePolicy: File
+            volumeMounts:
+            - mountPath: /repo
+              name: repo
+            - mountPath: /config
+              name: scripts
+              readOnly: true
+            - mountPath: /secrets
+              name: secrets
+              readOnly: true
+            - mountPath: /data/dovecot-mailboxes-sw
+              name: dovecot-mailboxes-sw
+              readOnly: true
+            - mountPath: /data/gitlab-repositories-sw
+              name: gitlab-repositories-sw
+              readOnly: true
+            - mountPath: /data/gitlab-shared-sw
+              name: gitlab-shared-sw
+              readOnly: true
+            - mountPath: /data/gitlab-uploads-sw
+              name: gitlab-uploads-sw
+              readOnly: true
+            - mountPath: /data/glitchtip-uploads
+              name: glitchtip-uploads
+              readOnly: true
+            - mountPath: /data/matrix-config-sw
+              name: matrix-config-sw
+              readOnly: true
+            - mountPath: /data/matrix-media-store-sw
+              name: matrix-media-store-sw
+              readOnly: true
+            - mountPath: /data/matrix-synapse-data-sw
+              name: matrix-synapse-data-sw
+              readOnly: true
+            - mountPath: /data/matrix-whatsapp-data-sw
+              name: matrix-whatsapp-data-sw
+              readOnly: true
+            - mountPath: /data/nextcloud-config
+              name: nextcloud-config
+              readOnly: true
+            - mountPath: /data/nextcloud-custom-apps
+              name: nextcloud-custom-apps
+              readOnly: true
+            - mountPath: /data/nextcloud-data
+              name: nextcloud-data
+              readOnly: true
+            - mountPath: /data/vaultwarden-data-sw
+              name: vaultwarden-data-sw
+              readOnly: true
+          dnsPolicy: ClusterFirst
+          enableServiceLinks: true
+          nodeSelector:
+            kubernetes.io/hostname: hestia
+          restartPolicy: Never
+          schedulerName: default-scheduler
+          securityContext: {}
+          terminationGracePeriodSeconds: 30
+          volumes:
+          - hostPath:
+              path: /mnt/csi/backups/restic
+              type: Directory
+            name: repo
+          - configMap:
+              defaultMode: 493
+              name: restic-backup-scripts
+              optional: false
+            name: scripts
+          - name: secrets
+            secret:
+              defaultMode: 256
+              items:
+              - key: RESTIC_PASSWORD
+                path: password
+              optional: false
+              secretName: restic-backup-secrets
+          - name: dovecot-mailboxes-sw
+            persistentVolumeClaim:
+              claimName: dovecot-mailboxes-sw
+              readOnly: true
+          - name: gitlab-repositories-sw
+            persistentVolumeClaim:
+              claimName: gitlab-repositories-sw
+              readOnly: true
+          - name: gitlab-shared-sw
+            persistentVolumeClaim:
+              claimName: gitlab-shared-sw
+              readOnly: true
+          - name: gitlab-uploads-sw
+            persistentVolumeClaim:
+              claimName: gitlab-uploads-sw
+              readOnly: true
+          - name: glitchtip-uploads
+            persistentVolumeClaim:
+              claimName: glitchtip-uploads
+              readOnly: true
+          - name: matrix-config-sw
+            persistentVolumeClaim:
+              claimName: matrix-config-sw
+              readOnly: true
+          - name: matrix-media-store-sw
+            persistentVolumeClaim:
+              claimName: matrix-media-store-sw
+              readOnly: true
+          - name: matrix-synapse-data-sw
+            persistentVolumeClaim:
+              claimName: matrix-synapse-data-sw
+              readOnly: true
+          - name: matrix-whatsapp-data-sw
+            persistentVolumeClaim:
+              claimName: matrix-whatsapp-data-sw
+              readOnly: true
+          - name: nextcloud-config
+            persistentVolumeClaim:
+              claimName: nextcloud-config
+              readOnly: true
+          - name: nextcloud-custom-apps
+            persistentVolumeClaim:
+              claimName: nextcloud-custom-apps
+              readOnly: true
+          - name: nextcloud-data
+            persistentVolumeClaim:
+              claimName: nextcloud-data
+              readOnly: true
+          - name: vaultwarden-data-sw
+            persistentVolumeClaim:
+              claimName: vaultwarden-data-sw
+              readOnly: true
+      ttlSecondsAfterFinished: 86400
+  schedule: 0 3 * * *
+  successfulJobsHistoryLimit: 3
+  suspend: false
+  timeZone: Europe/London

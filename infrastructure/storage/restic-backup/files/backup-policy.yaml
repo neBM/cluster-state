@@ -1,0 +1,73 @@
+# Runtime backup policy for SeaweedFS data protection.
+# This file is packaged into restic-backup-scripts so the in-cluster policy and
+# GitOps source stay together. The scheduled jobs mount only the selected PVCs;
+# /buckets whole-root scans are intentionally not part of scheduled backups.
+version: 1
+repository:
+  hostPath: /mnt/csi/backups/restic
+  secretName: restic-backup-secrets
+  passwordFile: /secrets/password
+jobs:
+  - name: restic-critical-pvc-backup
+    purpose: backup-only snapshots for restore-critical SeaweedFS PVCs
+    cadence: daily
+    schedule: "0 3 * * *"
+    sourceMountStyle: explicit-readonly-pvc-mounts
+    tags:
+      - seaweedfs
+      - critical-pvc
+      - scheduled
+    includes:
+      - pvc: dovecot-mailboxes-sw
+        path: /data/dovecot-mailboxes-sw
+        reason: mailboxes
+      - pvc: gitlab-repositories-sw
+        path: /data/gitlab-repositories-sw
+        reason: Git repositories
+      - pvc: gitlab-shared-sw
+        path: /data/gitlab-shared-sw
+        reason: GitLab shared artifacts/state
+      - pvc: gitlab-uploads-sw
+        path: /data/gitlab-uploads-sw
+        reason: GitLab uploaded user content
+      - pvc: glitchtip-uploads
+        path: /data/glitchtip-uploads
+        reason: uploaded event attachments
+      - pvc: matrix-config-sw
+        path: /data/matrix-config-sw
+        reason: Matrix configuration/state files
+      - pvc: matrix-media-store-sw
+        path: /data/matrix-media-store-sw
+        reason: Matrix media store
+      - pvc: matrix-synapse-data-sw
+        path: /data/matrix-synapse-data-sw
+        reason: Synapse filesystem state
+      - pvc: matrix-whatsapp-data-sw
+        path: /data/matrix-whatsapp-data-sw
+        reason: WhatsApp bridge state
+      - pvc: nextcloud-config
+        path: /data/nextcloud-config
+        reason: Nextcloud configuration
+      - pvc: nextcloud-custom-apps
+        path: /data/nextcloud-custom-apps
+        reason: Nextcloud custom apps
+      - pvc: nextcloud-data
+        path: /data/nextcloud-data
+        reason: Nextcloud user data
+      - pvc: vaultwarden-data-sw
+        path: /data/vaultwarden-data-sw
+        reason: Vaultwarden attachments/filesystem state
+    excludes:
+      - iris-image-cache-sw
+      - rspamd-data-sw
+      - postfix-spool-sw
+      - loki
+      - victoriametrics
+      - gitlab-runner-cache
+      - renovate-cache
+  - name: restic-repo-maintenance
+    purpose: retention pruning and repository metadata check, with no SeaweedFS source mount
+    cadence: weekly
+    schedule: "0 7 * * 0"
+    tags:
+      - seaweedfs
