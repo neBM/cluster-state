@@ -830,7 +830,7 @@ groups:
       folder: Infrastructure Alerts
       interval: 1m
       rules:
-        - uid: restic-critical-pvc-backup-stale-api
+        - uid: restic-backup-stale-api
           title: Restic Critical PVC Backup Stale
           condition: C
           data:
