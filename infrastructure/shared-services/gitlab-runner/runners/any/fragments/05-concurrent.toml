@@ -1,5 +1,5 @@
-# Keep generic CI conservative on this three-node embedded-etcd cluster, but
-# allow two infra-agnostic jobs to run while hard pod anti-affinity keeps them
-# off the same node. This relieves the untagged k8s-any queue without leaking
-# runner/node selection into repository CI config.
-concurrent = 2
+# Keep generic CI conservative on this three-node embedded-etcd cluster. A
+# monitored trial at concurrent=2 reduced serialization but reintroduced etcd
+# heartbeat/fdatasync pressure on the embedded control plane, so keep k8s-any
+# single-lane until the runner/storage architecture is improved.
+concurrent = 1
