@@ -1,3 +1,5 @@
-# Keep generic CI conservative on this three-node embedded-etcd cluster. The
-# same nodes host etcd, so generic jobs should not stack up with arm64 builds.
-concurrent = 1
+# Keep generic CI conservative on this three-node embedded-etcd cluster, but
+# allow two infra-agnostic jobs to run while hard pod anti-affinity keeps them
+# off the same node. This relieves the untagged k8s-any queue without leaking
+# runner/node selection into repository CI config.
+concurrent = 2
