@@ -7,7 +7,7 @@ contactPoints:
       addresses: ${GF_ALERT_EMAIL_TO}
     type: email
     uid: email-alerts
-- name: hermes
+- name: hermes-notify-only
   orgId: 1
   receivers:
   - disableResolveMessage: true
@@ -17,16 +17,29 @@ contactPoints:
         secret: ${GF_HERMES_WEBHOOK_HMAC_SECRET}
       httpMethod: POST
       maxAlerts: '10'
-      url: http://hermes-webhook.default.svc.cluster.local:8644/webhooks/grafana-alerts
+      url: http://hermes-webhook.default.svc.cluster.local:8644/webhooks/grafana-notify-only
     type: webhook
-    uid: hermes-alerts
-- name: email-and-hermes
+    uid: hermes-notify-only-alerts
+- name: hermes-actionable
+  orgId: 1
+  receivers:
+  - disableResolveMessage: true
+    settings:
+      hmacConfig:
+        header: X-Webhook-Signature
+        secret: ${GF_HERMES_WEBHOOK_HMAC_SECRET}
+      httpMethod: POST
+      maxAlerts: '10'
+      url: http://hermes-webhook.default.svc.cluster.local:8644/webhooks/grafana-actionable-alerts
+    type: webhook
+    uid: hermes-actionable-alerts
+- name: email-and-hermes-actionable
   orgId: 1
   receivers:
   - settings:
       addresses: ${GF_ALERT_EMAIL_TO}
     type: email
-    uid: email-and-hermes-email-alerts
+    uid: email-and-hermes-actionable-email-alerts
   - disableResolveMessage: true
     settings:
       hmacConfig:
@@ -34,6 +47,6 @@ contactPoints:
         secret: ${GF_HERMES_WEBHOOK_HMAC_SECRET}
       httpMethod: POST
       maxAlerts: '10'
-      url: http://hermes-webhook.default.svc.cluster.local:8644/webhooks/grafana-alerts
+      url: http://hermes-webhook.default.svc.cluster.local:8644/webhooks/grafana-actionable-alerts
     type: webhook
-    uid: email-and-hermes-webhook-alerts
+    uid: email-and-hermes-actionable-webhook-alerts
