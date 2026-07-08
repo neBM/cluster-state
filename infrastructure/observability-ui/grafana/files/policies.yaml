@@ -1,4 +1,20 @@
 apiVersion: 1
 policies:
 - orgId: 1
-  receiver: email-and-hermes
+  receiver: email
+  routes:
+  - receiver: email
+    object_matchers:
+    - - alertname
+      - '='
+      - High CPU Usage
+  - receiver: email-and-hermes-actionable
+    object_matchers:
+    - - severity
+      - '='
+      - critical
+  - receiver: hermes-notify-only
+    object_matchers:
+    - - severity
+      - '='
+      - warning
