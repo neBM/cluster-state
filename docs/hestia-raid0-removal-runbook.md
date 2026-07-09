@@ -44,7 +44,14 @@ Known caveats:
 - The migration used an in-place btrfs device removal/split rather than a full OS reinstall. Root remains single-device btrfs on NVMe, not XFS/ext4.
 - During workload rescheduling and image pulls immediately after uncordon, Hestia still emitted transient read-latency warnings, including ReadIndex retries and `apply request took too long` up to about 1.6 s. These stopped after workload settle.
 - Controlled runtime validation pulled and ran `ghcr.io/renovatebot/renovate:42` on Hestia with `imagePullPolicy: Always`; the image pull took 29.09 s, the pod completed successfully, Hestia emitted no scary etcd warnings during the validation, and final etcd endpoint health was about 7.2 ms on all three endpoints.
-- A full Renovate workload validation is still required before re-enabling the scheduled Renovate run.
+- A full Renovate workload validation was run manually via GitLab scheduled pipeline play on project `infrastructure/renovate-runner`:
+  - Pipeline `4770` / IID `1632` succeeded.
+  - Job `18580` (`renovate`) ran on runner `kubernetes-any` for about 655 seconds.
+  - The runner pod landed on Hestia: `runner-txxslbb-m-project-24-concurrent-0-qkzz67gz`.
+  - No `slow fdatasync`, Raft heartbeat, or dropped-message symptoms were observed.
+  - During and shortly after the run, Hestia still emitted transient sub-second etcd read/apply warnings, including one ReadIndex retry around 500 ms and `apply request took too long` up to about 584 ms during pod cleanup.
+  - After a final settle window, etcd health was about 6.6-6.9 ms on all three endpoints; only low-level 100-400 ms apply warnings remained.
+  - The hourly Renovate schedule remained disabled after validation (`active=false`).
 - Loki and VictoriaMetrics history preservation was intentionally deprioritized for this personal cluster.
 - Docker data was not moved to `/srv/noisy`; Docker remains a separate host-service concern.
 
