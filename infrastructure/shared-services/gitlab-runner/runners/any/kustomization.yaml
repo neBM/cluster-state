@@ -18,7 +18,6 @@ configMapGenerator:
   - fragments/60-pull-policy.toml
   - fragments/65-helper-image.toml
   - fragments/75-kubernetes-services.toml
-  - fragments/80-node-selector.toml
 - name: gitlab-runner-system-id
   options:
     labels:

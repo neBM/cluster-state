@@ -1,7 +1,5 @@
   # k8s-any carries generic MR/default workloads. Keep the hard 1-core
-  # limit, but request less than a full core so the scheduler can place the
-  # single generic job on the preferred amd64 node when it has sub-core
-  # headroom. The previous 1000m request forced spillover onto Pi etcd nodes
-  # whenever Hestia had <1 full allocatable core free.
+  # limit, but request less than a full core for scheduler flexibility without
+  # increasing execution parallelism.
   cpu_request = "500m"
   cpu_limit = "1000m"
