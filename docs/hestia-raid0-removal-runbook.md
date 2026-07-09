@@ -76,7 +76,14 @@ These are candidates for the SATA/noisy filesystem after rebuild:
 
 ### Docker caveat
 
-Hestia still runs host Docker containers outside Kubernetes, including Immich, media apps, Traefik, Pi-hole, and related volumes. No compose files were found under `/home/ben` during inventory. Treat Docker state as a separate host-service migration item; do not wipe `/var/lib/docker` without either locating compose/state definitions or explicitly accepting rebuild/loss for those services.
+Hestia still runs host Docker containers outside Kubernetes, including Immich, media apps, Traefik, Pi-hole, and related volumes. Container labels show the compose source of truth is mounted from Synology NFS under `/mnt/docker`:
+
+- `/mnt/docker/downloads/docker-compose.yml` — downloads/media stack.
+- `/mnt/docker/immich/docker-compose.yml` and `/mnt/docker/immich/compose.override.yml` — Immich stack.
+- `/mnt/docker/pihole/docker-compose.yml` — Pi-hole.
+- `/mnt/docker/traefik/docker-compose.yaml` — Traefik and related services.
+
+Treat Docker state as a separate host-service migration item; do not wipe `/var/lib/docker` without confirming whether the current local Docker volumes are rebuildable from these compose files and their NFS-backed data paths.
 
 ### Host config to preserve
 
@@ -186,6 +193,12 @@ sudo cp -a /var/lib/rancher/k3s/server/db/snapshots/pre-hestia-storage-split-$TS
 ```
 
 Also copy recent scheduled snapshots if space allows.
+
+On the current Hestia install, standalone `etcdutl` and `k3s etcdutl` are not available. `etcdctl` 3.6 on this host supports `snapshot save` but not `snapshot status`. If stronger pre-destructive validation is required, install/use a matching `etcdutl` binary or perform a restore drill on an isolated node. At minimum, verify that the copied snapshot hash matches the local snapshot:
+
+```bash
+sudo sha256sum /var/lib/rancher/k3s/server/db/snapshots/pre-hestia-storage-split-$TS* "$BACKUP_ROOT"/k3s/pre-hestia-storage-split-$TS*
+```
 
 ### host config backup
 
