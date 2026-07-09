@@ -31,7 +31,7 @@ Final validation snapshot:
 - Hestia node conditions: `Ready=True`, `DiskPressure=False`, `MemoryPressure=False`, `PIDPressure=False`, `EtcdIsVoter=True`.
 - etcd endpoint health after settle: Hestia/Heracles/Nyx all healthy at about 5.6-5.9 ms.
 - etcd alarms: none.
-- No fresh `slow fdatasync`, ReadIndex, heartbeat, or `apply request took too long` warnings in the final 2-minute settled window.
+- No fresh `slow fdatasync`, ReadIndex, or heartbeat warnings in the final settled window; one low-level `apply request took too long` read warning at 119 ms was observed.
 - Filesystem free space after cleanup:
   - `/`: 229G size, 103G used, 120G available, 47% used.
   - `/srv/noisy`: 112G size, 58G used, 55G available, 52% used.
@@ -42,7 +42,9 @@ Final validation snapshot:
 Known caveats:
 
 - The migration used an in-place btrfs device removal/split rather than a full OS reinstall. Root remains single-device btrfs on NVMe, not XFS/ext4.
-- During workload rescheduling and image pulls immediately after uncordon, Hestia still emitted transient read-latency warnings, including ReadIndex retries and `apply request took too long` up to about 1.6 s. These stopped in the final settled window, but a controlled CI/image-pull validation is still required before re-enabling Renovate.
+- During workload rescheduling and image pulls immediately after uncordon, Hestia still emitted transient read-latency warnings, including ReadIndex retries and `apply request took too long` up to about 1.6 s. These stopped after workload settle.
+- Controlled runtime validation pulled and ran `ghcr.io/renovatebot/renovate:42` on Hestia with `imagePullPolicy: Always`; the image pull took 29.09 s, the pod completed successfully, Hestia emitted no scary etcd warnings during the validation, and final etcd endpoint health was about 7.2 ms on all three endpoints.
+- A full Renovate workload validation is still required before re-enabling the scheduled Renovate run.
 - Loki and VictoriaMetrics history preservation was intentionally deprioritized for this personal cluster.
 - Docker data was not moved to `/srv/noisy`; Docker remains a separate host-service concern.
 
