@@ -51,7 +51,7 @@ Known caveats:
   - No `slow fdatasync`, Raft heartbeat, or dropped-message symptoms were observed.
   - During and shortly after the run, Hestia still emitted transient sub-second etcd read/apply warnings, including one ReadIndex retry around 500 ms and `apply request took too long` up to about 584 ms during pod cleanup.
   - After a final settle window, etcd health was about 6.6-6.9 ms on all three endpoints; only low-level 100-400 ms apply warnings remained.
-  - The hourly Renovate schedule remained disabled after validation (`active=false`).
+  - The hourly Renovate schedule was re-enabled after validation (`active=true`); next scheduled run was `2026-07-09T17:19:00+01:00`.
 - Loki and VictoriaMetrics history preservation was intentionally deprioritized for this personal cluster.
 - Docker data was not moved to `/srv/noisy`; Docker remains a separate host-service concern.
 
