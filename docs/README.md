@@ -16,6 +16,7 @@ This directory contains documentation for the K8s (K3s) cluster infrastructure.
 ### Storage
 
 - **[storage-troubleshooting.md](storage-troubleshooting.md)** - Current storage troubleshooting for SeaweedFS, local-path volumes, Synology NFS static PVs, and disk pressure.
+- **[hestia-raid0-removal-runbook.md](hestia-raid0-removal-runbook.md)** - Maintenance runbook for removing Hestia's mixed-device btrfs RAID0 root and isolating etcd from CI/container runtime churn.
 - **[seaweedfs-s3-identities.md](seaweedfs-s3-identities.md)** - Current SeaweedFS S3 identities, secret mappings, and manual credential rotation/repair procedure.
 - **[seaweedfs-cosi.md](seaweedfs-cosi.md)** - COSI-first SeaweedFS S3 control-plane runbook.
 - **[seaweedfs-bucket-audit.md](seaweedfs-bucket-audit.md)** - Durable runbook for auditing `/buckets`, including `pvc-*` CSI paths, named S3 buckets, and cleanup candidates.
