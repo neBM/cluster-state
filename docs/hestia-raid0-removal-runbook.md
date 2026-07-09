@@ -1,6 +1,6 @@
 # Hestia RAID0 Removal and Storage-Isolation Runbook
 
-Status: draft/pre-execution runbook. Do not run the destructive phases without a fresh go/no-go confirmation.
+Status: executed on 2026-07-09. Hestia no longer uses mixed-device btrfs RAID0; root is single-device btrfs on NVMe and noisy container/CI paths are bind-mounted from a separate XFS filesystem on the SATA SSD.
 
 ## Purpose
 
@@ -8,16 +8,54 @@ Remove Hestia's mixed-device btrfs RAID0 root topology and split latency-sensiti
 
 This runbook is motivated by embedded-etcd latency incidents where ordinary Renovate, image-pull/unpack, and metadata traversal caused `apply request took too long`, `slow fdatasync`, and Raft heartbeat symptoms. The root problem is shared storage failure domain, not one bad CI job.
 
-## Current Hestia evidence
+## Execution record: 2026-07-09
+
+Outcome:
+
+- Removed `/dev/sda1` from the root btrfs filesystem.
+- Completed btrfs data conversion; root now reports `Data,single`, `Multiple profiles: no`, and `Total devices 1`.
+- Root remains btrfs on `/dev/nvme0n1p3` with UUID `07d51adb-8799-4879-b7af-35e8813d390b`.
+- Reformatted `/dev/sda1` as XFS label `HESTIA_NOISY`, UUID `a6431c20-a445-41c7-a5a5-dd3f3ec5111f`.
+- Mounted `/srv/noisy` from `/dev/sda1` and bind-mounted:
+  - `/srv/noisy/containerd` -> `/var/lib/rancher/k3s/agent/containerd`
+  - `/srv/noisy/ci-builds-nocow` -> `/var/lib/ci-builds-nocow`
+  - `/srv/noisy/ci-cache-nocow` -> `/var/lib/ci-cache-nocow`
+  - `/srv/noisy/ci-containers-nocow` -> `/var/lib/ci-containers-nocow`
+- Persisted those mounts in `/etc/fstab`; `findmnt --verify --verbose` passed.
+- Deleted temporary `*.pre-noisy-20260709T134554Z` source copies after validating the bind-mounted copies and recovering from Kubernetes `DiskPressure`.
+- Restarted k3s and Docker, uncordoned Hestia, and confirmed all nodes Ready.
+- Docker containers restored to running state.
+
+Final validation snapshot:
+
+- Hestia node conditions: `Ready=True`, `DiskPressure=False`, `MemoryPressure=False`, `PIDPressure=False`, `EtcdIsVoter=True`.
+- etcd endpoint health after settle: Hestia/Heracles/Nyx all healthy at about 5.6-5.9 ms.
+- etcd alarms: none.
+- No fresh `slow fdatasync`, ReadIndex, heartbeat, or `apply request took too long` warnings in the final 2-minute settled window.
+- Filesystem free space after cleanup:
+  - `/`: 229G size, 103G used, 120G available, 47% used.
+  - `/srv/noisy`: 112G size, 58G used, 55G available, 52% used.
+- Low-impact 4 KiB fsync probe after migration:
+  - `etcd-parent-root-nvme`: p50 8.698 ms, p95 19.605 ms, p99 19.971 ms, max 22.060 ms.
+  - `noisy-sata-xfs`: p50 1.073 ms, p95 2.050 ms, p99 20.927 ms, max 21.141 ms.
+
+Known caveats:
+
+- The migration used an in-place btrfs device removal/split rather than a full OS reinstall. Root remains single-device btrfs on NVMe, not XFS/ext4.
+- During workload rescheduling and image pulls immediately after uncordon, Hestia still emitted transient read-latency warnings, including ReadIndex retries and `apply request took too long` up to about 1.6 s. These stopped in the final settled window, but a controlled CI/image-pull validation is still required before re-enabling Renovate.
+- Loki and VictoriaMetrics history preservation was intentionally deprioritized for this personal cluster.
+- Docker data was not moved to `/srv/noisy`; Docker remains a separate host-service concern.
+
+## Pre-migration Hestia evidence
 
 - Node: `hestia` / `192.168.1.5`, Fedora 43, K3s control-plane/etcd.
-- Current root: btrfs filesystem UUID `07d51adb-8799-4879-b7af-35e8813d390b` spanning:
+- Pre-migration root: btrfs filesystem UUID `07d51adb-8799-4879-b7af-35e8813d390b` spanning:
   - `/dev/sda1` — Kingston SA400 SATA SSD, 111.8 GiB.
   - `/dev/nvme0n1p3` — Samsung MZVLB256HAHQ NVMe, 230 GiB.
-- Current btrfs profile:
+- Pre-migration btrfs profile:
   - `Data,RAID0`, 303.21 GiB total.
   - `Metadata,DUP`, 7 GiB total.
-  - `/dev/sda1` has only ~1 MiB unallocated; NVMe still has ~23 GiB unallocated.
+  - `/dev/sda1` had only ~1 MiB unallocated; NVMe still had ~23 GiB unallocated.
 - btrfs device stats currently show historical corruption counters:
   - `/dev/sda1 corruption_errs=1`
   - `/dev/nvme0n1p3 corruption_errs=14`
