@@ -19,7 +19,7 @@ func TestPrepareResourceClaimsUsesClaimScopedCDI(t *testing.T) {
 
 	claimUID := types.UID("0a64caf4-857e-4ba4-b0ea-bd692940350f")
 	claim := allocatedClaim(claimUID)
-	plugin := NewPlugin(testDevices(), fake.NewSimpleClientset())
+	plugin := NewPlugin(testDevices(), fake.NewSimpleClientset(), "heracles")
 
 	result, err := plugin.PrepareResourceClaims(context.Background(), []*resourceapi.ResourceClaim{claim})
 	if err != nil {
@@ -63,7 +63,7 @@ func TestUnprepareDefersWhileClaimReservedForLivePod(t *testing.T) {
 		},
 		Status: corev1.PodStatus{Phase: corev1.PodRunning},
 	}
-	plugin := NewPlugin(testDevices(), fake.NewSimpleClientset(claim, pod))
+	plugin := NewPlugin(testDevices(), fake.NewSimpleClientset(claim, pod), "heracles")
 	if _, err := WriteCDISpec(testDevices(), claimUID); err != nil {
 		t.Fatalf("setup CDI spec: %v", err)
 	}
@@ -91,7 +91,7 @@ func TestUnprepareRemovesSpecWhenClaimHasNoLiveConsumers(t *testing.T) {
 		Name:     "iris-6799c5d487-old",
 		UID:      podUID,
 	})
-	plugin := NewPlugin(testDevices(), fake.NewSimpleClientset(claim))
+	plugin := NewPlugin(testDevices(), fake.NewSimpleClientset(claim), "heracles")
 	if _, err := WriteCDISpec(testDevices(), claimUID); err != nil {
 		t.Fatalf("setup CDI spec: %v", err)
 	}

@@ -16,7 +16,7 @@ import (
 
 const (
 	DriverName = "rpi5.brmartin.co.uk"
-	DeviceName = "drm-decoder-0"
+	DeviceName = driver.DeviceName
 )
 
 type DiscoverFunc func() (*driver.Devices, bool)

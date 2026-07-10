@@ -3,7 +3,9 @@ package driver
 import (
 	"context"
 	"fmt"
+	"time"
 
+	"google.golang.org/grpc"
 	corev1 "k8s.io/api/core/v1"
 	resourceapi "k8s.io/api/resource/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -12,21 +14,28 @@ import (
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/dynamic-resource-allocation/kubeletplugin"
 	"k8s.io/klog/v2"
+	drahealthv1alpha1 "k8s.io/kubelet/pkg/apis/dra-health/v1alpha1"
 )
 
 // DriverName is the DRA driver name registered with the kubelet.
 const DriverName = "rpi5.brmartin.co.uk"
 
+// DeviceName is the single logical DRA device advertised in this node's ResourceSlice.
+const DeviceName = "drm-decoder-0"
+
 // Plugin implements kubeletplugin.DRAPlugin for the Pi5 hardware transcode
 // devices. It writes and removes CDI specs on prepare/unprepare.
 type Plugin struct {
-	devices *Devices
-	client  kubernetes.Interface
+	drahealthv1alpha1.UnimplementedDRAResourceHealthServer
+
+	devices  *Devices
+	client   kubernetes.Interface
+	nodeName string
 }
 
 // NewPlugin returns a Plugin backed by the supplied device discovery result.
-func NewPlugin(devices *Devices, client kubernetes.Interface) *Plugin {
-	return &Plugin{devices: devices, client: client}
+func NewPlugin(devices *Devices, client kubernetes.Interface, nodeName string) *Plugin {
+	return &Plugin{devices: devices, client: client, nodeName: nodeName}
 }
 
 // PrepareResourceClaims implements kubeletplugin.DRAPlugin.
@@ -101,6 +110,52 @@ func (p *Plugin) UnprepareResourceClaims(
 	}
 
 	return result, nil
+}
+
+// NodeWatchResources implements the optional kubelet DRAResourceHealth service.
+// Kubelet reconnects to this stream and expects a complete device-health list.
+// The driver currently has one logical ResourceSlice device, so report it as
+// healthy while the plugin process is running and refresh before kubelet's
+// timeout can mark it unknown.
+func (p *Plugin) NodeWatchResources(
+	_ *drahealthv1alpha1.NodeWatchResourcesRequest,
+	stream grpc.ServerStreamingServer[drahealthv1alpha1.NodeWatchResourcesResponse],
+) error {
+	const refresh = 30 * time.Second
+
+	send := func() error {
+		return stream.Send(&drahealthv1alpha1.NodeWatchResourcesResponse{
+			Devices: []*drahealthv1alpha1.DeviceHealth{
+				{
+					Device: &drahealthv1alpha1.DeviceIdentifier{
+						PoolName:   p.nodeName,
+						DeviceName: DeviceName,
+					},
+					Health:                    drahealthv1alpha1.HealthStatus_HEALTHY,
+					LastUpdatedTime:           time.Now().Unix(),
+					HealthCheckTimeoutSeconds: int64((2 * refresh).Seconds()),
+					Message:                   "Pi5 DRA device plugin is running",
+				},
+			},
+		})
+	}
+
+	if err := send(); err != nil {
+		return err
+	}
+
+	ticker := time.NewTicker(refresh)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-stream.Context().Done():
+			return stream.Context().Err()
+		case <-ticker.C:
+			if err := send(); err != nil {
+				return err
+			}
+		}
+	}
 }
 
 func (p *Plugin) deferUnprepareForLiveReservation(ctx context.Context, claim kubeletplugin.NamespacedObject) (bool, error) {

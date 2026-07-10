@@ -55,7 +55,7 @@ func main() {
 		klog.Fatalf("create plugin dir: %v", err)
 	}
 
-	plugin := driver.NewPlugin(devices, client)
+	plugin := driver.NewPlugin(devices, client, nodeName)
 	dp, err := kubeletplugin.Start(ctx, plugin,
 		kubeletplugin.DriverName(driver.DriverName),
 		kubeletplugin.KubeClient(client),
