@@ -6,10 +6,7 @@ import (
 	"time"
 
 	"google.golang.org/grpc"
-	corev1 "k8s.io/api/core/v1"
 	resourceapi "k8s.io/api/resource/v1"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/dynamic-resource-allocation/kubeletplugin"
@@ -86,20 +83,6 @@ func (p *Plugin) UnprepareResourceClaims(
 	result := make(map[types.UID]error, len(claims))
 
 	for _, claim := range claims {
-		deferUnprepare, err := p.deferUnprepareForLiveReservation(ctx, claim)
-		if err != nil {
-			err = fmt.Errorf("check ResourceClaim live reservations: %w", err)
-			klog.ErrorS(err, "defer unprepare check failed", "claim", claim)
-			result[claim.UID] = err
-			continue
-		}
-		if deferUnprepare {
-			err := fmt.Errorf("ResourceClaim %s is still reserved for a live consumer", claim.String())
-			klog.InfoS("deferring unprepare for live ResourceClaim", "claim", claim)
-			result[claim.UID] = err
-			continue
-		}
-
 		if err := RemoveCDISpec(claim.UID); err != nil {
 			klog.Warningf("remove CDI spec for claim %s: %v", claim.UID, err)
 			result[claim.UID] = err
@@ -155,47 +138,6 @@ func (p *Plugin) NodeWatchResources(
 				return err
 			}
 		}
-	}
-}
-
-func (p *Plugin) deferUnprepareForLiveReservation(ctx context.Context, claim kubeletplugin.NamespacedObject) (bool, error) {
-	if p.client == nil {
-		return false, nil
-	}
-
-	resourceClaim, err := p.client.ResourceV1().ResourceClaims(claim.Namespace).Get(ctx, claim.Name, metav1.GetOptions{})
-	if apierrors.IsNotFound(err) {
-		return false, nil
-	}
-	if err != nil {
-		return false, err
-	}
-	if resourceClaim.UID != claim.UID {
-		return false, nil
-	}
-
-	for _, consumer := range resourceClaim.Status.ReservedFor {
-		if isLiveConsumer, err := p.isLiveConsumer(ctx, claim.Namespace, consumer); err != nil || isLiveConsumer {
-			return isLiveConsumer, err
-		}
-	}
-
-	return false, nil
-}
-
-func (p *Plugin) isLiveConsumer(ctx context.Context, namespace string, consumer resourceapi.ResourceClaimConsumerReference) (bool, error) {
-	switch {
-	case consumer.APIGroup == "" && consumer.Resource == "pods":
-		pod, err := p.client.CoreV1().Pods(namespace).Get(ctx, consumer.Name, metav1.GetOptions{})
-		if apierrors.IsNotFound(err) {
-			return false, nil
-		}
-		if err != nil {
-			return false, err
-		}
-		return pod.UID == consumer.UID && pod.Status.Phase != corev1.PodSucceeded && pod.Status.Phase != corev1.PodFailed, nil
-	default:
-		return true, nil
 	}
 }
 

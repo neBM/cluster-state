@@ -44,7 +44,7 @@ func TestPrepareResourceClaimsUsesClaimScopedCDI(t *testing.T) {
 	}
 }
 
-func TestUnprepareDefersWhileClaimReservedForLivePod(t *testing.T) {
+func TestUnprepareRemovesSpecEvenWhileClaimReservedForDeletingPod(t *testing.T) {
 	cdiDir = t.TempDir()
 	t.Cleanup(func() { cdiDir = "/var/run/cdi" })
 
@@ -72,11 +72,11 @@ func TestUnprepareDefersWhileClaimReservedForLivePod(t *testing.T) {
 	if err != nil {
 		t.Fatalf("UnprepareResourceClaims: %v", err)
 	}
-	if result[claimUID] == nil {
-		t.Fatal("expected per-claim unprepare error while live pod still reserves the claim")
+	if result[claimUID] != nil {
+		t.Fatalf("unexpected per-claim unprepare error: %v", result[claimUID])
 	}
-	if _, err := os.Stat(cdiSpecPath(claimUID)); err != nil {
-		t.Fatalf("CDI spec should remain while unprepare is deferred: %v", err)
+	if _, err := os.Stat(cdiSpecPath(claimUID)); !os.IsNotExist(err) {
+		t.Fatalf("CDI spec should be removed during unprepare, stat err=%v", err)
 	}
 }
 
