@@ -19,7 +19,9 @@ type Devices struct {
 }
 
 // Discover probes for Pi5 V4L2 and DRM decode devices. Returns the found
-// devices and whether any were present. Safe to call multiple times.
+// devices and whether Pi decode hardware was present. A generic DRM render node
+// alone is not enough because non-Pi nodes, such as Hestia's NVIDIA host, also
+// expose render nodes.
 func Discover() (*Devices, bool) {
 	d := &Devices{}
 
@@ -38,5 +40,5 @@ func Discover() (*Devices, bool) {
 		d.HasRenderNode = true
 	}
 
-	return d, d.HasH264 || d.HasHEVC || d.HasRenderNode
+	return d, d.HasH264 || d.HasHEVC
 }

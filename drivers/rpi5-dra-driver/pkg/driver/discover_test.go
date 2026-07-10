@@ -65,3 +65,20 @@ func TestDiscoverH264OnlyNoHEVC(t *testing.T) {
 		t.Error("expected HasRenderNode=false")
 	}
 }
+
+func TestDiscoverRenderOnlyIsNotPiDecodeHardware(t *testing.T) {
+	tmp := t.TempDir()
+	devRoot = tmp
+	t.Cleanup(func() { devRoot = "/dev" })
+
+	os.MkdirAll(filepath.Join(tmp, "dri"), 0755)
+	os.WriteFile(filepath.Join(tmp, "dri", "renderD128"), nil, 0600)
+
+	devices, found := Discover()
+	if found {
+		t.Fatal("expected found=false for generic render node without Pi V4L2 decode devices")
+	}
+	if !devices.HasRenderNode {
+		t.Error("expected render node to still be recorded")
+	}
+}
