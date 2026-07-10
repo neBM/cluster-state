@@ -21,8 +21,13 @@ spec:
         - |
           for dir in /host/ci-builds /host/ci-cache /host/ci-containers; do
             mkdir -p "$dir"
-            if ! lsattr -d "$dir" | grep -q 'C'; then
-              chattr +C "$dir"
+            if lsattr -d "$dir" 2>/dev/null | grep -q 'C'; then
+              continue
+            fi
+            if chattr +C "$dir" 2>/tmp/chattr.err; then
+              echo "enabled no-COW on $dir"
+            else
+              echo "no-COW unsupported on $dir; continuing: $(cat /tmp/chattr.err)"
             fi
           done
 
