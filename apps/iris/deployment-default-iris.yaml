@@ -16,10 +16,7 @@ spec:
       component: server
       managed-by: terraform
   strategy:
-    rollingUpdate:
-      maxSurge: 25%
-      maxUnavailable: 25%
-    type: RollingUpdate
+    type: Recreate
   template:
     metadata:
       annotations:
