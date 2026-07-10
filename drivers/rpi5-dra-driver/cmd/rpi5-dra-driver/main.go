@@ -42,13 +42,11 @@ func main() {
 	go resource.RepublishLoop(ctx, client, nodeName, time.Minute, driver.Discover)
 
 	if !found {
-		klog.Info("no Pi5 decode devices found — idling")
-		<-ctx.Done()
-		return
+		klog.Info("no Pi5 decode devices found — publishing no ResourceSlice, but serving plugin for stale unprepare")
+	} else {
+		klog.Infof("Pi5 devices: H264=%v HEVC=%v RenderNode=%v",
+			devices.HasH264, devices.HasHEVC, devices.HasRenderNode)
 	}
-
-	klog.Infof("Pi5 devices: H264=%v HEVC=%v RenderNode=%v",
-		devices.HasH264, devices.HasHEVC, devices.HasRenderNode)
 
 	pluginDir := kubeletplugin.KubeletPluginsDir + "/" + driver.DriverName
 	if err := os.MkdirAll(pluginDir, 0750); err != nil {

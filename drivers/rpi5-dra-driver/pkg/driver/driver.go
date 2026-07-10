@@ -97,9 +97,11 @@ func (p *Plugin) UnprepareResourceClaims(
 
 // NodeWatchResources implements the optional kubelet DRAResourceHealth service.
 // Kubelet reconnects to this stream and expects a complete device-health list.
-// The driver currently has one logical ResourceSlice device, so report it as
-// healthy while the plugin process is running and refresh before kubelet's
-// timeout can mark it unknown.
+// The driver currently has one logical ResourceSlice device on Pi nodes. Report
+// it as healthy while the plugin process is running and refresh before kubelet's
+// timeout can mark it unknown. Non-Pi nodes may still run the plugin to clean up
+// stale allocations; those nodes publish no ResourceSlice and report no health
+// devices.
 func (p *Plugin) NodeWatchResources(
 	_ *drahealthv1alpha1.NodeWatchResourcesRequest,
 	stream grpc.ServerStreamingServer[drahealthv1alpha1.NodeWatchResourcesResponse],
@@ -107,8 +109,9 @@ func (p *Plugin) NodeWatchResources(
 	const refresh = 30 * time.Second
 
 	send := func() error {
-		return stream.Send(&drahealthv1alpha1.NodeWatchResourcesResponse{
-			Devices: []*drahealthv1alpha1.DeviceHealth{
+		response := &drahealthv1alpha1.NodeWatchResourcesResponse{}
+		if p.devices.HasH264 || p.devices.HasHEVC {
+			response.Devices = []*drahealthv1alpha1.DeviceHealth{
 				{
 					Device: &drahealthv1alpha1.DeviceIdentifier{
 						PoolName:   p.nodeName,
@@ -119,8 +122,9 @@ func (p *Plugin) NodeWatchResources(
 					HealthCheckTimeoutSeconds: int64((2 * refresh).Seconds()),
 					Message:                   "Pi5 DRA device plugin is running",
 				},
-			},
-		})
+			}
+		}
+		return stream.Send(response)
 	}
 
 	if err := send(); err != nil {
