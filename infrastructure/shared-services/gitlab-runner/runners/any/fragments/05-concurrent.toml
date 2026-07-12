@@ -1,5 +1,5 @@
-# Keep generic CI conservative on this three-node embedded-etcd cluster. A
-# monitored trial at concurrent=2 reduced serialization but reintroduced etcd
-# heartbeat/fdatasync pressure on the embedded control plane, so keep k8s-any
-# single-lane until the runner/storage architecture is improved.
-concurrent = 1
+# The strategic CI-storage isolation is now in place. Restore the generic
+# runner to one job per cluster node; required pod anti-affinity keeps CI job
+# pods distributed while the isolated CI builds/cache/container paths prevent
+# their mutable workload from sharing the embedded-etcd storage path.
+concurrent = 3
