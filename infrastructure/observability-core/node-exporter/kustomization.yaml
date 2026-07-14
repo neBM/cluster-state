@@ -6,4 +6,4 @@ resources:
 
 images:
 - name: "prom/node-exporter"
-  newTag: "v1.12.0"
+  newTag: "v1.12.1"
