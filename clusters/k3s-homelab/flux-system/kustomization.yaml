@@ -6,6 +6,7 @@ resources:
 - certificate-flux-system-wildcard-brmartin-tls.yaml
 - ingress-flux-webhook.yaml
 - receiver-cluster-state.yaml
+- kustomization-storage-nfs-csi.yaml
 - kustomization-storage-classes.yaml
 - kustomization-storage.yaml
 - kustomization-storage-cosi.yaml
