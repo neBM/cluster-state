@@ -1,0 +1,13 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: csi-nfs-controller
+  namespace: kube-system
+spec:
+  template:
+    spec:
+      containers:
+      - name: csi-resizer
+        $patch: delete
+      - name: csi-snapshotter
+        $patch: delete

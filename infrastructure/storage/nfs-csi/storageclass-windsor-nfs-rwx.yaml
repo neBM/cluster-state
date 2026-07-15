@@ -1,0 +1,21 @@
+allowVolumeExpansion: false
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  labels:
+    app.kubernetes.io/name: csi-driver-nfs
+    app.kubernetes.io/part-of: windsor-storage
+    environment: prod
+  name: windsor-nfs-rwx
+mountOptions:
+- nfsvers=3
+- hard
+- timeo=600
+parameters:
+  onDelete: retain
+  server: 192.168.1.11
+  share: /volume1/kubernetes-rwx
+  subDir: ${pvc.metadata.namespace}/${pvc.metadata.name}-${pv.metadata.name}
+provisioner: nfs.csi.k8s.io
+reclaimPolicy: Retain
+volumeBindingMode: Immediate

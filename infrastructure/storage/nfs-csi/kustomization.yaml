@@ -1,0 +1,14 @@
+# Vendored from kubernetes-csi/csi-driver-nfs v4.13.4. Snapshot and resize
+# sidecars are deliberately excluded: Windsor has no CSI snapshot workflow and
+# its NFS share does not enforce PVC capacity.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+- rbac-csi-nfs.yaml
+- csi-nfs-driverinfo.yaml
+- csi-nfs-controller.yaml
+- csi-nfs-node.yaml
+- storageclass-windsor-nfs-rwx.yaml
+patches:
+- path: patch-controller-disable-optional-sidecars.yaml
+- path: patch-rbac-disable-optional-sidecars.yaml
