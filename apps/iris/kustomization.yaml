@@ -5,7 +5,6 @@ resources:
 - deployment-default-iris-valkey.yaml
 - ingress-default-iris.yaml
 - persistentvolume-iris-synology-media.yaml
-- persistentvolumeclaim-default-iris-image-cache-sw.yaml
 - persistentvolumeclaim-default-iris-image-cache-windsor.yaml
 - persistentvolumeclaim-default-iris-synology-media.yaml
 - resourceclaim-default-iris-transcode.yaml

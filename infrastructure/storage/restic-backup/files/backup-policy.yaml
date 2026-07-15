@@ -59,7 +59,6 @@ jobs:
         path: /data/vaultwarden-data-sw
         reason: Vaultwarden attachments/filesystem state
     excludes:
-      - iris-image-cache-sw
       - rspamd-data-sw
       - postfix-spool-sw
       - loki
