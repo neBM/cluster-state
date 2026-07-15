@@ -196,7 +196,7 @@ spec:
       volumes:
       - name: image-cache
         persistentVolumeClaim:
-          claimName: iris-image-cache-sw
+          claimName: iris-image-cache-windsor
       - emptyDir: {}
         name: hls-tmp
       - name: media
