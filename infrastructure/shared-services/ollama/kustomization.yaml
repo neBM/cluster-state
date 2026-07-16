@@ -6,4 +6,4 @@ resources:
 
 images:
 - name: "ollama/ollama"
-  newTag: "0.32.0"
+  newTag: "0.32.1"
