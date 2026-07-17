@@ -13,6 +13,6 @@ resources:
 
 images:
 - name: "registry.brmartin.co.uk/ben/iris"
-  digest: "sha256:0ad95d6eadbcd07d5921adc6ae161ec13a0de543f456a3b5f8a9ace6f3b78e31"
+  digest: "sha256:509f8bb5f6aa7496138dda0d6a7e5ef68e8665e5af34783e49414c24256a99bf"
 - name: "valkey/valkey"
   newTag: "9-alpine"
