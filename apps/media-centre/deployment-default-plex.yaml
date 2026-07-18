@@ -76,6 +76,9 @@ spec:
               name: tmp
             - mountPath: /data
               name: media-docker
+            - mountPath: /data/downloads/media/TV
+              name: media-tv
+              readOnly: true
             - mountPath: /share
               name: media-share
       dnsPolicy: ClusterFirst
@@ -291,6 +294,10 @@ spec:
         - name: media-docker
           persistentVolumeClaim:
             claimName: media-synology-docker
+        - name: media-tv
+          persistentVolumeClaim:
+            claimName: media-windsor-tv
+            readOnly: true
         - name: media-share
           persistentVolumeClaim:
             claimName: media-synology-share

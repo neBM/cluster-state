@@ -8,6 +8,8 @@ resources:
 - ingressroute-default-tautulli.yaml
 - persistentvolume-media-synology-docker.yaml
 - persistentvolume-media-synology-share.yaml
+- persistentvolume-media-windsor-tv.yaml
+- persistentvolumeclaim-default-media-windsor-tv.yaml
 - service-default-plex.yaml
 - service-default-tautulli.yaml
 

@@ -181,6 +181,10 @@ spec:
           mountPropagation: None
           name: media
           readOnly: true
+        - mountPath: /media/downloads/media/TV
+          mountPropagation: None
+          name: media-tv
+          readOnly: true
       dnsPolicy: ClusterFirst
       enableServiceLinks: true
       imagePullSecrets:
@@ -202,4 +206,8 @@ spec:
       - name: media
         persistentVolumeClaim:
           claimName: iris-synology-media
+          readOnly: true
+      - name: media-tv
+        persistentVolumeClaim:
+          claimName: media-windsor-tv
           readOnly: true

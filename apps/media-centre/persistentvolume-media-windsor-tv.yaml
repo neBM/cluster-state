@@ -1,0 +1,23 @@
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  finalizers:
+  - kubernetes.io/pv-protection
+  name: media-windsor-tv
+spec:
+  accessModes:
+  - ReadOnlyMany
+  capacity:
+    storage: 10Ti
+  mountOptions:
+  - nfsvers=3
+  - hard
+  - ro
+  - timeo=600
+  nfs:
+    path: /volume1/media-tv
+    readOnly: true
+    server: 192.168.1.11
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: synology-nfs-static
+  volumeMode: Filesystem
