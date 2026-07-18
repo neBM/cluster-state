@@ -22,9 +22,18 @@
   host_path = "/var/lib/ci-containers-nocow"
   read_only = false
 
-# In-cluster registry bypass.
+# In-cluster registry bypass for daemonless image tools.
 [[runners.kubernetes.volumes.config_map]]
   name = "gitlab-runner-registries-conf"
   mount_path = "/etc/containers/registries.conf"
   sub_path = "registries.conf"
+  read_only = true
+
+# The same in-cluster registry bypass for Docker-in-Docker services. The
+# Kubernetes executor mounts runner-defined volumes into build and service
+# containers, so dockerd reads this file without repository-specific flags.
+[[runners.kubernetes.volumes.config_map]]
+  name = "gitlab-runner-docker-daemon"
+  mount_path = "/etc/docker/daemon.json"
+  sub_path = "daemon.json"
   read_only = true
