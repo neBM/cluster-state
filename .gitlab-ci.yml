@@ -256,6 +256,9 @@ package:feedback-migrations:
       - apps/**/*
       - clusters/**/*
       - infrastructure/**/*
+      - scripts/test_validate_ibgateway_manifest.py
+      - scripts/validate_ibgateway_manifest.py
+      - scripts/validate_ibgateway_manifest.py.lock
       - scripts/validate_kustomize.sh
       - .gitlab-ci.yml
   - if: $CI_COMMIT_BRANCH == "main"
@@ -263,6 +266,9 @@ package:feedback-migrations:
       - apps/**/*
       - clusters/**/*
       - infrastructure/**/*
+      - scripts/test_validate_ibgateway_manifest.py
+      - scripts/validate_ibgateway_manifest.py
+      - scripts/validate_ibgateway_manifest.py.lock
       - scripts/validate_kustomize.sh
       - .gitlab-ci.yml
 

@@ -5,6 +5,8 @@ metadata:
   labels:
     app.kubernetes.io/part-of: autonomous-investing
     kubernetes.io/metadata.name: autonomous-investing
+    pod-security.kubernetes.io/audit: restricted
+    pod-security.kubernetes.io/audit-version: latest
     pod-security.kubernetes.io/enforce: restricted
     pod-security.kubernetes.io/enforce-version: latest
     pod-security.kubernetes.io/warn: restricted
