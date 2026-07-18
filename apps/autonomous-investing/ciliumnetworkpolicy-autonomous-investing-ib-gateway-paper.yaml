@@ -1,0 +1,35 @@
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: ib-gateway-paper
+  namespace: autonomous-investing
+spec:
+  egress:
+  - toEndpoints:
+    - matchLabels:
+        k8s:io.kubernetes.pod.namespace: kube-system
+        k8s:k8s-app: kube-dns
+    toPorts:
+    - ports:
+      - port: "53"
+        protocol: UDP
+      - port: "53"
+        protocol: TCP
+      rules:
+        dns:
+        - matchName: zdc1.ibllc.com
+        - matchName: zdc1-hb1.ibllc.com
+        - matchName: zdc1-hb2.ibllc.com
+  - toFQDNs:
+    - matchName: zdc1.ibllc.com
+    - matchName: zdc1-hb1.ibllc.com
+    - matchName: zdc1-hb2.ibllc.com
+    toPorts:
+    - ports:
+      - port: "4000"
+        protocol: TCP
+      - port: "4001"
+        protocol: TCP
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: ib-gateway-paper

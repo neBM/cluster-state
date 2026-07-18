@@ -112,3 +112,5 @@ done
 "${repo_root}/scripts/validate_gitlab_runner_templates.py"
 "${repo_root}/scripts/validate_shared_postgres_budget.py"
 python3 "${repo_root}/scripts/validate_versioned_migration_jobs.py"
+uv run --locked --script "${repo_root}/scripts/validate_ibgateway_manifest.py"
+python3 "${repo_root}/scripts/test_validate_ibgateway_manifest.py"
