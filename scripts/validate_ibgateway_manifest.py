@@ -70,6 +70,9 @@ DNS_NAMES = [
     "zdc1.ibllc.com",
     "zdc1-hb1.ibllc.com",
     "zdc1-hb2.ibllc.com",
+    "ndc1.ibllc.com",
+    "ndc1-hb1.ibllc.com",
+    "ndc1-hb2.ibllc.com",
 ]
 
 

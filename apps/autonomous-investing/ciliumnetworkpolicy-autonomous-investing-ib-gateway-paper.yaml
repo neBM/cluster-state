@@ -20,10 +20,16 @@ spec:
         - matchName: zdc1.ibllc.com
         - matchName: zdc1-hb1.ibllc.com
         - matchName: zdc1-hb2.ibllc.com
+        - matchName: ndc1.ibllc.com
+        - matchName: ndc1-hb1.ibllc.com
+        - matchName: ndc1-hb2.ibllc.com
   - toFQDNs:
     - matchName: zdc1.ibllc.com
     - matchName: zdc1-hb1.ibllc.com
     - matchName: zdc1-hb2.ibllc.com
+    - matchName: ndc1.ibllc.com
+    - matchName: ndc1-hb1.ibllc.com
+    - matchName: ndc1-hb2.ibllc.com
     toPorts:
     - ports:
       - port: "4000"
