@@ -49,7 +49,7 @@ ADMITTED_REPOSITORY = (
     "registry.brmartin.co.uk:443/autonomous-investing/system/ib-gateway"
 )
 ADMITTED_DIGEST = (
-    "sha256:6f5508ab5e63f6174fddcb88ba0f2d05e6439af0a0b4a73997afb33f34f4f464"
+    "sha256:71ea9b027ac9da3ca9e7b94b6e6bc04b1fc1bcdc42687d1a6231cf2239bf707e"
 )
 ADMITTED_IMAGE = f"{ADMITTED_REPOSITORY}@{ADMITTED_DIGEST}"
 EXPECTED_DEPLOYMENT_POLICY = {
@@ -61,9 +61,9 @@ EXPECTED_DEPLOYMENT_POLICY = {
     },
     "provenance": {
         "systemProjectId": 35,
-        "protectedMainPipelineId": 5233,
-        "admissionJobId": 19790,
-        "sourceCommit": "fc94ec5f622982147dd32888c695f5e0bba25f68",
+        "protectedMainPipelineId": 5261,
+        "admissionJobId": 19838,
+        "sourceCommit": "4a9a2c858fa23e182e06b5cd835b9dddb6dc789d",
     },
 }
 DNS_NAMES = [
