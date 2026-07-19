@@ -386,6 +386,42 @@ def run_common_foundation_tests(parent: Path) -> None:
     )
     foundation_mutation_case(
         parent,
+        "missing-fqdn",
+        lambda root: replace_once(
+            root / CILIUM_POLICY,
+            "        - matchName: ndc1-hb2.ibllc.com\n"
+            "  - toFQDNs:\n",
+            "  - toFQDNs:\n",
+        ),
+        "CiliumNetworkPolicy spec",
+    )
+    foundation_mutation_case(
+        parent,
+        "substituted-fqdn",
+        lambda root: replace_once(
+            root / CILIUM_POLICY,
+            "    - matchName: ndc1.ibllc.com\n"
+            "    - matchName: ndc1-hb1.ibllc.com\n",
+            "    - matchName: ndc2.ibllc.com\n"
+            "    - matchName: ndc1-hb1.ibllc.com\n",
+        ),
+        "CiliumNetworkPolicy spec",
+    )
+    foundation_mutation_case(
+        parent,
+        "extra-fqdn",
+        lambda root: replace_once(
+            root / CILIUM_POLICY,
+            "    - matchName: ndc1-hb2.ibllc.com\n"
+            "    toPorts:\n",
+            "    - matchName: ndc1-hb2.ibllc.com\n"
+            "    - matchName: extra.ibllc.com\n"
+            "    toPorts:\n",
+        ),
+        "CiliumNetworkPolicy spec",
+    )
+    foundation_mutation_case(
+        parent,
         "widened-ports",
         lambda root: replace_once(
             root / CILIUM_POLICY,
