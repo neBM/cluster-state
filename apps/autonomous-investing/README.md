@@ -1,8 +1,8 @@
 # IB Gateway paper workload
 
-`ib-gateway-paper` runs only the paper-trading, read-only API profile. Its image comes through the governed source build and admission pipeline and remains pinned to the immutable digest admitted by protected-main pipeline 5261.
+`ib-gateway-paper` runs only the paper-trading, read-only API profile. Its image comes through the governed source build and admission pipeline and remains pinned to the immutable digest admitted by protected-main pipeline 5280.
 
-`ib-gateway-paper-deployment-policy.yaml` is the non-Kubernetes audit record for that independently verified artifact. It records system project 35, admission job 19838, source commit `4a9a2c858fa23e182e06b5cd835b9dddb6dc789d`, and the exact admitted repository and digest. It is deliberately not a Kustomize resource. Deployment validation requires its exact schema and values and binds its image reference to both the Deployment and any `--expected-image` argument.
+`ib-gateway-paper-deployment-policy.yaml` is the non-Kubernetes audit record for that independently verified artifact. It records system project 35, admission job 19896, source commit `9c7b05f3d8c7d727b2f68df68e787ad8a227ae37`, and the exact admitted repository and digest. It is deliberately not a Kustomize resource. Deployment validation requires its exact schema and values and binds its image reference to both the Deployment and any `--expected-image` argument.
 
 Broker credentials stay out of Git. The Deployment reads only `TWS_USERID` and `TWS_PASSWORD` files from the separately managed `ibkr-paper-gateway-credentials` Secret.
 

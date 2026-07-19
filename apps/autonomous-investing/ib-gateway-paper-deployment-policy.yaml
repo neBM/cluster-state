@@ -1,10 +1,10 @@
 schemaVersion: 1
 artifact:
   repository: registry.brmartin.co.uk:443/autonomous-investing/system/ib-gateway
-  digest: sha256:71ea9b027ac9da3ca9e7b94b6e6bc04b1fc1bcdc42687d1a6231cf2239bf707e
-  reference: registry.brmartin.co.uk:443/autonomous-investing/system/ib-gateway@sha256:71ea9b027ac9da3ca9e7b94b6e6bc04b1fc1bcdc42687d1a6231cf2239bf707e
+  digest: sha256:b46d585cde8181520511b74bab0d7d5cd6678ddb8358ada715a89319ca0c0f2f
+  reference: registry.brmartin.co.uk:443/autonomous-investing/system/ib-gateway@sha256:b46d585cde8181520511b74bab0d7d5cd6678ddb8358ada715a89319ca0c0f2f
 provenance:
   systemProjectId: 35
-  protectedMainPipelineId: 5261
-  admissionJobId: 19838
-  sourceCommit: 4a9a2c858fa23e182e06b5cd835b9dddb6dc789d
+  protectedMainPipelineId: 5280
+  admissionJobId: 19896
+  sourceCommit: 9c7b05f3d8c7d727b2f68df68e787ad8a227ae37

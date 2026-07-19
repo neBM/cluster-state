@@ -46,7 +46,7 @@ ADMITTED_REPOSITORY = (
     "registry.brmartin.co.uk:443/autonomous-investing/system/ib-gateway"
 )
 ADMITTED_DIGEST = (
-    "sha256:71ea9b027ac9da3ca9e7b94b6e6bc04b1fc1bcdc42687d1a6231cf2239bf707e"
+    "sha256:b46d585cde8181520511b74bab0d7d5cd6678ddb8358ada715a89319ca0c0f2f"
 )
 ADMITTED_IMAGE = f"{ADMITTED_REPOSITORY}@{ADMITTED_DIGEST}"
 DEPLOYMENT_SOURCE_SET = (DEPLOYMENT, PVC, POLICY_RECORD)
