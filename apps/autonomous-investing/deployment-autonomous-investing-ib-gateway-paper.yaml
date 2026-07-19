@@ -1,0 +1,94 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app.kubernetes.io/name: ib-gateway-paper
+  name: ib-gateway-paper
+  namespace: autonomous-investing
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: ib-gateway-paper
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: ib-gateway-paper
+    spec:
+      automountServiceAccountToken: false
+      containers:
+      - image: registry.brmartin.co.uk:443/autonomous-investing/system/ib-gateway@sha256:6f5508ab5e63f6174fddcb88ba0f2d05e6439af0a0b4a73997afb33f34f4f464
+        imagePullPolicy: IfNotPresent
+        name: ib-gateway-paper
+        resources:
+          limits:
+            cpu: "1"
+            memory: 2Gi
+          requests:
+            cpu: 250m
+            memory: 768Mi
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+          readOnlyRootFilesystem: true
+          runAsGroup: 10001
+          runAsNonRoot: true
+          runAsUser: 10001
+          seccompProfile:
+            type: RuntimeDefault
+        volumeMounts:
+        - mountPath: /var/lib/ibgateway
+          name: settings
+        - mountPath: /run/ibc
+          mountPropagation: None
+          name: ibc-runtime
+        - mountPath: /tmp
+          name: tmp
+        - mountPath: /run/secrets
+          name: credentials
+          readOnly: true
+      dnsConfig:
+        options:
+        - name: ndots
+          value: "1"
+      enableServiceLinks: false
+      imagePullSecrets:
+      - name: gitlab-registry
+      nodeSelector:
+        kubernetes.io/arch: amd64
+        kubernetes.io/hostname: hestia
+      securityContext:
+        fsGroup: 10001
+        fsGroupChangePolicy: OnRootMismatch
+        runAsGroup: 10001
+        runAsNonRoot: true
+        runAsUser: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      shareProcessNamespace: false
+      terminationGracePeriodSeconds: 120
+      volumes:
+      - name: settings
+        persistentVolumeClaim:
+          claimName: ib-gateway-settings
+      - emptyDir:
+          medium: Memory
+          sizeLimit: 16Mi
+        name: ibc-runtime
+      - emptyDir:
+          medium: Memory
+          sizeLimit: 512Mi
+        name: tmp
+      - name: credentials
+        secret:
+          defaultMode: 0440
+          items:
+          - key: TWS_USERID
+            path: TWS_USERID
+          - key: TWS_PASSWORD
+            path: TWS_PASSWORD
+          secretName: ibkr-paper-gateway-credentials

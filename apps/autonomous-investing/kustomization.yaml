@@ -2,5 +2,7 @@ apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 resources:
 - ciliumnetworkpolicy-autonomous-investing-ib-gateway-paper.yaml
+- deployment-autonomous-investing-ib-gateway-paper.yaml
 - networkpolicy-autonomous-investing-ib-gateway-paper-default-deny.yaml
 - namespace-autonomous-investing.yaml
+- persistentvolumeclaim-autonomous-investing-ib-gateway-settings.yaml
