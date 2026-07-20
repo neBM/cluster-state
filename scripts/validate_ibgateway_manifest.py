@@ -73,6 +73,9 @@ DNS_NAMES = [
     "ndc1.ibllc.com",
     "ndc1-hb1.ibllc.com",
     "ndc1-hb2.ibllc.com",
+    "cdc1.ibllc.com",
+    "cdc1-hb1.ibllc.com",
+    "cdc1-hb2.ibllc.com",
 ]
 
 
