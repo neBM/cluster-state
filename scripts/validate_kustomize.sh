@@ -114,3 +114,4 @@ done
 python3 "${repo_root}/scripts/validate_versioned_migration_jobs.py"
 uv run --locked --script "${repo_root}/scripts/validate_ibgateway_manifest.py"
 python3 "${repo_root}/scripts/test_validate_ibgateway_manifest.py"
+uv run --locked --script "${repo_root}/scripts/test_matrix_synapse_config.py"
