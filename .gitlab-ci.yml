@@ -256,6 +256,8 @@ package:feedback-migrations:
       - apps/**/*
       - clusters/**/*
       - infrastructure/**/*
+      - scripts/test_matrix_synapse_config.py
+      - scripts/test_matrix_synapse_config.py.lock
       - scripts/test_validate_ibgateway_manifest.py
       - scripts/validate_ibgateway_manifest.py
       - scripts/validate_ibgateway_manifest.py.lock
@@ -266,6 +268,8 @@ package:feedback-migrations:
       - apps/**/*
       - clusters/**/*
       - infrastructure/**/*
+      - scripts/test_matrix_synapse_config.py
+      - scripts/test_matrix_synapse_config.py.lock
       - scripts/test_validate_ibgateway_manifest.py
       - scripts/validate_ibgateway_manifest.py
       - scripts/validate_ibgateway_manifest.py.lock

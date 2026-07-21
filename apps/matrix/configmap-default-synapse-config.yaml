@@ -25,11 +25,8 @@ data:
     \  - '169.254.0.0/16'\n  - '192.88.99.0/24'\n  - '198.18.0.0/15'\n  - '192.0.2.0/24'\n\
     \  - '198.51.100.0/24'\n  - '203.0.113.0/24'\n  - '224.0.0.0/4'\n  - '::1/128'\n\
     \  - 'fe80::/10'\n  - 'fc00::/7'\n  - '2001:db8::/32'\n  - 'ff00::/8'\n  - 'fec0::/10'\n\
-    experimental_features:\n  msc3861:\n    enabled: true\n    issuer: https://mas.brmartin.co.uk\n\
-    \    client_id: 0000000000000000000SYNAPSE\n    client_auth_method: client_secret_basic\n\
-    \    client_secret: \"MAS_CLIENT_SECRET_PLACEHOLDER\"\n    admin_token: \"MAS_ADMIN_TOKEN_PLACEHOLDER\"\
-    \n    account_management_url: \"https://sso.brmartin.co.uk/settings\"\n    introspection_endpoint:\
-    \ \"http://mas.default.svc.cluster.local:8081/oauth2/introspect\"\n"
+    matrix_authentication_service:\n  enabled: true\n  endpoint: http://mas.default.svc.cluster.local:8081/\n\
+    \  secret: \"MAS_ADMIN_TOKEN_PLACEHOLDER\"\n"
   log_config.yaml: "version: 1\nformatters:\n  structured:\n    class: synapse.logging.TerseJsonFormatter\n\
     handlers:\n  console:\n    class: logging.StreamHandler\n    formatter: structured\n\
     loggers:\n  synapse.federation.transport.server.federation:\n    level: WARN\n\
