@@ -1,0 +1,19 @@
+{
+  "incident": {
+    "pipeline_id": 5430,
+    "failed_job_ids": [20145, 20152],
+    "failure_reason": "runner_system_failure"
+  },
+  "amd64_node": {
+    "allocatable_cpu_m": 3500,
+    "steady_non_ci_cpu_request_m": 2685
+  },
+  "capacity_wait": {
+    "competing_job_active_deadline_seconds": 3601,
+    "scheduling_margin_seconds": 120
+  },
+  "runner_variants": {
+    "architecture_bound": "amd64",
+    "generic": "any"
+  }
+}
