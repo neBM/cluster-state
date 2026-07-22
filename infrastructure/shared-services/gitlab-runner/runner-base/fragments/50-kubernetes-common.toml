@@ -15,9 +15,9 @@
     helper_memory_request = "128Mi"
     helper_memory_limit = "256Mi"
 
-    # Poll settings.
+    # Allow a queued job to wait through one bounded competing-job slot.
     poll_interval = 1
-    poll_timeout = 180
+    poll_timeout = 3721
 
     # Cleanup.
     cleanup_grace_period_seconds = 5
