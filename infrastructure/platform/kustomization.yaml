@@ -11,3 +11,4 @@ resources:
 - nvidia-dra-driver
 - device-classes
 - rpi-throttle-monitor
+- hermes-observer-access
