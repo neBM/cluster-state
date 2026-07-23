@@ -278,9 +278,9 @@ def validate(root: Path) -> list[str]:
     if len(policies) != 1:
         errors.append("expected one Temporal CiliumNetworkPolicy")
     else:
-        text = yaml.safe_dump(policies[0], sort_keys=True)
+        policy = policies[0]
+        text = yaml.safe_dump(policy, sort_keys=True)
         for required in (
-            "192.168.1.5/32",
             "192.168.1.10/32",
             "'7233'",
             "'5433'",
@@ -290,6 +290,59 @@ def validate(root: Path) -> list[str]:
         ):
             if required not in text:
                 errors.append(f"Cilium policy missing topology restriction {required}")
+
+        ingress = policy.get("spec", {}).get("ingress", [])
+        node_rules = [rule for rule in ingress if "fromNodes" in rule]
+        expected_node_selector = [{"matchLabels": {"kubernetes.io/hostname": "hestia"}}]
+        if len(node_rules) != 1:
+            errors.append("Hestia frontend ingress rule must use fromNodes exactly once")
+        else:
+            node_rule = node_rules[0]
+            if node_rule.get("fromNodes") != expected_node_selector:
+                errors.append("Hestia node selector must be exact")
+            node_ports = node_rule.get("toPorts", [])
+            expected_node_ports = [{"ports": [{"port": "7233", "protocol": "TCP"}]}]
+            if node_ports != expected_node_ports:
+                errors.append("Hestia frontend ingress must allow only TCP 7233")
+            if set(node_rule) != {"fromNodes", "toPorts"}:
+                errors.append("Hestia frontend ingress rule contains an unexpected peer or constraint")
+        for rule in ingress:
+            if any(peer in rule for peer in ("fromCIDR", "fromCIDRSet", "fromEntities")):
+                errors.append("broad host, world, or CIDR ingress is forbidden")
+
+        egress = policy.get("spec", {}).get("egress", [])
+        dns_rules = [
+            rule
+            for rule in egress
+            if any(to_port.get("rules", {}).get("dns") for to_port in rule.get("toPorts", []))
+        ]
+        if len(dns_rules) != 1:
+            errors.append("expected exactly one cluster DNS egress rule")
+        else:
+            dns_rule = dns_rules[0]
+            expected_dns_selector = [
+                {
+                    "matchLabels": {
+                        "k8s:io.kubernetes.pod.namespace": "kube-system",
+                        "k8s:io.cilium.k8s.policy.serviceaccount": "coredns",
+                    }
+                }
+            ]
+            if dns_rule.get("toEndpoints") != expected_dns_selector:
+                errors.append("DNS egress must select only the CoreDNS service account")
+            expected_dns_ports = [
+                {
+                    "ports": [
+                        {"port": "53", "protocol": "UDP"},
+                        {"port": "53", "protocol": "TCP"},
+                    ],
+                    "rules": {"dns": [{"matchPattern": "*.cluster.local"}]},
+                }
+            ]
+            if dns_rule.get("toPorts") != expected_dns_ports:
+                errors.append("DNS egress must allow only kube-dns TCP/UDP 53 for *.cluster.local")
+            if set(dns_rule) != {"toEndpoints", "toPorts"}:
+                errors.append("DNS egress rule contains an unexpected destination")
 
     pdb_components = {r.get("metadata", {}).get("labels", {}).get("app.kubernetes.io/component") for r in server_resources if r.get("kind") == "PodDisruptionBudget"}
     if pdb_components != SERVICES:

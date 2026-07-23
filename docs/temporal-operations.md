@@ -2,7 +2,9 @@
 
 Temporal runs in the dedicated `temporal` namespace as four independently scalable services: frontend, history, matching, and the system worker. There is deliberately no Temporal UI, ingress, NodePort, or load balancer. Hestia reaches the `temporal-frontend` ClusterIP directly on TCP 7233 through the cluster network.
 
-The frontend is a fail-closed mutual-TLS boundary. It presents the DNS identity `temporal-frontend.temporal.svc.cluster.local`, requires every RPC client to present a certificate signed by the dedicated frontend client CA, and rejects plaintext, server-auth-only TLS, and untrusted client certificates. The unauthenticated server-admission switch is forbidden. Cilium independently limits external frontend traffic to Hestia, so a caller must satisfy both the network policy and mTLS authentication; source IP alone is not an identity.
+The frontend is a fail-closed mutual-TLS boundary. It presents the DNS identity `temporal-frontend.temporal.svc.cluster.local`, requires every RPC client to present a certificate signed by the dedicated frontend client CA, and rejects plaintext, server-auth-only TLS, and untrusted client certificates. The unauthenticated server-admission switch is forbidden. Cilium independently limits external frontend traffic to TCP 7233 from the node identity selected by `kubernetes.io/hostname=hestia`; direct host-to-ClusterIP traffic is represented by Cilium as a host/node identity, not Hestia's LAN CIDR. The cluster's Cilium `enable-node-selector-labels` (`nodeSelectorLabels`) setting must therefore remain enabled. A caller must satisfy both this exact node policy and mTLS authentication; source IP alone is not an identity.
+
+Temporal egress selects CoreDNS by its `coredns` Kubernetes service-account identity in `kube-system`, permits only TCP/UDP 53, and limits DNS queries to `*.cluster.local`. Do not replace that identity with a namespace-only selector or grant general DNS/network egress.
 
 ## Immutable runtime identity
 
@@ -65,5 +67,7 @@ kubectl get ciliumnetworkpolicy -n temporal temporal
 ```
 
 Confirm the setup and upgrade Kustomizations are Ready before the server Kustomization. From Hestia, prove that a Temporal health RPC without a client certificate fails the TLS handshake, then prove that the same RPC succeeds with the dedicated Hestia client identity, trusted CA, and exact DNS server name. A connection from any other LAN source must fail even when it has no certificate. Verify that the in-cluster system worker is healthy through its separate client identity, server pods emit JSON logs under `kubernetes.container_logs.temporal`, and VictoriaMetrics scrapes port 9090.
+
+Before testing Hestia connectivity after a Cilium reinstall or configuration change, verify that node-selector labels are enabled and that the Hestia node still carries `kubernetes.io/hostname=hestia`. Also verify that CoreDNS endpoints carry the `coredns` service-account identity. Do not broaden the policy to `host`, `world`, a LAN CIDR, or all `kube-system` endpoints to work around identity drift.
 
 Do not query or print either Secret during verification. Diagnose missing-key, trust-chain, server-name, or certificate failures from redacted pod events and stable error categories, then have an authorized operator repair the manually managed Secret or Hestia credential.

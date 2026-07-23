@@ -156,11 +156,59 @@ def main() -> int:
         )
         mutation(
             parent,
-            "hestia-ingress-broadened",
+            "hestia-node-selector-broadened",
             "apps/temporal/server/ciliumnetworkpolicy.yaml",
-            "192.168.1.5/32",
-            "192.168.1.0/24",
-            "192.168.1.5/32",
+            "        kubernetes.io/hostname: hestia\n",
+            "        kubernetes.io/hostname: heracles\n",
+            "Hestia node selector must be exact",
+        )
+        mutation(
+            parent,
+            "hestia-host-entity-broadened",
+            "apps/temporal/server/ciliumnetworkpolicy.yaml",
+            "  - fromNodes:\n    - matchLabels:\n        kubernetes.io/hostname: hestia\n",
+            "  - fromEntities:\n    - host\n",
+            "Hestia frontend ingress rule must use fromNodes",
+        )
+        mutation(
+            parent,
+            "hestia-world-ingress-broadened",
+            "apps/temporal/server/ciliumnetworkpolicy.yaml",
+            "  - fromNodes:\n    - matchLabels:\n        kubernetes.io/hostname: hestia\n",
+            "  - fromEntities:\n    - world\n",
+            "Hestia frontend ingress rule must use fromNodes",
+        )
+        mutation(
+            parent,
+            "hestia-lan-ingress-broadened",
+            "apps/temporal/server/ciliumnetworkpolicy.yaml",
+            "  - fromNodes:\n    - matchLabels:\n        kubernetes.io/hostname: hestia\n",
+            "  - fromCIDR:\n    - 192.168.1.0/24\n",
+            "Hestia frontend ingress rule must use fromNodes",
+        )
+        mutation(
+            parent,
+            "hestia-frontend-port-broadened",
+            "apps/temporal/server/ciliumnetworkpolicy.yaml",
+            "      - port: \"7233\"\n        protocol: TCP\n",
+            "      - port: \"7233\"\n        protocol: TCP\n      - port: \"7234\"\n        protocol: TCP\n",
+            "Hestia frontend ingress must allow only TCP 7233",
+        )
+        mutation(
+            parent,
+            "dns-service-account-substituted",
+            "apps/temporal/server/ciliumnetworkpolicy.yaml",
+            "        k8s:io.cilium.k8s.policy.serviceaccount: coredns\n",
+            "        k8s:io.cilium.k8s.policy.serviceaccount: default\n",
+            "DNS egress must select only the CoreDNS service account",
+        )
+        mutation(
+            parent,
+            "dns-endpoint-selector-broadened",
+            "apps/temporal/server/ciliumnetworkpolicy.yaml",
+            "        k8s:io.cilium.k8s.policy.serviceaccount: coredns\n",
+            "",
+            "DNS egress must select only the CoreDNS service account",
         )
         mutation(
             parent,
