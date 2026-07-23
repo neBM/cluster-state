@@ -61,8 +61,6 @@ spec:
           value: frontend
         - name: TEMPORAL_SERVER_CONFIG_FILE_PATH
           value: /etc/temporal/config/config_template.yaml
-        - name: TEMPORAL_ALLOW_NO_AUTH
-          value: "true"
         - name: TEMPORAL_POSTGRES_USER
           valueFrom: {secretKeyRef: {name: temporal-postgres, key: username}}
         - name: TEMPORAL_DEFAULT_STORE_PASSWORD
@@ -100,6 +98,7 @@ spec:
         - {name: config-runtime, mountPath: /etc/temporal/config}
         - {name: config-template, mountPath: /etc/temporal/config/config_template.yaml, subPath: config_template.yaml, readOnly: true}
         - {name: dynamic-config, mountPath: /etc/temporal/dynamic_config, readOnly: true}
+        - {name: frontend-mtls, mountPath: /etc/temporal/frontend-mtls, readOnly: true}
         - {name: postgres-tls, mountPath: /etc/temporal/postgres, readOnly: true}
         - {name: tmp, mountPath: /tmp}
       volumes: &volumes
@@ -109,6 +108,15 @@ spec:
         configMap: {name: temporal-server-config}
       - name: dynamic-config
         configMap: {name: temporal-dynamic-config}
+      - name: frontend-mtls
+        secret:
+          secretName: temporal-frontend-mtls
+          items:
+          - {key: ca.crt, path: ca.crt}
+          - {key: server.crt, path: server.crt}
+          - {key: server.key, path: server.key}
+          - {key: system-worker.crt, path: system-worker.crt}
+          - {key: system-worker.key, path: system-worker.key}
       - name: postgres-tls
         secret:
           secretName: temporal-postgres
@@ -173,7 +181,6 @@ spec:
         - {name: SERVICES, value: history}
         - {name: TEMPORAL_SERVICES, value: history}
         - {name: TEMPORAL_SERVER_CONFIG_FILE_PATH, value: /etc/temporal/config/config_template.yaml}
-        - {name: TEMPORAL_ALLOW_NO_AUTH, value: "true"}
         - {name: TEMPORAL_POSTGRES_USER, valueFrom: {secretKeyRef: {name: temporal-postgres, key: username}}}
         - {name: TEMPORAL_DEFAULT_STORE_PASSWORD, valueFrom: {secretKeyRef: {name: temporal-postgres, key: password}}}
         - {name: TEMPORAL_VISIBILITY_STORE_PASSWORD, valueFrom: {secretKeyRef: {name: temporal-postgres, key: password}}}
@@ -207,6 +214,7 @@ spec:
         - {name: config-runtime, mountPath: /etc/temporal/config}
         - {name: config-template, mountPath: /etc/temporal/config/config_template.yaml, subPath: config_template.yaml, readOnly: true}
         - {name: dynamic-config, mountPath: /etc/temporal/dynamic_config, readOnly: true}
+        - {name: frontend-mtls, mountPath: /etc/temporal/frontend-mtls, readOnly: true}
         - {name: postgres-tls, mountPath: /etc/temporal/postgres, readOnly: true}
         - {name: tmp, mountPath: /tmp}
       volumes: &volumes
@@ -216,6 +224,15 @@ spec:
         configMap: {name: temporal-server-config}
       - name: dynamic-config
         configMap: {name: temporal-dynamic-config}
+      - name: frontend-mtls
+        secret:
+          secretName: temporal-frontend-mtls
+          items:
+          - {key: ca.crt, path: ca.crt}
+          - {key: server.crt, path: server.crt}
+          - {key: server.key, path: server.key}
+          - {key: system-worker.crt, path: system-worker.crt}
+          - {key: system-worker.key, path: system-worker.key}
       - name: postgres-tls
         secret:
           secretName: temporal-postgres
@@ -280,7 +297,6 @@ spec:
         - {name: SERVICES, value: matching}
         - {name: TEMPORAL_SERVICES, value: matching}
         - {name: TEMPORAL_SERVER_CONFIG_FILE_PATH, value: /etc/temporal/config/config_template.yaml}
-        - {name: TEMPORAL_ALLOW_NO_AUTH, value: "true"}
         - {name: TEMPORAL_POSTGRES_USER, valueFrom: {secretKeyRef: {name: temporal-postgres, key: username}}}
         - {name: TEMPORAL_DEFAULT_STORE_PASSWORD, valueFrom: {secretKeyRef: {name: temporal-postgres, key: password}}}
         - {name: TEMPORAL_VISIBILITY_STORE_PASSWORD, valueFrom: {secretKeyRef: {name: temporal-postgres, key: password}}}
@@ -314,6 +330,7 @@ spec:
         - {name: config-runtime, mountPath: /etc/temporal/config}
         - {name: config-template, mountPath: /etc/temporal/config/config_template.yaml, subPath: config_template.yaml, readOnly: true}
         - {name: dynamic-config, mountPath: /etc/temporal/dynamic_config, readOnly: true}
+        - {name: frontend-mtls, mountPath: /etc/temporal/frontend-mtls, readOnly: true}
         - {name: postgres-tls, mountPath: /etc/temporal/postgres, readOnly: true}
         - {name: tmp, mountPath: /tmp}
       volumes: &volumes
@@ -323,6 +340,15 @@ spec:
         configMap: {name: temporal-server-config}
       - name: dynamic-config
         configMap: {name: temporal-dynamic-config}
+      - name: frontend-mtls
+        secret:
+          secretName: temporal-frontend-mtls
+          items:
+          - {key: ca.crt, path: ca.crt}
+          - {key: server.crt, path: server.crt}
+          - {key: server.key, path: server.key}
+          - {key: system-worker.crt, path: system-worker.crt}
+          - {key: system-worker.key, path: system-worker.key}
       - name: postgres-tls
         secret:
           secretName: temporal-postgres
@@ -387,7 +413,6 @@ spec:
         - {name: SERVICES, value: worker}
         - {name: TEMPORAL_SERVICES, value: worker}
         - {name: TEMPORAL_SERVER_CONFIG_FILE_PATH, value: /etc/temporal/config/config_template.yaml}
-        - {name: TEMPORAL_ALLOW_NO_AUTH, value: "true"}
         - {name: TEMPORAL_POSTGRES_USER, valueFrom: {secretKeyRef: {name: temporal-postgres, key: username}}}
         - {name: TEMPORAL_DEFAULT_STORE_PASSWORD, valueFrom: {secretKeyRef: {name: temporal-postgres, key: password}}}
         - {name: TEMPORAL_VISIBILITY_STORE_PASSWORD, valueFrom: {secretKeyRef: {name: temporal-postgres, key: password}}}
@@ -420,6 +445,7 @@ spec:
         - {name: config-runtime, mountPath: /etc/temporal/config}
         - {name: config-template, mountPath: /etc/temporal/config/config_template.yaml, subPath: config_template.yaml, readOnly: true}
         - {name: dynamic-config, mountPath: /etc/temporal/dynamic_config, readOnly: true}
+        - {name: frontend-mtls, mountPath: /etc/temporal/frontend-mtls, readOnly: true}
         - {name: postgres-tls, mountPath: /etc/temporal/postgres, readOnly: true}
         - {name: tmp, mountPath: /tmp}
       volumes: &volumes
@@ -429,6 +455,15 @@ spec:
         configMap: {name: temporal-server-config}
       - name: dynamic-config
         configMap: {name: temporal-dynamic-config}
+      - name: frontend-mtls
+        secret:
+          secretName: temporal-frontend-mtls
+          items:
+          - {key: ca.crt, path: ca.crt}
+          - {key: server.crt, path: server.crt}
+          - {key: server.key, path: server.key}
+          - {key: system-worker.crt, path: system-worker.crt}
+          - {key: system-worker.key, path: system-worker.key}
       - name: postgres-tls
         secret:
           secretName: temporal-postgres

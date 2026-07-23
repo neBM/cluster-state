@@ -2,7 +2,7 @@
 
 Temporal runs in the dedicated `temporal` namespace as four independently scalable services: frontend, history, matching, and the system worker. There is deliberately no Temporal UI, ingress, NodePort, or load balancer. Hestia reaches the `temporal-frontend` ClusterIP directly on TCP 7233 through the cluster network.
 
-Temporal's application-layer authorizer is intentionally disabled with the server's explicit `TEMPORAL_ALLOW_NO_AUTH=true` admission switch. The Cilium policy is therefore the authentication boundary: only Hestia may initiate frontend RPC traffic, and no other LAN source is admitted. Do not broaden the Hestia CIDR without first adding and validating an application-layer authorizer.
+The frontend is a fail-closed mutual-TLS boundary. It presents the DNS identity `temporal-frontend.temporal.svc.cluster.local`, requires every RPC client to present a certificate signed by the dedicated frontend client CA, and rejects plaintext, server-auth-only TLS, and untrusted client certificates. The unauthenticated server-admission switch is forbidden. Cilium independently limits external frontend traffic to Hestia, so a caller must satisfy both the network policy and mTLS authentication; source IP alone is not an identity.
 
 ## Immutable runtime identity
 
@@ -17,7 +17,7 @@ A restore is admissible only when all of the following match the backup source:
 
 Keep all Temporal server Deployments stopped while restoring. Restore both databases atomically, verify the fence above from version-controlled desired state and backup metadata, then allow the version-matched schema upgrade Jobs to finish before restarting server compute. Never point this identity at a copied database while another cluster using the same identity is running.
 
-## PostgreSQL prerequisite and Secret contract
+## PostgreSQL prerequisite and Secret contracts
 
 PostgreSQL is external at `192.168.1.10:5433`. An operator must provision the `temporal` and `temporal_visibility` databases and a least-privilege role before Flux reconciliation. PostgreSQL must require TLS and the server certificate must be valid for the configured address.
 
@@ -30,6 +30,14 @@ Manually provision one Secret named `temporal-postgres` in the `temporal` namesp
 - `tls.crt` and `tls.key` for the client identity.
 
 Secret values never belong in this repository. Do not use `kubectl apply` on a Secret manifest containing values because the payload can be copied into last-applied metadata.
+
+Manually provision a second Secret named `temporal-frontend-mtls` in the `temporal` namespace. It must contain:
+
+- `ca.crt`, the dedicated CA used to verify frontend server and admitted client identities;
+- `server.crt` and `server.key`, with a server certificate valid for `temporal-frontend.temporal.svc.cluster.local`;
+- `system-worker.crt` and `system-worker.key`, a distinct client identity used only by Temporal's in-cluster system worker.
+
+The Hestia ADD worker uses another distinct client certificate and private key signed by the same dedicated CA. Its private key remains on Hestia and must not be copied into the Kubernetes Secret or Git. Configure the Temporal SDK with the CA, the exact frontend DNS server name, and the Hestia client certificate/key before enabling its activity queue. Certificate issuance must constrain extended key usages: server authentication for `server.crt`, and client authentication for the system-worker and Hestia identities.
 
 ## Reconciliation order
 
@@ -56,6 +64,6 @@ kubectl get deployments,services,poddisruptionbudgets -n temporal
 kubectl get ciliumnetworkpolicy -n temporal temporal
 ```
 
-Confirm the setup and upgrade Kustomizations are Ready before the server Kustomization. From Hestia, verify a TCP connection to the rendered `temporal-frontend` ClusterIP on 7233. A connection from any other LAN source must fail. Verify that server pods emit JSON logs under `kubernetes.container_logs.temporal` and that VictoriaMetrics scrapes port 9090.
+Confirm the setup and upgrade Kustomizations are Ready before the server Kustomization. From Hestia, prove that a Temporal health RPC without a client certificate fails the TLS handshake, then prove that the same RPC succeeds with the dedicated Hestia client identity, trusted CA, and exact DNS server name. A connection from any other LAN source must fail even when it has no certificate. Verify that the in-cluster system worker is healthy through its separate client identity, server pods emit JSON logs under `kubernetes.container_logs.temporal`, and VictoriaMetrics scrapes port 9090.
 
-Do not query or print the Secret during verification. Diagnose missing-key or certificate failures from redacted pod events and stable error categories, then have an authorized operator repair the manually managed Secret.
+Do not query or print either Secret during verification. Diagnose missing-key, trust-chain, server-name, or certificate failures from redacted pod events and stable error categories, then have an authorized operator repair the manually managed Secret or Hestia credential.

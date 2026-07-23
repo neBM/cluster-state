@@ -62,6 +62,32 @@ data:
         broadcastAddress: {{ env "POD_IP" | quote }}
       pprof:
         port: 7936
+      tls:
+        refreshInterval: 1m
+        expirationChecks:
+          warningWindow: 720h
+          errorWindow: 168h
+          checkInterval: 1h
+        frontend:
+          server:
+            certFile: /etc/temporal/frontend-mtls/server.crt
+            keyFile: /etc/temporal/frontend-mtls/server.key
+            clientCaFiles:
+            - /etc/temporal/frontend-mtls/ca.crt
+            requireClientAuth: true
+          client:
+            serverName: temporal-frontend.temporal.svc.cluster.local
+            disableHostVerification: false
+            rootCaFiles:
+            - /etc/temporal/frontend-mtls/ca.crt
+        systemWorker:
+          certFile: /etc/temporal/frontend-mtls/system-worker.crt
+          keyFile: /etc/temporal/frontend-mtls/system-worker.key
+          client:
+            serverName: temporal-frontend.temporal.svc.cluster.local
+            disableHostVerification: false
+            rootCaFiles:
+            - /etc/temporal/frontend-mtls/ca.crt
       metrics:
         tags:
           service: {{ env "TEMPORAL_SERVICES" | quote }}

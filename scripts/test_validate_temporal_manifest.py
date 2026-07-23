@@ -108,11 +108,35 @@ def main() -> int:
         )
         mutation(
             parent,
-            "implicit-no-auth-admission",
+            "unauthenticated-server-admission-reintroduced",
             "apps/temporal/server/deployments.yaml",
-            "        - name: TEMPORAL_ALLOW_NO_AUTH\n          value: \"true\"\n",
+            "        - name: TEMPORAL_SERVER_CONFIG_FILE_PATH\n          value: /etc/temporal/config/config_template.yaml\n",
+            "        - name: TEMPORAL_SERVER_CONFIG_FILE_PATH\n          value: /etc/temporal/config/config_template.yaml\n        - name: TEMPORAL_ALLOW_NO_AUTH\n          value: \"true\"\n",
+            "must not opt into unauthenticated server admission",
+        )
+        mutation(
+            parent,
+            "frontend-mtls-client-auth-disabled",
+            "apps/temporal/server/configmap.yaml",
+            "requireClientAuth: true",
+            "requireClientAuth: false",
+            "frontend mTLS client authentication must be required",
+        )
+        mutation(
+            parent,
+            "frontend-mtls-client-ca-removed",
+            "apps/temporal/server/configmap.yaml",
+            "            clientCaFiles:\n            - /etc/temporal/frontend-mtls/ca.crt\n",
             "",
-            "explicit network-bound no-auth admission is missing",
+            "frontend mTLS client CA trust is missing",
+        )
+        mutation(
+            parent,
+            "system-worker-mtls-identity-removed",
+            "apps/temporal/server/configmap.yaml",
+            "          certFile: /etc/temporal/frontend-mtls/system-worker.crt\n",
+            "",
+            "system-worker mTLS client identity is incomplete",
         )
         mutation(
             parent,

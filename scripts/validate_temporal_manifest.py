@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import argparse
+import re
 import shutil
 import subprocess
 import sys
@@ -23,6 +24,14 @@ SERVICES = {"frontend", "history", "matching", "worker"}
 EXPECTED_SHARDS = 128
 EXPECTED_DATABASES = {"temporal", "temporal_visibility"}
 SECRET_NAME = "temporal-postgres"
+FRONTEND_MTLS_SECRET_NAME = "temporal-frontend-mtls"
+FRONTEND_MTLS_KEYS = {
+    "ca.crt",
+    "server.crt",
+    "server.key",
+    "system-worker.crt",
+    "system-worker.key",
+}
 FLUX_FILES = {
     "temporal-schema-setup": "kustomization-temporal-schema-setup.yaml",
     "temporal-schema-upgrade": "kustomization-temporal-schema-upgrade.yaml",
@@ -54,6 +63,14 @@ def pod_spec(resource: dict[str, Any]) -> dict[str, Any]:
 
 def env_map(container: dict[str, Any]) -> dict[str, Any]:
     return {item.get("name"): item for item in container.get("env", [])}
+
+
+def parse_server_config(config: str) -> dict[str, Any]:
+    normalized = re.sub(r"{{.*?}}", '"template"', config)
+    parsed = yaml.safe_load(normalized)
+    if not isinstance(parsed, dict):
+        raise ValueError("server config template must render to a mapping")
+    return parsed
 
 
 def validate(root: Path) -> list[str]:
@@ -149,8 +166,8 @@ def validate(root: Path) -> list[str]:
         if container.get("image") != SERVER_IMAGE:
             errors.append(f"Deployment/{name}: server digest mismatch")
         env = env_map(container)
-        if env.get("TEMPORAL_ALLOW_NO_AUTH", {}).get("value") != "true":
-            errors.append(f"Deployment/{name}: explicit network-bound no-auth admission is missing")
+        if "TEMPORAL_ALLOW_NO_AUTH" in env:
+            errors.append(f"Deployment/{name}: must not opt into unauthenticated server admission")
         for variable in ("TEMPORAL_DEFAULT_STORE_PASSWORD", "TEMPORAL_VISIBILITY_STORE_PASSWORD", "TEMPORAL_POSTGRES_USER"):
             ref = env.get(variable, {}).get("valueFrom", {}).get("secretKeyRef", {})
             if ref.get("name") != SECRET_NAME:
@@ -174,6 +191,12 @@ def validate(root: Path) -> list[str]:
             errors.append(f"Deployment/{name}: writable config runtime mount is missing")
         if volumes.get("config-runtime", {}).get("emptyDir") != {}:
             errors.append(f"Deployment/{name}: config runtime must be ephemeral")
+        if mounts.get("frontend-mtls", {}).get("mountPath") != "/etc/temporal/frontend-mtls":
+            errors.append(f"Deployment/{name}: frontend mTLS material mount is missing")
+        mtls_secret = volumes.get("frontend-mtls", {}).get("secret", {})
+        mtls_keys = {item.get("key") for item in mtls_secret.get("items", [])}
+        if mtls_secret.get("secretName") != FRONTEND_MTLS_SECRET_NAME or mtls_keys != FRONTEND_MTLS_KEYS:
+            errors.append(f"Deployment/{name}: frontend mTLS Secret contract is incomplete")
         validate_pod_hardening(deployment, errors)
 
     configmaps = [r for r in server_resources if key(r)[:2] == ("ConfigMap", "temporal-server-config")]
@@ -201,6 +224,41 @@ def validate(root: Path) -> list[str]:
         ]
         if any('{{ env "TEMPORAL_' not in line for line in password_lines):
             errors.append("server config contains a non-environment PostgreSQL password")
+        try:
+            parsed_config = parse_server_config(config)
+        except (ValueError, yaml.YAMLError) as exc:
+            errors.append(f"server config template is invalid: {exc}")
+        else:
+            tls = parsed_config.get("global", {}).get("tls", {})
+            frontend = tls.get("frontend", {})
+            server = frontend.get("server", {})
+            client = frontend.get("client", {})
+            system_worker = tls.get("systemWorker", {})
+            if server.get("requireClientAuth") is not True:
+                errors.append("frontend mTLS client authentication must be required")
+            if server.get("clientCaFiles") != ["/etc/temporal/frontend-mtls/ca.crt"]:
+                errors.append("frontend mTLS client CA trust is missing")
+            if (
+                server.get("certFile") != "/etc/temporal/frontend-mtls/server.crt"
+                or server.get("keyFile") != "/etc/temporal/frontend-mtls/server.key"
+            ):
+                errors.append("frontend mTLS server identity is incomplete")
+            expected_client = {
+                "serverName": "temporal-frontend.temporal.svc.cluster.local",
+                "disableHostVerification": False,
+                "rootCaFiles": ["/etc/temporal/frontend-mtls/ca.crt"],
+            }
+            if client != expected_client:
+                errors.append("frontend TLS client verification is not fail closed")
+            if (
+                system_worker.get("certFile")
+                != "/etc/temporal/frontend-mtls/system-worker.crt"
+                or system_worker.get("keyFile")
+                != "/etc/temporal/frontend-mtls/system-worker.key"
+            ):
+                errors.append("system-worker mTLS client identity is incomplete")
+            if system_worker.get("client") != expected_client:
+                errors.append("system-worker frontend TLS verification is not fail closed")
 
     services = [r for r in server_resources if r.get("kind") == "Service"]
     frontend = [r for r in services if key(r)[1] == "temporal-frontend"]
