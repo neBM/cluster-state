@@ -336,11 +336,13 @@ def validate(root: Path) -> list[str]:
                         {"port": "53", "protocol": "UDP"},
                         {"port": "53", "protocol": "TCP"},
                     ],
-                    "rules": {"dns": [{"matchPattern": "*.cluster.local"}]},
+                    "rules": {"dns": [{"matchPattern": "*.*.svc.cluster.local"}]},
                 }
             ]
             if dns_rule.get("toPorts") != expected_dns_ports:
-                errors.append("DNS egress must allow only kube-dns TCP/UDP 53 for *.cluster.local")
+                errors.append(
+                    "DNS egress must allow exactly Kubernetes service FQDNs over kube-dns TCP/UDP 53"
+                )
             if set(dns_rule) != {"toEndpoints", "toPorts"}:
                 errors.append("DNS egress rule contains an unexpected destination")
 
@@ -349,6 +351,32 @@ def validate(root: Path) -> list[str]:
     except (ValueError, yaml.YAMLError) as exc:
         errors.append(str(exc))
         platform_resources = []
+    cilium_configs = [
+        resource
+        for resource in platform_resources
+        if key(resource) == ("ConfigMap", "cilium-config", "kube-system")
+    ]
+    if len(cilium_configs) != 1:
+        errors.append("expected one merged kube-system ConfigMap/cilium-config prerequisite")
+    else:
+        cilium_config = cilium_configs[0]
+        expected_cilium_data = {
+            "enable-node-selector-labels": "true",
+            "node-labels": "kubernetes.io/hostname",
+        }
+        annotations = cilium_config.get("metadata", {}).get("annotations", {})
+        expected_annotations = {
+            "kustomize.toolkit.fluxcd.io/prune": "Disabled",
+            "kustomize.toolkit.fluxcd.io/ssa": "Merge",
+        }
+        if annotations != expected_annotations:
+            errors.append("Cilium global configuration must use non-pruning Flux SSA merge ownership")
+        if cilium_config.get("data") != expected_cilium_data:
+            errors.append(
+                "Cilium global node-selector-label prerequisite must be enabled with hostname-only identities"
+            )
+        if set(cilium_config) != {"apiVersion", "kind", "metadata", "data"}:
+            errors.append("Cilium global configuration contains unexpected fields")
     node_configs = [
         resource
         for resource in platform_resources

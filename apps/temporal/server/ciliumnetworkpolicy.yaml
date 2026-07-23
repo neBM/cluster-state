@@ -69,4 +69,4 @@ spec:
       - {port: "53", protocol: TCP}
       rules:
         dns:
-        - matchPattern: "*.cluster.local"
+        - matchPattern: "*.*.svc.cluster.local"

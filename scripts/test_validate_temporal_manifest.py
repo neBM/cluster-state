@@ -79,6 +79,41 @@ spec:
     print(f"PASS mutation {name}")
 
 
+def cilium_global_config_mutation(parent: Path) -> None:
+    root = fixture(parent, "cilium-global-node-selector-prerequisite-omitted")
+    config = root / "infrastructure/platform/cilium-config.yaml"
+    kustomization = root / "infrastructure/platform/kustomization.yaml"
+    config.unlink()
+    replace_once(kustomization, "- cilium-config.yaml\n", "")
+    result = run(root)
+    combined = result.stdout + result.stderr
+    if result.returncode == 0:
+        raise AssertionError("cilium-global-node-selector-prerequisite-omitted: mutation was accepted")
+    if "expected one merged kube-system ConfigMap/cilium-config prerequisite" not in combined:
+        raise AssertionError(
+            "cilium-global-node-selector-prerequisite-omitted: expected global prerequisite error, got:\n"
+            f"{combined}"
+        )
+    print("PASS mutation cilium-global-node-selector-prerequisite-omitted")
+
+
+def ineffective_cluster_dns_pattern_mutation(parent: Path) -> None:
+    root = fixture(parent, "ineffective-cluster-dns-pattern")
+    policy = root / "apps/temporal/server/ciliumnetworkpolicy.yaml"
+    replace_once(
+        policy,
+        'matchPattern: "*.*.svc.cluster.local"',
+        'matchPattern: "*.cluster.local"',
+    )
+    result = run(root)
+    combined = result.stdout + result.stderr
+    if result.returncode == 0:
+        raise AssertionError("ineffective-cluster-dns-pattern: mutation was accepted")
+    if "DNS egress must allow exactly Kubernetes service FQDNs" not in combined:
+        raise AssertionError(f"ineffective-cluster-dns-pattern: expected exact DNS error, got:\n{combined}")
+    print("PASS mutation ineffective-cluster-dns-pattern")
+
+
 def mutation(parent: Path, name: str, relative: str, old: str, new: str, expected: str) -> None:
     root = fixture(parent, name)
     replace_once(root / relative, old, new)
@@ -106,6 +141,40 @@ def main() -> int:
 
     with tempfile.TemporaryDirectory(prefix="temporal-mutations-") as temp:
         parent = Path(temp)
+        cilium_global_config_mutation(parent)
+        ineffective_cluster_dns_pattern_mutation(parent)
+        mutation(
+            parent,
+            "cilium-global-node-selector-prerequisite-disabled",
+            "infrastructure/platform/cilium-config.yaml",
+            'enable-node-selector-labels: "true"',
+            'enable-node-selector-labels: "false"',
+            "Cilium global node-selector-label prerequisite must be enabled",
+        )
+        mutation(
+            parent,
+            "cilium-global-node-identity-labels-broadened",
+            "infrastructure/platform/cilium-config.yaml",
+            "node-labels: kubernetes.io/hostname",
+            "node-labels: kubernetes.io/hostname,node-role.kubernetes.io/control-plane",
+            "hostname-only identities",
+        )
+        mutation(
+            parent,
+            "cilium-global-config-merge-ownership-removed",
+            "infrastructure/platform/cilium-config.yaml",
+            "    kustomize.toolkit.fluxcd.io/ssa: Merge\n",
+            "",
+            "Cilium global configuration must use non-pruning Flux SSA merge ownership",
+        )
+        mutation(
+            parent,
+            "cilium-global-config-prune-protection-removed",
+            "infrastructure/platform/cilium-config.yaml",
+            "    kustomize.toolkit.fluxcd.io/prune: Disabled\n",
+            "",
+            "Cilium global configuration must use non-pruning Flux SSA merge ownership",
+        )
         cilium_prerequisite_mutation(
             parent,
             "cilium-node-selector-prerequisite-disabled",

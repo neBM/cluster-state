@@ -12,4 +12,5 @@ resources:
 - device-classes
 - rpi-throttle-monitor
 - hermes-observer-access
+- cilium-config.yaml
 - cilium-node-selector-labels.yaml
