@@ -1,0 +1,43 @@
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: temporal-frontend
+  namespace: temporal
+  labels: {app.kubernetes.io/name: temporal, app.kubernetes.io/component: frontend}
+spec:
+  maxUnavailable: 1
+  selector:
+    matchLabels: {app.kubernetes.io/name: temporal, app.kubernetes.io/component: frontend}
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: temporal-history
+  namespace: temporal
+  labels: {app.kubernetes.io/name: temporal, app.kubernetes.io/component: history}
+spec:
+  maxUnavailable: 1
+  selector:
+    matchLabels: {app.kubernetes.io/name: temporal, app.kubernetes.io/component: history}
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: temporal-matching
+  namespace: temporal
+  labels: {app.kubernetes.io/name: temporal, app.kubernetes.io/component: matching}
+spec:
+  maxUnavailable: 1
+  selector:
+    matchLabels: {app.kubernetes.io/name: temporal, app.kubernetes.io/component: matching}
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: temporal-worker
+  namespace: temporal
+  labels: {app.kubernetes.io/name: temporal, app.kubernetes.io/component: worker}
+spec:
+  maxUnavailable: 1
+  selector:
+    matchLabels: {app.kubernetes.io/name: temporal, app.kubernetes.io/component: worker}

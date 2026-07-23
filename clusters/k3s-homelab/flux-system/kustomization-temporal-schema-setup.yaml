@@ -1,0 +1,26 @@
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: temporal-schema-setup
+  namespace: flux-system
+spec:
+  dependsOn:
+  - name: shared-services
+  interval: 10m0s
+  path: ./apps/temporal/schema-setup
+  prune: true
+  retryInterval: 1m0s
+  sourceRef:
+    kind: GitRepository
+    name: cluster-state
+  timeout: 15m0s
+  wait: true
+  healthChecks:
+  - apiVersion: batch/v1
+    kind: Job
+    name: temporal-schema-setup-primary-1-31-2
+    namespace: temporal
+  - apiVersion: batch/v1
+    kind: Job
+    name: temporal-schema-setup-visibility-1-31-2
+    namespace: temporal
