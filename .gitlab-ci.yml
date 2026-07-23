@@ -262,6 +262,9 @@ package:feedback-migrations:
       - scripts/validate_ibgateway_manifest.py
       - scripts/validate_ibgateway_manifest.py.lock
       - scripts/validate_kustomize.sh
+      - scripts/validate_temporal_manifest.py
+      - scripts/validate_temporal_manifest.py.lock
+      - scripts/test_validate_temporal_manifest.py
       - .gitlab-ci.yml
   - if: $CI_COMMIT_BRANCH == "main"
     changes:
@@ -274,6 +277,9 @@ package:feedback-migrations:
       - scripts/validate_ibgateway_manifest.py
       - scripts/validate_ibgateway_manifest.py.lock
       - scripts/validate_kustomize.sh
+      - scripts/validate_temporal_manifest.py
+      - scripts/validate_temporal_manifest.py.lock
+      - scripts/test_validate_temporal_manifest.py
       - .gitlab-ci.yml
 
 .validate_driver_rules: &validate_driver_rules

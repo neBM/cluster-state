@@ -1,0 +1,475 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: temporal-frontend
+  namespace: temporal
+  labels: &frontend-labels
+    app.kubernetes.io/name: temporal
+    app.kubernetes.io/component: frontend
+spec:
+  replicas: 2
+  strategy:
+    type: RollingUpdate
+    rollingUpdate: {maxUnavailable: 1, maxSurge: 1}
+  selector:
+    matchLabels: *frontend-labels
+  template:
+    metadata:
+      labels: *frontend-labels
+      annotations:
+        elastic.co/dataset: kubernetes.container_logs.temporal
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9090"
+        prometheus.io/path: /metrics
+    spec:
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 60
+      securityContext: &pod-security
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile: {type: RuntimeDefault}
+      affinity: &affinity
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              topologyKey: kubernetes.io/hostname
+              labelSelector:
+                matchExpressions:
+                - key: app.kubernetes.io/name
+                  operator: In
+                  values: [temporal]
+      topologySpreadConstraints: &spread
+      - maxSkew: 1
+        topologyKey: kubernetes.io/hostname
+        whenUnsatisfiable: ScheduleAnyway
+        labelSelector:
+          matchLabels:
+            app.kubernetes.io/name: temporal
+      containers:
+      - name: temporal-frontend
+        image: &server-image temporalio/server@sha256:b5ecdb8282bededae2a10c36e8d862e27d0bc2d247fc73c5416025997ab4a1da
+        imagePullPolicy: IfNotPresent
+        env: &frontend-env
+        - name: POD_IP
+          valueFrom: {fieldRef: {fieldPath: status.podIP}}
+        - name: SERVICES
+          value: frontend
+        - name: TEMPORAL_SERVICES
+          value: frontend
+        - name: TEMPORAL_SERVER_CONFIG_FILE_PATH
+          value: /etc/temporal/config/config_template.yaml
+        - name: TEMPORAL_POSTGRES_USER
+          valueFrom: {secretKeyRef: {name: temporal-postgres, key: username}}
+        - name: TEMPORAL_DEFAULT_STORE_PASSWORD
+          valueFrom: {secretKeyRef: {name: temporal-postgres, key: password}}
+        - name: TEMPORAL_VISIBILITY_STORE_PASSWORD
+          valueFrom: {secretKeyRef: {name: temporal-postgres, key: password}}
+        ports:
+        - {name: rpc, containerPort: 7233, protocol: TCP}
+        - {name: http, containerPort: 7243, protocol: TCP}
+        - {name: membership, containerPort: 6933, protocol: TCP}
+        - {name: metrics, containerPort: 9090, protocol: TCP}
+        startupProbe: &startup
+          tcpSocket: {port: rpc}
+          failureThreshold: 30
+          periodSeconds: 10
+          timeoutSeconds: 3
+        readinessProbe: &ready
+          tcpSocket: {port: rpc}
+          failureThreshold: 3
+          periodSeconds: 10
+          timeoutSeconds: 3
+        livenessProbe: &live
+          tcpSocket: {port: rpc}
+          failureThreshold: 3
+          periodSeconds: 30
+          timeoutSeconds: 3
+        resources:
+          requests: {cpu: 100m, memory: 256Mi}
+          limits: {cpu: 500m, memory: 512Mi}
+        securityContext: &container-security
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities: {drop: [ALL]}
+        volumeMounts: &mounts
+        - {name: config-runtime, mountPath: /etc/temporal/config}
+        - {name: config-template, mountPath: /etc/temporal/config/config_template.yaml, subPath: config_template.yaml, readOnly: true}
+        - {name: dynamic-config, mountPath: /etc/temporal/dynamic_config, readOnly: true}
+        - {name: frontend-mtls, mountPath: /etc/temporal/frontend-mtls, readOnly: true}
+        - {name: postgres-tls, mountPath: /etc/temporal/postgres, readOnly: true}
+        - {name: tmp, mountPath: /tmp}
+      volumes: &volumes
+      - name: config-runtime
+        emptyDir: {}
+      - name: config-template
+        configMap: {name: temporal-server-config}
+      - name: dynamic-config
+        configMap: {name: temporal-dynamic-config}
+      - name: frontend-mtls
+        secret:
+          secretName: temporal-frontend-mtls
+          items:
+          - {key: ca.crt, path: ca.crt}
+          - {key: server.crt, path: server.crt}
+          - {key: server.key, path: server.key}
+          - {key: system-worker.crt, path: system-worker.crt}
+          - {key: system-worker.key, path: system-worker.key}
+      - name: postgres-tls
+        secret:
+          secretName: temporal-postgres
+          items:
+          - {key: ca.crt, path: ca.crt}
+          - {key: tls.crt, path: tls.crt}
+          - {key: tls.key, path: tls.key}
+      - name: tmp
+        emptyDir: {}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: temporal-history
+  namespace: temporal
+  labels: &history-labels
+    app.kubernetes.io/name: temporal
+    app.kubernetes.io/component: history
+spec:
+  replicas: 2
+  strategy:
+    type: RollingUpdate
+    rollingUpdate: {maxUnavailable: 1, maxSurge: 1}
+  selector: {matchLabels: *history-labels}
+  template:
+    metadata:
+      labels: *history-labels
+      annotations: {elastic.co/dataset: kubernetes.container_logs.temporal, prometheus.io/scrape: "true", prometheus.io/port: "9090", prometheus.io/path: /metrics}
+    spec:
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 60
+      securityContext: &pod-security
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile: {type: RuntimeDefault}
+      affinity: &affinity
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              topologyKey: kubernetes.io/hostname
+              labelSelector:
+                matchExpressions:
+                - key: app.kubernetes.io/name
+                  operator: In
+                  values: [temporal]
+      topologySpreadConstraints: &spread
+      - maxSkew: 1
+        topologyKey: kubernetes.io/hostname
+        whenUnsatisfiable: ScheduleAnyway
+        labelSelector:
+          matchLabels:
+            app.kubernetes.io/name: temporal
+      containers:
+      - name: temporal-history
+        image: &server-image temporalio/server@sha256:b5ecdb8282bededae2a10c36e8d862e27d0bc2d247fc73c5416025997ab4a1da
+        imagePullPolicy: IfNotPresent
+        env:
+        - {name: POD_IP, valueFrom: {fieldRef: {fieldPath: status.podIP}}}
+        - {name: SERVICES, value: history}
+        - {name: TEMPORAL_SERVICES, value: history}
+        - {name: TEMPORAL_SERVER_CONFIG_FILE_PATH, value: /etc/temporal/config/config_template.yaml}
+        - {name: TEMPORAL_POSTGRES_USER, valueFrom: {secretKeyRef: {name: temporal-postgres, key: username}}}
+        - {name: TEMPORAL_DEFAULT_STORE_PASSWORD, valueFrom: {secretKeyRef: {name: temporal-postgres, key: password}}}
+        - {name: TEMPORAL_VISIBILITY_STORE_PASSWORD, valueFrom: {secretKeyRef: {name: temporal-postgres, key: password}}}
+        ports:
+        - {name: rpc, containerPort: 7234, protocol: TCP}
+        - {name: membership, containerPort: 6934, protocol: TCP}
+        - {name: metrics, containerPort: 9090, protocol: TCP}
+        startupProbe: &startup
+          tcpSocket: {port: rpc}
+          failureThreshold: 30
+          periodSeconds: 10
+          timeoutSeconds: 3
+        readinessProbe: &ready
+          tcpSocket: {port: rpc}
+          failureThreshold: 3
+          periodSeconds: 10
+          timeoutSeconds: 3
+        livenessProbe: &live
+          tcpSocket: {port: rpc}
+          failureThreshold: 3
+          periodSeconds: 30
+          timeoutSeconds: 3
+        resources:
+          requests: {cpu: 100m, memory: 256Mi}
+          limits: {cpu: 500m, memory: 512Mi}
+        securityContext: &container-security
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities: {drop: [ALL]}
+        volumeMounts: &mounts
+        - {name: config-runtime, mountPath: /etc/temporal/config}
+        - {name: config-template, mountPath: /etc/temporal/config/config_template.yaml, subPath: config_template.yaml, readOnly: true}
+        - {name: dynamic-config, mountPath: /etc/temporal/dynamic_config, readOnly: true}
+        - {name: frontend-mtls, mountPath: /etc/temporal/frontend-mtls, readOnly: true}
+        - {name: postgres-tls, mountPath: /etc/temporal/postgres, readOnly: true}
+        - {name: tmp, mountPath: /tmp}
+      volumes: &volumes
+      - name: config-runtime
+        emptyDir: {}
+      - name: config-template
+        configMap: {name: temporal-server-config}
+      - name: dynamic-config
+        configMap: {name: temporal-dynamic-config}
+      - name: frontend-mtls
+        secret:
+          secretName: temporal-frontend-mtls
+          items:
+          - {key: ca.crt, path: ca.crt}
+          - {key: server.crt, path: server.crt}
+          - {key: server.key, path: server.key}
+          - {key: system-worker.crt, path: system-worker.crt}
+          - {key: system-worker.key, path: system-worker.key}
+      - name: postgres-tls
+        secret:
+          secretName: temporal-postgres
+          items:
+          - {key: ca.crt, path: ca.crt}
+          - {key: tls.crt, path: tls.crt}
+          - {key: tls.key, path: tls.key}
+      - name: tmp
+        emptyDir: {}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: temporal-matching
+  namespace: temporal
+  labels: &matching-labels
+    app.kubernetes.io/name: temporal
+    app.kubernetes.io/component: matching
+spec:
+  replicas: 2
+  strategy:
+    type: RollingUpdate
+    rollingUpdate: {maxUnavailable: 1, maxSurge: 1}
+  selector: {matchLabels: *matching-labels}
+  template:
+    metadata:
+      labels: *matching-labels
+      annotations: {elastic.co/dataset: kubernetes.container_logs.temporal, prometheus.io/scrape: "true", prometheus.io/port: "9090", prometheus.io/path: /metrics}
+    spec:
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 60
+      securityContext: &pod-security
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile: {type: RuntimeDefault}
+      affinity: &affinity
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              topologyKey: kubernetes.io/hostname
+              labelSelector:
+                matchExpressions:
+                - key: app.kubernetes.io/name
+                  operator: In
+                  values: [temporal]
+      topologySpreadConstraints: &spread
+      - maxSkew: 1
+        topologyKey: kubernetes.io/hostname
+        whenUnsatisfiable: ScheduleAnyway
+        labelSelector:
+          matchLabels:
+            app.kubernetes.io/name: temporal
+      containers:
+      - name: temporal-matching
+        image: &server-image temporalio/server@sha256:b5ecdb8282bededae2a10c36e8d862e27d0bc2d247fc73c5416025997ab4a1da
+        imagePullPolicy: IfNotPresent
+        env:
+        - {name: POD_IP, valueFrom: {fieldRef: {fieldPath: status.podIP}}}
+        - {name: SERVICES, value: matching}
+        - {name: TEMPORAL_SERVICES, value: matching}
+        - {name: TEMPORAL_SERVER_CONFIG_FILE_PATH, value: /etc/temporal/config/config_template.yaml}
+        - {name: TEMPORAL_POSTGRES_USER, valueFrom: {secretKeyRef: {name: temporal-postgres, key: username}}}
+        - {name: TEMPORAL_DEFAULT_STORE_PASSWORD, valueFrom: {secretKeyRef: {name: temporal-postgres, key: password}}}
+        - {name: TEMPORAL_VISIBILITY_STORE_PASSWORD, valueFrom: {secretKeyRef: {name: temporal-postgres, key: password}}}
+        ports:
+        - {name: rpc, containerPort: 7235, protocol: TCP}
+        - {name: membership, containerPort: 6935, protocol: TCP}
+        - {name: metrics, containerPort: 9090, protocol: TCP}
+        startupProbe: &startup
+          tcpSocket: {port: rpc}
+          failureThreshold: 30
+          periodSeconds: 10
+          timeoutSeconds: 3
+        readinessProbe: &ready
+          tcpSocket: {port: rpc}
+          failureThreshold: 3
+          periodSeconds: 10
+          timeoutSeconds: 3
+        livenessProbe: &live
+          tcpSocket: {port: rpc}
+          failureThreshold: 3
+          periodSeconds: 30
+          timeoutSeconds: 3
+        resources:
+          requests: {cpu: 50m, memory: 128Mi}
+          limits: {cpu: 300m, memory: 384Mi}
+        securityContext: &container-security
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities: {drop: [ALL]}
+        volumeMounts: &mounts
+        - {name: config-runtime, mountPath: /etc/temporal/config}
+        - {name: config-template, mountPath: /etc/temporal/config/config_template.yaml, subPath: config_template.yaml, readOnly: true}
+        - {name: dynamic-config, mountPath: /etc/temporal/dynamic_config, readOnly: true}
+        - {name: frontend-mtls, mountPath: /etc/temporal/frontend-mtls, readOnly: true}
+        - {name: postgres-tls, mountPath: /etc/temporal/postgres, readOnly: true}
+        - {name: tmp, mountPath: /tmp}
+      volumes: &volumes
+      - name: config-runtime
+        emptyDir: {}
+      - name: config-template
+        configMap: {name: temporal-server-config}
+      - name: dynamic-config
+        configMap: {name: temporal-dynamic-config}
+      - name: frontend-mtls
+        secret:
+          secretName: temporal-frontend-mtls
+          items:
+          - {key: ca.crt, path: ca.crt}
+          - {key: server.crt, path: server.crt}
+          - {key: server.key, path: server.key}
+          - {key: system-worker.crt, path: system-worker.crt}
+          - {key: system-worker.key, path: system-worker.key}
+      - name: postgres-tls
+        secret:
+          secretName: temporal-postgres
+          items:
+          - {key: ca.crt, path: ca.crt}
+          - {key: tls.crt, path: tls.crt}
+          - {key: tls.key, path: tls.key}
+      - name: tmp
+        emptyDir: {}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: temporal-worker
+  namespace: temporal
+  labels: &worker-labels
+    app.kubernetes.io/name: temporal
+    app.kubernetes.io/component: worker
+spec:
+  replicas: 2
+  strategy:
+    type: RollingUpdate
+    rollingUpdate: {maxUnavailable: 1, maxSurge: 1}
+  selector: {matchLabels: *worker-labels}
+  template:
+    metadata:
+      labels: *worker-labels
+      annotations: {elastic.co/dataset: kubernetes.container_logs.temporal, prometheus.io/scrape: "true", prometheus.io/port: "9090", prometheus.io/path: /metrics}
+    spec:
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 60
+      securityContext: &pod-security
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile: {type: RuntimeDefault}
+      affinity: &affinity
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              topologyKey: kubernetes.io/hostname
+              labelSelector:
+                matchExpressions:
+                - key: app.kubernetes.io/name
+                  operator: In
+                  values: [temporal]
+      topologySpreadConstraints: &spread
+      - maxSkew: 1
+        topologyKey: kubernetes.io/hostname
+        whenUnsatisfiable: ScheduleAnyway
+        labelSelector:
+          matchLabels:
+            app.kubernetes.io/name: temporal
+      containers:
+      - name: temporal-worker
+        image: &server-image temporalio/server@sha256:b5ecdb8282bededae2a10c36e8d862e27d0bc2d247fc73c5416025997ab4a1da
+        imagePullPolicy: IfNotPresent
+        env:
+        - {name: POD_IP, valueFrom: {fieldRef: {fieldPath: status.podIP}}}
+        - {name: SERVICES, value: worker}
+        - {name: TEMPORAL_SERVICES, value: worker}
+        - {name: TEMPORAL_SERVER_CONFIG_FILE_PATH, value: /etc/temporal/config/config_template.yaml}
+        - {name: TEMPORAL_POSTGRES_USER, valueFrom: {secretKeyRef: {name: temporal-postgres, key: username}}}
+        - {name: TEMPORAL_DEFAULT_STORE_PASSWORD, valueFrom: {secretKeyRef: {name: temporal-postgres, key: password}}}
+        - {name: TEMPORAL_VISIBILITY_STORE_PASSWORD, valueFrom: {secretKeyRef: {name: temporal-postgres, key: password}}}
+        ports:
+        - {name: membership, containerPort: 6939, protocol: TCP}
+        - {name: metrics, containerPort: 9090, protocol: TCP}
+        startupProbe:
+          tcpSocket: {port: membership}
+          failureThreshold: 30
+          periodSeconds: 10
+          timeoutSeconds: 3
+        readinessProbe:
+          tcpSocket: {port: membership}
+          failureThreshold: 3
+          periodSeconds: 10
+          timeoutSeconds: 3
+        livenessProbe:
+          tcpSocket: {port: membership}
+          failureThreshold: 3
+          periodSeconds: 30
+          timeoutSeconds: 3
+        resources:
+          requests: {cpu: 50m, memory: 128Mi}
+          limits: {cpu: 300m, memory: 384Mi}
+        securityContext: &container-security
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities: {drop: [ALL]}
+        volumeMounts: &mounts
+        - {name: config-runtime, mountPath: /etc/temporal/config}
+        - {name: config-template, mountPath: /etc/temporal/config/config_template.yaml, subPath: config_template.yaml, readOnly: true}
+        - {name: dynamic-config, mountPath: /etc/temporal/dynamic_config, readOnly: true}
+        - {name: frontend-mtls, mountPath: /etc/temporal/frontend-mtls, readOnly: true}
+        - {name: postgres-tls, mountPath: /etc/temporal/postgres, readOnly: true}
+        - {name: tmp, mountPath: /tmp}
+      volumes: &volumes
+      - name: config-runtime
+        emptyDir: {}
+      - name: config-template
+        configMap: {name: temporal-server-config}
+      - name: dynamic-config
+        configMap: {name: temporal-dynamic-config}
+      - name: frontend-mtls
+        secret:
+          secretName: temporal-frontend-mtls
+          items:
+          - {key: ca.crt, path: ca.crt}
+          - {key: server.crt, path: server.crt}
+          - {key: server.key, path: server.key}
+          - {key: system-worker.crt, path: system-worker.crt}
+          - {key: system-worker.key, path: system-worker.key}
+      - name: postgres-tls
+        secret:
+          secretName: temporal-postgres
+          items:
+          - {key: ca.crt, path: ca.crt}
+          - {key: tls.crt, path: tls.crt}
+          - {key: tls.key, path: tls.key}
+      - name: tmp
+        emptyDir: {}

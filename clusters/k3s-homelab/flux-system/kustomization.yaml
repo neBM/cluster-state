@@ -18,6 +18,9 @@ resources:
 - kustomization-observability-core.yaml
 - kustomization-observability-ui.yaml
 - kustomization-apps.yaml
+- kustomization-temporal-schema-setup.yaml
+- kustomization-temporal-schema-upgrade.yaml
+- kustomization-temporal.yaml
 
 images:
 - name: "ghcr.io/fluxcd/source-controller"
