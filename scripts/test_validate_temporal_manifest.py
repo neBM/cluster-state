@@ -40,11 +40,43 @@ def replace_once(path: Path, old: str, new: str) -> None:
 def fixture(parent: Path, name: str) -> Path:
     root = parent / name
     shutil.copytree(ROOT / "apps", root / "apps")
+    shutil.copytree(ROOT / "infrastructure/platform", root / "infrastructure/platform")
     target = root / "clusters/k3s-homelab/flux-system"
     target.mkdir(parents=True)
     for path in (ROOT / "clusters/k3s-homelab/flux-system").glob("kustomization*.yaml"):
         shutil.copy2(path, target / path.name)
     return root
+
+
+def cilium_prerequisite_mutation(
+    parent: Path, name: str, relative: str, old: str, new: str, expected: str
+) -> None:
+    root = fixture(parent, name)
+    prerequisite = root / "infrastructure/platform/cilium-node-selector-labels.yaml"
+    if not prerequisite.exists():
+        prerequisite.write_text(
+            """apiVersion: cilium.io/v2
+kind: CiliumNodeConfig
+metadata:
+  name: node-selector-labels
+  namespace: kube-system
+spec:
+  nodeSelector: {}
+  defaults:
+    enable-node-selector-labels: \"true\"
+    node-labels: kubernetes.io/hostname
+"""
+        )
+        kustomization = root / "infrastructure/platform/kustomization.yaml"
+        kustomization.write_text(kustomization.read_text() + "- cilium-node-selector-labels.yaml\n")
+    replace_once(root / relative, old, new)
+    result = run(root)
+    combined = result.stdout + result.stderr
+    if result.returncode == 0:
+        raise AssertionError(f"{name}: mutation was accepted")
+    if expected not in combined:
+        raise AssertionError(f"{name}: expected {expected!r}, got:\n{combined}")
+    print(f"PASS mutation {name}")
 
 
 def mutation(parent: Path, name: str, relative: str, old: str, new: str, expected: str) -> None:
@@ -74,6 +106,46 @@ def main() -> int:
 
     with tempfile.TemporaryDirectory(prefix="temporal-mutations-") as temp:
         parent = Path(temp)
+        cilium_prerequisite_mutation(
+            parent,
+            "cilium-node-selector-prerequisite-disabled",
+            "infrastructure/platform/cilium-node-selector-labels.yaml",
+            'enable-node-selector-labels: "true"',
+            'enable-node-selector-labels: "false"',
+            "Cilium node-selector-label prerequisite must be enabled",
+        )
+        cilium_prerequisite_mutation(
+            parent,
+            "cilium-node-identity-labels-broadened",
+            "infrastructure/platform/cilium-node-selector-labels.yaml",
+            "node-labels: kubernetes.io/hostname",
+            "node-labels: kubernetes.io/hostname,node-role.kubernetes.io/control-plane",
+            "hostname-only identities",
+        )
+        cilium_prerequisite_mutation(
+            parent,
+            "cilium-node-selector-prerequisite-omitted",
+            "infrastructure/platform/kustomization.yaml",
+            "- cilium-node-selector-labels.yaml\n",
+            "",
+            "expected one kube-system CiliumNodeConfig/node-selector-labels prerequisite",
+        )
+        cilium_prerequisite_mutation(
+            parent,
+            "cilium-node-selector-prerequisite-narrowed",
+            "infrastructure/platform/cilium-node-selector-labels.yaml",
+            "  nodeSelector: {}\n",
+            "  nodeSelector:\n    matchLabels:\n      kubernetes.io/hostname: hestia\n",
+            "must select every cluster node",
+        )
+        cilium_prerequisite_mutation(
+            parent,
+            "temporal-platform-prerequisite-dependency-omitted",
+            "clusters/k3s-homelab/flux-system/kustomization-temporal.yaml",
+            "  - name: platform\n",
+            "",
+            "unsafe path/dependency ordering",
+        )
         mutation(
             parent,
             "mutable-server-tag",

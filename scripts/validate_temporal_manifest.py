@@ -344,6 +344,31 @@ def validate(root: Path) -> list[str]:
             if set(dns_rule) != {"toEndpoints", "toPorts"}:
                 errors.append("DNS egress rule contains an unexpected destination")
 
+    try:
+        platform_resources = render(root, "infrastructure/platform")
+    except (ValueError, yaml.YAMLError) as exc:
+        errors.append(str(exc))
+        platform_resources = []
+    node_configs = [
+        resource
+        for resource in platform_resources
+        if key(resource) == ("CiliumNodeConfig", "node-selector-labels", "kube-system")
+    ]
+    if len(node_configs) != 1:
+        errors.append("expected one kube-system CiliumNodeConfig/node-selector-labels prerequisite")
+    else:
+        node_config_spec = node_configs[0].get("spec", {})
+        expected_defaults = {
+            "enable-node-selector-labels": "true",
+            "node-labels": "kubernetes.io/hostname",
+        }
+        if node_config_spec.get("nodeSelector") != {}:
+            errors.append("Cilium node-selector-label prerequisite must select every cluster node")
+        if node_config_spec.get("defaults") != expected_defaults:
+            errors.append("Cilium node-selector-label prerequisite must be enabled with hostname-only identities")
+        if set(node_config_spec) != {"nodeSelector", "defaults"}:
+            errors.append("Cilium node-selector-label prerequisite contains unexpected configuration")
+
     pdb_components = {r.get("metadata", {}).get("labels", {}).get("app.kubernetes.io/component") for r in server_resources if r.get("kind") == "PodDisruptionBudget"}
     if pdb_components != SERVICES:
         errors.append("each Temporal service requires a PodDisruptionBudget")
@@ -364,7 +389,7 @@ def validate(root: Path) -> list[str]:
         expected = {
             "temporal-schema-setup": ("./apps/temporal/schema-setup", {"shared-services"}),
             "temporal-schema-upgrade": ("./apps/temporal/schema-upgrade", {"temporal-schema-setup"}),
-            "temporal": ("./apps/temporal/server", {"temporal-schema-upgrade"}),
+            "temporal": ("./apps/temporal/server", {"platform", "temporal-schema-upgrade"}),
         }
         for name, (path, dependencies) in expected.items():
             spec = flux.get(name, {}).get("spec", {})

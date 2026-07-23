@@ -1,0 +1,10 @@
+apiVersion: cilium.io/v2
+kind: CiliumNodeConfig
+metadata:
+  name: node-selector-labels
+  namespace: kube-system
+spec:
+  nodeSelector: {}
+  defaults:
+    enable-node-selector-labels: "true"
+    node-labels: kubernetes.io/hostname

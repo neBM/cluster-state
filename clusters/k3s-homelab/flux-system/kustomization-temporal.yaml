@@ -5,6 +5,7 @@ metadata:
   namespace: flux-system
 spec:
   dependsOn:
+  - name: platform
   - name: temporal-schema-upgrade
   interval: 10m0s
   path: ./apps/temporal/server
