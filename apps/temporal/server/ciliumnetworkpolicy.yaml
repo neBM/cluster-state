@@ -8,8 +8,9 @@ spec:
     matchLabels:
       app.kubernetes.io/name: temporal
   ingress:
-  - fromCIDR:
-    - 192.168.1.5/32
+  - fromNodes:
+    - matchLabels:
+        kubernetes.io/hostname: hestia
     toPorts:
     - ports:
       - port: "7233"
@@ -61,7 +62,7 @@ spec:
   - toEndpoints:
     - matchLabels:
         k8s:io.kubernetes.pod.namespace: kube-system
-        k8s:k8s-app: kube-dns
+        k8s:io.cilium.k8s.policy.serviceaccount: coredns
     toPorts:
     - ports:
       - {port: "53", protocol: UDP}
