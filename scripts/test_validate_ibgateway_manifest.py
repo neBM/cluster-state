@@ -27,6 +27,9 @@ PVC = Path(
 POLICY_RECORD = Path(
     "apps/autonomous-investing/ib-gateway-paper-deployment-policy.yaml"
 )
+BROKER_POLICY_RECORD = Path(
+    "apps/autonomous-investing/broker-observer-deployment-policy.yaml"
+)
 NAMESPACE = Path("apps/autonomous-investing/namespace-autonomous-investing.yaml")
 NETWORK_POLICY = Path(
     "apps/autonomous-investing/"
@@ -46,10 +49,22 @@ ADMITTED_REPOSITORY = (
     "registry.brmartin.co.uk:443/autonomous-investing/system/ib-gateway"
 )
 ADMITTED_DIGEST = (
-    "sha256:b46d585cde8181520511b74bab0d7d5cd6678ddb8358ada715a89319ca0c0f2f"
+    "sha256:fd88e62b91efcd392ee9da607ceaee98569f2278d830a33466b9b729725b59d0"
 )
 ADMITTED_IMAGE = f"{ADMITTED_REPOSITORY}@{ADMITTED_DIGEST}"
-DEPLOYMENT_SOURCE_SET = (DEPLOYMENT, PVC, POLICY_RECORD)
+BROKER_ADMITTED_REPOSITORY = (
+    "registry.brmartin.co.uk:443/autonomous-investing/system/broker-observer"
+)
+BROKER_ADMITTED_DIGEST = (
+    "sha256:773311d3950bb6392b778f8f6240bc7e53860494d722d26fdaf8ab571a72c166"
+)
+BROKER_ADMITTED_IMAGE = f"{BROKER_ADMITTED_REPOSITORY}@{BROKER_ADMITTED_DIGEST}"
+SYSTEM_PROJECT_ID = 35
+PROTECTED_MAIN_PIPELINE_ID = 5591
+IB_ADMISSION_JOB_ID = 20419
+BROKER_ADMISSION_JOB_ID = 20420
+SOURCE_COMMIT = "6d37a1a275f50acccfe35e341e0d16d36ab6c701"
+DEPLOYMENT_SOURCE_SET = (DEPLOYMENT, PVC, POLICY_RECORD, BROKER_POLICY_RECORD)
 PSS_LABEL_LINES = (
     "    pod-security.kubernetes.io/audit: restricted\n",
     "    pod-security.kubernetes.io/audit-version: latest\n",
@@ -96,6 +111,59 @@ def replace_once(path: Path, old: str, new: str) -> None:
     path.write_text(text.replace(old, new, 1))
 
 
+def named_container_span(text: str, name: str) -> tuple[int, int]:
+    marker = f"        name: {name}\n"
+    count = text.count(marker)
+    if count != 1:
+        raise AssertionError(
+            f"{DEPLOYMENT}: expected one container named {name!r}, found {count}"
+        )
+    name_index = text.index(marker)
+    start = text.rfind("      - image:", 0, name_index)
+    if start == -1:
+        raise AssertionError(f"{DEPLOYMENT}: could not locate container {name!r} start")
+    next_container = text.find("      - image:", name_index + len(marker))
+    pod_tail = text.find("      dnsConfig:\n", name_index + len(marker))
+    candidates = [index for index in (next_container, pod_tail) if index != -1]
+    if not candidates:
+        raise AssertionError(f"{DEPLOYMENT}: could not locate container {name!r} end")
+    return start, min(candidates)
+
+
+def replace_in_container(root: Path, name: str, old: str, new: str) -> None:
+    path = root / DEPLOYMENT
+    text = path.read_text()
+    start, end = named_container_span(text, name)
+    container = text[start:end]
+    count = container.count(old)
+    if count != 1:
+        raise AssertionError(
+            f"{path}: container {name!r} expected one mutation target, found {count}"
+        )
+    path.write_text(f"{text[:start]}{container.replace(old, new, 1)}{text[end:]}")
+
+
+def remove_named_container(root: Path, name: str) -> None:
+    path = root / DEPLOYMENT
+    text = path.read_text()
+    start, end = named_container_span(text, name)
+    path.write_text(f"{text[:start]}{text[end:]}")
+
+
+def swap_named_containers(root: Path, first_name: str, second_name: str) -> None:
+    path = root / DEPLOYMENT
+    text = path.read_text()
+    first_start, first_end = named_container_span(text, first_name)
+    second_start, second_end = named_container_span(text, second_name)
+    if first_end != second_start:
+        raise AssertionError(
+            f"{path}: expected adjacent ordered containers {first_name!r}, {second_name!r}"
+        )
+    first = text[first_start:first_end]
+    second = text[second_start:second_end]
+    path.write_text(f"{text[:first_start]}{second}{first}{text[second_end:]}")
+
+
 def remove_resource_if_present(root: Path, resource: str) -> None:
     path = root / APP_KUSTOMIZATION
     text = path.read_text()
@@ -127,6 +195,18 @@ def append_resource(root: Path, resource: str) -> None:
     if resource in text:
         raise AssertionError(f"{path}: resource line already present: {resource.strip()}")
     path.write_text(f"{text}{resource}")
+
+
+def assert_policy_records_not_rendered(root: Path) -> None:
+    text = (root / APP_KUSTOMIZATION).read_text()
+    rendered = [
+        path.name
+        for path in (POLICY_RECORD, BROKER_POLICY_RECORD)
+        if f"- {path.name}\n" in text
+    ]
+    if rendered:
+        raise AssertionError(f"deployment policy records must not be rendered: {rendered!r}")
+    print("PASS: deployment policy records are not rendered")
 
 
 def run_validator(root: Path, *arguments: str) -> subprocess.CompletedProcess[str]:
@@ -278,8 +358,16 @@ def different_admitted_image() -> str:
     return f"{ADMITTED_IMAGE[:-1]}{last}"
 
 
+def different_broker_admitted_image() -> str:
+    last = "0" if BROKER_ADMITTED_IMAGE[-1] != "0" else "1"
+    return f"{BROKER_ADMITTED_IMAGE[:-1]}{last}"
+
+
 def run_common_foundation_tests(parent: Path) -> None:
     foundation = clone_foundation_fixture(parent, "foundation-baseline")
+    if classify_source_set(foundation) != "foundation":
+        raise AssertionError("foundation fixture retained deployment source files")
+    assert_policy_records_not_rendered(foundation)
     expect_success("explicit foundation phase", foundation, "--phase", "foundation")
     expect_success("foundation auto phase", foundation)
     expect_failure(
@@ -288,6 +376,13 @@ def run_common_foundation_tests(parent: Path) -> None:
         "--expected-image requires deployment phase",
         "--expected-image",
         ADMITTED_IMAGE,
+    )
+    expect_failure(
+        "expected broker observer image in foundation phase",
+        foundation,
+        "--expected-broker-observer-image requires deployment phase",
+        "--expected-broker-observer-image",
+        BROKER_ADMITTED_IMAGE,
     )
 
     foundation_mutation_case(
@@ -473,28 +568,36 @@ def run_common_foundation_tests(parent: Path) -> None:
         "foundation",
     )
 
-    partial = clone_foundation_fixture(parent, "partial-source-set")
-    (partial / POLICY_RECORD).write_text("schemaVersion: 1\n")
-    try:
-        classify_source_set(partial)
-    except AssertionError as exc:
-        if "partial deployment source set" not in str(exc):
-            raise
-        print("PASS: partial deployment source set rejected by test harness")
-    else:
-        raise AssertionError("partial deployment source set was accepted by test harness")
+    for missing_path in DEPLOYMENT_SOURCE_SET:
+        partial = clone_fixture(parent, f"partial-without-{missing_path.stem}")
+        (partial / missing_path).unlink()
+        try:
+            classify_source_set(partial)
+        except AssertionError as exc:
+            if "partial deployment source set" not in str(exc):
+                raise
+            print(f"PASS: partial source set without {missing_path.name} rejected")
+        else:
+            raise AssertionError(
+                f"partial deployment source set without {missing_path} was accepted"
+            )
 
 
 def run_deployment_tests(parent: Path) -> None:
     baseline = clone_fixture(parent, "deployment-baseline")
+    if classify_source_set(baseline) != "deployment":
+        raise AssertionError("deployment fixture does not contain the complete source set")
+    assert_policy_records_not_rendered(baseline)
     expect_success("deployment auto phase", baseline)
     expect_success(
-        "deployment exact admitted image",
+        "deployment exact admitted images",
         baseline,
         "--phase",
         "deployment",
         "--expected-image",
         ADMITTED_IMAGE,
+        "--expected-broker-observer-image",
+        BROKER_ADMITTED_IMAGE,
     )
 
     deployment_mutation_case(
@@ -521,13 +624,33 @@ def run_deployment_tests(parent: Path) -> None:
     )
     deployment_mutation_case(
         parent,
-        "missing-policy-record",
+        "missing-ib-policy-record",
         lambda root: (root / POLICY_RECORD).unlink(),
         "deployment policy record is required",
     )
     deployment_mutation_case(
         parent,
-        "policy-record-wrong-digest",
+        "ib-policy-record-wrong-schema-version",
+        lambda root: replace_once(
+            root / POLICY_RECORD,
+            "schemaVersion: 1\n",
+            "schemaVersion: 2\n",
+        ),
+        "deployment policy record",
+    )
+    deployment_mutation_case(
+        parent,
+        "ib-policy-record-wrong-repository",
+        lambda root: replace_once(
+            root / POLICY_RECORD,
+            f"  repository: {ADMITTED_REPOSITORY}\n",
+            "  repository: example.invalid/review-mutation\n",
+        ),
+        "deployment policy record",
+    )
+    deployment_mutation_case(
+        parent,
+        "ib-policy-record-wrong-digest",
         lambda root: replace_once(
             root / POLICY_RECORD,
             f"  digest: {ADMITTED_DIGEST}\n",
@@ -537,7 +660,7 @@ def run_deployment_tests(parent: Path) -> None:
     )
     deployment_mutation_case(
         parent,
-        "policy-record-reference-mismatch",
+        "ib-policy-record-reference-mismatch",
         lambda root: replace_once(
             root / POLICY_RECORD,
             f"  reference: {ADMITTED_IMAGE}\n",
@@ -545,6 +668,110 @@ def run_deployment_tests(parent: Path) -> None:
         ),
         "deployment policy artifact reference",
     )
+    for name, old, new in (
+        (
+            "ib-policy-record-wrong-project",
+            f"  systemProjectId: {SYSTEM_PROJECT_ID}\n",
+            "  systemProjectId: 999\n",
+        ),
+        (
+            "ib-policy-record-wrong-pipeline",
+            f"  protectedMainPipelineId: {PROTECTED_MAIN_PIPELINE_ID}\n",
+            "  protectedMainPipelineId: 999\n",
+        ),
+        (
+            "ib-policy-record-wrong-job",
+            f"  admissionJobId: {IB_ADMISSION_JOB_ID}\n",
+            "  admissionJobId: 999\n",
+        ),
+        (
+            "ib-policy-record-wrong-source",
+            f"  sourceCommit: {SOURCE_COMMIT}\n",
+            f"  sourceCommit: {'0' * 40}\n",
+        ),
+    ):
+        deployment_mutation_case(
+            parent,
+            name,
+            lambda root, old=old, new=new: replace_once(
+                root / POLICY_RECORD,
+                old,
+                new,
+            ),
+            "deployment policy record",
+        )
+
+    deployment_mutation_case(
+        parent,
+        "missing-broker-observer-policy-record",
+        lambda root: (root / BROKER_POLICY_RECORD).unlink(),
+        "broker observer deployment policy record is required",
+    )
+    deployment_mutation_case(
+        parent,
+        "broker-policy-record-wrong-schema-version",
+        lambda root: replace_once(
+            root / BROKER_POLICY_RECORD,
+            "schemaVersion: 1\n",
+            "schemaVersion: 2\n",
+        ),
+        "broker observer deployment policy record",
+    )
+    for name, old, new, expected_error in (
+        (
+            "broker-policy-record-wrong-repository",
+            f"  repository: {BROKER_ADMITTED_REPOSITORY}\n",
+            "  repository: example.invalid/review-mutation\n",
+            "broker observer deployment policy record",
+        ),
+        (
+            "broker-policy-record-wrong-digest",
+            f"  digest: {BROKER_ADMITTED_DIGEST}\n",
+            f"  digest: {different_broker_admitted_image().split('@', 1)[1]}\n",
+            "broker observer deployment policy record",
+        ),
+        (
+            "broker-policy-record-reference-mismatch",
+            f"  reference: {BROKER_ADMITTED_IMAGE}\n",
+            f"  reference: {different_broker_admitted_image()}\n",
+            "broker observer deployment policy artifact reference",
+        ),
+        (
+            "broker-policy-record-wrong-project",
+            f"  systemProjectId: {SYSTEM_PROJECT_ID}\n",
+            "  systemProjectId: 999\n",
+            "broker observer deployment policy record",
+        ),
+        (
+            "broker-policy-record-wrong-pipeline",
+            f"  protectedMainPipelineId: {PROTECTED_MAIN_PIPELINE_ID}\n",
+            "  protectedMainPipelineId: 999\n",
+            "broker observer deployment policy record",
+        ),
+        (
+            "broker-policy-record-wrong-job",
+            f"  admissionJobId: {BROKER_ADMISSION_JOB_ID}\n",
+            "  admissionJobId: 999\n",
+            "broker observer deployment policy record",
+        ),
+        (
+            "broker-policy-record-wrong-source",
+            f"  sourceCommit: {SOURCE_COMMIT}\n",
+            f"  sourceCommit: {'0' * 40}\n",
+            "broker observer deployment policy record",
+        ),
+    ):
+        deployment_mutation_case(
+            parent,
+            name,
+            lambda root, old=old, new=new: replace_once(
+                root / BROKER_POLICY_RECORD,
+                old,
+                new,
+            ),
+            expected_error,
+        )
+
     deployment_mutation_case(
         parent,
         "deployment-policy-image-mismatch",
@@ -555,6 +782,17 @@ def run_deployment_tests(parent: Path) -> None:
         ),
         "Gateway deployment policy image",
     )
+    deployment_mutation_case(
+        parent,
+        "broker-deployment-policy-image-mismatch",
+        lambda root: replace_in_container(
+            root,
+            "broker-observer",
+            f"      - image: {BROKER_ADMITTED_IMAGE}\n",
+            f"      - image: {different_broker_admitted_image()}\n",
+        ),
+        "Broker Observer deployment policy image",
+    )
     expect_failure(
         "expected image differs from deployment and policy",
         baseline,
@@ -563,13 +801,288 @@ def run_deployment_tests(parent: Path) -> None:
         "deployment",
         "--expected-image",
         different_admitted_image(),
+        "--expected-broker-observer-image",
+        BROKER_ADMITTED_IMAGE,
+    )
+    expect_failure(
+        "expected broker observer image differs from deployment and policy",
+        baseline,
+        "Broker Observer deployment policy admitted image",
+        "--phase",
+        "deployment",
+        "--expected-image",
+        ADMITTED_IMAGE,
+        "--expected-broker-observer-image",
+        different_broker_admitted_image(),
+    )
+
+    deployment_mutation_case(
+        parent,
+        "missing-broker-observer",
+        lambda root: remove_named_container(root, "broker-observer"),
+        "Pod container count",
+    )
+    deployment_mutation_case(
+        parent,
+        "wrong-broker-observer-name",
+        lambda root: replace_in_container(
+            root,
+            "broker-observer",
+            "        name: broker-observer\n",
+            "        name: review-mutation\n",
+        ),
+        "Pod container names",
+    )
+    deployment_mutation_case(
+        parent,
+        "duplicate-broker-observer-name",
+        lambda root: replace_in_container(
+            root,
+            "broker-observer",
+            "        name: broker-observer\n",
+            "        name: ib-gateway-paper\n",
+        ),
+        "Pod container names",
+    )
+    deployment_mutation_case(
+        parent,
+        "reordered-containers",
+        lambda root: swap_named_containers(
+            root,
+            "ib-gateway-paper",
+            "broker-observer",
+        ),
+        "Pod container names",
+    )
+    deployment_mutation_case(
+        parent,
+        "mutable-broker-observer-image",
+        lambda root: replace_in_container(
+            root,
+            "broker-observer",
+            f"      - image: {BROKER_ADMITTED_IMAGE}\n",
+            f"      - image: {BROKER_ADMITTED_REPOSITORY}:latest\n",
+        ),
+        "Broker Observer image must use the governed repository and exactly one sha256 digest",
+    )
+    deployment_mutation_case(
+        parent,
+        "broker-observer-pull-policy",
+        lambda root: replace_in_container(
+            root,
+            "broker-observer",
+            "        imagePullPolicy: IfNotPresent\n",
+            "        imagePullPolicy: Always\n",
+        ),
+        "Broker Observer imagePullPolicy",
+    )
+
+    for name, mount in (
+        (
+            "broker-observer-settings-mount",
+            "        - mountPath: /var/lib/ibgateway\n"
+            "          name: settings\n",
+        ),
+        (
+            "broker-observer-runtime-mount",
+            "        - mountPath: /run/ibc\n"
+            "          mountPropagation: None\n"
+            "          name: ibc-runtime\n",
+        ),
+        (
+            "broker-observer-gateway-tmp-mount",
+            "        - mountPath: /gateway-tmp\n"
+            "          mountPropagation: None\n"
+            "          name: tmp\n",
+        ),
+        (
+            "broker-observer-credentials-mount",
+            "        - mountPath: /run/secrets\n"
+            "          name: credentials\n"
+            "          readOnly: true\n",
+        ),
+    ):
+        deployment_mutation_case(
+            parent,
+            name,
+            lambda root, mount=mount: replace_in_container(
+                root,
+                "broker-observer",
+                "        volumeMounts:\n",
+                f"        volumeMounts:\n{mount}",
+            ),
+            "Broker Observer volumeMounts",
+        )
+    deployment_mutation_case(
+        parent,
+        "gateway-observer-tmp-mount",
+        lambda root: replace_in_container(
+            root,
+            "ib-gateway-paper",
+            "        volumeMounts:\n",
+            "        volumeMounts:\n"
+            "        - mountPath: /observer-tmp\n"
+            "          mountPropagation: None\n"
+            "          name: observer-tmp\n",
+        ),
+        "Gateway volumeMounts",
+    )
+
+    for name, field, body in (
+        (
+            "broker-observer-env",
+            "env",
+            "        env:\n"
+            "        - name: REVIEW_MUTATION\n"
+            "          value: forbidden\n",
+        ),
+        (
+            "broker-observer-args",
+            "args",
+            "        args:\n"
+            "        - --review-mutation\n",
+        ),
+        (
+            "broker-observer-ports",
+            "ports",
+            "        ports:\n"
+            "        - containerPort: 4002\n",
+        ),
+    ):
+        deployment_mutation_case(
+            parent,
+            name,
+            lambda root, body=body: replace_in_container(
+                root,
+                "broker-observer",
+                "        imagePullPolicy: IfNotPresent\n",
+                f"{body}        imagePullPolicy: IfNotPresent\n",
+            ),
+            f"Broker Observer container: forbidden fields present: {field}",
+        )
+
+    for name, old, new, expected_error in (
+        (
+            "broker-observer-privileged",
+            "          allowPrivilegeEscalation: false\n",
+            "          allowPrivilegeEscalation: true\n",
+            "Broker Observer securityContext",
+        ),
+        (
+            "broker-observer-wrong-uid",
+            "          runAsUser: 10001\n",
+            "          runAsUser: 10002\n",
+            "Broker Observer securityContext",
+        ),
+        (
+            "broker-observer-wrong-gid",
+            "          runAsGroup: 10001\n",
+            "          runAsGroup: 10002\n",
+            "Broker Observer securityContext",
+        ),
+        (
+            "broker-observer-writable-rootfs",
+            "          readOnlyRootFilesystem: true\n",
+            "          readOnlyRootFilesystem: false\n",
+            "Broker Observer securityContext",
+        ),
+        (
+            "broker-observer-capability-drift",
+            "          capabilities:\n"
+            "            drop:\n"
+            "            - ALL\n",
+            "          capabilities:\n"
+            "            drop:\n"
+            "            - NET_RAW\n",
+            "Broker Observer securityContext",
+        ),
+        (
+            "broker-observer-seccomp-drift",
+            "          seccompProfile:\n"
+            "            type: RuntimeDefault\n",
+            "          seccompProfile:\n"
+            "            type: Unconfined\n",
+            "Broker Observer securityContext",
+        ),
+        (
+            "broker-observer-resource-drift",
+            "            cpu: 250m\n",
+            "            cpu: 251m\n",
+            "Broker Observer resources",
+        ),
+    ):
+        deployment_mutation_case(
+            parent,
+            name,
+            lambda root, old=old, new=new: replace_in_container(
+                root,
+                "broker-observer",
+                old,
+                new,
+            ),
+            expected_error,
+        )
+
+    deployment_mutation_case(
+        parent,
+        "broker-observer-tmp-wrong-path",
+        lambda root: replace_in_container(
+            root,
+            "broker-observer",
+            "        - mountPath: /tmp\n",
+            "        - mountPath: /review-mutation\n",
+        ),
+        "Broker Observer volumeMounts",
+    )
+    deployment_mutation_case(
+        parent,
+        "broker-observer-tmp-missing-propagation",
+        lambda root: replace_in_container(
+            root,
+            "broker-observer",
+            "          mountPropagation: None\n",
+            "",
+        ),
+        "Broker Observer volumeMounts",
+    )
+    deployment_mutation_case(
+        parent,
+        "broker-observer-tmp-disk-backed",
+        lambda root: replace_once(
+            root / DEPLOYMENT,
+            "      - emptyDir:\n"
+            "          medium: Memory\n"
+            "          sizeLimit: 16Mi\n"
+            "        name: observer-tmp\n",
+            "      - emptyDir:\n"
+            "          sizeLimit: 16Mi\n"
+            "        name: observer-tmp\n",
+        ),
+        "Pod volumes",
+    )
+    deployment_mutation_case(
+        parent,
+        "broker-observer-tmp-wrong-size",
+        lambda root: replace_once(
+            root / DEPLOYMENT,
+            "      - emptyDir:\n"
+            "          medium: Memory\n"
+            "          sizeLimit: 16Mi\n"
+            "        name: observer-tmp\n",
+            "      - emptyDir:\n"
+            "          medium: Memory\n"
+            "          sizeLimit: 32Mi\n"
+            "        name: observer-tmp\n",
+        ),
+        "Pod volumes",
     )
 
     deployment_mutation_case(
         parent,
         "privileged-container",
-        lambda root: replace_once(
-            root / DEPLOYMENT,
+        lambda root: replace_in_container(
+            root,
+            "ib-gateway-paper",
             "          allowPrivilegeEscalation: false\n",
             "          allowPrivilegeEscalation: true\n",
         ),
@@ -612,8 +1125,9 @@ def run_deployment_tests(parent: Path) -> None:
     deployment_mutation_case(
         parent,
         "forbidden-env",
-        lambda root: replace_once(
-            root / DEPLOYMENT,
+        lambda root: replace_in_container(
+            root,
+            "ib-gateway-paper",
             "        imagePullPolicy: IfNotPresent\n",
             "        env:\n"
             "        - name: REVIEW_MUTATION\n"
@@ -625,8 +1139,9 @@ def run_deployment_tests(parent: Path) -> None:
     deployment_mutation_case(
         parent,
         "forbidden-args",
-        lambda root: replace_once(
-            root / DEPLOYMENT,
+        lambda root: replace_in_container(
+            root,
+            "ib-gateway-paper",
             "        imagePullPolicy: IfNotPresent\n",
             "        args:\n"
             "        - --review-mutation\n"
@@ -646,7 +1161,7 @@ def run_deployment_tests(parent: Path) -> None:
     )
     deployment_mutation_case(
         parent,
-        "second-container",
+        "extra-third-container",
         lambda root: replace_once(
             root / DEPLOYMENT,
             "      dnsConfig:\n",
@@ -682,8 +1197,9 @@ def run_deployment_tests(parent: Path) -> None:
     deployment_mutation_case(
         parent,
         "container-ports",
-        lambda root: replace_once(
-            root / DEPLOYMENT,
+        lambda root: replace_in_container(
+            root,
+            "ib-gateway-paper",
             "        imagePullPolicy: IfNotPresent\n",
             "        imagePullPolicy: IfNotPresent\n"
             "        ports:\n"
@@ -694,8 +1210,9 @@ def run_deployment_tests(parent: Path) -> None:
     deployment_mutation_case(
         parent,
         "wrong-container-uid",
-        lambda root: replace_once(
-            root / DEPLOYMENT,
+        lambda root: replace_in_container(
+            root,
+            "ib-gateway-paper",
             "          runAsUser: 10001\n",
             "          runAsUser: 10002\n",
         ),
@@ -704,8 +1221,9 @@ def run_deployment_tests(parent: Path) -> None:
     deployment_mutation_case(
         parent,
         "wrong-container-gid",
-        lambda root: replace_once(
-            root / DEPLOYMENT,
+        lambda root: replace_in_container(
+            root,
+            "ib-gateway-paper",
             "          runAsGroup: 10001\n",
             "          runAsGroup: 10002\n",
         ),

@@ -19,7 +19,7 @@ spec:
     spec:
       automountServiceAccountToken: false
       containers:
-      - image: registry.brmartin.co.uk:443/autonomous-investing/system/ib-gateway@sha256:b46d585cde8181520511b74bab0d7d5cd6678ddb8358ada715a89319ca0c0f2f
+      - image: registry.brmartin.co.uk:443/autonomous-investing/system/ib-gateway@sha256:fd88e62b91efcd392ee9da607ceaee98569f2278d830a33466b9b729725b59d0
         imagePullPolicy: IfNotPresent
         name: ib-gateway-paper
         resources:
@@ -51,6 +51,31 @@ spec:
         - mountPath: /run/secrets
           name: credentials
           readOnly: true
+      - image: registry.brmartin.co.uk:443/autonomous-investing/system/broker-observer@sha256:773311d3950bb6392b778f8f6240bc7e53860494d722d26fdaf8ab571a72c166
+        imagePullPolicy: IfNotPresent
+        name: broker-observer
+        resources:
+          limits:
+            cpu: 250m
+            memory: 256Mi
+          requests:
+            cpu: 25m
+            memory: 64Mi
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+          readOnlyRootFilesystem: true
+          runAsGroup: 10001
+          runAsNonRoot: true
+          runAsUser: 10001
+          seccompProfile:
+            type: RuntimeDefault
+        volumeMounts:
+        - mountPath: /tmp
+          mountPropagation: None
+          name: observer-tmp
       dnsConfig:
         options:
         - name: ndots
@@ -92,3 +117,7 @@ spec:
           - key: TWS_PASSWORD
             path: TWS_PASSWORD
           secretName: ibkr-paper-gateway-credentials
+      - emptyDir:
+          medium: Memory
+          sizeLimit: 16Mi
+        name: observer-tmp
