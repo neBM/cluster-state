@@ -119,12 +119,28 @@ DNS_NAMES = [
 ]
 
 
+def _type_strict_equal(actual: Any, expected: Any) -> bool:
+    if type(actual) is not type(expected):
+        return False
+    if isinstance(expected, dict):
+        return actual.keys() == expected.keys() and all(
+            _type_strict_equal(actual[key], value)
+            for key, value in expected.items()
+        )
+    if isinstance(expected, (list, tuple)):
+        return len(actual) == len(expected) and all(
+            _type_strict_equal(actual_item, expected_item)
+            for actual_item, expected_item in zip(actual, expected, strict=True)
+        )
+    return actual == expected
+
+
 class Checks:
     def __init__(self) -> None:
         self.errors: list[str] = []
 
     def equal(self, actual: Any, expected: Any, path: str) -> None:
-        if actual != expected:
+        if not _type_strict_equal(actual, expected):
             self.errors.append(f"{path}: expected {expected!r}, got {actual!r}")
 
     def true(self, condition: bool, message: str) -> None:
