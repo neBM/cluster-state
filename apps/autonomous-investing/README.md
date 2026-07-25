@@ -1,23 +1,53 @@
-# IB Gateway paper workload
+# IB Gateway paper workload with broker observer
 
-`ib-gateway-paper` runs only the paper-trading, read-only API profile. Its image comes through the governed source build and admission pipeline and remains pinned to the immutable digest admitted by protected-main pipeline 5280.
+`ib-gateway-paper` runs only the paper-trading, read-only API profile. `broker-observer` is a credential-isolated sidecar in the same Pod and reaches the Gateway only through the existing localhost API at `127.0.0.1:4002`. Neither container is exposed by a Service, Ingress, Gateway, HTTPRoute, or container port.
 
-`ib-gateway-paper-deployment-policy.yaml` is the non-Kubernetes audit record for that independently verified artifact. It records system project 35, admission job 19896, source commit `9c7b05f3d8c7d727b2f68df68e787ad8a227ae37`, and the exact admitted repository and digest. It is deliberately not a Kustomize resource. Deployment validation requires its exact schema and values and binds its image reference to both the Deployment and any `--expected-image` argument.
+## Immutable admitted artifacts
 
-Broker credentials stay out of Git. The Deployment reads only `TWS_USERID` and `TWS_PASSWORD` files from the separately managed `ibkr-paper-gateway-credentials` Secret.
+Both images were independently built, audited, and admitted by autonomous-investing system project 35, protected-main pipeline 5591, at source commit `6d37a1a275f50acccfe35e341e0d16d36ab6c701`:
+
+- IB Gateway admission job 20419: `registry.brmartin.co.uk:443/autonomous-investing/system/ib-gateway@sha256:fd88e62b91efcd392ee9da607ceaee98569f2278d830a33466b9b729725b59d0`
+- Broker observer admission job 20420: `registry.brmartin.co.uk:443/autonomous-investing/system/broker-observer@sha256:773311d3950bb6392b778f8f6240bc7e53860494d722d26fdaf8ab571a72c166`
+
+`ib-gateway-paper-deployment-policy.yaml` and `broker-observer-deployment-policy.yaml` are separate, non-Kubernetes audit records. They are deliberately not Kustomize resources. Deployment validation requires each exact schema, provenance identity, repository, digest, and reference, then binds each reference independently to its container and optional CLI expectation.
+
+The protected-main scans reported:
+
+- Broker observer: zero Critical, zero High, and an exactly empty top-level `ignoredMatches` list.
+- IB Gateway: zero Critical, exactly six retained non-Jackson High findings, and an exactly empty top-level `ignoredMatches` list. Matched `jackson-annotations`, `jackson-core`, and `jackson-databind` 2.18.9 are present; there are no Jackson vulnerability findings.
+
+The retained IB Gateway High tuples are:
+
+- `GHSA-78wr-2p64-hpwj`, `commons-io`, `2.11.0`
+- `CVE-2025-53066`, `openjdk`, `17.0.16.0.101`
+- `CVE-2026-21932`, `openjdk`, `17.0.16.0.101`
+- `CVE-2026-21945`, `openjdk`, `17.0.16.0.101`
+- `CVE-2026-22016`, `openjdk`, `17.0.16.0.101`
+- `CVE-2026-34282`, `openjdk`, `17.0.16.0.101`
+
+## Credential and runtime isolation
+
+Broker credentials remain outside Git. The Gateway alone reads `TWS_USERID` and `TWS_PASSWORD` files from the separately managed `ibkr-paper-gateway-credentials` Secret. The observer receives no environment configuration and mounts none of the credential, settings, Gateway `/tmp`, or `/run/ibc` volumes. Its only writable filesystem is a private 16 MiB memory-backed volume at `/tmp`; its image root remains read-only. `/run/ibc` remains an exclusive memory-backed Gateway mount.
+
+The observer opens no network listener. Same-Pod networking nevertheless means it inherits the Pod's existing Cilium egress authority: exact-name cluster DNS plus the documented IBKR endpoints on TCP 4000/4001. This is an explicit residual risk of localhost observation. The rollout does not widen the egress policy.
+
+The observer supervisor's generic health state proves only local lifecycle and watchdog health. It is not authenticated broker-session readiness and must not be reported as such. Durable broker-snapshot persistence belongs to the separate storage amendment and is not provided or claimed by this rollout.
 
 ## Policy-first rollout
 
-Use two merge requests for a new environment or a rebuild:
+Use two merge requests for a new environment or rebuild:
 
-1. The foundation MR renders exactly the Namespace, default-deny NetworkPolicy, and CiliumNetworkPolicy. It must render neither the settings PVC nor the Deployment. The foundation branch may omit the PVC, Deployment, and deployment-policy source files; the phase-aware mutation harness still runs all common foundation tests. Run `uv run --locked --script scripts/validate_ibgateway_manifest.py --phase foundation` and wait for Flux to reconcile the foundation before continuing.
-2. Provision `ibkr-paper-gateway-credentials` through the approved out-of-band Secret workflow after the namespace exists. Confirm only that the named Secret exists; do not read or print its data during rollout review.
-3. Only after the Secret exists, the deployment MR adds the `local-path-retain` settings PVC and the singleton hardened Deployment together, plus the non-rendered deployment-policy record for the protected-main admitted digest. Run `uv run --locked --script scripts/validate_ibgateway_manifest.py --phase deployment --expected-image '<admitted-image-reference>'` before merge.
+1. The foundation MR renders exactly the Namespace, default-deny NetworkPolicy, and CiliumNetworkPolicy. It renders neither policy record, the settings PVC, nor the Deployment. Run `uv run --locked --script scripts/validate_ibgateway_manifest.py --phase foundation`, and wait for Flux to reconcile it.
+2. Provision `ibkr-paper-gateway-credentials` through the approved out-of-band Secret workflow. Confirm only that the named Secret exists; never read or print its data during rollout review.
+3. The deployment MR adds the `local-path-retain` settings PVC, singleton hardened two-container Deployment, and both non-rendered policy records together. Validate both admitted identities:
 
-This split is required for Flux health: the authoritative `apps` Flux Kustomization has `wait: true`, while `local-path-retain` has `volumeBindingMode: WaitForFirstConsumer`. A PVC created without its Deployment has no consumer, remains Pending, and can hold the foundation reconciliation unhealthy. Adding the PVC and its consumer atomically in the deployment phase allows provisioning to proceed.
+   ```sh
+   uv run --locked --script scripts/validate_ibgateway_manifest.py \
+     --phase deployment \
+     --expected-image 'registry.brmartin.co.uk:443/autonomous-investing/system/ib-gateway@sha256:fd88e62b91efcd392ee9da607ceaee98569f2278d830a33466b9b729725b59d0' \
+     --expected-broker-observer-image 'registry.brmartin.co.uk:443/autonomous-investing/system/broker-observer@sha256:773311d3950bb6392b778f8f6240bc7e53860494d722d26fdaf8ab571a72c166'
+   ```
 
-The validator discovers the apps render from the exact authoritative Flux `apps` Kustomization instead of assuming `./apps`. Its default `--phase auto` selects deployment whenever any Deployment is present in `autonomous-investing`; otherwise it selects foundation. Exact phase resource sets make partial states fail closed: foundation forbids both PVCs and Deployments, while deployment requires exactly the named PVC and Deployment. `--expected-image` is valid only in deployment phase. The current full authoritative apps render is the completed five-resource deployment phase.
+This split is required because the authoritative `apps` Flux Kustomization has `wait: true`, while `local-path-retain` uses `WaitForFirstConsumer`. A PVC without its Deployment consumer can remain Pending and hold foundation reconciliation unhealthy. The validator discovers the exact authoritative Flux apps render and fails closed on partial source or rendered resource sets.
 
-There is deliberately no Service, Ingress, Gateway, or HTTPRoute. The API remains same-pod localhost only at `127.0.0.1:4002`. `/run/ibc` is an exclusive memory-backed mount owned by the single Gateway container; do not add an init container, sidecar, or second mount of that volume.
-
-Egress evidence is limited to the documented IBKR paper endpoints `zdc1.ibllc.com`, `zdc1-hb1.ibllc.com`, `zdc1-hb2.ibllc.com`, `ndc1.ibllc.com`, `ndc1-hb1.ibllc.com`, `ndc1-hb2.ibllc.com`, `cdc1.ibllc.com`, `cdc1-hb1.ibllc.com`, and `cdc1-hb2.ibllc.com` on TCP 4000/4001, plus exact-name DNS queries through cluster CoreDNS. The Pod sets only `ndots: "1"` so these external names are queried directly rather than first expanding through cluster search domains. Successful startup still has an operator-controlled 2FA gate: pod readiness is not session readiness, and operators must not use the API until the challenge is completed and the paper/read-only session is verified.
+The Pod uses only `ndots: "1"` so external broker names are queried directly. Rollout can still require the user's IBKR 2FA approval. Pod readiness, container process health, and observer supervisor health do not prove the authenticated session. Do not use the API until the challenge is completed and the paper/read-only session is independently verified; this workload never authorizes live trading or capital movement.

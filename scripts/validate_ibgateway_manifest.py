@@ -26,8 +26,23 @@ APPS_FLUX_KUSTOMIZATION = Path(
 STORAGE_FLUX_KUSTOMIZATION = Path(
     "clusters/k3s-homelab/flux-system/kustomization-storage-classes.yaml"
 )
-DEPLOYMENT_POLICY_RECORD = Path(
+IB_DEPLOYMENT_POLICY_RECORD = Path(
     "autonomous-investing/ib-gateway-paper-deployment-policy.yaml"
+)
+BROKER_DEPLOYMENT_POLICY_RECORD = Path(
+    "autonomous-investing/broker-observer-deployment-policy.yaml"
+)
+DEPLOYMENT_SOURCE_SET = (
+    Path(
+        "autonomous-investing/"
+        "deployment-autonomous-investing-ib-gateway-paper.yaml"
+    ),
+    Path(
+        "autonomous-investing/"
+        "persistentvolumeclaim-autonomous-investing-ib-gateway-settings.yaml"
+    ),
+    IB_DEPLOYMENT_POLICY_RECORD,
+    BROKER_DEPLOYMENT_POLICY_RECORD,
 )
 NAMESPACE = "autonomous-investing"
 APP_LABELS = {"app.kubernetes.io/name": "ib-gateway-paper"}
@@ -41,30 +56,50 @@ NAMESPACE_LABELS = {
     "pod-security.kubernetes.io/warn": "restricted",
     "pod-security.kubernetes.io/warn-version": "latest",
 }
-IMAGE_PATTERN = re.compile(
+GATEWAY_IMAGE_PATTERN = re.compile(
     r"^registry\.brmartin\.co\.uk:443/autonomous-investing/system/"
     r"ib-gateway@sha256:[0-9a-f]{64}$"
+)
+BROKER_IMAGE_PATTERN = re.compile(
+    r"^registry\.brmartin\.co\.uk:443/autonomous-investing/system/"
+    r"broker-observer@sha256:[0-9a-f]{64}$"
 )
 ADMITTED_REPOSITORY = (
     "registry.brmartin.co.uk:443/autonomous-investing/system/ib-gateway"
 )
 ADMITTED_DIGEST = (
-    "sha256:b46d585cde8181520511b74bab0d7d5cd6678ddb8358ada715a89319ca0c0f2f"
+    "sha256:fd88e62b91efcd392ee9da607ceaee98569f2278d830a33466b9b729725b59d0"
 )
 ADMITTED_IMAGE = f"{ADMITTED_REPOSITORY}@{ADMITTED_DIGEST}"
-EXPECTED_DEPLOYMENT_POLICY = {
+BROKER_ADMITTED_REPOSITORY = (
+    "registry.brmartin.co.uk:443/autonomous-investing/system/broker-observer"
+)
+BROKER_ADMITTED_DIGEST = (
+    "sha256:773311d3950bb6392b778f8f6240bc7e53860494d722d26fdaf8ab571a72c166"
+)
+BROKER_ADMITTED_IMAGE = f"{BROKER_ADMITTED_REPOSITORY}@{BROKER_ADMITTED_DIGEST}"
+COMMON_PROVENANCE = {
+    "systemProjectId": 35,
+    "protectedMainPipelineId": 5591,
+    "sourceCommit": "6d37a1a275f50acccfe35e341e0d16d36ab6c701",
+}
+EXPECTED_IB_DEPLOYMENT_POLICY = {
     "schemaVersion": 1,
     "artifact": {
         "repository": ADMITTED_REPOSITORY,
         "digest": ADMITTED_DIGEST,
         "reference": ADMITTED_IMAGE,
     },
-    "provenance": {
-        "systemProjectId": 35,
-        "protectedMainPipelineId": 5280,
-        "admissionJobId": 19896,
-        "sourceCommit": "9c7b05f3d8c7d727b2f68df68e787ad8a227ae37",
+    "provenance": {**COMMON_PROVENANCE, "admissionJobId": 20419},
+}
+EXPECTED_BROKER_DEPLOYMENT_POLICY = {
+    "schemaVersion": 1,
+    "artifact": {
+        "repository": BROKER_ADMITTED_REPOSITORY,
+        "digest": BROKER_ADMITTED_DIGEST,
+        "reference": BROKER_ADMITTED_IMAGE,
     },
+    "provenance": {**COMMON_PROVENANCE, "admissionJobId": 20420},
 }
 DNS_NAMES = [
     "zdc1.ibllc.com",
@@ -113,8 +148,15 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--expected-image",
         help=(
-            "Optionally require one exact admitted image reference to equal both "
-            "the Deployment and deployment policy record."
+            "Optionally require the exact admitted IB Gateway image reference to "
+            "equal both the Deployment and its deployment policy record."
+        ),
+    )
+    parser.add_argument(
+        "--expected-broker-observer-image",
+        help=(
+            "Optionally require the exact admitted Broker Observer image reference "
+            "to equal both the Deployment and its deployment policy record."
         ),
     )
     parser.add_argument(
@@ -221,13 +263,76 @@ def discover_storage_entrypoint(repo_root: Path) -> Path:
     )
 
 
-def validate_deployment_policy(path: Path, checks: Checks) -> str | None:
+def validate_policy_records_not_rendered(
+    apps_entrypoint: Path, checks: Checks
+) -> None:
+    app_kustomization = (
+        apps_entrypoint / "autonomous-investing" / "kustomization.yaml"
+    )
+    document = yaml.safe_load(app_kustomization.read_text())
+    resources = document.get("resources", []) if isinstance(document, dict) else []
+    checks.true(
+        isinstance(resources, list) and all(isinstance(item, str) for item in resources),
+        "autonomous-investing Kustomization resources",
+    )
+    rendered_names = {
+        PurePosixPath(item).name for item in resources if isinstance(item, str)
+    }
+    for policy_record in (
+        IB_DEPLOYMENT_POLICY_RECORD,
+        BROKER_DEPLOYMENT_POLICY_RECORD,
+    ):
+        checks.true(
+            policy_record.name not in rendered_names,
+            f"deployment policy record must not be rendered: {policy_record.name}",
+        )
+
+
+def classify_deployment_source_set(
+    apps_entrypoint: Path, checks: Checks
+) -> str:
+    present = [
+        path for path in DEPLOYMENT_SOURCE_SET if (apps_entrypoint / path).is_file()
+    ]
+    if len(present) == len(DEPLOYMENT_SOURCE_SET):
+        return "deployment"
+    if not present:
+        return "foundation"
+
+    missing = [path for path in DEPLOYMENT_SOURCE_SET if path not in present]
+    details = [
+        "partial deployment source set: present "
+        f"{[str(path) for path in present]!r}; missing "
+        f"{[str(path) for path in missing]!r}"
+    ]
+    if IB_DEPLOYMENT_POLICY_RECORD in missing:
+        details.append(
+            "deployment policy record is required: "
+            f"{apps_entrypoint / IB_DEPLOYMENT_POLICY_RECORD}"
+        )
+    if BROKER_DEPLOYMENT_POLICY_RECORD in missing:
+        details.append(
+            "broker observer deployment policy record is required: "
+            f"{apps_entrypoint / BROKER_DEPLOYMENT_POLICY_RECORD}"
+        )
+    checks.errors.append(details[0])
+    checks.errors.extend(details[1:])
+    return "partial"
+
+
+def validate_deployment_policy(
+    path: Path,
+    checks: Checks,
+    expected_policy: dict[str, Any],
+    role: str,
+) -> str | None:
+    record_label = f"{role}deployment policy record"
     if not path.is_file():
-        checks.errors.append(f"deployment policy record is required: {path}")
+        checks.errors.append(f"{record_label} is required: {path}")
         return None
 
     record = yaml.safe_load(path.read_text())
-    checks.equal(record, EXPECTED_DEPLOYMENT_POLICY, "deployment policy record")
+    checks.equal(record, expected_policy, record_label)
     if not isinstance(record, dict):
         return None
 
@@ -242,7 +347,11 @@ def validate_deployment_policy(path: Path, checks: Checks) -> str | None:
         if isinstance(repository, str) and isinstance(digest, str)
         else None
     )
-    checks.equal(reference, derived_reference, "deployment policy artifact reference")
+    checks.equal(
+        reference,
+        derived_reference,
+        f"{role}deployment policy artifact reference",
+    )
     return reference if isinstance(reference, str) else None
 
 
@@ -342,7 +451,9 @@ def validate_deployment(
     deployment: dict[str, Any],
     checks: Checks,
     policy_image: str | None,
+    broker_policy_image: str | None,
     expected_image: str | None,
+    expected_broker_observer_image: str | None,
 ) -> None:
     checks.equal(deployment.get("apiVersion"), "apps/v1", "Deployment apiVersion")
     checks.equal(deployment.get("metadata", {}).get("labels"), APP_LABELS, "Deployment labels")
@@ -425,11 +536,22 @@ def validate_deployment(
     )
 
     containers = pod.get("containers", [])
-    checks.equal(len(containers), 1, "Pod container count")
-    if len(containers) != 1 or not isinstance(containers[0], dict):
+    checks.equal(len(containers), 2, "Pod container count")
+    container_names = [
+        container.get("name") if isinstance(container, dict) else None
+        for container in containers
+    ]
+    checks.equal(
+        container_names,
+        ["ib-gateway-paper", "broker-observer"],
+        "Pod container names",
+    )
+    if len(containers) != 2 or not all(
+        isinstance(container, dict) for container in containers
+    ):
         return
 
-    container = containers[0]
+    gateway, broker_observer = containers
     expected_container_fields = {
         "image",
         "imagePullPolicy",
@@ -438,34 +560,43 @@ def validate_deployment(
         "securityContext",
         "volumeMounts",
     }
-    checks.equal(set(container), expected_container_fields, "Gateway container fields")
-    checks.absent(
-        container,
-        {
-            "args",
-            "command",
-            "env",
-            "envFrom",
-            "lifecycle",
-            "livenessProbe",
-            "ports",
-            "readinessProbe",
-            "startupProbe",
-        },
-        "Gateway container",
-    )
-    checks.equal(container.get("name"), "ib-gateway-paper", "Gateway container name")
+    forbidden_runtime_fields = {
+        "args",
+        "command",
+        "env",
+        "envFrom",
+        "lifecycle",
+        "livenessProbe",
+        "ports",
+        "readinessProbe",
+        "startupProbe",
+    }
+    for container, role in (
+        (gateway, "Gateway"),
+        (broker_observer, "Broker Observer"),
+    ):
+        checks.equal(
+            set(container),
+            expected_container_fields,
+            f"{role} container fields",
+        )
+        checks.absent(
+            container,
+            forbidden_runtime_fields,
+            f"{role} container",
+        )
 
-    image = container.get("image", "")
+    checks.equal(gateway.get("name"), "ib-gateway-paper", "Gateway container name")
+    image = gateway.get("image", "")
     checks.true(
-        isinstance(image, str) and IMAGE_PATTERN.fullmatch(image) is not None,
+        isinstance(image, str) and GATEWAY_IMAGE_PATTERN.fullmatch(image) is not None,
         "Gateway image must use the governed repository and exactly one sha256 digest",
     )
     if policy_image is not None:
         checks.equal(image, policy_image, "Gateway deployment policy image")
     if expected_image is not None:
         checks.true(
-            IMAGE_PATTERN.fullmatch(expected_image) is not None,
+            GATEWAY_IMAGE_PATTERN.fullmatch(expected_image) is not None,
             "--expected-image must itself be a valid governed sha256 reference",
         )
         checks.equal(image, expected_image, "Gateway admitted image")
@@ -475,9 +606,9 @@ def validate_deployment(
                 expected_image,
                 "Deployment policy admitted image",
             )
-    checks.equal(container.get("imagePullPolicy"), "IfNotPresent", "Gateway imagePullPolicy")
+    checks.equal(gateway.get("imagePullPolicy"), "IfNotPresent", "Gateway imagePullPolicy")
     checks.equal(
-        container.get("resources"),
+        gateway.get("resources"),
         {
             "limits": {"cpu": "1", "memory": "2Gi"},
             "requests": {"cpu": "250m", "memory": "768Mi"},
@@ -485,7 +616,7 @@ def validate_deployment(
         "Gateway resources",
     )
     checks.equal(
-        container.get("securityContext"),
+        gateway.get("securityContext"),
         {
             "allowPrivilegeEscalation": False,
             "capabilities": {"drop": ["ALL"]},
@@ -498,13 +629,19 @@ def validate_deployment(
         "Gateway securityContext",
     )
 
-    mounts = container.get("volumeMounts", [])
-    mounts_by_name = {
-        mount.get("name"): mount for mount in mounts if isinstance(mount, dict)
+    gateway_mounts = gateway.get("volumeMounts", [])
+    gateway_mounts_by_name = {
+        mount.get("name"): mount
+        for mount in gateway_mounts
+        if isinstance(mount, dict)
     }
-    checks.equal(len(mounts_by_name), len(mounts), "Gateway volumeMount names")
     checks.equal(
-        mounts_by_name,
+        len(gateway_mounts_by_name),
+        len(gateway_mounts),
+        "Gateway volumeMount names",
+    )
+    checks.equal(
+        gateway_mounts_by_name,
         {
             "settings": {"mountPath": "/var/lib/ibgateway", "name": "settings"},
             "ibc-runtime": {
@@ -522,27 +659,98 @@ def validate_deployment(
         "Gateway volumeMounts",
     )
 
+    checks.equal(
+        broker_observer.get("name"),
+        "broker-observer",
+        "Broker Observer container name",
+    )
+    broker_image = broker_observer.get("image", "")
+    checks.true(
+        isinstance(broker_image, str)
+        and BROKER_IMAGE_PATTERN.fullmatch(broker_image) is not None,
+        "Broker Observer image must use the governed repository and exactly one sha256 digest",
+    )
+    if broker_policy_image is not None:
+        checks.equal(
+            broker_image,
+            broker_policy_image,
+            "Broker Observer deployment policy image",
+        )
+    if expected_broker_observer_image is not None:
+        checks.true(
+            BROKER_IMAGE_PATTERN.fullmatch(expected_broker_observer_image) is not None,
+            "--expected-broker-observer-image must itself be a valid governed sha256 reference",
+        )
+        checks.equal(
+            broker_image,
+            expected_broker_observer_image,
+            "Broker Observer admitted image",
+        )
+        if broker_policy_image is not None:
+            checks.equal(
+                broker_policy_image,
+                expected_broker_observer_image,
+                "Broker Observer deployment policy admitted image",
+            )
+    checks.equal(
+        broker_observer.get("imagePullPolicy"),
+        "IfNotPresent",
+        "Broker Observer imagePullPolicy",
+    )
+    checks.equal(
+        broker_observer.get("resources"),
+        {
+            "limits": {"cpu": "250m", "memory": "256Mi"},
+            "requests": {"cpu": "25m", "memory": "64Mi"},
+        },
+        "Broker Observer resources",
+    )
+    checks.equal(
+        broker_observer.get("securityContext"),
+        {
+            "allowPrivilegeEscalation": False,
+            "capabilities": {"drop": ["ALL"]},
+            "readOnlyRootFilesystem": True,
+            "runAsGroup": 10001,
+            "runAsNonRoot": True,
+            "runAsUser": 10001,
+            "seccompProfile": {"type": "RuntimeDefault"},
+        },
+        "Broker Observer securityContext",
+    )
+    checks.equal(
+        broker_observer.get("volumeMounts"),
+        [
+            {
+                "mountPath": "/tmp",
+                "mountPropagation": "None",
+                "name": "observer-tmp",
+            }
+        ],
+        "Broker Observer volumeMounts",
+    )
+
     volumes = pod.get("volumes", [])
     volumes_by_name = {
         volume.get("name"): volume for volume in volumes if isinstance(volume, dict)
     }
     checks.equal(len(volumes_by_name), len(volumes), "Pod volume names")
     checks.equal(
-        volumes_by_name,
-        {
-            "settings": {
+        volumes,
+        [
+            {
                 "name": "settings",
                 "persistentVolumeClaim": {"claimName": "ib-gateway-settings"},
             },
-            "ibc-runtime": {
+            {
                 "emptyDir": {"medium": "Memory", "sizeLimit": "16Mi"},
                 "name": "ibc-runtime",
             },
-            "tmp": {
+            {
                 "emptyDir": {"medium": "Memory", "sizeLimit": "512Mi"},
                 "name": "tmp",
             },
-            "credentials": {
+            {
                 "name": "credentials",
                 "secret": {
                     "defaultMode": 0o440,
@@ -553,7 +761,11 @@ def validate_deployment(
                     "secretName": "ibkr-paper-gateway-credentials",
                 },
             },
-        },
+            {
+                "emptyDir": {"medium": "Memory", "sizeLimit": "16Mi"},
+                "name": "observer-tmp",
+            },
+        ],
         "Pod volumes",
     )
 
@@ -565,7 +777,7 @@ def validate_deployment(
         for container_spec in all_container_specs
         if isinstance(container_spec, dict)
         for mount in container_spec.get("volumeMounts", [])
-        if mount.get("name") == "ibc-runtime"
+        if isinstance(mount, dict) and mount.get("name") == "ibc-runtime"
     ]
     checks.equal(
         runtime_mounts,
@@ -580,6 +792,45 @@ def validate_deployment(
             )
         ],
         "exclusive ibc-runtime mount",
+    )
+    observer_tmp_mounts = [
+        (container_spec.get("name"), mount)
+        for container_spec in all_container_specs
+        if isinstance(container_spec, dict)
+        for mount in container_spec.get("volumeMounts", [])
+        if isinstance(mount, dict) and mount.get("name") == "observer-tmp"
+    ]
+    checks.equal(
+        observer_tmp_mounts,
+        [
+            (
+                "broker-observer",
+                {
+                    "mountPath": "/tmp",
+                    "mountPropagation": "None",
+                    "name": "observer-tmp",
+                },
+            )
+        ],
+        "exclusive observer-tmp mount",
+    )
+    writable_mounts = [
+        (container_spec.get("name"), mount.get("name"))
+        for container_spec in all_container_specs
+        if isinstance(container_spec, dict)
+        for mount in container_spec.get("volumeMounts", [])
+        if isinstance(mount, dict)
+        and mount.get("name") in {"settings", "ibc-runtime", "tmp", "observer-tmp"}
+    ]
+    checks.equal(
+        writable_mounts,
+        [
+            ("ib-gateway-paper", "settings"),
+            ("ib-gateway-paper", "ibc-runtime"),
+            ("ib-gateway-paper", "tmp"),
+            ("broker-observer", "observer-tmp"),
+        ],
+        "exclusive writable volume mounts",
     )
 
 
@@ -660,11 +911,16 @@ def is_governed_resource(resource: dict[str, Any]) -> bool:
 
 
 def validate(
-    repo_root: Path, requested_phase: str, expected_image: str | None
+    repo_root: Path,
+    requested_phase: str,
+    expected_image: str | None,
+    expected_broker_observer_image: str | None,
 ) -> tuple[list[str], str]:
     checks = Checks()
     repo_root = repo_root.resolve()
     apps_entrypoint = discover_apps_entrypoint(repo_root)
+    validate_policy_records_not_rendered(apps_entrypoint, checks)
+    source_phase = classify_deployment_source_set(apps_entrypoint, checks)
     resources = [
         resource
         for resource in load_resources(render_entrypoint(apps_entrypoint))
@@ -688,6 +944,7 @@ def validate(
     ]
     detected_phase = "deployment" if rendered_deployments else "foundation"
     phase = detected_phase if requested_phase == "auto" else requested_phase
+    checks.equal(source_phase, phase, "deployment source set phase")
     expected_ids = foundation_ids | (
         {pvc_id, deployment_id} if phase == "deployment" else set()
     )
@@ -733,11 +990,20 @@ def validate(
 
     if expected_image is not None:
         checks.true(
-            IMAGE_PATTERN.fullmatch(expected_image) is not None,
+            GATEWAY_IMAGE_PATTERN.fullmatch(expected_image) is not None,
             "--expected-image must itself be a valid governed sha256 reference",
         )
         if phase != "deployment":
             checks.errors.append("--expected-image requires deployment phase")
+    if expected_broker_observer_image is not None:
+        checks.true(
+            BROKER_IMAGE_PATTERN.fullmatch(expected_broker_observer_image) is not None,
+            "--expected-broker-observer-image must itself be a valid governed sha256 reference",
+        )
+        if phase != "deployment":
+            checks.errors.append(
+                "--expected-broker-observer-image requires deployment phase"
+            )
 
     namespace = indexed.get(("Namespace", NAMESPACE, None))
 
@@ -749,10 +1015,19 @@ def validate(
     cilium_policy = indexed.get(("CiliumNetworkPolicy", "ib-gateway-paper", NAMESPACE))
 
     policy_image = None
+    broker_policy_image = None
     if phase == "deployment":
         policy_image = validate_deployment_policy(
-            apps_entrypoint / DEPLOYMENT_POLICY_RECORD,
+            apps_entrypoint / IB_DEPLOYMENT_POLICY_RECORD,
             checks,
+            EXPECTED_IB_DEPLOYMENT_POLICY,
+            "",
+        )
+        broker_policy_image = validate_deployment_policy(
+            apps_entrypoint / BROKER_DEPLOYMENT_POLICY_RECORD,
+            checks,
+            EXPECTED_BROKER_DEPLOYMENT_POLICY,
+            "broker observer ",
         )
 
     if namespace:
@@ -760,7 +1035,14 @@ def validate(
     if pvc:
         validate_pvc(pvc, checks)
     if deployment:
-        validate_deployment(deployment, checks, policy_image, expected_image)
+        validate_deployment(
+            deployment,
+            checks,
+            policy_image,
+            broker_policy_image,
+            expected_image,
+            expected_broker_observer_image,
+        )
     if network_policy:
         validate_network_policy(network_policy, checks)
     if cilium_policy:
@@ -788,7 +1070,12 @@ def validate(
 def main() -> int:
     args = parse_args()
     try:
-        errors, phase = validate(args.repo_root, args.phase, args.expected_image)
+        errors, phase = validate(
+            args.repo_root,
+            args.phase,
+            args.expected_image,
+            args.expected_broker_observer_image,
+        )
     except (
         AttributeError,
         KeyError,
@@ -812,7 +1099,7 @@ def main() -> int:
     print("  authoritative Flux apps render: ok")
     print("  autonomous-investing resources: ok")
     if phase == "deployment":
-        print("  deployment policy record: ok")
+        print("  deployment policy records: ok")
     print("  local-path-retain StorageClass: ok")
     return 0
 
