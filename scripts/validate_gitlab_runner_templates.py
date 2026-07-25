@@ -87,8 +87,10 @@ def main() -> int:
     runner_root = repo_root / "infrastructure" / "shared-services" / "gitlab-runner"
     base_dir = runner_root / "runner-base"
     variant_root = runner_root / "runners"
-    incident_path = (
-        repo_root / "scripts" / "fixtures" / "gitlab-runner-capacity-incident-5430.json"
+    incident_paths = sorted(
+        (repo_root / "scripts" / "fixtures").glob(
+            "gitlab-runner-capacity-incident-*.json"
+        )
     )
 
     print("Validating GitLab runner templates")
@@ -102,13 +104,24 @@ def main() -> int:
             return 1
         print(f"  {variant_dir.name}: ok")
 
-    incident = json.loads(incident_path.read_text())
-    errors = validate_capacity_contract(templates, incident)
-    if errors:
-        for error in errors:
-            print(f"capacity contract: {error}", file=sys.stderr)
+    if not incident_paths:
+        print("capacity contract: no incident fixtures found", file=sys.stderr)
         return 1
-    print("  scheduling capacity contract: ok")
+
+    capacity_errors = False
+    for incident_path in incident_paths:
+        print(f"  validating capacity fixture: {incident_path.name}")
+        incident = json.loads(incident_path.read_text())
+        errors = validate_capacity_contract(templates, incident)
+        if errors:
+            capacity_errors = True
+            for error in errors:
+                print(f"capacity contract: {error}", file=sys.stderr)
+        else:
+            print("    scheduling capacity contract: ok")
+
+    if capacity_errors:
+        return 1
 
     return 0
 
