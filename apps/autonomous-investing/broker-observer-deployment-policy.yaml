@@ -1,10 +1,10 @@
 schemaVersion: 1
 artifact:
   repository: registry.brmartin.co.uk:443/autonomous-investing/system/broker-observer
-  digest: sha256:773311d3950bb6392b778f8f6240bc7e53860494d722d26fdaf8ab571a72c166
-  reference: registry.brmartin.co.uk:443/autonomous-investing/system/broker-observer@sha256:773311d3950bb6392b778f8f6240bc7e53860494d722d26fdaf8ab571a72c166
+  digest: sha256:28ffe718b8b200a67904ad16fbf7eef7d03e800490d7a112c73261951304d546
+  reference: registry.brmartin.co.uk:443/autonomous-investing/system/broker-observer@sha256:28ffe718b8b200a67904ad16fbf7eef7d03e800490d7a112c73261951304d546
 provenance:
   systemProjectId: 35
-  protectedMainPipelineId: 5591
-  admissionJobId: 20420
-  sourceCommit: 6d37a1a275f50acccfe35e341e0d16d36ab6c701
+  protectedMainPipelineId: 5597
+  admissionJobId: 20432
+  sourceCommit: 1171a986c6517599ef65f8d8581ab0c964c27d17
