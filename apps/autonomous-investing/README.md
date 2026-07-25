@@ -4,10 +4,10 @@
 
 ## Immutable admitted artifacts
 
-Both images were independently built, audited, and admitted by autonomous-investing system project 35, protected-main pipeline 5591, at source commit `6d37a1a275f50acccfe35e341e0d16d36ab6c701`:
+The images have independent protected-main provenance records in autonomous-investing system project 35; a shared project does not imply a shared pipeline, admission job, or source commit:
 
-- IB Gateway admission job 20419: `registry.brmartin.co.uk:443/autonomous-investing/system/ib-gateway@sha256:fd88e62b91efcd392ee9da607ceaee98569f2278d830a33466b9b729725b59d0`
-- Broker observer admission job 20420: `registry.brmartin.co.uk:443/autonomous-investing/system/broker-observer@sha256:773311d3950bb6392b778f8f6240bc7e53860494d722d26fdaf8ab571a72c166`
+- IB Gateway — project 35, protected-main pipeline 5591, admission job 20419, source commit `6d37a1a275f50acccfe35e341e0d16d36ab6c701`: `registry.brmartin.co.uk:443/autonomous-investing/system/ib-gateway@sha256:fd88e62b91efcd392ee9da607ceaee98569f2278d830a33466b9b729725b59d0`
+- Broker observer — project 35, protected-main pipeline 5597, admission job 20432, source commit `1171a986c6517599ef65f8d8581ab0c964c27d17`: `registry.brmartin.co.uk:443/autonomous-investing/system/broker-observer@sha256:28ffe718b8b200a67904ad16fbf7eef7d03e800490d7a112c73261951304d546`
 
 `ib-gateway-paper-deployment-policy.yaml` and `broker-observer-deployment-policy.yaml` are separate, non-Kubernetes audit records. They are deliberately not Kustomize resources. Deployment validation requires each exact schema, provenance identity, repository, digest, and reference, then binds each reference independently to its container and optional CLI expectation.
 
@@ -29,6 +29,8 @@ The retained IB Gateway High tuples are:
 
 Broker credentials remain outside Git. The Gateway alone reads `TWS_USERID` and `TWS_PASSWORD` files from the separately managed `ibkr-paper-gateway-credentials` Secret. The observer receives no environment configuration and mounts none of the credential, settings, Gateway `/tmp`, or `/run/ibc` volumes. Its only writable filesystem is a private 16 MiB memory-backed volume at `/tmp`; its image root remains read-only. `/run/ibc` remains an exclusive memory-backed Gateway mount.
 
+The protected observer source normalizes its observer-owned runtime child under `/tmp` to exact mode `0700` after `fsGroup` setgid inheritance. This does not relax the manifest: the private memory-backed mount and all Pod and container security settings remain unchanged.
+
 The observer opens no network listener. Same-Pod networking nevertheless means it inherits the Pod's existing Cilium egress authority: exact-name cluster DNS plus the documented IBKR endpoints on TCP 4000/4001. This is an explicit residual risk of localhost observation. The rollout does not widen the egress policy.
 
 The observer supervisor's generic health state proves only local lifecycle and watchdog health. It is not authenticated broker-session readiness and must not be reported as such. Durable broker-snapshot persistence belongs to the separate storage amendment and is not provided or claimed by this rollout.
@@ -45,7 +47,7 @@ Use two merge requests for a new environment or rebuild:
    uv run --locked --script scripts/validate_ibgateway_manifest.py \
      --phase deployment \
      --expected-image 'registry.brmartin.co.uk:443/autonomous-investing/system/ib-gateway@sha256:fd88e62b91efcd392ee9da607ceaee98569f2278d830a33466b9b729725b59d0' \
-     --expected-broker-observer-image 'registry.brmartin.co.uk:443/autonomous-investing/system/broker-observer@sha256:773311d3950bb6392b778f8f6240bc7e53860494d722d26fdaf8ab571a72c166'
+     --expected-broker-observer-image 'registry.brmartin.co.uk:443/autonomous-investing/system/broker-observer@sha256:28ffe718b8b200a67904ad16fbf7eef7d03e800490d7a112c73261951304d546'
    ```
 
 This split is required because the authoritative `apps` Flux Kustomization has `wait: true`, while `local-path-retain` uses `WaitForFirstConsumer`. A PVC without its Deployment consumer can remain Pending and hold foundation reconciliation unhealthy. The validator discovers the exact authoritative Flux apps render and fails closed on partial source or rendered resource sets.

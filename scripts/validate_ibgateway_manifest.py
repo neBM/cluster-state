@@ -75,13 +75,18 @@ BROKER_ADMITTED_REPOSITORY = (
     "registry.brmartin.co.uk:443/autonomous-investing/system/broker-observer"
 )
 BROKER_ADMITTED_DIGEST = (
-    "sha256:773311d3950bb6392b778f8f6240bc7e53860494d722d26fdaf8ab571a72c166"
+    "sha256:28ffe718b8b200a67904ad16fbf7eef7d03e800490d7a112c73261951304d546"
 )
 BROKER_ADMITTED_IMAGE = f"{BROKER_ADMITTED_REPOSITORY}@{BROKER_ADMITTED_DIGEST}"
-COMMON_PROVENANCE = {
+IB_PROVENANCE = {
     "systemProjectId": 35,
     "protectedMainPipelineId": 5591,
     "sourceCommit": "6d37a1a275f50acccfe35e341e0d16d36ab6c701",
+}
+BROKER_PROVENANCE = {
+    "systemProjectId": 35,
+    "protectedMainPipelineId": 5597,
+    "sourceCommit": "1171a986c6517599ef65f8d8581ab0c964c27d17",
 }
 EXPECTED_IB_DEPLOYMENT_POLICY = {
     "schemaVersion": 1,
@@ -90,7 +95,7 @@ EXPECTED_IB_DEPLOYMENT_POLICY = {
         "digest": ADMITTED_DIGEST,
         "reference": ADMITTED_IMAGE,
     },
-    "provenance": {**COMMON_PROVENANCE, "admissionJobId": 20419},
+    "provenance": {**IB_PROVENANCE, "admissionJobId": 20419},
 }
 EXPECTED_BROKER_DEPLOYMENT_POLICY = {
     "schemaVersion": 1,
@@ -99,7 +104,7 @@ EXPECTED_BROKER_DEPLOYMENT_POLICY = {
         "digest": BROKER_ADMITTED_DIGEST,
         "reference": BROKER_ADMITTED_IMAGE,
     },
-    "provenance": {**COMMON_PROVENANCE, "admissionJobId": 20420},
+    "provenance": {**BROKER_PROVENANCE, "admissionJobId": 20432},
 }
 DNS_NAMES = [
     "zdc1.ibllc.com",
@@ -114,12 +119,28 @@ DNS_NAMES = [
 ]
 
 
+def _type_strict_equal(actual: Any, expected: Any) -> bool:
+    if type(actual) is not type(expected):
+        return False
+    if isinstance(expected, dict):
+        return actual.keys() == expected.keys() and all(
+            _type_strict_equal(actual[key], value)
+            for key, value in expected.items()
+        )
+    if isinstance(expected, (list, tuple)):
+        return len(actual) == len(expected) and all(
+            _type_strict_equal(actual_item, expected_item)
+            for actual_item, expected_item in zip(actual, expected, strict=True)
+        )
+    return actual == expected
+
+
 class Checks:
     def __init__(self) -> None:
         self.errors: list[str] = []
 
     def equal(self, actual: Any, expected: Any, path: str) -> None:
-        if actual != expected:
+        if not _type_strict_equal(actual, expected):
             self.errors.append(f"{path}: expected {expected!r}, got {actual!r}")
 
     def true(self, condition: bool, message: str) -> None:
