@@ -642,6 +642,16 @@ def run_deployment_tests(parent: Path) -> None:
     )
     deployment_mutation_case(
         parent,
+        "ib-policy-record-boolean-schema-version",
+        lambda root: replace_once(
+            root / POLICY_RECORD,
+            "schemaVersion: 1\n",
+            "schemaVersion: true\n",
+        ),
+        "deployment policy record",
+    )
+    deployment_mutation_case(
+        parent,
         "ib-policy-record-wrong-repository",
         lambda root: replace_once(
             root / POLICY_RECORD,
@@ -677,14 +687,29 @@ def run_deployment_tests(parent: Path) -> None:
             "  systemProjectId: 999\n",
         ),
         (
+            "ib-policy-record-float-project",
+            f"  systemProjectId: {SYSTEM_PROJECT_ID}\n",
+            f"  systemProjectId: {SYSTEM_PROJECT_ID}.0\n",
+        ),
+        (
             "ib-policy-record-wrong-pipeline",
             f"  protectedMainPipelineId: {IB_PROTECTED_MAIN_PIPELINE_ID}\n",
             "  protectedMainPipelineId: 999\n",
         ),
         (
+            "ib-policy-record-float-pipeline",
+            f"  protectedMainPipelineId: {IB_PROTECTED_MAIN_PIPELINE_ID}\n",
+            f"  protectedMainPipelineId: {IB_PROTECTED_MAIN_PIPELINE_ID}.0\n",
+        ),
+        (
             "ib-policy-record-wrong-job",
             f"  admissionJobId: {IB_ADMISSION_JOB_ID}\n",
             "  admissionJobId: 999\n",
+        ),
+        (
+            "ib-policy-record-float-job",
+            f"  admissionJobId: {IB_ADMISSION_JOB_ID}\n",
+            f"  admissionJobId: {IB_ADMISSION_JOB_ID}.0\n",
         ),
         (
             "ib-policy-record-wrong-source",
@@ -719,6 +744,16 @@ def run_deployment_tests(parent: Path) -> None:
         ),
         "broker observer deployment policy record",
     )
+    deployment_mutation_case(
+        parent,
+        "broker-policy-record-boolean-schema-version",
+        lambda root: replace_once(
+            root / BROKER_POLICY_RECORD,
+            "schemaVersion: 1\n",
+            "schemaVersion: true\n",
+        ),
+        "broker observer deployment policy record",
+    )
     for name, old, new, expected_error in (
         (
             "broker-policy-record-wrong-repository",
@@ -745,15 +780,33 @@ def run_deployment_tests(parent: Path) -> None:
             "broker observer deployment policy record",
         ),
         (
+            "broker-policy-record-float-project",
+            f"  systemProjectId: {SYSTEM_PROJECT_ID}\n",
+            f"  systemProjectId: {SYSTEM_PROJECT_ID}.0\n",
+            "broker observer deployment policy record",
+        ),
+        (
             "broker-policy-record-wrong-pipeline",
             f"  protectedMainPipelineId: {BROKER_PROTECTED_MAIN_PIPELINE_ID}\n",
             "  protectedMainPipelineId: 999\n",
             "broker observer deployment policy record",
         ),
         (
+            "broker-policy-record-float-pipeline",
+            f"  protectedMainPipelineId: {BROKER_PROTECTED_MAIN_PIPELINE_ID}\n",
+            f"  protectedMainPipelineId: {BROKER_PROTECTED_MAIN_PIPELINE_ID}.0\n",
+            "broker observer deployment policy record",
+        ),
+        (
             "broker-policy-record-wrong-job",
             f"  admissionJobId: {BROKER_ADMISSION_JOB_ID}\n",
             "  admissionJobId: 999\n",
+            "broker observer deployment policy record",
+        ),
+        (
+            "broker-policy-record-float-job",
+            f"  admissionJobId: {BROKER_ADMISSION_JOB_ID}\n",
+            f"  admissionJobId: {BROKER_ADMISSION_JOB_ID}.0\n",
             "broker observer deployment policy record",
         ),
         (
