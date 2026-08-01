@@ -37,7 +37,7 @@ resources:
 
 images:
 - name: "ghcr.io/cinnyapp/cinny"
-  newTag: "v4.12.3"
+  newTag: "v4.12.6"
 - name: "docker.io/vectorim/element-web"
   newTag: "v1.12.24"
 - name: "oci.element.io/element-admin"
