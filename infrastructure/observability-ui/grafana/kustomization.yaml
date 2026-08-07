@@ -21,4 +21,4 @@ configMapGenerator:
 
 images:
 - name: "grafana/grafana"
-  newTag: "13.1.2"
+  newTag: "13.1.3"
