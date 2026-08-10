@@ -1,0 +1,22 @@
+{
+  "name": "Martins Server",
+  "description": "Default Freeplay",
+  "max_players": 4,
+  "visibility": {
+    "public": false,
+    "lan": true
+  },
+  "username": "",
+  "password": "",
+  "token": "",
+  "game_password": "",
+  "require_user_verification": true,
+  "allow_commands": "admins-only",
+  "autosave_interval": 10,
+  "autosave_slots": 12,
+  "auto_pause": true,
+  "auto_pause_when_players_connect": false,
+  "only_admins_can_pause_the_game": true,
+  "autosave_only_on_server": true,
+  "non_blocking_saving": false
+}

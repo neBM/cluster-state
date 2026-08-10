@@ -131,6 +131,54 @@
         "patch"
       ],
       "automerge": true
+    },
+    {
+      "description": "Restrict Factorio to stable 2.0 patch releases and pinned digests",
+      "matchManagers": [
+        "kustomize"
+      ],
+      "matchDatasources": [
+        "docker"
+      ],
+      "matchFileNames": [
+        "apps/factorio/kustomization.yaml"
+      ],
+      "matchPackageNames": [
+        "factoriotools/factorio",
+        "docker.io/factoriotools/factorio"
+      ],
+      "versioning": "regex:^stable-(?<major>2)\\.(?<minor>0)\\.(?<patch>\\d+)$",
+      "allowedVersions": "/^stable-2\\.0\\.[0-9]+$/",
+      "pinDigests": true,
+      "groupName": "factorio",
+      "groupSlug": "factorio"
+    },
+    {
+      "description": "Auto-merge tested Factorio patch and digest pin updates via PR",
+      "matchManagers": [
+        "kustomize"
+      ],
+      "matchDatasources": [
+        "docker"
+      ],
+      "matchFileNames": [
+        "apps/factorio/kustomization.yaml"
+      ],
+      "matchPackageNames": [
+        "factoriotools/factorio",
+        "docker.io/factoriotools/factorio"
+      ],
+      "matchUpdateTypes": [
+        "patch",
+        "digest",
+        "pinDigest"
+      ],
+      "automerge": true,
+      "automergeType": "pr",
+      "ignoreTests": false,
+      "platformAutomerge": false,
+      "groupName": "factorio",
+      "groupSlug": "factorio"
     }
   ],
   "customManagers": [

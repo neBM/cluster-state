@@ -4,6 +4,7 @@
 
 # Temporary and log files
 *.tmp
+*.tmp.zip
 *.log
 *.sock
 *.lock

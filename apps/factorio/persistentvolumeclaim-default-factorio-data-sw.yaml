@@ -1,0 +1,14 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  labels:
+    app: factorio
+  name: factorio-data-sw
+  namespace: default
+spec:
+  storageClassName: seaweedfs
+  accessModes:
+  - ReadWriteMany
+  resources:
+    requests:
+      storage: 10Gi

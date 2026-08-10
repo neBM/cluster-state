@@ -62,6 +62,9 @@ spec:
             - mountPath: /data/dovecot-mailboxes-sw
               name: dovecot-mailboxes-sw
               readOnly: true
+            - mountPath: /data/factorio-data-sw
+              name: factorio-data-sw
+              readOnly: true
             - mountPath: /data/gitlab-repositories-sw
               name: gitlab-repositories-sw
               readOnly: true
@@ -127,6 +130,10 @@ spec:
           - name: dovecot-mailboxes-sw
             persistentVolumeClaim:
               claimName: dovecot-mailboxes-sw
+              readOnly: true
+          - name: factorio-data-sw
+            persistentVolumeClaim:
+              claimName: factorio-data-sw
               readOnly: true
           - name: gitlab-repositories-sw
             persistentVolumeClaim:
