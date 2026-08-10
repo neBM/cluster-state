@@ -1,0 +1,20 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  labels:
+    app: factorio
+  name: factorio-lan
+  namespace: default
+spec:
+  podSelector:
+    matchLabels:
+      app: factorio
+  policyTypes:
+  - Ingress
+  ingress:
+  - from:
+    - ipBlock:
+        cidr: 192.168.1.0/24
+    ports:
+    - port: 34197
+      protocol: UDP

@@ -1,0 +1,19 @@
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app: factorio
+  name: factorio
+  namespace: default
+spec:
+  type: ClusterIP
+  externalIPs:
+  - 192.168.1.5
+  externalTrafficPolicy: Local
+  selector:
+    app: factorio
+  ports:
+  - name: game
+    port: 34197
+    protocol: UDP
+    targetPort: 34197

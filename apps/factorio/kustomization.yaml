@@ -1,0 +1,27 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: default
+resources:
+- deployment-default-factorio.yaml
+- networkpolicy-default-factorio-lan.yaml
+- persistentvolumeclaim-default-factorio-data-sw.yaml
+- service-default-factorio.yaml
+
+configMapGenerator:
+- name: factorio-config
+  files:
+  - files/config.ini
+  - files/map-gen-settings.json
+  - files/map-settings.json
+  - files/mod-list.json
+  - files/server-adminlist.json
+  - files/server-settings.json
+  - files/server-whitelist.json
+  - files/start-factorio.sh
+  options:
+    labels:
+      app: factorio
+
+images:
+- name: factoriotools/factorio
+  newTag: stable-2.0.77@sha256:c21d798e75a8333ddca2f7029290325b3f2085841c72ab31cc64f7a916872841

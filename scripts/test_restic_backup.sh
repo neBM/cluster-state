@@ -125,6 +125,11 @@ case_dir() {
   printf '%s/%s\n' "${tmpdir}" "$1"
 }
 
+configured_paths_file="${repo_root}/infrastructure/storage/restic-backup/files/critical-pvc-paths.txt"
+assert_contains "/data/factorio-data-sw" "${configured_paths_file}"
+configured_excludes_file="${repo_root}/infrastructure/storage/restic-backup/files/excludes.txt"
+assert_contains "*.tmp.zip" "${configured_excludes_file}"
+
 paths_file="${tmpdir}/critical-paths.txt"
 mkdir -p "${tmpdir}/data/dovecot" "${tmpdir}/data/matrix-media"
 printf '%s\n' "${tmpdir}/data/dovecot" "" "# ignored" "${tmpdir}/data/matrix-media" >"${paths_file}"

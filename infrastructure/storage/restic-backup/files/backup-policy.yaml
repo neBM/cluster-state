@@ -22,6 +22,9 @@ jobs:
       - pvc: dovecot-mailboxes-sw
         path: /data/dovecot-mailboxes-sw
         reason: mailboxes
+      - pvc: factorio-data-sw
+        path: /data/factorio-data-sw
+        reason: Factorio saves and server identity
       - pvc: gitlab-repositories-sw
         path: /data/gitlab-repositories-sw
         reason: Git repositories

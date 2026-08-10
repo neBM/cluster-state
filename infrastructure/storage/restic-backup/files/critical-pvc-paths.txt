@@ -1,6 +1,7 @@
 # Critical SeaweedFS PVC paths mounted by restic-critical-pvc-backup.
 # Keep this scoped. Do not reintroduce /buckets whole-root scans.
 /data/dovecot-mailboxes-sw
+/data/factorio-data-sw
 /data/gitlab-repositories-sw
 /data/gitlab-shared-sw
 /data/gitlab-uploads-sw

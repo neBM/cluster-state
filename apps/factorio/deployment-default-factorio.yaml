@@ -1,0 +1,82 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app: factorio
+  name: factorio
+  namespace: default
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: factorio
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app: factorio
+    spec:
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      nodeSelector:
+        kubernetes.io/arch: amd64
+        kubernetes.io/hostname: hestia
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 845
+        runAsGroup: 845
+        fsGroup: 845
+        fsGroupChangePolicy: OnRootMismatch
+        seccompProfile:
+          type: RuntimeDefault
+      terminationGracePeriodSeconds: 300
+      containers:
+      - name: factorio
+        image: factoriotools/factorio
+        command:
+        - /bin/bash
+        - /config/start-factorio.sh
+        args: []
+        env:
+        - name: DLC_SPACE_AGE
+          value: "false"
+        ports:
+        - containerPort: 34197
+          name: game
+          protocol: UDP
+        resources:
+          requests:
+            cpu: 750m
+            memory: 1536Mi
+          limits:
+            cpu: "2"
+            memory: 4Gi
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop:
+            - ALL
+        volumeMounts:
+        - name: factorio-data
+          mountPath: /factorio
+        - name: factorio-config
+          mountPath: /config
+          readOnly: true
+        - name: runtime
+          mountPath: /runtime
+        - name: tmp
+          mountPath: /tmp
+      volumes:
+      - name: factorio-data
+        persistentVolumeClaim:
+          claimName: factorio-data-sw
+      - name: factorio-config
+        configMap:
+          name: factorio-config
+          defaultMode: 0444
+      - name: runtime
+        emptyDir: {}
+      - name: tmp
+        emptyDir: {}

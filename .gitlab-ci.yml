@@ -256,9 +256,17 @@ package:feedback-migrations:
       - apps/**/*
       - clusters/**/*
       - infrastructure/**/*
+      - renovate.json
+      - scripts/hestia-firewalld-setup.sh
+      - scripts/test_factorio_startup.sh
+      - scripts/test_hestia_firewalld_setup.sh
+      - scripts/test_restic_backup.sh
       - scripts/test_matrix_synapse_config.py
       - scripts/test_matrix_synapse_config.py.lock
+      - scripts/test_validate_factorio_manifest.py
       - scripts/test_validate_ibgateway_manifest.py
+      - scripts/validate_factorio_manifest.py
+      - scripts/validate_factorio_manifest.py.lock
       - scripts/validate_ibgateway_manifest.py
       - scripts/validate_ibgateway_manifest.py.lock
       - scripts/validate_kustomize.sh
@@ -271,9 +279,17 @@ package:feedback-migrations:
       - apps/**/*
       - clusters/**/*
       - infrastructure/**/*
+      - renovate.json
+      - scripts/hestia-firewalld-setup.sh
+      - scripts/test_factorio_startup.sh
+      - scripts/test_hestia_firewalld_setup.sh
+      - scripts/test_restic_backup.sh
       - scripts/test_matrix_synapse_config.py
       - scripts/test_matrix_synapse_config.py.lock
+      - scripts/test_validate_factorio_manifest.py
       - scripts/test_validate_ibgateway_manifest.py
+      - scripts/validate_factorio_manifest.py
+      - scripts/validate_factorio_manifest.py.lock
       - scripts/validate_ibgateway_manifest.py
       - scripts/validate_ibgateway_manifest.py.lock
       - scripts/validate_kustomize.sh

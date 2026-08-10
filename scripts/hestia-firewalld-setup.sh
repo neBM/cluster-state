@@ -54,6 +54,14 @@ for iface in "${CILIUM_IFACES[@]}"; do
   fi
 done
 
+echo "=== Factorio game port (FedoraServer) ==="
+if sudo firewall-cmd --permanent --zone=FedoraServer --query-port=34197/udp >/dev/null 2>&1; then
+  echo "  [skip] 34197/udp already open in FedoraServer"
+else
+  echo "  [add]  34197/udp -> FedoraServer"
+  sudo firewall-cmd --permanent --zone=FedoraServer --add-port=34197/udp
+fi
+
 echo "=== Reloading firewalld ==="
 sudo firewall-cmd --reload
 
