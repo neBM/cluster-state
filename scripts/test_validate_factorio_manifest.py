@@ -106,6 +106,37 @@ def mutation(
     print(f"PASS mutation {name}")
 
 
+def cpu_request_exceeds_hestia_budget_mutation(parent: Path) -> None:
+    name = "cpu-request-exceeds-hestia-budget"
+    root = fixture(parent, name)
+    path = root / "apps/factorio/deployment-default-factorio.yaml"
+    safe = "            cpu: 100m\n"
+    unsafe = "            cpu: 750m\n"
+    text = path.read_text()
+    if text.count(safe) == 1 and unsafe not in text:
+        path.write_text(text.replace(safe, unsafe, 1))
+    elif text.count(unsafe) != 1 or safe in text:
+        raise AssertionError(
+            f"{name}: expected exactly one safe 100m or unsafe 750m CPU request"
+        )
+    result = run(root)
+    combined = result.stdout + result.stderr
+    if result.returncode == 0:
+        raise AssertionError(f"{name}: mutation was accepted")
+    expected = (
+        "ERROR: Factorio resources: expected {'requests': {'cpu': '100m', "
+        "'memory': '1536Mi'}, 'limits': {'cpu': '2', 'memory': '4Gi'}}, got "
+        "{'limits': {'cpu': '2', 'memory': '4Gi'}, 'requests': "
+        "{'cpu': '750m', 'memory': '1536Mi'}}"
+    )
+    if result.returncode != 1 or result.stdout or result.stderr.strip() != expected:
+        raise AssertionError(
+            f"{name}: expected exit 1 and exact diagnostic {expected!r}, "
+            f"got exit {result.returncode}:\n{combined}"
+        )
+    print(f"PASS mutation {name}")
+
+
 def node_selector_mutation(
     parent: Path,
     name: str,
@@ -336,6 +367,7 @@ def main() -> int:
 
     with tempfile.TemporaryDirectory(prefix="factorio-mutations-") as temp:
         parent = Path(temp)
+        cpu_request_exceeds_hestia_budget_mutation(parent)
         node_selector_mutation(
             parent,
             "node-selector-hostname-removed",
