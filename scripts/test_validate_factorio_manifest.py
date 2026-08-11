@@ -125,9 +125,9 @@ def cpu_request_exceeds_hestia_budget_mutation(parent: Path) -> None:
         raise AssertionError(f"{name}: mutation was accepted")
     expected = (
         "ERROR: Factorio resources: expected {'requests': {'cpu': '100m', "
-        "'memory': '1536Mi'}, 'limits': {'cpu': '2', 'memory': '4Gi'}}, got "
+        "'memory': '512Mi'}, 'limits': {'cpu': '2', 'memory': '4Gi'}}, got "
         "{'limits': {'cpu': '2', 'memory': '4Gi'}, 'requests': "
-        "{'cpu': '750m', 'memory': '1536Mi'}}"
+        "{'cpu': '750m', 'memory': '512Mi'}}"
     )
     if result.returncode != 1 or result.stdout or result.stderr.strip() != expected:
         raise AssertionError(
