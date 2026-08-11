@@ -401,7 +401,7 @@ def validate_factorio(root: Path) -> list[str]:
             checks.equal(
                 container.get("resources"),
                 {
-                    "requests": {"cpu": "100m", "memory": "1536Mi"},
+                    "requests": {"cpu": "100m", "memory": "512Mi"},
                     "limits": {"cpu": "2", "memory": "4Gi"},
                 },
                 "Factorio resources",
