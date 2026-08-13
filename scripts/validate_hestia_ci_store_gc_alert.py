@@ -388,13 +388,14 @@ def validate_wiring(root: Path, checks: Checks) -> None:
     gitlab_ci = (root / ".gitlab-ci.yml").read_text()
     runner_affinity = (root / "infrastructure/shared-services/gitlab-runner/runner-base/fragments/70-pod-labels-affinity.toml").read_text()
     validator_call = 'uv --no-config run --locked --script "${repo_root}/scripts/validate_hestia_ci_store_gc_alert.py"'
-    test_call = 'python3 "${repo_root}/scripts/test_validate_hestia_ci_store_gc_alert.py"'
+    test_call = 'uv --no-config run --locked --script "${repo_root}/scripts/test_validate_hestia_ci_store_gc_alert.py"'
     checks.equal(wrapper.count(validator_call), 1, "validate_kustomize GC/alert validator call count")
     checks.equal(wrapper.count(test_call), 1, "validate_kustomize GC/alert test call count")
     ci_lines = [line.strip() for line in gitlab_ci.splitlines()]
     checks.equal(ci_lines.count("- scripts/validate_hestia_ci_store_gc_alert.py"), 2, "GitLab CI GC/alert validator change-rule count")
     checks.equal(ci_lines.count("- scripts/validate_hestia_ci_store_gc_alert.py.lock"), 2, "GitLab CI GC/alert validator lock change-rule count")
     checks.equal(ci_lines.count("- scripts/test_validate_hestia_ci_store_gc_alert.py"), 2, "GitLab CI GC/alert test change-rule count")
+    checks.equal(ci_lines.count("- scripts/test_validate_hestia_ci_store_gc_alert.py.lock"), 2, "GitLab CI GC/alert test lock change-rule count")
     checks.equal(runner_affinity.count(f'"{JOB_LABEL}" = "true"'), 2, "runner job label/scheduler-lock count")
     checks.true('topology_key = "kubernetes.io/hostname"' in runner_affinity, "runner jobs must retain hostname scheduler exclusion")
 

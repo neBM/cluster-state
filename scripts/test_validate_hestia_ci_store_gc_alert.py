@@ -1,4 +1,11 @@
 #!/usr/bin/env python3
+# /// script
+# requires-python = ">=3.11"
+# dependencies = [
+#   "PyYAML==6.0.3",
+# ]
+# ///
+
 from __future__ import annotations
 
 import importlib.util
@@ -250,6 +257,7 @@ def main() -> int:
         gc = "infrastructure/shared-services/gitlab-runner/ci/cronjob-ci-hestia-ci-store-gc.yaml"
         role = "infrastructure/shared-services/gitlab-runner/ci/role-ci-hestia-ci-store-gc.yaml"
         alert = "infrastructure/observability-ui/grafana/_grafana_alert_rules.yaml"
+        wrapper = "scripts/validate_kustomize.sh"
         mutations = (
             ("gc-wrong-target", gc, module.GC_HOST_PATH, "/var/lib/ci-containers-nocow", "GC volumes"),
             ("gc-cache-scope", gc, module.GC_HOST_PATH, "/var/lib/ci-cache-nocow", "GC volumes"),
@@ -262,6 +270,7 @@ def main() -> int:
             ("gc-no-external-cleanup", gc, "ps -a --external", "ps -a", "GC script"),
             ("gc-broad-rbac", role, "verbs:\n  - list", "verbs:\n  - list\n  - get", "GC Role rules"),
             ("gc-unprivileged", gc, "privileged: true", "privileged: false", "GC securityContext"),
+            ("gc-test-unlocked", wrapper, 'uv --no-config run --locked --script "${repo_root}/scripts/test_validate_hestia_ci_store_gc_alert.py"', 'python3 "${repo_root}/scripts/test_validate_hestia_ci_store_gc_alert.py"', "validate_kustomize GC/alert test call count"),
             ("alert-wrong-mount", alert, 'expr: |-\n                    (\n                      label_replace(\n                        min by(instance) (\n                          (\n                            node_filesystem_avail_bytes{job="kubernetes-service-endpoints",app_kubernetes_io_name="node-exporter",mountpoint="/srv/noisy",fstype="xfs"}', 'expr: |-\n                    (\n                      label_replace(\n                        min by(instance) (\n                          (\n                            node_filesystem_avail_bytes{job="kubernetes-service-endpoints",app_kubernetes_io_name="node-exporter",mountpoint="/srv/noisy-bind",fstype="xfs"}', "alert PromQL"),
             ("alert-wrong-job", alert, 'expr: |-\n                    (\n                      label_replace(\n                        min by(instance) (\n                          (\n                            node_filesystem_avail_bytes{job="kubernetes-service-endpoints"', 'expr: |-\n                    (\n                      label_replace(\n                        min by(instance) (\n                          (\n                            node_filesystem_avail_bytes{job="kubernetes-pods"', "alert PromQL"),
             ("alert-wrong-node", alert, 'max by(internal_ip, node) (kube_node_info{node="hestia"})\n                    )\n                    or', 'max by(internal_ip, node) (kube_node_info{node="nyx"})\n                    )\n                    or', "alert PromQL"),

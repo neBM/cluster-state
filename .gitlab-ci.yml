@@ -265,6 +265,7 @@ package:feedback-migrations:
       - scripts/test_matrix_synapse_config.py.lock
       - scripts/test_validate_factorio_manifest.py
       - scripts/test_validate_hestia_ci_store_gc_alert.py
+      - scripts/test_validate_hestia_ci_store_gc_alert.py.lock
       - scripts/test_validate_ibgateway_manifest.py
       - scripts/validate_factorio_manifest.py
       - scripts/validate_factorio_manifest.py.lock
@@ -291,6 +292,7 @@ package:feedback-migrations:
       - scripts/test_matrix_synapse_config.py.lock
       - scripts/test_validate_factorio_manifest.py
       - scripts/test_validate_hestia_ci_store_gc_alert.py
+      - scripts/test_validate_hestia_ci_store_gc_alert.py.lock
       - scripts/test_validate_ibgateway_manifest.py
       - scripts/validate_factorio_manifest.py
       - scripts/validate_factorio_manifest.py.lock
