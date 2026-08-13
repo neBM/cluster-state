@@ -3,8 +3,12 @@ kind: Kustomization
 resources:
 - configmap-ci-gitlab-runner-docker-daemon.yaml
 - configmap-ci-gitlab-runner-registries-conf.yaml
+- cronjob-ci-hestia-ci-store-gc.yaml
 - daemonset-ci-gitlab-runner-host-storage.yaml
 - namespace-ci.yaml
 - role-ci-gitlab-runner.yaml
+- role-ci-hestia-ci-store-gc.yaml
 - rolebinding-ci-gitlab-runner.yaml
+- rolebinding-ci-hestia-ci-store-gc.yaml
 - serviceaccount-ci-gitlab-runner.yaml
+- serviceaccount-ci-hestia-ci-store-gc.yaml
