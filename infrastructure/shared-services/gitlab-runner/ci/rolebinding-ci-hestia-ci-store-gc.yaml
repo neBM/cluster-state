@@ -1,0 +1,15 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  labels:
+    app: hestia-ci-store-gc
+  name: hestia-ci-store-gc
+  namespace: ci
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: hestia-ci-store-gc
+subjects:
+- kind: ServiceAccount
+  name: hestia-ci-store-gc
+  namespace: ci

@@ -1,0 +1,181 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  labels:
+    app: hestia-ci-store-gc
+  name: hestia-ci-store-gc
+  namespace: ci
+spec:
+  concurrencyPolicy: Forbid
+  failedJobsHistoryLimit: 3
+  schedule: 17 4 * * *
+  startingDeadlineSeconds: 1800
+  successfulJobsHistoryLimit: 1
+  suspend: false
+  timeZone: Etc/UTC
+  jobTemplate:
+    spec:
+      activeDeadlineSeconds: 1800
+      backoffLimit: 0
+      template:
+        metadata:
+          labels:
+            app: hestia-ci-store-gc
+            ci.brmartin.co.uk/job: "true"
+            ci.brmartin.co.uk/maintenance: "true"
+        spec:
+          affinity:
+            podAntiAffinity:
+              requiredDuringSchedulingIgnoredDuringExecution:
+              - labelSelector:
+                  matchLabels:
+                    ci.brmartin.co.uk/job: "true"
+                topologyKey: kubernetes.io/hostname
+          automountServiceAccountToken: true
+          containers:
+          - args:
+            - |
+              set -euo pipefail
+
+              api="https://${KUBERNETES_SERVICE_HOST:?Kubernetes API host is unavailable}:${KUBERNETES_SERVICE_PORT_HTTPS:?Kubernetes API port is unavailable}"
+              token=/var/run/secrets/kubernetes.io/serviceaccount/token
+              ca=/var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+              [ -r "$token" ] && [ -r "$ca" ]
+              [ "${NODE_NAME:?Pod node identity is unavailable}" = hestia ]
+              [ -n "${POD_UID:?Pod UID is unavailable}" ]
+
+              curl --fail --silent --show-error \
+                --cacert "$ca" \
+                --header "Authorization: Bearer $(cat "$token")" \
+                --output /tmp/pods.json \
+                "$api/api/v1/namespaces/ci/pods?limit=500"
+
+              python3 - <<'PY'
+              import json
+              import os
+
+              with open("/tmp/pods.json", "rb") as stream:
+                  payload = json.load(stream)
+              if type(payload) is not dict or type(payload.get("items")) is not list:
+                  raise SystemExit("Kubernetes API pod list has an invalid shape; refusing cleanup")
+              metadata = payload.get("metadata")
+              if type(metadata) is not dict or metadata.get("continue", "") != "":
+                  raise SystemExit("Kubernetes API pod list is incomplete; refusing cleanup")
+              self_uid = os.environ["POD_UID"]
+              self_seen = False
+              active = []
+              for pod in payload["items"]:
+                  if type(pod) is not dict:
+                      raise SystemExit("Kubernetes API pod list contains an invalid item; refusing cleanup")
+                  pod_metadata = pod.get("metadata")
+                  pod_spec = pod.get("spec")
+                  status = pod.get("status")
+                  if type(pod_metadata) is not dict or type(pod_spec) is not dict or type(status) is not dict:
+                      raise SystemExit("Kubernetes API pod list contains incomplete identity; refusing cleanup")
+                  uid = pod_metadata.get("uid")
+                  name = pod_metadata.get("name")
+                  labels = pod_metadata.get("labels")
+                  phase = status.get("phase")
+                  node = pod_spec.get("nodeName", "")
+                  if type(uid) is not str or type(name) is not str or type(labels) is not dict or type(phase) is not str or type(node) is not str:
+                      raise SystemExit("Kubernetes API pod list contains invalid identity types; refusing cleanup")
+                  if uid == self_uid:
+                      if self_seen or labels.get("ci.brmartin.co.uk/maintenance") != "true" or labels.get("ci.brmartin.co.uk/job") != "true" or phase != "Running" or node != "hestia":
+                          raise SystemExit("maintenance Pod identity is inconsistent; refusing cleanup")
+                      self_seen = True
+                      continue
+                  if labels.get("ci.brmartin.co.uk/job") == "true" and phase in {"Running", "Pending"}:
+                      active.append(f"ci/{name} ({phase}, node={node or 'unscheduled'})")
+              if not self_seen:
+                  raise SystemExit("maintenance Pod is absent from the Kubernetes API snapshot; refusing cleanup")
+              if active:
+                  raise SystemExit("active GitLab job pod(s) block cleanup: " + ", ".join(sorted(active)))
+              print("Kubernetes API gate passed: scheduler lock is present and no other Running or Pending CI job Pods exist")
+              PY
+
+              podman_store=(
+                podman
+                --root=/var/lib/containers/storage
+                --runroot=/run/containers/storage
+                --storage-driver=overlay
+              )
+              "${podman_store[@]}" container prune --force --filter until=168h
+              "${podman_store[@]}" ps -a --external --filter until=168h --format json > /tmp/external-containers.json
+              python3 - <<'PY' > /tmp/external-container-ids
+              import json
+              import re
+              import time
+
+              with open("/tmp/external-containers.json", "rb") as stream:
+                  containers = json.load(stream)
+              if type(containers) is not list:
+                  raise SystemExit("Podman external-container list has an invalid shape; refusing cleanup")
+              cutoff = int(time.time()) - 168 * 60 * 60
+              for container in containers:
+                  if type(container) is not dict:
+                      raise SystemExit("Podman external-container list has an invalid item; refusing cleanup")
+                  container_id = container.get("Id")
+                  created = container.get("Created")
+                  if type(container_id) is not str or re.fullmatch(r"[0-9a-f]{64}", container_id) is None or type(created) is not int:
+                      raise SystemExit("Podman external-container identity is invalid; refusing cleanup")
+                  if created > cutoff:
+                      raise SystemExit("Podman returned a recent external container through the 168h filter; refusing cleanup")
+                  print(container_id)
+              PY
+              mapfile -t stale_external_ids < /tmp/external-container-ids
+              if (( ${#stale_external_ids[@]} )); then
+                "${podman_store[@]}" rm --force "${stale_external_ids[@]}"
+              fi
+              "${podman_store[@]}" image prune --all --force --filter until=168h
+            command:
+            - /bin/bash
+            - -ceu
+            - --
+            env:
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+            - name: POD_UID
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.uid
+            image: quay.io/podman/stable@sha256:c6c3feef40a5c825a98e62a11c8ed4c36ec603327d56eb629230a671e527c3dd
+            imagePullPolicy: IfNotPresent
+            name: podman-gc
+            resources:
+              limits:
+                cpu: 500m
+                memory: 512Mi
+              requests:
+                cpu: 10m
+                memory: 64Mi
+            securityContext:
+              allowPrivilegeEscalation: true
+              privileged: true
+              readOnlyRootFilesystem: true
+              runAsGroup: 0
+              runAsNonRoot: false
+              runAsUser: 0
+            volumeMounts:
+            - mountPath: /var/lib/containers/storage
+              name: podman-storage
+            - mountPath: /run/containers
+              name: run
+            - mountPath: /tmp
+              name: tmp
+          enableServiceLinks: true
+          nodeSelector:
+            kubernetes.io/arch: amd64
+            kubernetes.io/hostname: hestia
+          restartPolicy: Never
+          serviceAccountName: hestia-ci-store-gc
+          volumes:
+          - hostPath:
+              path: /var/lib/ci-containers-nocow/storage
+              type: Directory
+            name: podman-storage
+          - emptyDir: {}
+            name: run
+          - emptyDir: {}
+            name: tmp

@@ -266,6 +266,85 @@ groups:
           labels:
             severity: critical
           isPaused: false
+        - uid: hestia-noisy-disk-space-low-api
+          title: Hestia Noisy Disk Space Low
+          condition: C
+          data:
+            - refId: A
+              relativeTimeRange:
+                from: 600
+                to: 0
+              datasourceUid: prometheus
+              model:
+                datasource:
+                    type: prometheus
+                    uid: prometheus
+                expr: |-
+                    (
+                      label_replace(
+                        min by(instance) (
+                          (
+                            node_filesystem_avail_bytes{job="kubernetes-service-endpoints",app_kubernetes_io_name="node-exporter",mountpoint="/srv/noisy",fstype="xfs"}
+                            /
+                            node_filesystem_size_bytes{job="kubernetes-service-endpoints",app_kubernetes_io_name="node-exporter",mountpoint="/srv/noisy",fstype="xfs"}
+                          ) * 100
+                        ),
+                        "internal_ip", "$1", "instance", "(.*):.*"
+                      )
+                      * on(internal_ip) group_left(node)
+                        max by(internal_ip, node) (kube_node_info{node="hestia"})
+                    )
+                    or
+                    (
+                      label_replace(
+                        0 * max by(internal_ip, node) (kube_node_info{node="hestia"}),
+                        "instance", "$1:9100", "internal_ip", "(.*)"
+                      )
+                      unless on(node)
+                      (
+                        label_replace(
+                          min by(instance) (
+                            (
+                              node_filesystem_avail_bytes{job="kubernetes-service-endpoints",app_kubernetes_io_name="node-exporter",mountpoint="/srv/noisy",fstype="xfs"}
+                              /
+                              node_filesystem_size_bytes{job="kubernetes-service-endpoints",app_kubernetes_io_name="node-exporter",mountpoint="/srv/noisy",fstype="xfs"}
+                            ) * 100
+                          ),
+                          "internal_ip", "$1", "instance", "(.*):.*"
+                        )
+                        * on(internal_ip) group_left(node)
+                          max by(internal_ip, node) (kube_node_info{node="hestia"})
+                      )
+                    )
+                instant: true
+                intervalMs: 1000
+                maxDataPoints: 43200
+                refId: A
+            - refId: C
+              datasourceUid: "-100"
+              model:
+                conditions:
+                    - evaluator:
+                        params:
+                            - 15
+                        type: lt
+                datasource:
+                    type: __expr__
+                    uid: "-100"
+                expression: A
+                intervalMs: 1000
+                maxDataPoints: 43200
+                refId: C
+                type: threshold
+          noDataState: Alerting
+          execErrState: OK
+          for: 5m
+          annotations:
+            description: The canonical node-exporter service-endpoint series reports {{ $values.A.Value }}% available on {{ $values.A.Labels.node }} {{ $values.A.Labels.instance }} for /srv/noisy, or the expected series is missing and represented as 0%. Investigate the Hestia CI Podman store; do not delete CI cache/build data or k3s/containerd state.
+            summary: Hestia /srv/noisy is below 15% available or its canonical metric is missing
+          labels:
+            severity: critical
+          isPaused: false
     - orgId: 1
       name: pod-health
       folder: Infrastructure Alerts
