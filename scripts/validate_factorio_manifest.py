@@ -618,7 +618,11 @@ def validate_factorio(root: Path) -> list[str]:
             }
             for name, expected in expected_settings.items():
                 checks.equal(settings.get(name), expected, f"server-settings.json.{name}")
-        checks.equal(parse_json(data, "server-whitelist.json", checks), ["neBM"], "Factorio whitelist")
+        checks.equal(
+            parse_json(data, "server-whitelist.json", checks),
+            ["neBM", "jeepersjayne"],
+            "Factorio whitelist",
+        )
         checks.equal(parse_json(data, "server-adminlist.json", checks), ["neBM"], "Factorio admin list")
         mod_list = parse_json(data, "mod-list.json", checks)
         expected_mods = {

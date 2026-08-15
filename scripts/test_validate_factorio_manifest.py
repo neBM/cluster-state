@@ -676,8 +676,8 @@ def main() -> int:
             parent,
             "whitelist-broadened",
             "apps/factorio/files/server-whitelist.json",
-            '["neBM"]',
-            '["neBM", "guest"]',
+            '["neBM", "jeepersjayne"]',
+            '["neBM", "jeepersjayne", "guest"]',
             "Factorio whitelist",
         )
         mutation(
