@@ -353,6 +353,14 @@ def renovate_factorio_rule_sequence_mutation(parent: Path) -> None:
 
 
 def main() -> int:
+    scenario_path = ROOT / "apps/factorio/files/scenario-control.lua"
+    if not scenario_path.is_file():
+        print(
+            "AUTHENTIC RED: Git-controlled friendly factories scenario source is missing",
+            file=sys.stderr,
+        )
+        return 1
+
     baseline = run(ROOT)
     combined = baseline.stdout + baseline.stderr
     if not (ROOT / "apps/factorio").exists():
@@ -642,6 +650,14 @@ def main() -> int:
         )
         mutation(
             parent,
+            "server-player-limit-broadened",
+            "apps/factorio/files/server-settings.json",
+            '  "max_players": 2,',
+            '  "max_players": 4,',
+            "server-settings.json.max_players",
+        )
+        mutation(
+            parent,
             "server-visibility-bool-to-int",
             "apps/factorio/files/server-settings.json",
             '    "public": false,',
@@ -655,6 +671,62 @@ def main() -> int:
             "  - files/map-settings.json\n",
             "",
             "Factorio generated config files",
+        )
+        mutation(
+            parent,
+            "scenario-source-file-removed",
+            "apps/factorio/kustomization.yaml",
+            "  - files/scenario-control.lua\n",
+            "",
+            "Factorio generated config files",
+        )
+        mutation(
+            parent,
+            "scenario-built-in-pvp-wrapper-removed",
+            "apps/factorio/files/scenario-control.lua",
+            'local pvp = require("__base__/script/pvp/pvp")',
+            'local pvp = require("custom-pvp")',
+            "scenario must wrap the exact built-in PvP implementation",
+        )
+        mutation(
+            parent,
+            "scenario-no-rush-enabled",
+            "apps/factorio/files/scenario-control.lua",
+            "  config.game_config.no_rush_time = 0",
+            "  config.game_config.no_rush_time = 10",
+            "scenario game_config.no_rush_time",
+        )
+        mutation(
+            parent,
+            "scenario-team-distance-drift",
+            "apps/factorio/files/scenario-control.lua",
+            "  config.team_config.average_team_displacement = 640",
+            "  config.team_config.average_team_displacement = 800",
+            "scenario team_config.average_team_displacement",
+        )
+        mutation(
+            parent,
+            "scenario-player-force-mapping-drift",
+            "apps/factorio/files/scenario-control.lua",
+            '  neBM = "neBM Factory",',
+            '  neBM = "jeepersjayne Factory",',
+            "scenario player-force mapping",
+        )
+        mutation(
+            parent,
+            "scenario-diplomatic-team-split",
+            "apps/factorio/files/scenario-control.lua",
+            '    {name = "jeepersjayne Factory", color = "purple", team = 1, members = {}}',
+            '    {name = "jeepersjayne Factory", color = "purple", team = 2, members = {}}',
+            "scenario teams",
+        )
+        mutation(
+            parent,
+            "scenario-map-chart-sharing-enabled",
+            "apps/factorio/files/scenario-control.lua",
+            "  first.share_chart = false",
+            "  first.share_chart = true",
+            "scenario must disable allied chart sharing",
         )
         mutation(
             parent,

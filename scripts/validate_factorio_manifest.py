@@ -491,6 +491,8 @@ def validate_factorio(root: Path) -> list[str]:
                 "map-gen-settings.json",
                 "map-settings.json",
                 "mod-list.json",
+                "scenario-control.lua",
+                "scenario-description.json",
                 "server-adminlist.json",
                 "server-settings.json",
                 "server-whitelist.json",
@@ -599,8 +601,8 @@ def validate_factorio(root: Path) -> list[str]:
         if isinstance(settings, dict):
             expected_settings = {
                 "name": "Martins Server",
-                "description": "Default Freeplay",
-                "max_players": 4,
+                "description": "Friendly independent factories",
+                "max_players": 2,
                 "visibility": {"public": False, "lan": True},
                 "username": "",
                 "password": "",
@@ -638,6 +640,47 @@ def validate_factorio(root: Path) -> list[str]:
                 if isinstance(item, dict)
             }
             checks.equal(actual_mods, expected_mods, "Factorio vanilla mod list")
+        checks.equal(
+            parse_json(data, "scenario-description.json", checks),
+            {"multiplayer-compatible": True, "order": "z"},
+            "Factorio scenario description",
+        )
+        scenario = data.get("scenario-control.lua", "")
+        checks.true(
+            'local pvp = require("__base__/script/pvp/pvp")' in scenario,
+            "Factorio scenario must wrap the exact built-in PvP implementation",
+        )
+        scenario_contract = {
+            '  neBM = "neBM Factory",': "Factorio scenario player-force mapping",
+            '  jeepersjayne = "jeepersjayne Factory"': "Factorio scenario player-force mapping",
+            '    {name = "neBM Factory", color = "orange", team = 1, members = {}}': "Factorio scenario teams",
+            '    {name = "jeepersjayne Factory", color = "purple", team = 1, members = {}}': "Factorio scenario teams",
+            "  config.game_config.time_limit = 0": "Factorio scenario game_config.time_limit",
+            "  config.game_config.allow_spectators = false": "Factorio scenario game_config.allow_spectators",
+            "  config.game_config.no_rush_time = 0": "Factorio scenario game_config.no_rush_time",
+            "  config.game_config.base_exclusion_time = 0": "Factorio scenario game_config.base_exclusion_time",
+            "  config.game_config.reveal_team_positions = true": "Factorio scenario game_config.reveal_team_positions",
+            "  config.game_config.reveal_map_center = true": "Factorio scenario game_config.reveal_map_center",
+            "  config.game_config.team_walls = false": "Factorio scenario game_config.team_walls",
+            "  config.game_config.team_moat = false": "Factorio scenario game_config.team_moat",
+            "  config.game_config.team_turrets = false": "Factorio scenario game_config.team_turrets",
+            "  config.game_config.team_artillery = false": "Factorio scenario game_config.team_artillery",
+            "  config.game_config.auto_new_round_time = 0": "Factorio scenario game_config.auto_new_round_time",
+            "  config.game_config.enemy_building_restriction = false": "Factorio scenario game_config.enemy_building_restriction",
+            "  config.team_config.friendly_fire = false": "Factorio scenario team_config.friendly_fire",
+            "  config.team_config.max_players = 1": "Factorio scenario team_config.max_players",
+            "  config.team_config.average_team_displacement = 640": "Factorio scenario team_config.average_team_displacement",
+            "  config.team_config.duplicate_starting_area_entities = true": "Factorio scenario team_config.duplicate_starting_area_entities",
+            "  for _, condition in pairs(config.victory) do condition.active = false end": "Factorio scenario victory conditions",
+            "  first.share_chart = false": "Factorio scenario must disable allied chart sharing",
+            "  second.share_chart = false": "Factorio scenario must disable allied chart sharing",
+            "  start_round()": "Factorio scenario headless automatic setup",
+            "    set_player(player, assert(find_team(force_name)))": "Factorio scenario player-force assignment",
+            "  assert(first.get_friend(second) and second.get_friend(first))": "Factorio scenario mutual friendship",
+            "  assert(first.get_cease_fire(second) and second.get_cease_fire(first))": "Factorio scenario mutual ceasefire",
+        }
+        for required, diagnostic in scenario_contract.items():
+            checks.true(required in scenario, diagnostic)
         parser = configparser.ConfigParser()
         try:
             parser.read_string(data.get("config.ini", ""))
@@ -655,7 +698,7 @@ def validate_factorio(root: Path) -> list[str]:
         checks.true("rcon" not in wrapper.lower(), "Factorio wrapper must never configure RCON")
         for required in (
             "/opt/factorio/bin/x64/factorio",
-            "--create",
+            "--scenario2map",
             "--config",
             "--map-gen-settings",
             "--map-settings",
@@ -665,11 +708,18 @@ def validate_factorio(root: Path) -> list[str]:
             "--server-adminlist",
             "--server-id",
             "--mod-directory",
-            "--start-server-load-latest",
+            "--start-server",
+            "friendly-factories.zip",
+            "martins-server.zip",
+            ".friendly-factories-world",
+            "scenario-control.lua",
+            "scenario-description.json",
             ".last-started-version",
             "pre-upgrade",
         ):
             checks.true(required in wrapper, f"Factorio wrapper missing required contract: {required}")
+        checks.true("--start-server-load-latest" not in wrapper, "Factorio wrapper must not load the latest save")
+        checks.true(' --create ' not in wrapper, "Factorio wrapper must create the Git-controlled scenario, not Freeplay")
 
     restic_job = checks.one(rendered["restic"], "CronJob", "restic-critical-pvc-backup")
     restic_config = checks.one(rendered["restic"], "ConfigMap", "restic-backup-scripts")
