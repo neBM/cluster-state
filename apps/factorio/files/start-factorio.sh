@@ -14,6 +14,8 @@ VERSION_MARKER="${STATE_DIR}/.last-started-version"
 WORLD_MARKER="${STATE_DIR}/.friendly-factories-world"
 FINAL_SAVE_NAME="friendly-factories.zip"
 FINAL_SAVE="${SAVES_DIR}/${FINAL_SAVE_NAME}"
+SCENARIO_NAME="friendly-factories"
+CREATION_ROOT_PREFIX=".friendly-factories-create."
 LEGACY_SAVE_NAME="martins-server.zip"
 LEGACY_VERSION="2.0.77"
 
@@ -40,7 +42,7 @@ done
 
 shopt -s nullglob
 stale_temp_save_candidates=("${SAVES_DIR}"/*.tmp.zip)
-stale_scenario_candidates=("${SCENARIOS_DIR}"/friendly-factories.*.tmp.scenario)
+stale_creation_root_candidates=("${STATE_DIR}/${CREATION_ROOT_PREFIX}"*)
 stale_world_marker_candidates=("${WORLD_MARKER}.tmp-"*)
 shopt -u nullglob
 for stale_temp_save_candidate in "${stale_temp_save_candidates[@]}"; do
@@ -48,8 +50,12 @@ for stale_temp_save_candidate in "${stale_temp_save_candidates[@]}"; do
     rm -- "${stale_temp_save_candidate}"
   fi
 done
-for stale_scenario_candidate in "${stale_scenario_candidates[@]}"; do
-  rm -rf -- "${stale_scenario_candidate}"
+for stale_creation_root_candidate in "${stale_creation_root_candidates[@]}"; do
+  if [[ ! -d "${stale_creation_root_candidate}" ]] || [[ -L "${stale_creation_root_candidate}" ]]; then
+    printf 'Refusing to remove non-directory isolated creation state: %s\n' "${stale_creation_root_candidate}" >&2
+    exit 1
+  fi
+  rm -rf -- "${stale_creation_root_candidate}"
 done
 for stale_world_marker_candidate in "${stale_world_marker_candidates[@]}"; do
   if [[ -f "${stale_world_marker_candidate}" ]] && [[ ! -L "${stale_world_marker_candidate}" ]]; then
@@ -168,22 +174,68 @@ if ${create_scenario}; then
     exit 1
   fi
 
-  scenario_dir="$(mktemp -d "${SCENARIOS_DIR}/friendly-factories.XXXXXXXX.tmp.scenario")"
-  scenario_name="${scenario_dir##*/}"
-  initial_save_temp="${SAVES_DIR}/${scenario_name%.scenario}.zip"
+  expected_config_lines=(
+    '[path]'
+    'read-data=/opt/factorio/data'
+    'write-data=/factorio'
+    ''
+    '[other]'
+    'autosave-interval=10'
+    'autosave-slots=12'
+    'check-updates=false'
+    'enable-experimental-updates=false'
+    'enable-new-mods=false'
+  )
+  source_config_lines=()
+  if [[ ! -f "${CONFIG_SOURCE_DIR}/config.ini" ]] || [[ -L "${CONFIG_SOURCE_DIR}/config.ini" ]]; then
+    printf 'Factorio config source is not a regular file: %s\n' "${CONFIG_SOURCE_DIR}/config.ini" >&2
+    exit 1
+  fi
+  mapfile -t source_config_lines <"${CONFIG_SOURCE_DIR}/config.ini"
+  if ((${#source_config_lines[@]} != ${#expected_config_lines[@]})); then
+    printf 'Factorio config source does not have the expected exact shape\n' >&2
+    exit 1
+  fi
+  for ((config_index = 0; config_index < ${#expected_config_lines[@]}; config_index++)); do
+    if [[ "${source_config_lines[config_index]}" != "${expected_config_lines[config_index]}" ]]; then
+      printf 'Factorio config source does not have the expected exact shape\n' >&2
+      exit 1
+    fi
+  done
+
+  creation_root=""
+  cleanup_create_artifacts() {
+    if [[ -n "${creation_root}" ]]; then
+      rm -rf -- "${creation_root}" 2>/dev/null || true
+    fi
+  }
+  trap cleanup_create_artifacts EXIT
+
+  creation_root="$(mktemp -d "${STATE_DIR}/${CREATION_ROOT_PREFIX}XXXXXXXX")"
+  creation_saves_dir="${creation_root}/saves"
+  scenario_dir="${creation_root}/scenarios/${SCENARIO_NAME}"
+  conversion_config="${creation_root}/config.ini"
+  initial_save_temp="${creation_saves_dir}/${FINAL_SAVE_NAME}"
+  mkdir -p "${creation_saves_dir}" "${scenario_dir}"
   cp -- "${CONFIG_SOURCE_DIR}/scenario-control.lua" "${scenario_dir}/control.lua"
   cp -- "${CONFIG_SOURCE_DIR}/scenario-description.json" "${scenario_dir}/description.json"
   chmod 0644 "${scenario_dir}/control.lua" "${scenario_dir}/description.json"
+  {
+    printf '[path]\n'
+    printf 'read-data=/opt/factorio/data\n'
+    printf 'write-data=%s\n' "${creation_root}"
+    printf '\n[other]\n'
+    printf 'autosave-interval=10\n'
+    printf 'autosave-slots=12\n'
+    printf 'check-updates=false\n'
+    printf 'enable-experimental-updates=false\n'
+    printf 'enable-new-mods=false\n'
+  } >"${conversion_config}"
+  chmod 0600 "${conversion_config}"
 
   create_pid=""
   create_signal_name=""
   create_signal_status=0
-
-  cleanup_create_artifacts() {
-    rm -f -- "${initial_save_temp}" 2>/dev/null || true
-    rm -rf -- "${scenario_dir}" 2>/dev/null || true
-    rmdir -- "${SCENARIOS_DIR}" 2>/dev/null || true
-  }
 
   forward_create_signal() {
     if ((create_signal_status == 0)); then
@@ -200,11 +252,11 @@ if ${create_scenario}; then
 
   if ((create_signal_status == 0)); then
     "${FACTORIO_BIN}" \
-      --config "${RUNTIME_DIR}/config.ini" \
+      --config "${conversion_config}" \
       --mod-directory "${RUNTIME_DIR}" \
       --map-gen-settings "${RUNTIME_DIR}/map-gen-settings.json" \
       --map-settings "${RUNTIME_DIR}/map-settings.json" \
-      --scenario2map "${scenario_name}" &
+      --scenario2map "${SCENARIO_NAME}" &
     create_pid=$!
   fi
 
@@ -245,10 +297,8 @@ if ${create_scenario}; then
     printf 'Scenario conversion did not produce a regular temporary save\n' >&2
     exit 1
   fi
-  rm -rf -- "${scenario_dir}"
-  rmdir -- "${SCENARIOS_DIR}" 2>/dev/null || true
   if [[ -e "${FINAL_SAVE}" ]] || [[ -L "${FINAL_SAVE}" ]]; then
-    rm -f -- "${initial_save_temp}" 2>/dev/null || true
+    cleanup_create_artifacts
     printf 'Cannot publish initial scenario: final target already exists: %s\n' "${FINAL_SAVE}" >&2
     exit 1
   fi
@@ -256,14 +306,16 @@ if ${create_scenario}; then
     :
   else
     move_status=$?
-    rm -f -- "${initial_save_temp}" 2>/dev/null || true
+    cleanup_create_artifacts
     exit "${move_status}"
   fi
   if [[ -e "${initial_save_temp}" ]] || [[ -L "${initial_save_temp}" ]]; then
-    rm -f -- "${initial_save_temp}" 2>/dev/null || true
+    cleanup_create_artifacts
     printf 'Cannot publish initial scenario without overwriting the final target: %s\n' "${FINAL_SAVE}" >&2
     exit 1
   fi
+  cleanup_create_artifacts
+  trap - EXIT
   has_existing_scenario=true
 fi
 

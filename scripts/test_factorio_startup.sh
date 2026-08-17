@@ -103,33 +103,77 @@ printf '\n' >>"${FACTORIO_TEST_LOG}"
 
 create_target=""
 create_next=false
+config_path=""
+config_next=false
 scenario_name=""
 scenario_next=false
+start_server_save=""
+start_server_next=false
 for argument in "$@"; do
   if ${create_next}; then
     create_target="${argument}"
     create_next=false
+  elif ${config_next}; then
+    config_path="${argument}"
+    config_next=false
   elif ${scenario_next}; then
     scenario_name="${argument}"
     scenario_next=false
+  elif ${start_server_next}; then
+    start_server_save="${argument}"
+    start_server_next=false
   elif [ "${argument}" = "--create" ]; then
     create_next=true
+  elif [ "${argument}" = "--config" ]; then
+    config_next=true
   elif [ "${argument}" = "--scenario2map" ]; then
     scenario_next=true
+  elif [ "${argument}" = "--start-server" ]; then
+    start_server_next=true
   fi
 done
 
+[ -f "${config_path}" ] || exit 96
+write_data=""
+while IFS= read -r config_line; do
+  case "${config_line}" in
+    write-data=*) write_data="${config_line#write-data=}" ;;
+  esac
+done <"${config_path}"
+[ -n "${write_data}" ] || exit 96
+if [ "${write_data}" = "/factorio" ]; then
+  write_data="${FACTORIO_STATE_DIR:?}"
+fi
+
 if [ -n "${scenario_name}" ]; then
-  [ -f "${FACTORIO_STATE_DIR:?}/scenarios/${scenario_name}/control.lua" ] || exit 97
-  [ -f "${FACTORIO_STATE_DIR}/scenarios/${scenario_name}/description.json" ] || exit 97
-  create_target="${FACTORIO_STATE_DIR:?}/saves/${scenario_name%.scenario}.zip"
+  [ -f "${write_data}/scenarios/${scenario_name}/control.lua" ] || exit 97
+  [ -f "${write_data}/scenarios/${scenario_name}/description.json" ] || exit 97
+  scenario_save_name="${scenario_name}"
+  if [[ "${scenario_save_name}" == *.* ]]; then
+    scenario_save_name="${scenario_save_name%.*}"
+  fi
+  create_target="${write_data}/saves/${scenario_save_name}.zip"
+fi
+
+if [ -n "${start_server_save}" ]; then
+  [ -f "${start_server_save}" ] || exit 98
+  embedded_scenario=""
+  while IFS= read -r save_line; do
+    case "${save_line}" in
+      scenario=*) embedded_scenario="${save_line#scenario=}" ;;
+    esac
+  done <"${start_server_save}"
+  [ -n "${embedded_scenario}" ] || exit 98
+  mkdir -p "${write_data}/scenarios/${embedded_scenario}"
+  printf 'runtime-control\n' >"${write_data}/scenarios/${embedded_scenario}/control.lua"
+  printf '{}\n' >"${write_data}/scenarios/${embedded_scenario}/description.json"
 fi
 
 [ -n "${create_target}" ] || exit 0
 
 case "${FACTORIO_TEST_MODE:-success}" in
   success)
-    printf 'fresh-save\n' >"${create_target}"
+    printf 'fresh-save\nscenario=%s\n' "${scenario_name}" >"${create_target}"
     ;;
   fail-partial)
     printf 'partial-save\n' >"${create_target}"
@@ -275,15 +319,18 @@ assert_log_contains() {
 }
 
 assert_no_create_residue() {
+  local creation_roots
   local temp_saves
   local scenario_entries
 
   [ ! -e "${state_dir}/saves/friendly-factories.zip" ] && [ ! -L "${state_dir}/saves/friendly-factories.zip" ] ||
     fail "failed or interrupted create left the final save"
   shopt -s nullglob
+  creation_roots=("${state_dir}"/.friendly-factories-create.*)
   temp_saves=("${state_dir}/saves/"*.tmp.zip)
   scenario_entries=("${state_dir}/scenarios/"*)
   shopt -u nullglob
+  [ "${#creation_roots[@]}" -eq 0 ] || fail "failed or interrupted create left isolated creation state"
   [ "${#temp_saves[@]}" -eq 0 ] || fail "failed or interrupted create left a temporary save"
   [ "${#scenario_entries[@]}" -eq 0 ] || fail "failed or interrupted create left temporary scenario source"
 }
@@ -429,25 +476,71 @@ test_nonregular_zip_entries_are_not_saves() {
 
 test_successful_create_is_atomic() {
   local first_invocation
+  local published_save_header
   local scenario_entries
 
   reset_fixture atomic
   run_startup 2.0.77
   IFS= read -r first_invocation <"${log_file}" || fail "fresh create invocation was not logged"
   case "${first_invocation}" in
-    *"--scenario2map friendly-factories."*.tmp.scenario\ *) ;;
+    *"--scenario2map friendly-factories "*) ;;
     *) fail "fresh create did not convert the Git-controlled friendly factories scenario" ;;
   esac
   case "${first_invocation}" in
     *"--create "*) fail "fresh scenario creation used Freeplay --create" ;;
   esac
   assert_only_atomic_final
-  [ "$(<"${state_dir}/saves/friendly-factories.zip")" = "fresh-save" ] || fail "atomically published save content was incorrect"
+  IFS= read -r published_save_header <"${state_dir}/saves/friendly-factories.zip" ||
+    fail "atomically published save was empty"
+  [ "${published_save_header}" = "fresh-save" ] || fail "atomically published save content was incorrect"
   [ "$(<"${state_dir}/.friendly-factories-world")" = "friendly-factories.zip" ] || fail "successful scenario publication did not write the migration marker"
   shopt -s nullglob
   scenario_entries=("${state_dir}/scenarios/"*)
   shopt -u nullglob
-  [ "${#scenario_entries[@]}" -eq 0 ] || fail "successful scenario creation left temporary scenario source"
+  [ "${#scenario_entries[@]}" -eq 1 ] \
+    && [ "${scenario_entries[0]}" = "${state_dir}/scenarios/friendly-factories" ] ||
+    fail "successful load did not leave only the stable runtime scenario state"
+}
+
+test_stable_scenario_identity_has_no_temporary_residue() {
+  local first_invocation
+  local first_scenario_names
+  local restart_scenario_names
+  local first_scenario_entries
+  local restart_scenario_entries
+  local first_creation_roots
+  local restart_creation_roots
+
+  reset_fixture stable-identity
+  mkdir -p "${state_dir}/.friendly-factories-create.stale/scenarios/friendly-factories"
+  printf 'stale\n' >"${state_dir}/.friendly-factories-create.stale/scenarios/friendly-factories/control.lua"
+  run_startup 2.0.77
+  IFS= read -r first_invocation <"${log_file}" || fail "fresh scenario conversion invocation was not logged"
+  assert_only_atomic_final
+  shopt -s nullglob
+  first_scenario_entries=("${state_dir}/scenarios/"*)
+  first_creation_roots=("${state_dir}"/.friendly-factories-create.*)
+  shopt -u nullglob
+  first_scenario_names="$(printf '%s ' "${first_scenario_entries[@]##*/}")"
+
+  : >"${log_file}"
+  run_startup 2.0.77
+  shopt -s nullglob
+  restart_scenario_entries=("${state_dir}/scenarios/"*)
+  restart_creation_roots=("${state_dir}"/.friendly-factories-create.*)
+  shopt -u nullglob
+  restart_scenario_names="$(printf '%s ' "${restart_scenario_entries[@]##*/}")"
+
+  if [[ "${first_invocation}" != *"--scenario2map friendly-factories "* ]] \
+    || ((${#first_scenario_entries[@]} != 1)) \
+    || [[ "${first_scenario_entries[0]:-}" != "${state_dir}/scenarios/friendly-factories" ]] \
+    || ((${#restart_scenario_entries[@]} != 1)) \
+    || [[ "${restart_scenario_entries[0]:-}" != "${state_dir}/scenarios/friendly-factories" ]] \
+    || ((${#first_creation_roots[@]} != 0)) \
+    || ((${#restart_creation_roots[@]} != 0)); then
+    fail "scenario conversion embedded or recreated a nonce/temp identity; invocation=${first_invocation}; first-load scenarios=${first_scenario_names:-<none>}; restart scenarios=${restart_scenario_names:-<none>}"
+  fi
+  [ "$(line_count "${log_file}")" -eq 1 ] || fail "stable-identity restart unexpectedly reconverted the scenario"
 }
 
 test_approved_legacy_migration_and_unexpected_world_guard() {
@@ -507,6 +600,7 @@ test_existing_same_version_and_pre_upgrade_behavior() {
   local before_backup
   local backup_glob
   local backup_dirs
+  local backup_save_header
 
   reset_fixture existing
   printf 'incomplete-save\n' >"${state_dir}/saves/orphan.tmp.zip"
@@ -545,14 +639,16 @@ test_existing_same_version_and_pre_upgrade_behavior() {
   backup_glob=("${state_dir}"/pre-upgrade/*)
   [ ! -e "${backup_glob[0]}" ] || fail "same-version restart created an upgrade backup"
 
-  printf 'save-before-upgrade\n' >"${state_dir}/saves/friendly-factories.zip"
+  printf 'save-before-upgrade\nscenario=friendly-factories\n' >"${state_dir}/saves/friendly-factories.zip"
   : >"${log_file}"
   run_startup 2.0.78
   [ "$(line_count "${log_file}")" -eq 1 ] || fail "upgrade startup must not regenerate the world"
   [ "$(<"${state_dir}/.last-started-version")" = "2.0.78" ] || fail "upgrade version marker was not advanced"
   backup_dirs=("${state_dir}"/pre-upgrade/from-2.0.77-to-2.0.78-*)
   [ "${#backup_dirs[@]}" -eq 1 ] && [ -d "${backup_dirs[0]}" ] || fail "version-bound pre-upgrade backup missing"
-  [ "$(<"${backup_dirs[0]}/friendly-factories.zip")" = "save-before-upgrade" ] || fail "pre-upgrade save copy is incorrect"
+  IFS= read -r backup_save_header <"${backup_dirs[0]}/friendly-factories.zip" ||
+    fail "pre-upgrade save copy is empty"
+  [ "${backup_save_header}" = "save-before-upgrade" ] || fail "pre-upgrade save copy is incorrect"
   [ -f "${backup_dirs[0]}/backup-metadata.txt" ] || fail "pre-upgrade metadata missing"
 
   before_backup="${backup_dirs[0]}"
@@ -586,6 +682,9 @@ case "${1:-all}" in
   atomic)
     run_case "successful initial create is atomic" test_successful_create_is_atomic
     ;;
+  identity)
+    run_case "stable scenario identity leaves no temporary residue" test_stable_scenario_identity_has_no_temporary_residue
+    ;;
   existing)
     run_case "same-version and pre-upgrade behavior" test_existing_same_version_and_pre_upgrade_behavior
     ;;
@@ -598,6 +697,7 @@ case "${1:-all}" in
     run_case "TERM at create completion boundary is observed" test_term_at_create_completion_boundary_and_restart
     run_case "non-regular zip entries are not saves" test_nonregular_zip_entries_are_not_saves
     run_case "successful initial create is atomic" test_successful_create_is_atomic
+    run_case "stable scenario identity leaves no temporary residue" test_stable_scenario_identity_has_no_temporary_residue
     run_case "approved one-time migration and unexpected-world guard" test_approved_legacy_migration_and_unexpected_world_guard
     run_case "same-version and pre-upgrade behavior" test_existing_same_version_and_pre_upgrade_behavior
     ;;
