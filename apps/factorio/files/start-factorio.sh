@@ -19,6 +19,39 @@ CREATION_ROOT_PREFIX=".friendly-factories-create."
 LEGACY_SAVE_NAME="martins-server.zip"
 LEGACY_VERSION="2.0.77"
 
+required_config_sources=(
+  config.ini
+  map-gen-settings.json
+  map-settings.json
+  mod-list.json
+  scenario-control.lua
+  scenario-description.json
+  server-adminlist.json
+  server-settings.json
+  server-whitelist.json
+)
+declare -A resolved_config_sources=()
+
+if ! canonical_config_source_dir="$(realpath -e -- "${CONFIG_SOURCE_DIR}")" \
+  || [[ ! -d "${canonical_config_source_dir}" ]]; then
+  printf 'Config source directory is missing or not a directory: %s\n' "${CONFIG_SOURCE_DIR}" >&2
+  exit 1
+fi
+for config_source_name in "${required_config_sources[@]}"; do
+  config_source="${CONFIG_SOURCE_DIR}/${config_source_name}"
+  if ! resolved_config_source="$(realpath -e -- "${config_source}")" \
+    || [[ ! -f "${resolved_config_source}" ]]; then
+    printf 'Config source is missing or not a regular file: %s\n' "${config_source}" >&2
+    exit 1
+  fi
+  if [[ "${canonical_config_source_dir}" != / ]] \
+    && [[ "${resolved_config_source}" != "${canonical_config_source_dir}/"* ]]; then
+    printf 'Config source escapes config source directory: %s\n' "${config_source}" >&2
+    exit 1
+  fi
+  resolved_config_sources["${config_source_name}"]="${resolved_config_source}"
+done
+
 mkdir -p "${STATE_DIR}" "${SAVES_DIR}" "${SCENARIOS_DIR}" "${PRE_UPGRADE_DIR}" "${RUNTIME_DIR}"
 
 for config_name in \
@@ -29,15 +62,8 @@ for config_name in \
   server-adminlist.json \
   server-settings.json \
   server-whitelist.json; do
-  cp -- "${CONFIG_SOURCE_DIR}/${config_name}" "${RUNTIME_DIR}/${config_name}"
+  cp -- "${resolved_config_sources[${config_name}]}" "${RUNTIME_DIR}/${config_name}"
   chmod 0644 "${RUNTIME_DIR}/${config_name}"
-done
-
-for scenario_source in scenario-control.lua scenario-description.json; do
-  if [[ ! -f "${CONFIG_SOURCE_DIR}/${scenario_source}" ]] || [[ -L "${CONFIG_SOURCE_DIR}/${scenario_source}" ]]; then
-    printf 'Friendly factories scenario source is not a regular file: %s\n' "${CONFIG_SOURCE_DIR}/${scenario_source}" >&2
-    exit 1
-  fi
 done
 
 shopt -s nullglob
@@ -200,11 +226,7 @@ if ${create_scenario}; then
     'enable-new-mods=false'
   )
   source_config_lines=()
-  if [[ ! -f "${CONFIG_SOURCE_DIR}/config.ini" ]] || [[ -L "${CONFIG_SOURCE_DIR}/config.ini" ]]; then
-    printf 'Factorio config source is not a regular file: %s\n' "${CONFIG_SOURCE_DIR}/config.ini" >&2
-    exit 1
-  fi
-  mapfile -t source_config_lines <"${CONFIG_SOURCE_DIR}/config.ini"
+  mapfile -t source_config_lines <"${resolved_config_sources[config.ini]}"
   if ((${#source_config_lines[@]} != ${#expected_config_lines[@]})); then
     printf 'Factorio config source does not have the expected exact shape\n' >&2
     exit 1
@@ -230,8 +252,8 @@ if ${create_scenario}; then
   conversion_config="${creation_root}/config.ini"
   initial_save_temp="${creation_saves_dir}/${FINAL_SAVE_NAME}"
   mkdir -p "${creation_saves_dir}" "${scenario_dir}"
-  cp -- "${CONFIG_SOURCE_DIR}/scenario-control.lua" "${scenario_dir}/control.lua"
-  cp -- "${CONFIG_SOURCE_DIR}/scenario-description.json" "${scenario_dir}/description.json"
+  cp -- "${resolved_config_sources[scenario-control.lua]}" "${scenario_dir}/control.lua"
+  cp -- "${resolved_config_sources[scenario-description.json]}" "${scenario_dir}/description.json"
   chmod 0644 "${scenario_dir}/control.lua" "${scenario_dir}/description.json"
   {
     printf '[path]\n'
