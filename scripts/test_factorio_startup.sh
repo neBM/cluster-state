@@ -103,14 +103,27 @@ printf '\n' >>"${FACTORIO_TEST_LOG}"
 
 create_target=""
 create_next=false
+scenario_name=""
+scenario_next=false
 for argument in "$@"; do
   if ${create_next}; then
     create_target="${argument}"
     create_next=false
+  elif ${scenario_next}; then
+    scenario_name="${argument}"
+    scenario_next=false
   elif [ "${argument}" = "--create" ]; then
     create_next=true
+  elif [ "${argument}" = "--scenario2map" ]; then
+    scenario_next=true
   fi
 done
+
+if [ -n "${scenario_name}" ]; then
+  [ -f "${FACTORIO_STATE_DIR:?}/scenarios/${scenario_name}/control.lua" ] || exit 97
+  [ -f "${FACTORIO_STATE_DIR}/scenarios/${scenario_name}/description.json" ] || exit 97
+  create_target="${FACTORIO_STATE_DIR:?}/saves/${scenario_name%.scenario}.zip"
+fi
 
 [ -n "${create_target}" ] || exit 0
 
@@ -263,13 +276,16 @@ assert_log_contains() {
 
 assert_no_create_residue() {
   local temp_saves
+  local scenario_entries
 
-  [ ! -e "${state_dir}/saves/martins-server.zip" ] && [ ! -L "${state_dir}/saves/martins-server.zip" ] ||
+  [ ! -e "${state_dir}/saves/friendly-factories.zip" ] && [ ! -L "${state_dir}/saves/friendly-factories.zip" ] ||
     fail "failed or interrupted create left the final save"
   shopt -s nullglob
   temp_saves=("${state_dir}/saves/"*.tmp.zip)
+  scenario_entries=("${state_dir}/scenarios/"*)
   shopt -u nullglob
   [ "${#temp_saves[@]}" -eq 0 ] || fail "failed or interrupted create left a temporary save"
+  [ "${#scenario_entries[@]}" -eq 0 ] || fail "failed or interrupted create left temporary scenario source"
 }
 
 assert_only_atomic_final() {
@@ -279,7 +295,7 @@ assert_only_atomic_final() {
   save_entries=("${state_dir}/saves/"*)
   shopt -u nullglob
   [ "${#save_entries[@]}" -eq 1 ] || fail "successful create did not leave exactly one save entry"
-  [ "${save_entries[0]}" = "${state_dir}/saves/martins-server.zip" ] || fail "successful create left a non-final save entry"
+  [ "${save_entries[0]}" = "${state_dir}/saves/friendly-factories.zip" ] || fail "successful create left a non-final save entry"
   [ -f "${save_entries[0]}" ] && [ ! -L "${save_entries[0]}" ] || fail "final save is not a regular non-symlink file"
 }
 
@@ -378,7 +394,7 @@ EOF
     fail "completion-boundary TERM injection marker was malformed: ${boundary_evidence}"
 
   publication="absent"
-  if [ -e "${state_dir}/saves/martins-server.zip" ] || [ -L "${state_dir}/saves/martins-server.zip" ]; then
+  if [ -e "${state_dir}/saves/friendly-factories.zip" ] || [ -L "${state_dir}/saves/friendly-factories.zip" ]; then
     publication="present"
   fi
   [ "${status}" -eq 143 ] ||
@@ -403,7 +419,7 @@ test_nonregular_zip_entries_are_not_saves() {
   ln -s "${symlink_target}" "${state_dir}/saves/symlink.zip"
 
   run_startup 2.0.77
-  [ -f "${state_dir}/saves/martins-server.zip" ] && [ ! -L "${state_dir}/saves/martins-server.zip" ] ||
+  [ -f "${state_dir}/saves/friendly-factories.zip" ] && [ ! -L "${state_dir}/saves/friendly-factories.zip" ] ||
     fail "directory or symlink *.zip entry suppressed initial save creation"
   [ -d "${state_dir}/saves/directory.zip" ] || fail "non-save *.zip directory was not preserved"
   [ -L "${state_dir}/saves/symlink.zip" ] || fail "non-save *.zip symlink was not preserved"
@@ -413,19 +429,77 @@ test_nonregular_zip_entries_are_not_saves() {
 
 test_successful_create_is_atomic() {
   local first_invocation
+  local scenario_entries
 
   reset_fixture atomic
   run_startup 2.0.77
   IFS= read -r first_invocation <"${log_file}" || fail "fresh create invocation was not logged"
   case "${first_invocation}" in
-    *"--create ${state_dir}/saves/"*.tmp.zip\ *) ;;
-    *) fail "fresh create did not target a direct-child *.tmp.zip file" ;;
+    *"--scenario2map friendly-factories."*.tmp.scenario\ *) ;;
+    *) fail "fresh create did not convert the Git-controlled friendly factories scenario" ;;
   esac
   case "${first_invocation}" in
-    *"--create ${state_dir}/saves/martins-server.zip"*) fail "fresh create wrote directly to the final save" ;;
+    *"--create "*) fail "fresh scenario creation used Freeplay --create" ;;
   esac
   assert_only_atomic_final
-  [ "$(<"${state_dir}/saves/martins-server.zip")" = "fresh-save" ] || fail "atomically published save content was incorrect"
+  [ "$(<"${state_dir}/saves/friendly-factories.zip")" = "fresh-save" ] || fail "atomically published save content was incorrect"
+  [ "$(<"${state_dir}/.friendly-factories-world")" = "friendly-factories.zip" ] || fail "successful scenario publication did not write the migration marker"
+  shopt -s nullglob
+  scenario_entries=("${state_dir}/scenarios/"*)
+  shopt -u nullglob
+  [ "${#scenario_entries[@]}" -eq 0 ] || fail "successful scenario creation left temporary scenario source"
+}
+
+test_approved_legacy_migration_and_unexpected_world_guard() {
+  local status
+
+  reset_fixture approved-legacy
+  printf 'approved-unused-default\n' >"${state_dir}/saves/martins-server.zip"
+  printf '2.0.77\n' >"${state_dir}/.last-started-version"
+  run_startup 2.0.77
+  [ ! -e "${state_dir}/saves/martins-server.zip" ] || fail "approved legacy Freeplay save was not removed"
+  [ -f "${state_dir}/saves/friendly-factories.zip" ] || fail "approved legacy world was not replaced by the scenario"
+  [ "$(<"${state_dir}/.friendly-factories-world")" = "friendly-factories.zip" ] || fail "approved legacy migration marker missing"
+  [ "$(line_count "${log_file}")" -eq 2 ] || fail "approved legacy migration did not convert and load exactly once"
+
+  : >"${log_file}"
+  run_startup 2.0.77
+  [ "$(line_count "${log_file}")" -eq 1 ] || fail "post-migration restart recreated the scenario"
+  assert_log_contains "--start-server ${state_dir}/saves/friendly-factories.zip"
+
+  reset_fixture migration-create-failure
+  printf 'approved-unused-default\n' >"${state_dir}/saves/martins-server.zip"
+  printf '2.0.77\n' >"${state_dir}/.last-started-version"
+  factorio_mode="fail-partial"
+  create_status="42"
+  if run_startup 2.0.77; then status=0; else status=$?; fi
+  [ "${status}" -eq 42 ] || fail "legacy replacement create failure status was ${status}, expected 42"
+  [ ! -e "${state_dir}/saves/martins-server.zip" ] || fail "authorized legacy world remained after replacement began"
+  [ ! -e "${state_dir}/.friendly-factories-world" ] || fail "failed replacement wrote the migration marker"
+  assert_no_create_residue
+  factorio_mode="success"
+  : >"${log_file}"
+  run_startup 2.0.77
+  assert_only_atomic_final
+  [ "$(line_count "${log_file}")" -eq 2 ] || fail "restart after failed replacement did not create and load the scenario"
+
+  reset_fixture wrong-legacy-version
+  printf 'unexpected-future-world\n' >"${state_dir}/saves/martins-server.zip"
+  printf '2.0.76\n' >"${state_dir}/.last-started-version"
+  if run_startup 2.0.77; then status=0; else status=$?; fi
+  [ "${status}" -ne 0 ] || fail "legacy save with an unexpected version was silently replaced"
+  [ "$(<"${state_dir}/saves/martins-server.zip")" = "unexpected-future-world" ] || fail "unexpected legacy save was modified"
+
+  reset_fixture unexpected-save
+  printf 'future-world\n' >"${state_dir}/saves/future-world.zip"
+  if run_startup 2.0.77; then status=0; else status=$?; fi
+  [ "${status}" -ne 0 ] || fail "unexpected future save was silently accepted or replaced"
+  [ "$(<"${state_dir}/saves/future-world.zip")" = "future-world" ] || fail "unexpected future save was modified"
+
+  reset_fixture missing-marked-world
+  printf 'friendly-factories.zip\n' >"${state_dir}/.friendly-factories-world"
+  if run_startup 2.0.77; then status=0; else status=$?; fi
+  [ "${status}" -ne 0 ] || fail "missing already-migrated world was silently recreated"
 }
 
 test_existing_same_version_and_pre_upgrade_behavior() {
@@ -443,7 +517,7 @@ test_existing_same_version_and_pre_upgrade_behavior() {
   [ "$(<"${state_dir}/saves/not-a-save.tmp")" = "preserve-me" ] || fail "startup cleanup removed a non-*.tmp.zip file"
   [ "$(line_count "${log_file}")" -eq 2 ] || fail "fresh startup must create and then load one save"
   [ "$(<"${state_dir}/.last-started-version")" = "2.0.77" ] || fail "fresh startup version marker missing"
-  [ -f "${state_dir}/saves/martins-server.zip" ] || fail "default Freeplay save was not created"
+  [ -f "${state_dir}/saves/friendly-factories.zip" ] || fail "friendly factories scenario save was not created"
   IFS= read -r first_invocation <"${log_file}" || fail "fresh create invocation was not logged"
   case "${first_invocation}" in
     *"--map-gen-settings ${runtime_dir}/map-gen-settings.json"*) ;;
@@ -453,8 +527,8 @@ test_existing_same_version_and_pre_upgrade_behavior() {
     *"--map-settings ${runtime_dir}/map-settings.json"*) ;;
     *) fail "fresh create invocation missing explicit map settings" ;;
   esac
-  assert_log_contains "--create"
-  assert_log_contains "--start-server-load-latest"
+  assert_log_contains "--scenario2map"
+  assert_log_contains "--start-server ${state_dir}/saves/friendly-factories.zip"
   assert_log_contains "--use-server-whitelist"
   assert_log_contains "--server-adminlist"
   assert_log_contains "--mod-directory"
@@ -471,14 +545,14 @@ test_existing_same_version_and_pre_upgrade_behavior() {
   backup_glob=("${state_dir}"/pre-upgrade/*)
   [ ! -e "${backup_glob[0]}" ] || fail "same-version restart created an upgrade backup"
 
-  printf 'save-before-upgrade\n' >"${state_dir}/saves/martins-server.zip"
+  printf 'save-before-upgrade\n' >"${state_dir}/saves/friendly-factories.zip"
   : >"${log_file}"
   run_startup 2.0.78
   [ "$(line_count "${log_file}")" -eq 1 ] || fail "upgrade startup must not regenerate the world"
   [ "$(<"${state_dir}/.last-started-version")" = "2.0.78" ] || fail "upgrade version marker was not advanced"
   backup_dirs=("${state_dir}"/pre-upgrade/from-2.0.77-to-2.0.78-*)
   [ "${#backup_dirs[@]}" -eq 1 ] && [ -d "${backup_dirs[0]}" ] || fail "version-bound pre-upgrade backup missing"
-  [ "$(<"${backup_dirs[0]}/martins-server.zip")" = "save-before-upgrade" ] || fail "pre-upgrade save copy is incorrect"
+  [ "$(<"${backup_dirs[0]}/friendly-factories.zip")" = "save-before-upgrade" ] || fail "pre-upgrade save copy is incorrect"
   [ -f "${backup_dirs[0]}/backup-metadata.txt" ] || fail "pre-upgrade metadata missing"
 
   before_backup="${backup_dirs[0]}"
@@ -515,12 +589,16 @@ case "${1:-all}" in
   existing)
     run_case "same-version and pre-upgrade behavior" test_existing_same_version_and_pre_upgrade_behavior
     ;;
+  migration)
+    run_case "approved one-time migration and unexpected-world guard" test_approved_legacy_migration_and_unexpected_world_guard
+    ;;
   all)
     run_case "partial create failure cleanup and restart" test_partial_create_failure_and_restart
     run_case "TERM forwarding, reaping, cleanup, and restart" test_term_forwarding_reaping_and_restart
     run_case "TERM at create completion boundary is observed" test_term_at_create_completion_boundary_and_restart
     run_case "non-regular zip entries are not saves" test_nonregular_zip_entries_are_not_saves
     run_case "successful initial create is atomic" test_successful_create_is_atomic
+    run_case "approved one-time migration and unexpected-world guard" test_approved_legacy_migration_and_unexpected_world_guard
     run_case "same-version and pre-upgrade behavior" test_existing_same_version_and_pre_upgrade_behavior
     ;;
   *)

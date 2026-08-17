@@ -14,6 +14,8 @@ configMapGenerator:
   - files/map-gen-settings.json
   - files/map-settings.json
   - files/mod-list.json
+  - files/scenario-control.lua
+  - files/scenario-description.json
   - files/server-adminlist.json
   - files/server-settings.json
   - files/server-whitelist.json

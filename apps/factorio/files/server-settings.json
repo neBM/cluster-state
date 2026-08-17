@@ -1,7 +1,7 @@
 {
   "name": "Martins Server",
-  "description": "Default Freeplay",
-  "max_players": 4,
+  "description": "Friendly independent factories",
+  "max_players": 2,
   "visibility": {
     "public": false,
     "lan": true
