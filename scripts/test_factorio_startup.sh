@@ -91,7 +91,8 @@ cleanup() {
 }
 trap cleanup EXIT
 
-config_dir="${repo_root}/apps/factorio/files"
+source_config_dir="${repo_root}/apps/factorio/files"
+config_dir="${source_config_dir}"
 fake_factorio="${tmpdir}/factorio"
 
 cat >"${fake_factorio}" <<'EOF'
@@ -244,8 +245,38 @@ reset_fixture() {
   block_fifo="${scenario_dir}/create.block"
   startup_bash_env=""
   boundary_marker=""
+  config_dir="${source_config_dir}"
   mkdir -p "${state_dir}/saves" "${runtime_dir}"
   : >"${log_file}"
+}
+
+stage_configmap_projection() {
+  local fixture_name="$1"
+  local projection_dir="${tmpdir}/${fixture_name}/config"
+  local data_name="..2026_08_17_12_00_00.000000001"
+  local data_dir="${projection_dir}/${data_name}"
+  local source_name
+  local source_names=(
+    config.ini
+    map-gen-settings.json
+    map-settings.json
+    mod-list.json
+    scenario-control.lua
+    scenario-description.json
+    server-adminlist.json
+    server-settings.json
+    server-whitelist.json
+  )
+
+  mkdir -p "${data_dir}"
+  for source_name in "${source_names[@]}"; do
+    cp -- "${source_config_dir}/${source_name}" "${data_dir}/${source_name}"
+  done
+  ln -s -- "${data_name}" "${projection_dir}/..data"
+  for source_name in "${source_names[@]}"; do
+    ln -s -- "..data/${source_name}" "${projection_dir}/${source_name}"
+  done
+  config_dir="${projection_dir}"
 }
 
 run_startup() {
@@ -369,6 +400,71 @@ assert_only_atomic_final() {
   [ "${#save_entries[@]}" -eq 1 ] || fail "successful create did not leave exactly one save entry"
   [ "${save_entries[0]}" = "${state_dir}/saves/friendly-factories.zip" ] || fail "successful create left a non-final save entry"
   [ -f "${save_entries[0]}" ] && [ ! -L "${save_entries[0]}" ] || fail "final save is not a regular non-symlink file"
+}
+
+test_configmap_atomic_writer_projection_reaches_scenario_start() {
+  local config_name
+
+  reset_fixture configmap-projection
+  stage_configmap_projection configmap-projection
+
+  for config_name in \
+    config.ini \
+    map-gen-settings.json \
+    map-settings.json \
+    mod-list.json \
+    scenario-control.lua \
+    scenario-description.json \
+    server-adminlist.json \
+    server-settings.json \
+    server-whitelist.json; do
+    [ -L "${config_dir}/${config_name}" ] || fail "ConfigMap fixture key ${config_name} is not a symlink"
+  done
+
+  run_startup 2.0.77
+
+  assert_only_atomic_final
+  [ "$(line_count "${log_file}")" -eq 2 ] ||
+    fail "ConfigMap projection did not reach scenario conversion and deterministic start"
+  assert_log_contains "--scenario2map friendly-factories"
+  assert_log_contains "--start-server ${state_dir}/saves/friendly-factories.zip"
+  for config_name in \
+    config.ini \
+    map-gen-settings.json \
+    map-settings.json \
+    mod-list.json \
+    server-adminlist.json \
+    server-settings.json \
+    server-whitelist.json; do
+    cmp -s -- "${source_config_dir}/${config_name}" "${runtime_dir}/${config_name}" ||
+      fail "ConfigMap projection runtime copy differs for ${config_name}"
+  done
+}
+
+test_config_source_symlink_escape_is_rejected() {
+  local outside_source
+  local output
+  local status
+
+  reset_fixture configmap-escape
+  stage_configmap_projection configmap-escape
+  outside_source="${tmpdir}/configmap-escape/outside-scenario-control.lua"
+  cp -- "${source_config_dir}/scenario-control.lua" "${outside_source}"
+  rm -- "${config_dir}/scenario-control.lua"
+  ln -s -- "../outside-scenario-control.lua" "${config_dir}/scenario-control.lua"
+
+  if output="$(run_startup 2.0.77 2>&1)"; then
+    status=0
+  else
+    status=$?
+  fi
+
+  [ "${status}" -ne 0 ] || fail "config source symlink escaping the source root was accepted"
+  case "${output}" in
+    *"Config source escapes config source directory: ${config_dir}/scenario-control.lua"*) ;;
+    *) fail "escaping config source was not rejected by canonical containment validation: ${output}" ;;
+  esac
+  [ ! -s "${log_file}" ] || fail "Factorio ran after an escaping config source was detected"
 }
 
 test_partial_create_failure_and_restart() {
@@ -749,6 +845,12 @@ case "${1:-all}" in
   nonregular)
     run_case "non-regular zip entries are not saves" test_nonregular_zip_entries_are_not_saves
     ;;
+  configmap)
+    run_case "ConfigMap atomic-writer projection reaches scenario start" test_configmap_atomic_writer_projection_reaches_scenario_start
+    ;;
+  source-escape)
+    run_case "config source symlink escape is rejected" test_config_source_symlink_escape_is_rejected
+    ;;
   atomic)
     run_case "successful initial create is atomic" test_successful_create_is_atomic
     ;;
@@ -772,6 +874,8 @@ case "${1:-all}" in
     run_case "TERM forwarding, reaping, cleanup, and restart" test_term_forwarding_reaping_and_restart
     run_case "TERM at create completion boundary is observed" test_term_at_create_completion_boundary_and_restart
     run_case "non-regular zip entries are not saves" test_nonregular_zip_entries_are_not_saves
+    run_case "ConfigMap atomic-writer projection reaches scenario start" test_configmap_atomic_writer_projection_reaches_scenario_start
+    run_case "config source symlink escape is rejected" test_config_source_symlink_escape_is_rejected
     run_case "successful initial create is atomic" test_successful_create_is_atomic
     run_case "stable scenario identity leaves no temporary residue" test_stable_scenario_identity_has_no_temporary_residue
     run_case "approved one-time migration and unexpected-world guard" test_approved_legacy_migration_and_unexpected_world_guard
