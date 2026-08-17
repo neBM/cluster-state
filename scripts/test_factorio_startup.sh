@@ -157,16 +157,18 @@ fi
 
 if [ -n "${start_server_save}" ]; then
   [ -f "${start_server_save}" ] || exit 98
-  embedded_scenario=""
-  while IFS= read -r save_line; do
-    case "${save_line}" in
-      scenario=*) embedded_scenario="${save_line#scenario=}" ;;
-    esac
-  done <"${start_server_save}"
-  [ -n "${embedded_scenario}" ] || exit 98
-  mkdir -p "${write_data}/scenarios/${embedded_scenario}"
-  printf 'runtime-control\n' >"${write_data}/scenarios/${embedded_scenario}/control.lua"
-  printf '{}\n' >"${write_data}/scenarios/${embedded_scenario}/description.json"
+  if [ "${FACTORIO_TEST_MODE:-success}" != "accept-start" ]; then
+    embedded_scenario=""
+    while IFS= read -r save_line; do
+      case "${save_line}" in
+        scenario=*) embedded_scenario="${save_line#scenario=}" ;;
+      esac
+    done <"${start_server_save}"
+    [ -n "${embedded_scenario}" ] || exit 98
+    mkdir -p "${write_data}/scenarios/${embedded_scenario}"
+    printf 'runtime-control\n' >"${write_data}/scenarios/${embedded_scenario}/control.lua"
+    printf '{}\n' >"${write_data}/scenarios/${embedded_scenario}/description.json"
+  fi
 fi
 
 [ -n "${create_target}" ] || exit 0
@@ -265,6 +267,29 @@ run_startup() {
     FACTORIO_TEST_DEBUG_OWNER_BASHPID="" \
     FACTORIO_TEST_BOUNDARY_MARKER="${boundary_marker}" \
     "${startup_script}"
+}
+
+run_startup_with_predictable_world_marker_symlink() {
+  env \
+    VERSION="$1" \
+    FACTORIO_BIN="${fake_factorio}" \
+    FACTORIO_STATE_DIR="${state_dir}" \
+    FACTORIO_RUNTIME_DIR="${runtime_dir}" \
+    FACTORIO_CONFIG_SOURCE_DIR="${config_dir}" \
+    FACTORIO_TEST_LOG="${log_file}" \
+    FACTORIO_TEST_MODE="${factorio_mode}" \
+    FACTORIO_TEST_CREATE_STATUS="${create_status}" \
+    FACTORIO_TEST_READY_FILE="${ready_file}" \
+    FACTORIO_TEST_TERM_FILE="${term_file}" \
+    FACTORIO_TEST_PID_FILE="${pid_file}" \
+    FACTORIO_TEST_RELEASE_FILE="${release_file}" \
+    FACTORIO_TEST_BLOCK_FIFO="${block_fifo}" \
+    FACTORIO_TEST_SYMLINK_TARGET="${state_dir}/saves/friendly-factories.zip" \
+    FACTORIO_TEST_STARTUP_SCRIPT="${startup_script}" \
+    bash -c '
+      ln -s -- "${FACTORIO_TEST_SYMLINK_TARGET:?}" "${FACTORIO_STATE_DIR:?}/.friendly-factories-world.tmp-$$"
+      exec "${FACTORIO_TEST_STARTUP_SCRIPT:?}"
+    '
 }
 
 start_startup() {
@@ -658,6 +683,51 @@ test_existing_same_version_and_pre_upgrade_behavior() {
   [ "${#backup_dirs[@]}" -eq 1 ] && [ "${backup_dirs[0]}" = "${before_backup}" ] || fail "same-version restart duplicated the upgrade backup"
 }
 
+test_predictable_world_marker_temp_symlink_is_rejected() {
+  local original_save
+  local save_after
+  local status
+
+  reset_fixture world-marker-symlink
+  printf 'original-save\nscenario=friendly-factories\n' >"${state_dir}/saves/friendly-factories.zip"
+  printf '2.0.77\n' >"${state_dir}/.last-started-version"
+  original_save="$(<"${state_dir}/saves/friendly-factories.zip")"
+  factorio_mode="accept-start"
+
+  if run_startup_with_predictable_world_marker_symlink 2.0.77; then
+    status=0
+  else
+    status=$?
+  fi
+  save_after="$(<"${state_dir}/saves/friendly-factories.zip")"
+
+  [ "${status}" -ne 0 ] && [ "${save_after}" = "${original_save}" ] ||
+    fail "predictable world-marker temp symlink was followed: wrapper status=${status}; save before=${original_save@Q}; save after=${save_after@Q}"
+}
+
+test_predictable_version_marker_temp_symlink_is_rejected() {
+  local original_save
+  local save_after
+  local status
+
+  reset_fixture version-marker-symlink
+  printf 'original-save\nscenario=friendly-factories\n' >"${state_dir}/saves/friendly-factories.zip"
+  printf 'friendly-factories.zip\n' >"${state_dir}/.friendly-factories-world"
+  ln -s -- "${state_dir}/saves/friendly-factories.zip" "${state_dir}/.last-started-version.tmp"
+  original_save="$(<"${state_dir}/saves/friendly-factories.zip")"
+  factorio_mode="accept-start"
+
+  if run_startup 2.0.77; then
+    status=0
+  else
+    status=$?
+  fi
+  save_after="$(<"${state_dir}/saves/friendly-factories.zip")"
+
+  [ "${status}" -ne 0 ] && [ "${save_after}" = "${original_save}" ] ||
+    fail "predictable version-marker temp symlink was followed: wrapper status=${status}; save before=${original_save@Q}; save after=${save_after@Q}"
+}
+
 run_case() {
   local name="$1"
   local test_function="$2"
@@ -688,6 +758,12 @@ case "${1:-all}" in
   existing)
     run_case "same-version and pre-upgrade behavior" test_existing_same_version_and_pre_upgrade_behavior
     ;;
+  world-marker-symlink)
+    run_case "predictable world-marker temp symlink is rejected" test_predictable_world_marker_temp_symlink_is_rejected
+    ;;
+  version-marker-symlink)
+    run_case "predictable version-marker temp symlink is rejected" test_predictable_version_marker_temp_symlink_is_rejected
+    ;;
   migration)
     run_case "approved one-time migration and unexpected-world guard" test_approved_legacy_migration_and_unexpected_world_guard
     ;;
@@ -700,6 +776,8 @@ case "${1:-all}" in
     run_case "stable scenario identity leaves no temporary residue" test_stable_scenario_identity_has_no_temporary_residue
     run_case "approved one-time migration and unexpected-world guard" test_approved_legacy_migration_and_unexpected_world_guard
     run_case "same-version and pre-upgrade behavior" test_existing_same_version_and_pre_upgrade_behavior
+    run_case "predictable world-marker temp symlink is rejected" test_predictable_world_marker_temp_symlink_is_rejected
+    run_case "predictable version-marker temp symlink is rejected" test_predictable_version_marker_temp_symlink_is_rejected
     ;;
   *)
     fail "unknown startup test case: $1"

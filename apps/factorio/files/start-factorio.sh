@@ -44,7 +44,11 @@ shopt -s nullglob
 stale_temp_save_candidates=("${SAVES_DIR}"/*.tmp.zip)
 stale_creation_root_candidates=("${STATE_DIR}/${CREATION_ROOT_PREFIX}"*)
 stale_world_marker_candidates=("${WORLD_MARKER}.tmp-"*)
+stale_version_marker_candidates=("${VERSION_MARKER}.tmp-"*)
 shopt -u nullglob
+if [[ -e "${VERSION_MARKER}.tmp" ]] || [[ -L "${VERSION_MARKER}.tmp" ]]; then
+  stale_version_marker_candidates+=("${VERSION_MARKER}.tmp")
+fi
 for stale_temp_save_candidate in "${stale_temp_save_candidates[@]}"; do
   if [[ -f "${stale_temp_save_candidate}" ]] && [[ ! -L "${stale_temp_save_candidate}" ]]; then
     rm -- "${stale_temp_save_candidate}"
@@ -58,9 +62,18 @@ for stale_creation_root_candidate in "${stale_creation_root_candidates[@]}"; do
   rm -rf -- "${stale_creation_root_candidate}"
 done
 for stale_world_marker_candidate in "${stale_world_marker_candidates[@]}"; do
-  if [[ -f "${stale_world_marker_candidate}" ]] && [[ ! -L "${stale_world_marker_candidate}" ]]; then
-    rm -- "${stale_world_marker_candidate}"
+  if [[ ! -f "${stale_world_marker_candidate}" ]] || [[ -L "${stale_world_marker_candidate}" ]]; then
+    printf 'Refusing malformed stale world marker temporary: %s\n' "${stale_world_marker_candidate}" >&2
+    exit 1
   fi
+  rm -- "${stale_world_marker_candidate}"
+done
+for stale_version_marker_candidate in "${stale_version_marker_candidates[@]}"; do
+  if [[ ! -f "${stale_version_marker_candidate}" ]] || [[ -L "${stale_version_marker_candidate}" ]]; then
+    printf 'Refusing malformed stale version marker temporary: %s\n' "${stale_version_marker_candidate}" >&2
+    exit 1
+  fi
+  rm -- "${stale_version_marker_candidate}"
 done
 
 shopt -s nullglob
@@ -325,19 +338,82 @@ if [[ ! -f "${FINAL_SAVE}" ]] || [[ -L "${FINAL_SAVE}" ]]; then
 fi
 
 if ! ${world_marker_present}; then
-  world_marker_temp="${WORLD_MARKER}.tmp-$$"
-  printf '%s\n' "${FINAL_SAVE_NAME}" >"${world_marker_temp}"
-  if [[ -e "${WORLD_MARKER}" ]] || [[ -L "${WORLD_MARKER}" ]]; then
-    rm -f -- "${world_marker_temp}"
-    printf 'Cannot publish friendly factories world marker: target already exists\n' >&2
+  world_marker_temp=""
+  cleanup_world_marker_temp() {
+    if [[ -n "${world_marker_temp}" ]]; then
+      rm -f -- "${world_marker_temp}" 2>/dev/null || true
+    fi
+  }
+  trap cleanup_world_marker_temp EXIT
+
+  world_marker_temp="$(umask 077 && mktemp "${WORLD_MARKER}.tmp-XXXXXXXX")"
+  if [[ ! -f "${world_marker_temp}" ]] || [[ -L "${world_marker_temp}" ]]; then
+    printf 'Cannot publish friendly factories world marker: temporary is not a regular file\n' >&2
     exit 1
   fi
-  mv -T -- "${world_marker_temp}" "${WORLD_MARKER}"
+  if ! printf '%s\n' "${FINAL_SAVE_NAME}" >"${world_marker_temp}"; then
+    printf 'Cannot write friendly factories world marker temporary\n' >&2
+    exit 1
+  fi
+  if [[ ! -f "${world_marker_temp}" ]] || [[ -L "${world_marker_temp}" ]] \
+    || [[ "$(<"${world_marker_temp}")" != "${FINAL_SAVE_NAME}" ]] \
+    || [[ "$(wc -c <"${world_marker_temp}")" -ne "$(printf '%s\n' "${FINAL_SAVE_NAME}" | wc -c)" ]]; then
+    printf 'Cannot publish friendly factories world marker: temporary content is invalid\n' >&2
+    exit 1
+  fi
+  if mv -T -n -- "${world_marker_temp}" "${WORLD_MARKER}"; then
+    :
+  else
+    move_status=$?
+    exit "${move_status}"
+  fi
+  if [[ -e "${world_marker_temp}" ]] || [[ -L "${world_marker_temp}" ]]; then
+    printf 'Cannot publish friendly factories world marker without overwriting the final target\n' >&2
+    exit 1
+  fi
+  world_marker_temp=""
+  if [[ ! -f "${WORLD_MARKER}" ]] || [[ -L "${WORLD_MARKER}" ]] \
+    || [[ "$(<"${WORLD_MARKER}")" != "${FINAL_SAVE_NAME}" ]] \
+    || [[ "$(wc -c <"${WORLD_MARKER}")" -ne "$(printf '%s\n' "${FINAL_SAVE_NAME}" | wc -c)" ]]; then
+    printf 'Cannot publish friendly factories world marker: final content is invalid\n' >&2
+    exit 1
+  fi
+  trap - EXIT
 fi
 
 if [[ "${last_started_version}" != "${CURRENT_VERSION}" ]]; then
-  printf '%s\n' "${CURRENT_VERSION}" >"${VERSION_MARKER}.tmp"
-  mv -- "${VERSION_MARKER}.tmp" "${VERSION_MARKER}"
+  version_marker_temp=""
+  cleanup_version_marker_temp() {
+    if [[ -n "${version_marker_temp}" ]]; then
+      rm -f -- "${version_marker_temp}" 2>/dev/null || true
+    fi
+  }
+  trap cleanup_version_marker_temp EXIT
+
+  version_marker_temp="$(umask 077 && mktemp "${VERSION_MARKER}.tmp-XXXXXXXX")"
+  if [[ ! -f "${version_marker_temp}" ]] || [[ -L "${version_marker_temp}" ]]; then
+    printf 'Cannot publish Factorio version marker: temporary is not a regular file\n' >&2
+    exit 1
+  fi
+  if ! printf '%s\n' "${CURRENT_VERSION}" >"${version_marker_temp}"; then
+    printf 'Cannot write Factorio version marker temporary\n' >&2
+    exit 1
+  fi
+  if [[ ! -f "${version_marker_temp}" ]] || [[ -L "${version_marker_temp}" ]] \
+    || [[ "$(<"${version_marker_temp}")" != "${CURRENT_VERSION}" ]] \
+    || [[ "$(wc -c <"${version_marker_temp}")" -ne "$(printf '%s\n' "${CURRENT_VERSION}" | wc -c)" ]]; then
+    printf 'Cannot publish Factorio version marker: temporary content is invalid\n' >&2
+    exit 1
+  fi
+  mv -T -- "${version_marker_temp}" "${VERSION_MARKER}"
+  version_marker_temp=""
+  if [[ ! -f "${VERSION_MARKER}" ]] || [[ -L "${VERSION_MARKER}" ]] \
+    || [[ "$(<"${VERSION_MARKER}")" != "${CURRENT_VERSION}" ]] \
+    || [[ "$(wc -c <"${VERSION_MARKER}")" -ne "$(printf '%s\n' "${CURRENT_VERSION}" | wc -c)" ]]; then
+    printf 'Cannot publish Factorio version marker: final content is invalid\n' >&2
+    exit 1
+  fi
+  trap - EXIT
 fi
 
 exec "${FACTORIO_BIN}" \
