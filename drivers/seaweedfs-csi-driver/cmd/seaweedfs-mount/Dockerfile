@@ -2,7 +2,7 @@
 # the current vidMap stale-relookup fix without depending on a remote clone.
 ARG SEAWEEDFS_COMMIT=local
 
-FROM golang:1.26-alpine AS builder
+FROM golang:1.27-alpine AS builder
 
 RUN apk add g++
 
