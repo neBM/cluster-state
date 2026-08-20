@@ -261,6 +261,8 @@ package:feedback-migrations:
       - scripts/test_factorio_startup.sh
       - scripts/test_hestia_firewalld_setup.sh
       - scripts/test_restic_backup.sh
+      - scripts/test_iris_media_dirs.py
+      - scripts/test_iris_media_dirs.py.lock
       - scripts/test_matrix_synapse_config.py
       - scripts/test_matrix_synapse_config.py.lock
       - scripts/test_validate_factorio_manifest.py
@@ -288,6 +290,8 @@ package:feedback-migrations:
       - scripts/test_factorio_startup.sh
       - scripts/test_hestia_firewalld_setup.sh
       - scripts/test_restic_backup.sh
+      - scripts/test_iris_media_dirs.py
+      - scripts/test_iris_media_dirs.py.lock
       - scripts/test_matrix_synapse_config.py
       - scripts/test_matrix_synapse_config.py.lock
       - scripts/test_validate_factorio_manifest.py
