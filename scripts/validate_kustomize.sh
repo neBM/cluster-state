@@ -126,3 +126,4 @@ uv --no-config run --locked --script "${repo_root}/scripts/validate_hestia_ci_st
 uv --no-config run --locked --script "${repo_root}/scripts/test_validate_hestia_ci_store_gc_alert.py"
 "${repo_root}/scripts/test_factorio_startup.sh"
 "${repo_root}/scripts/test_hestia_firewalld_setup.sh"
+uv --no-config run --locked --script "${repo_root}/scripts/test_iris_media_dirs.py"

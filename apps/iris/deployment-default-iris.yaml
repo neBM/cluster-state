@@ -53,7 +53,7 @@ spec:
         - name: OIDC_PROVIDER_NAME
           value: SSO
         - name: MEDIA_DIRS
-          value: Movies:/media/movies,TV:/media/tv
+          value: Movies:/media/downloads/media/Movies,TV:/media/downloads/media/TV
         - name: IMAGE_CACHE_DIR
           value: /data/iris/images
         - name: HLS_TMP_BASE_DIR
