@@ -49,8 +49,15 @@ def parse_gitlab_version(version: str) -> tuple[int, int, int]:
 
 
 def validate_gitlab_version_drift(app_version: str, migration_version: str) -> None:
-    app_release = parse_gitlab_version(app_version)[:2]
-    migration_release = parse_gitlab_version(migration_version)[:2]
+    app = parse_gitlab_version(app_version)
+    migration = parse_gitlab_version(migration_version)
+    if migration < app:
+        raise ValueError(
+            f"migrationVersion {migration_version!r} is behind appVersion {app_version!r}"
+        )
+
+    app_release = app[:2]
+    migration_release = migration[:2]
     one_minor_ahead = (
         migration_release == (app_release[0], app_release[1] + 1)
         or (
@@ -61,13 +68,9 @@ def validate_gitlab_version_drift(app_version: str, migration_version: str) -> N
 
     if migration_release == app_release or one_minor_ahead:
         return
-    if migration_release > app_release:
-        raise ValueError(
-            f"migrationVersion {migration_version!r} is more than one minor release ahead "
-            f"of appVersion {app_version!r}"
-        )
     raise ValueError(
-        f"migrationVersion {migration_version!r} is behind appVersion {app_version!r}"
+        f"migrationVersion {migration_version!r} is more than one minor release ahead "
+        f"of appVersion {app_version!r}"
     )
 
 

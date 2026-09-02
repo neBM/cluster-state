@@ -34,6 +34,10 @@ class GitLabVersionInvariantTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "more than one minor release ahead"):
             validate_gitlab_version_drift("v19.1.0", "v19.3.0")
 
+    def test_rejects_migration_patch_behind_application(self) -> None:
+        with self.assertRaisesRegex(ValueError, "behind appVersion"):
+            validate_gitlab_version_drift("v19.3.1", "v19.3.0")
+
     def test_allows_equal_or_one_minor_ahead(self) -> None:
         for app_version, migration_version in (
             ("v19.3.0", "v19.3.0"),
