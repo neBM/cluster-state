@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
@@ -138,6 +139,23 @@ def assert_rejected_before_target_mutation(
         fail(f"{description} was accepted")
     if not sentinel.is_file() or sentinel.read_text() != "target-must-remain-unchanged":
         fail(f"{description} mutated target state before rejection")
+
+
+def sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def staged_database_record(path: Path) -> dict[str, object]:
+    return {
+        "state": "present",
+        "type": "regular_file",
+        "size": path.stat().st_size,
+        "sha256": sha256_file(path),
+    }
 
 
 def render(relative: str) -> str:
@@ -309,6 +327,15 @@ def validate_migration_script() -> None:
     ):
         fail("SQLite staging hostPath must remain one read-only mount")
     require(script, "activeDeadlineSeconds:", "bounded migration pod")
+    for name in (
+        "KUBECTL_REQUEST_TIMEOUT",
+        "KUBECTL_OUTER_TIMEOUT",
+        "KUBECTL_WAIT_OUTER_TIMEOUT",
+        "KUBECTL_DELETE_OUTER_TIMEOUT",
+        "KUBECTL_DELETE_VERIFY_OUTER_TIMEOUT",
+    ):
+        if not re.search(rf'^{name}="[1-9][0-9]*s"$', script, re.MULTILINE):
+            fail(f"{name} must be a fixed positive production bound")
     require(script, "trap cleanup_migration_resources", "migration resource cleanup")
     cleanup = function_body(script, "cleanup_migration_resources")
     require(cleanup, "cleanup_migration_pod", "combined pod cleanup")
@@ -355,16 +382,33 @@ def validate_cleanup_failure_is_aggregated() -> None:
         harness = f"""set -uo pipefail
 NAMESPACE=default
 MIGRATION_POD=migration-pod
+MIGRATION_POD_UID=11111111-2222-3333-4444-555555555555
+MIGRATION_OPERATION_ID=0123456789abcdef0123456789abcdef
 SQLITE_STAGING_ROOT="$TEST_ROOT"
 SQLITE_STAGING_DIR="$TEST_STAGING"
+KUBECTL_REQUEST_TIMEOUT=15s
+KUBECTL_OUTER_TIMEOUT=25s
+KUBECTL_DELETE_VERIFY_OUTER_TIMEOUT=40s
 : >"$CALL_LOG"
+timeout() {{
+  if [ "${{1:-}}" = --foreground ]; then shift; fi
+  shift
+  "$@"
+}}
 kubectl() {{
   printf '%s\\n' "$*" >>"$CALL_LOG"
   case " $* " in
     *" delete pod migration-pod "*) return 1 ;;
-    *" get pod migration-pod "*) printf '%s\\n' pod/migration-pod; return 0 ;;
+    *" get pod migration-pod "*)
+      printf '%s|%s\\n' "$MIGRATION_POD_UID" "$MIGRATION_OPERATION_ID"
+      return 0
+      ;;
     *) return 64 ;;
   esac
+}}
+delete_migration_pod_uid_precondition() {{
+  printf 'uid-delete %s\\n' "$*" >>"$CALL_LOG"
+  return 1
 }}
 {functions}
 cleanup_migration_resources
@@ -384,7 +428,7 @@ if [ -e "$TEST_STAGING" ]; then
 fi
 calls="$(<"$CALL_LOG")"
 case "$calls" in
-  *"delete pod migration-pod"*) ;;
+  *"uid-delete migration-pod 11111111-2222-3333-4444-555555555555"*) ;;
   *) printf '%s\\n' 'cleanup did not attempt migration Pod deletion' >&2; failed=1 ;;
 esac
 case "$calls" in
@@ -427,16 +471,36 @@ def validate_cleanup_success_control() -> None:
         harness = f"""set -uo pipefail
 NAMESPACE=default
 MIGRATION_POD=migration-pod
+MIGRATION_POD_UID=11111111-2222-3333-4444-555555555555
+MIGRATION_OPERATION_ID=0123456789abcdef0123456789abcdef
 SQLITE_STAGING_ROOT="$TEST_ROOT"
 SQLITE_STAGING_DIR="$TEST_STAGING"
+KUBECTL_REQUEST_TIMEOUT=15s
+KUBECTL_OUTER_TIMEOUT=25s
+KUBECTL_DELETE_VERIFY_OUTER_TIMEOUT=40s
+POD_PRESENT=1
 : >"$CALL_LOG"
+timeout() {{
+  if [ "${{1:-}}" = --foreground ]; then shift; fi
+  shift
+  "$@"
+}}
 kubectl() {{
   printf '%s\\n' "$*" >>"$CALL_LOG"
   case " $* " in
-    *" delete pod migration-pod "*) return 0 ;;
-    *" get pod migration-pod "*) return 0 ;;
+    *" delete pod migration-pod "*) POD_PRESENT=0; return 0 ;;
+    *" get pod migration-pod "*)
+      if [ "$POD_PRESENT" -eq 1 ]; then
+        printf '%s|%s\\n' "$MIGRATION_POD_UID" "$MIGRATION_OPERATION_ID"
+      fi
+      return 0
+      ;;
     *) return 64 ;;
   esac
+}}
+delete_migration_pod_uid_precondition() {{
+  printf 'uid-delete %s\\n' "$*" >>"$CALL_LOG"
+  POD_PRESENT=0
 }}
 {functions}
 cleanup_migration_resources
@@ -456,7 +520,7 @@ if [ -e "$TEST_STAGING" ]; then
 fi
 calls="$(<"$CALL_LOG")"
 case "$calls" in
-  *"delete pod migration-pod"*) ;;
+  *"uid-delete migration-pod 11111111-2222-3333-4444-555555555555"*) ;;
   *) printf '%s\\n' 'cleanup did not attempt migration Pod deletion' >&2; failed=1 ;;
 esac
 case "$calls" in
@@ -479,6 +543,315 @@ exit "$failed"
         )
         if result.returncode:
             fail(f"migration cleanup success control failed:\n{result.stderr}")
+
+
+def validate_ambiguous_admitted_create_is_operation_uid_cleaned() -> None:
+    script = MIGRATION.read_text()
+    functions = "".join(
+        shell_function(script, name)
+        for name in (
+            "die",
+            "create_migration_pod",
+            "cleanup_migration_pod",
+            "cleanup_sqlite_staging",
+            "cleanup_migration_resources",
+            "arm_cleanup_traps",
+        )
+    )
+    operation = "0123456789abcdef0123456789abcdef"
+    expected_pod = f"hermes-agent-migration-{operation}"
+    expected_uid = "11111111-2222-3333-4444-555555555555"
+    with tempfile.TemporaryDirectory(prefix="hermes-ambiguous-create-") as temporary:
+        root = Path(temporary)
+        call_log = root / "calls"
+        pod_manifest = root / "pod.yaml"
+        pod_state = root / "pod.state"
+        pod_state.write_text("present")
+        harness = f"""set -euo pipefail
+NAMESPACE=default
+PVC_NAME=hermes-agent-state
+SOURCE_HOME=/home/ben/.hermes
+IMAGE=test.invalid/hermes@sha256:{"0" * 64}
+MIGRATION_POD=""
+MIGRATION_POD_UID=""
+MIGRATION_OPERATION_ID=""
+SQLITE_STAGING_ROOT="$TEST_ROOT"
+SQLITE_STAGING_DIR=""
+KUBECTL_REQUEST_TIMEOUT=15s
+KUBECTL_OUTER_TIMEOUT=25s
+KUBECTL_DELETE_VERIFY_OUTER_TIMEOUT=40s
+: >"$CALL_LOG"
+python3() {{ printf '%s\\n' "$EXPECTED_OPERATION"; }}
+new_migration_operation_id() {{ printf '%s\\n' "$EXPECTED_OPERATION"; }}
+timeout() {{
+  printf 'timeout %s\\n' "$*" >>"$CALL_LOG"
+  if [ "${{1:-}}" = --foreground ]; then shift; fi
+  shift
+  "$@"
+}}
+kubectl() {{
+  printf 'kubectl %s\\n' "$*" >>"$CALL_LOG"
+  case " $* " in
+    *" create -f - "*)
+      command cat >"$POD_MANIFEST"
+      return 1
+      ;;
+    *" get pod $EXPECTED_POD "*)
+      if [ "$(<"$POD_STATE")" = present ]; then
+        printf '%s|%s\\n' "$EXPECTED_UID" "$EXPECTED_OPERATION"
+      fi
+      return 0
+      ;;
+    *" delete pod $EXPECTED_POD "*)
+      printf '%s' absent >"$POD_STATE"
+      return 0
+      ;;
+    *) return 64 ;;
+  esac
+}}
+delete_migration_pod_uid_precondition() {{
+  printf 'uid-delete %s\\n' "$*" >>"$CALL_LOG"
+  [ "$1" = "$EXPECTED_POD" ]
+  [ "$2" = "$EXPECTED_UID" ]
+  printf '%s' absent >"$POD_STATE"
+}}
+delete_migration_pod_with_uid_precondition() {{
+  delete_migration_pod_uid_precondition "$@"
+}}
+{functions}
+arm_cleanup_traps
+create_migration_pod
+printf '%s\\n' 'ambiguous create unexpectedly returned' >&2
+exit 99
+"""
+        result = subprocess.run(
+            ["bash", "-c", harness],
+            text=True,
+            capture_output=True,
+            check=False,
+            env={
+                **os.environ,
+                "TEST_ROOT": str(root),
+                "CALL_LOG": str(call_log),
+                "POD_MANIFEST": str(pod_manifest),
+                "POD_STATE": str(pod_state),
+                "EXPECTED_OPERATION": operation,
+                "EXPECTED_POD": expected_pod,
+                "EXPECTED_UID": expected_uid,
+            },
+        )
+        if result.returncode == 0:
+            fail("ambiguous admitted migration Pod create unexpectedly succeeded")
+        if not pod_manifest.is_file():
+            fail("ambiguous create harness did not receive the Pod manifest")
+        manifest = pod_manifest.read_text()
+        require(manifest, f"name: {expected_pod}", "preassigned migration Pod name")
+        require(
+            manifest,
+            f"hermes-agent-migration-operation: {operation}",
+            "migration operation ownership label",
+        )
+        if "generateName:" in manifest:
+            fail("migration Pod still relies on server-generated ownership identity")
+        calls = call_log.read_text()
+        require(calls, f"get pod {expected_pod}", "ambiguous create reconciliation GET")
+        require(
+            calls,
+            f"uid-delete {expected_pod} {expected_uid}",
+            "UID-preconditioned cleanup",
+        )
+        if calls.count(f"get pod {expected_pod}") < 2:
+            fail("cleanup did not verify migration Pod absence after UID deletion")
+        if pod_state.read_text() != "absent":
+            fail("ambiguous admitted migration Pod survived cleanup")
+
+
+def validate_cleanup_get_is_bounded() -> None:
+    script = MIGRATION.read_text()
+    cleanup = shell_function(script, "cleanup_migration_pod")
+    with tempfile.TemporaryDirectory(prefix="hermes-bounded-cleanup-get-") as temporary:
+        call_log = Path(temporary) / "calls"
+        harness = f"""set -euo pipefail
+NAMESPACE=default
+MIGRATION_POD=migration-pod
+MIGRATION_POD_UID=11111111-2222-3333-4444-555555555555
+MIGRATION_OPERATION_ID=0123456789abcdef0123456789abcdef
+KUBECTL_REQUEST_TIMEOUT=15s
+KUBECTL_OUTER_TIMEOUT=25s
+KUBECTL_DELETE_VERIFY_OUTER_TIMEOUT=40s
+: >"$CALL_LOG"
+timeout() {{
+  printf 'timeout %s\\n' "$*" >>"$CALL_LOG"
+  if [ "${{1:-}}" = --foreground ]; then shift; fi
+  shift
+  "$@"
+}}
+kubectl() {{
+  printf 'kubectl %s\\n' "$*" >>"$CALL_LOG"
+  return 0
+}}
+delete_migration_pod_uid_precondition() {{ return 64; }}
+delete_migration_pod_with_uid_precondition() {{ return 64; }}
+{cleanup}
+cleanup_migration_pod
+"""
+        result = subprocess.run(
+            ["bash", "-c", harness],
+            text=True,
+            capture_output=True,
+            check=False,
+            env={**os.environ, "CALL_LOG": str(call_log)},
+        )
+        if result.returncode:
+            fail(f"bounded cleanup GET control failed:\n{result.stderr}")
+        calls = call_log.read_text()
+        if not re.search(
+            r"timeout --foreground [1-9][0-9]*s kubectl "
+            r"--request-timeout=[1-9][0-9]*s .*get pod migration-pod",
+            calls,
+        ):
+            fail(f"cleanup authoritative GET lacks fixed inner/outer bounds:\n{calls}")
+
+
+def validate_uid_precondition_delete_raw_fallback() -> None:
+    script = MIGRATION.read_text()
+    delete_with_uid = shell_function(script, "delete_migration_pod_uid_precondition")
+    operation = "0123456789abcdef0123456789abcdef"
+    pod = f"hermes-agent-migration-{operation}"
+    uid = "11111111-2222-3333-4444-555555555555"
+    with tempfile.TemporaryDirectory(prefix="hermes-uid-delete-") as temporary:
+        root = Path(temporary)
+        call_log = root / "calls"
+        request_body = root / "delete-options.json"
+        harness = f"""set -euo pipefail
+NAMESPACE=default
+KUBECTL_REQUEST_TIMEOUT=15s
+KUBECTL_OUTER_TIMEOUT=25s
+KUBECTL_DELETE_OUTER_TIMEOUT=25s
+: >"$CALL_LOG"
+timeout() {{
+  printf 'timeout %s\\n' "$*" >>"$CALL_LOG"
+  if [ "${{1:-}}" = --foreground ]; then shift; fi
+  shift
+  "$@"
+}}
+kubectl() {{
+  printf 'kubectl %s\\n' "$*" >>"$CALL_LOG"
+  case " $* " in
+    *" delete --help "*)
+      printf '%s\\n' 'Delete resources by file or raw API path.'
+      return 0
+      ;;
+    *" delete --raw=/api/v1/namespaces/default/pods/$EXPECTED_POD -f - "*)
+      command cat >"$REQUEST_BODY"
+      return 0
+      ;;
+    *) return 64 ;;
+  esac
+}}
+{delete_with_uid}
+delete_migration_pod_uid_precondition "$EXPECTED_POD" "$EXPECTED_UID"
+"""
+        result = subprocess.run(
+            ["bash", "-c", harness],
+            text=True,
+            capture_output=True,
+            check=False,
+            env={
+                **os.environ,
+                "CALL_LOG": str(call_log),
+                "REQUEST_BODY": str(request_body),
+                "EXPECTED_POD": pod,
+                "EXPECTED_UID": uid,
+            },
+        )
+        if result.returncode:
+            fail(f"raw UID-precondition delete fallback failed:\n{result.stderr}")
+        if not request_body.is_file():
+            fail("raw UID-precondition delete did not send DeleteOptions")
+        delete_options = json.loads(request_body.read_text())
+        if delete_options != {
+            "apiVersion": "v1",
+            "kind": "DeleteOptions",
+            "gracePeriodSeconds": 0,
+            "preconditions": {"uid": uid},
+            "propagationPolicy": "Foreground",
+        }:
+            fail(f"raw delete lacks the exact UID precondition: {delete_options!r}")
+        calls = call_log.read_text()
+        if not re.search(
+            r"timeout --foreground [1-9][0-9]*s kubectl "
+            r"--request-timeout=[1-9][0-9]*s delete --raw=.* -f -",
+            calls,
+        ):
+            fail(f"raw UID-precondition delete lacks fixed bounds:\n{calls}")
+
+
+def validate_staging_cleanup_failure_retains_handle() -> None:
+    script = MIGRATION.read_text()
+    cleanup = shell_function(script, "cleanup_sqlite_staging")
+    with tempfile.TemporaryDirectory(
+        prefix="hermes-staging-cleanup-failure-"
+    ) as temporary:
+        root = Path(temporary)
+        staging = root / "hermes-agent-sqlite.cleanup-failure"
+        staging.mkdir()
+        harness = f"""set -uo pipefail
+SQLITE_STAGING_ROOT="$TEST_ROOT"
+SQLITE_STAGING_DIR="$TEST_STAGING"
+rm() {{ return 1; }}
+{cleanup}
+cleanup_sqlite_staging
+cleanup_status=$?
+[ "$cleanup_status" -ne 0 ]
+[ "$SQLITE_STAGING_DIR" = "$TEST_STAGING" ]
+[ -d "$TEST_STAGING" ]
+"""
+        result = subprocess.run(
+            ["bash", "-c", harness],
+            text=True,
+            capture_output=True,
+            check=False,
+            env={
+                **os.environ,
+                "TEST_ROOT": str(root),
+                "TEST_STAGING": str(staging),
+            },
+        )
+        if result.returncode:
+            fail(f"staging cleanup failure lost its retained handle:\n{result.stderr}")
+
+
+def validate_set_e_exit_trap_retries_failed_aggregate_cleanup() -> None:
+    script = MIGRATION.read_text()
+    functions = "".join(
+        shell_function(script, name)
+        for name in ("cleanup_migration_resources", "arm_cleanup_traps")
+    )
+    with tempfile.TemporaryDirectory(prefix="hermes-cleanup-exit-trap-") as temporary:
+        call_log = Path(temporary) / "calls"
+        harness = f"""set -euo pipefail
+: >"$CALL_LOG"
+cleanup_migration_pod() {{ printf '%s\\n' pod >>"$CALL_LOG"; return 0; }}
+cleanup_sqlite_staging() {{ printf '%s\\n' staging >>"$CALL_LOG"; return 1; }}
+{functions}
+arm_cleanup_traps
+cleanup_migration_resources
+trap - EXIT INT TERM
+exit 0
+"""
+        result = subprocess.run(
+            ["bash", "-c", harness],
+            text=True,
+            capture_output=True,
+            check=False,
+            env={**os.environ, "CALL_LOG": str(call_log)},
+        )
+        if result.returncode == 0:
+            fail("set -e accepted failed aggregate cleanup and disarmed the EXIT trap")
+        calls = call_log.read_text().splitlines()
+        if calls.count("pod") != 2 or calls.count("staging") != 2:
+            fail(f"EXIT trap did not retry every aggregate cleanup member: {calls!r}")
 
 
 def validate_staging_manifest_contract() -> None:
@@ -504,10 +877,14 @@ def validate_staging_manifest_contract() -> None:
         if secret_marker in manifest_text:
             fail("SQLite staging manifest leaked database contents")
         manifest = json.loads(manifest_text)
-        absent_database = {"state": "absent", "type": None}
-        present_database = {"state": "present", "type": "regular_file"}
+        absent_database = {
+            "state": "absent",
+            "type": None,
+            "size": None,
+            "sha256": None,
+        }
         expected_databases = {name: absent_database for name in DATABASES}
-        expected_databases["state.db"] = present_database
+        expected_databases["state.db"] = staged_database_record(staging / "state.db")
         expected_profiles = {
             profile: {
                 "state": "absent",
@@ -522,7 +899,7 @@ def validate_staging_manifest_contract() -> None:
             "databases": {name: absent_database for name in DATABASES},
         }
         expected_profiles["implementer"]["databases"]["projects.db"] = (
-            present_database
+            staged_database_record(staging / "profiles" / "implementer" / "projects.db")
         )
         expected = {
             "version": 1,
@@ -531,6 +908,214 @@ def validate_staging_manifest_contract() -> None:
         }
         if manifest != expected or type(manifest.get("version")) is not int:
             fail(f"SQLite staging manifest is not exact: {manifest!r}")
+
+
+def validate_staged_database_substitution_rejected_before_target_mutation() -> None:
+    with tempfile.TemporaryDirectory(prefix="hermes-staged-substitution-") as temporary:
+        root = Path(temporary)
+        source = root / "source"
+        staging = root / "staging"
+        target = root / "target"
+        create_database(source / "state.db", "original-a")
+        staging.mkdir(mode=0o700)
+        sentinel = seed_target_sentinel(target)
+        staged = run_stage(source, staging)
+        if staged.returncode:
+            fail(f"host SQLite staging failed:\n{staged.stderr}")
+
+        replacement = root / "replacement.db"
+        create_database(replacement, "tampered-b")
+        if replacement.stat().st_size != (staging / "state.db").stat().st_size:
+            fail("staged substitution fixture must preserve size to exercise SHA-256 binding")
+        os.replace(replacement, staging / "state.db")
+        synced = run_sync(source, staging, target)
+        assert_rejected_before_target_mutation(
+            synced, sentinel, "valid staged database content substitution"
+        )
+
+
+def validate_host_stage_rejects_dangling_profiles_parent_symlink() -> None:
+    with tempfile.TemporaryDirectory(
+        prefix="hermes-dangling-profiles-stage-"
+    ) as temporary:
+        root = Path(temporary)
+        source = root / "source"
+        staging = root / "staging"
+        source.mkdir()
+        (source / "profiles").symlink_to(
+            source / "missing-profiles", target_is_directory=True
+        )
+        staging.mkdir(mode=0o700)
+        result = run_stage(source, staging)
+        if result.returncode == 0:
+            fail("host staging accepted a dangling SOURCE/profiles parent symlink")
+
+
+def validate_host_stage_rejects_external_profiles_parent_symlink() -> None:
+    with tempfile.TemporaryDirectory(
+        prefix="hermes-external-profiles-stage-"
+    ) as temporary:
+        root = Path(temporary)
+        source = root / "source"
+        external = root / "external-profiles"
+        staging = root / "staging"
+        source.mkdir()
+        create_database(external / "implementer" / "projects.db", "external")
+        (source / "profiles").symlink_to(external, target_is_directory=True)
+        staging.mkdir(mode=0o700)
+        result = run_stage(source, staging)
+        if result.returncode == 0:
+            fail("host staging followed an external SOURCE/profiles parent symlink")
+
+
+def validate_pod_preflight_rejects_dangling_profiles_parent_symlink() -> None:
+    with tempfile.TemporaryDirectory(
+        prefix="hermes-dangling-profiles-sync-"
+    ) as temporary:
+        root = Path(temporary)
+        source = root / "source"
+        staging = root / "staging"
+        target = root / "target"
+        source.mkdir()
+        staging.mkdir(mode=0o700)
+        sentinel = seed_target_sentinel(target)
+        staged = run_stage(source, staging)
+        if staged.returncode:
+            fail(f"host SQLite staging failed:\n{staged.stderr}")
+        (source / "profiles").symlink_to(
+            source / "missing-profiles", target_is_directory=True
+        )
+
+        synced = run_sync(source, staging, target)
+        assert_rejected_before_target_mutation(
+            synced, sentinel, "Pod preflight dangling SOURCE/profiles parent symlink"
+        )
+
+
+def validate_pod_preflight_rejects_external_profiles_parent_symlink() -> None:
+    with tempfile.TemporaryDirectory(
+        prefix="hermes-external-profiles-sync-"
+    ) as temporary:
+        root = Path(temporary)
+        source = root / "source"
+        staging = root / "staging"
+        target = root / "target"
+        profiles = source / "profiles"
+        create_database(profiles / "implementer" / "projects.db", "staged")
+        staging.mkdir(mode=0o700)
+        sentinel = seed_target_sentinel(target)
+        staged = run_stage(source, staging)
+        if staged.returncode:
+            fail(f"host SQLite staging failed:\n{staged.stderr}")
+        external = root / "external-profiles"
+        profiles.rename(external)
+        profiles.symlink_to(external, target_is_directory=True)
+
+        synced = run_sync(source, staging, target)
+        assert_rejected_before_target_mutation(
+            synced, sentinel, "Pod preflight external SOURCE/profiles parent symlink"
+        )
+
+
+def validate_duplicate_manifest_key_is_rejected() -> None:
+    with tempfile.TemporaryDirectory(
+        prefix="hermes-duplicate-staging-manifest-"
+    ) as temporary:
+        root = Path(temporary)
+        source = root / "source"
+        staging = root / "staging"
+        target = root / "target"
+        create_database(source / "state.db", "duplicate")
+        staging.mkdir(mode=0o700)
+        sentinel = seed_target_sentinel(target)
+        staged = run_stage(source, staging)
+        if staged.returncode:
+            fail(f"host SQLite staging failed:\n{staged.stderr}")
+        manifest_path = staging / ".manifest.json"
+        original_text = manifest_path.read_text()
+        manifest_path.write_text('{"version":1,' + original_text[1:])
+        synced = run_sync(source, staging, target)
+        assert_rejected_before_target_mutation(
+            synced, sentinel, "duplicate SQLite manifest root key"
+        )
+
+
+def validate_noncanonical_manifest_values_are_rejected() -> None:
+    with tempfile.TemporaryDirectory(
+        prefix="hermes-strict-staging-manifest-"
+    ) as temporary:
+        root = Path(temporary)
+        source = root / "source"
+        staging = root / "staging"
+        create_database(source / "state.db", "strict")
+        staging.mkdir(mode=0o700)
+        staged = run_stage(source, staging)
+        if staged.returncode:
+            fail(f"host SQLite staging failed:\n{staged.stderr}")
+        manifest_path = staging / ".manifest.json"
+        original_text = manifest_path.read_text()
+        original = json.loads(original_text)
+        present_record = original["databases"]["state.db"]
+        if set(present_record) != {"state", "type", "size", "sha256"}:
+            fail("host staging manifest lacks strict database metadata fields")
+
+        mutations: list[tuple[str, str]] = [
+            (
+                "non-finite size",
+                original_text.replace(
+                    f'"size":{original["databases"]["state.db"]["size"]}',
+                    '"size":NaN',
+                    1,
+                ),
+            ),
+        ]
+        structured_mutations: list[tuple[str, object]] = []
+        for description, mutate in (
+            (
+                "missing absent digest field",
+                lambda value: value["databases"]["hermes_state.db"].pop("sha256"),
+            ),
+            (
+                "boolean present size",
+                lambda value: value["databases"]["state.db"].__setitem__("size", True),
+            ),
+            (
+                "integral-float present size",
+                lambda value: value["databases"]["state.db"].__setitem__(
+                    "size", float(value["databases"]["state.db"]["size"])
+                ),
+            ),
+            (
+                "uppercase digest",
+                lambda value: value["databases"]["state.db"].__setitem__(
+                    "sha256", "A" * 64
+                ),
+            ),
+            (
+                "non-null absent size",
+                lambda value: value["databases"]["hermes_state.db"].__setitem__(
+                    "size", 0
+                ),
+            ),
+        ):
+            value = json.loads(original_text)
+            mutate(value)
+            structured_mutations.append((description, value))
+        mutations.extend(
+            (
+                description,
+                json.dumps(value, sort_keys=True, separators=(",", ":")) + "\n",
+            )
+            for description, value in structured_mutations
+        )
+
+        for index, (description, mutated_text) in enumerate(mutations):
+            manifest_path.write_text(mutated_text)
+            target = root / f"target-{index}"
+            sentinel = seed_target_sentinel(target)
+            synced = run_sync(source, staging, target)
+            assert_rejected_before_target_mutation(synced, sentinel, description)
+        manifest_path.write_text(original_text)
 
 
 def validate_host_stage_rejects_dangling_profile_symlink() -> None:
@@ -677,7 +1262,13 @@ def validate_staged_sqlite_regression() -> None:
     sync_python = heredoc_body(script, "SYNC_STATE_PY")
     if ".backup(" in sync_python or "immutable=1" in sync_python:
         fail("Pod sync must install staged backups without opening live SQLite databases")
-    require(sync_python, "shutil.copy2(staged, temporary)", "staged database copy")
+    if "shutil.copy2(staged" in sync_python:
+        fail("Pod sync must not reopen a staged database pathname after validation")
+    require(
+        sync_python,
+        "copy_staged_descriptor(staged_fd, temporary_fd)",
+        "descriptor-bound staged database copy",
+    )
 
     with tempfile.TemporaryDirectory(prefix="hermes-sqlite-regression-") as temporary:
         root = Path(temporary)
@@ -740,12 +1331,24 @@ def main() -> int:
         validate_migration_script,
         validate_cleanup_failure_is_aggregated,
         validate_cleanup_success_control,
+        validate_ambiguous_admitted_create_is_operation_uid_cleaned,
+        validate_cleanup_get_is_bounded,
+        validate_uid_precondition_delete_raw_fallback,
+        validate_staging_cleanup_failure_retains_handle,
+        validate_set_e_exit_trap_retries_failed_aggregate_cleanup,
         validate_staging_manifest_contract,
+        validate_staged_database_substitution_rejected_before_target_mutation,
+        validate_host_stage_rejects_dangling_profiles_parent_symlink,
+        validate_host_stage_rejects_external_profiles_parent_symlink,
         validate_host_stage_rejects_dangling_profile_symlink,
         validate_host_stage_rejects_dangling_database_symlink,
         validate_profile_disappearance_rejected_before_target_mutation,
+        validate_pod_preflight_rejects_dangling_profiles_parent_symlink,
+        validate_pod_preflight_rejects_external_profiles_parent_symlink,
         validate_pod_preflight_rejects_dangling_profile_symlink,
         validate_pod_preflight_rejects_dangling_database_symlink,
+        validate_duplicate_manifest_key_is_rejected,
+        validate_noncanonical_manifest_values_are_rejected,
         validate_concurrent_wal_writer_is_retained,
         validate_staged_sqlite_regression,
     )
