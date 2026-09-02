@@ -396,27 +396,22 @@ def validate_migration_script() -> None:
     if reconcile_window is None or int(reconcile_window.group(1)) <= 15:
         fail("create reconciliation window must be fixed and exceed request timeout")
     operation_delete = function_body(script, "delete_migration_pod_owned_collection")
-    if " -f -" in operation_delete:
-        fail("migration cleanup must not claim a kubectl raw UID body is transmitted")
     require(
         operation_delete,
-        'delete --raw="/api/v1/namespaces/${NAMESPACE}/pods?',
-        "operation-owned DeleteCollection transport",
+        'delete --raw="/api/v1/namespaces/${NAMESPACE}/pods/${pod}" -f -',
+        "exact-name raw Pod DELETE transport",
     )
     require(
         operation_delete,
-        "labelSelector=hermes-agent-migration-operation%3D${operation}",
-        "operation-label DeleteCollection selector",
+        '"preconditions":{"uid":"%s","resourceVersion":"%s"}',
+        "UID/resourceVersion DeleteOptions preconditions",
     )
-    require(
-        operation_delete,
-        "fieldSelector=metadata.name%3D${pod}",
-        "exact-name DeleteCollection field selector",
-    )
+    if "labelSelector=" in operation_delete or "fieldSelector=" in operation_delete:
+        fail("migration cleanup must not use selector-scoped DeleteCollection")
     require(
         operation_delete,
         'kubectl --request-timeout="$KUBECTL_REQUEST_TIMEOUT"',
-        "bounded DeleteCollection request",
+        "bounded singular DELETE request",
     )
     require(
         script,
@@ -508,7 +503,7 @@ kubectl() {{
   case " $* " in
     *" delete pod migration-pod "*) return 1 ;;
     *" get pod migration-pod "*)
-      printf '%s|%s\\n' "$MIGRATION_POD_UID" "$MIGRATION_OPERATION_ID"
+      printf '%s|%s|%s|1\\n' "$MIGRATION_POD" "$MIGRATION_POD_UID" "$MIGRATION_OPERATION_ID"
       return 0
       ;;
     *) return 64 ;;
@@ -603,7 +598,7 @@ kubectl() {{
     *" delete pod migration-pod "*) POD_PRESENT=0; return 0 ;;
     *" get pod migration-pod "*)
       if [ "$POD_PRESENT" -eq 1 ]; then
-        printf '%s|%s\\n' "$MIGRATION_POD_UID" "$MIGRATION_OPERATION_ID"
+        printf '%s|%s|%s|1\\n' "$MIGRATION_POD" "$MIGRATION_POD_UID" "$MIGRATION_OPERATION_ID"
       fi
       return 0
       ;;
@@ -722,7 +717,10 @@ kubectl() {{
       ;;
     *" get pod $EXPECTED_POD "*)
       if [ "$(<"$POD_STATE")" = present ]; then
-        printf '%s|%s\\n' "$EXPECTED_UID" "$EXPECTED_OPERATION"
+        case " $* " in
+          *resourceVersion*) printf '%s|%s|%s|1\\n' "$EXPECTED_POD" "$EXPECTED_UID" "$EXPECTED_OPERATION" ;;
+          *) printf '%s|%s\\n' "$EXPECTED_UID" "$EXPECTED_OPERATION" ;;
+        esac
       fi
       return 0
       ;;
@@ -850,7 +848,7 @@ cleanup_migration_pod
             fail(f"cleanup authoritative GET lacks fixed inner/outer bounds:\n{calls}")
 
 
-def validate_operation_delete_collection_uses_real_kubectl_transport() -> None:
+def validate_preconditioned_delete_converges_with_real_kubectl_transport() -> None:
     script = MIGRATION.read_text()
     functions = "".join(
         shell_function(script, name)
@@ -859,7 +857,6 @@ def validate_operation_delete_collection_uses_real_kubectl_transport() -> None:
     operation = "0123456789abcdef0123456789abcdef"
     pod = f"hermes-agent-migration-{operation}"
     uid = "11111111-2222-3333-4444-555555555555"
-    replacement_uid = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
 
     class FakeKubernetesAPI(http.server.BaseHTTPRequestHandler):
         def log_message(self, format: str, *args: object) -> None:
@@ -873,6 +870,22 @@ def validate_operation_delete_collection_uses_real_kubectl_transport() -> None:
             self.send_header("Content-Length", str(len(payload)))
             self.end_headers()
             self.wfile.write(payload)
+
+        def read_request_body(self) -> bytes:
+            if self.headers.get("Transfer-Encoding", "").lower() != "chunked":
+                length = int(self.headers.get("Content-Length", "0"))
+                return self.rfile.read(length)
+            chunks = []
+            while True:
+                size_line = self.rfile.readline().strip()
+                size = int(size_line.split(b";", 1)[0], 16)
+                if size == 0:
+                    while self.rfile.readline() not in (b"\r\n", b"\n", b""):
+                        pass
+                    return b"".join(chunks)
+                chunks.append(self.rfile.read(size))
+                if self.rfile.read(2) != b"\r\n":
+                    raise RuntimeError("malformed chunked kubectl request")
 
         def do_GET(self) -> None:
             parsed = urllib.parse.urlsplit(self.path)
@@ -909,8 +922,9 @@ def validate_operation_delete_collection_uses_real_kubectl_transport() -> None:
                 )
                 return
             if parsed.path == f"/api/v1/namespaces/default/pods/{pod}":
-                query = urllib.parse.parse_qs(parsed.query)
-                if query.get("watch") == ["true"]:
+                if getattr(self.server, "fail_get_after_delete") and getattr(
+                    self.server, "delete_accepted"
+                ):
                     self.send_object(
                         500,
                         {
@@ -923,6 +937,16 @@ def validate_operation_delete_collection_uses_real_kubectl_transport() -> None:
                     )
                     return
                 current = getattr(self.server, "pod")
+                if current is not None and getattr(self.server, "delete_accepted"):
+                    post_delete_gets = getattr(self.server, "post_delete_gets") + 1
+                    setattr(self.server, "post_delete_gets", post_delete_gets)
+                    replacement = getattr(self.server, "replace_after_delete")
+                    if post_delete_gets == 1 and replacement is not None:
+                        current = replacement
+                        setattr(self.server, "pod", current)
+                    elif post_delete_gets > 2:
+                        current = None
+                        setattr(self.server, "pod", None)
                 if current is None:
                     self.send_object(
                         404,
@@ -941,33 +965,45 @@ def validate_operation_delete_collection_uses_real_kubectl_transport() -> None:
 
         def do_DELETE(self) -> None:
             parsed = urllib.parse.urlsplit(self.path)
-            length = int(self.headers.get("Content-Length", "0"))
-            body = self.rfile.read(length)
+            body = self.read_request_body()
             getattr(self.server, "delete_requests").append((parsed, body))
-            replacement = {
-                "apiVersion": "v1",
-                "kind": "Pod",
-                "metadata": {
-                    "name": pod,
-                    "namespace": "default",
-                    "uid": replacement_uid,
-                    "labels": {
-                        "app.kubernetes.io/name": "hermes-agent-migration",
-                        "hermes-agent-migration-operation": "fedcba9876543210fedcba9876543210",
+            replacement = getattr(self.server, "replace_before_delete")
+            if replacement is not None:
+                setattr(self.server, "pod", replacement)
+            current = getattr(self.server, "pod")
+            try:
+                delete_options = json.loads(body)
+            except (json.JSONDecodeError, UnicodeDecodeError):
+                delete_options = None
+            expected_preconditions = None
+            if current is not None:
+                expected_preconditions = {
+                    "uid": current["metadata"].get("uid"),
+                    "resourceVersion": current["metadata"].get("resourceVersion"),
+                }
+            if (
+                parsed.path != f"/api/v1/namespaces/default/pods/{pod}"
+                or urllib.parse.parse_qs(parsed.query) != {"timeout": ["3s"]}
+                or not isinstance(current, dict)
+                or not isinstance(delete_options, dict)
+                or delete_options.get("apiVersion") != "v1"
+                or delete_options.get("kind") != "DeleteOptions"
+                or delete_options.get("preconditions") != expected_preconditions
+            ):
+                self.send_object(
+                    409,
+                    {
+                        "apiVersion": "v1",
+                        "kind": "Status",
+                        "status": "Failure",
+                        "reason": "Conflict",
+                        "code": 409,
                     },
-                    "resourceVersion": "2",
-                },
-            }
-            setattr(self.server, "pod", replacement)
-            selectors = urllib.parse.parse_qs(parsed.query)
-            if selectors.get("fieldSelector") == [f"metadata.name={pod}"] and selectors.get(
-                "labelSelector"
-            ) == [f"hermes-agent-migration-operation={operation}"]:
-                current_operation = replacement["metadata"]["labels"][
-                    "hermes-agent-migration-operation"
-                ]
-                if current_operation == operation:
-                    setattr(self.server, "pod", None)
+                )
+                return
+            current["metadata"]["deletionTimestamp"] = "2026-09-02T20:00:00Z"
+            current["metadata"]["resourceVersion"] = "2"
+            setattr(self.server, "delete_accepted", True)
             self.send_object(
                 200,
                 {
@@ -978,33 +1014,55 @@ def validate_operation_delete_collection_uses_real_kubectl_transport() -> None:
                 },
             )
 
-    with tempfile.TemporaryDirectory(prefix="hermes-operation-delete-") as temporary:
-        root = Path(temporary)
-        server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), FakeKubernetesAPI)
-        setattr(
-            server,
-            "pod",
-            {
-                "apiVersion": "v1",
-                "kind": "Pod",
-                "metadata": {
-                    "name": pod,
-                    "namespace": "default",
-                    "uid": uid,
-                    "labels": {
-                        "app.kubernetes.io/name": "hermes-agent-migration",
-                        "hermes-agent-migration-operation": operation,
-                    },
-                    "resourceVersion": "1",
-                },
+    def pod_object(
+        current_name: str = pod,
+        current_uid: str = uid,
+        current_operation: str = operation,
+        resource_version: str | None = "1",
+    ) -> dict[str, object]:
+        metadata: dict[str, object] = {
+            "name": current_name,
+            "namespace": "default",
+            "uid": current_uid,
+            "labels": {
+                "app.kubernetes.io/name": "hermes-agent-migration",
+                "hermes-agent-migration-operation": current_operation,
             },
-        )
-        setattr(server, "delete_requests", [])
-        setattr(server, "get_requests", [])
-        thread = threading.Thread(target=server.serve_forever, daemon=True)
-        thread.start()
-        try:
-            kubeconfig = root / "kubeconfig"
+        }
+        if resource_version is not None:
+            metadata["resourceVersion"] = resource_version
+        return {"apiVersion": "v1", "kind": "Pod", "metadata": metadata}
+
+    with tempfile.TemporaryDirectory(prefix="hermes-preconditioned-delete-") as temporary:
+        root = Path(temporary)
+
+        def run_cleanup(
+            initial_pod: dict[str, object],
+            *,
+            expect_success: bool,
+            fail_get_after_delete: bool = False,
+            replace_before_delete: dict[str, object] | None = None,
+            replace_after_delete: dict[str, object] | None = None,
+        ) -> tuple[
+            subprocess.CompletedProcess[str],
+            list[tuple[urllib.parse.SplitResult, bytes]],
+            int,
+            dict[str, object] | None,
+        ]:
+            server = http.server.ThreadingHTTPServer(
+                ("127.0.0.1", 0), FakeKubernetesAPI
+            )
+            setattr(server, "pod", initial_pod)
+            setattr(server, "delete_requests", [])
+            setattr(server, "get_requests", [])
+            setattr(server, "delete_accepted", False)
+            setattr(server, "post_delete_gets", 0)
+            setattr(server, "fail_get_after_delete", fail_get_after_delete)
+            setattr(server, "replace_before_delete", replace_before_delete)
+            setattr(server, "replace_after_delete", replace_after_delete)
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            kubeconfig = root / f"kubeconfig-{server.server_port}"
             kubeconfig.write_text(
                 "apiVersion: v1\n"
                 "kind: Config\n"
@@ -1020,7 +1078,7 @@ def validate_operation_delete_collection_uses_real_kubectl_transport() -> None:
                 "current-context: fake\n"
                 "users: []\n"
             )
-            harness = f"""set -uo pipefail
+            harness = f"""set -euo pipefail
 NAMESPACE=default
 MIGRATION_POD="$EXPECTED_POD"
 MIGRATION_POD_UID="$EXPECTED_UID"
@@ -1030,54 +1088,195 @@ KUBECTL_REQUEST_TIMEOUT=3s
 KUBECTL_OUTER_TIMEOUT=5s
 KUBECTL_DELETE_OUTER_TIMEOUT=5s
 KUBECTL_DELETE_VERIFY_OUTER_TIMEOUT=5s
+sleep() {{ :; }}
 {functions}
-cleanup_migration_pod
-cleanup_status=$?
-[ "$cleanup_status" -ne 0 ]
+if cleanup_migration_pod; then
+  cleanup_status=0
+else
+  cleanup_status=$?
+fi
+if [ "$EXPECT_SUCCESS" -eq 1 ]; then
+  [ "$cleanup_status" -eq 0 ]
+  [ -z "$MIGRATION_POD" ]
+  [ -z "$MIGRATION_POD_UID" ]
+  [ -z "$MIGRATION_OPERATION_ID" ]
+else
+  [ "$cleanup_status" -ne 0 ]
+  [ "$MIGRATION_POD" = "$EXPECTED_POD" ]
+  [ "$MIGRATION_POD_UID" = "$EXPECTED_UID" ]
+  [ "$MIGRATION_OPERATION_ID" = "$EXPECTED_OPERATION" ]
+fi
+"""
+            try:
+                result = subprocess.run(
+                    ["bash", "-c", harness],
+                    text=True,
+                    capture_output=True,
+                    check=False,
+                    env={
+                        **os.environ,
+                        "KUBECONFIG": str(kubeconfig),
+                        "EXPECTED_POD": pod,
+                        "EXPECTED_UID": uid,
+                        "EXPECTED_OPERATION": operation,
+                        "EXPECT_SUCCESS": "1" if expect_success else "0",
+                    },
+                    timeout=20,
+                )
+                requests = list(getattr(server, "delete_requests"))
+                post_delete_gets = getattr(server, "post_delete_gets")
+                remaining_pod = getattr(server, "pod")
+            finally:
+                server.shutdown()
+                server.server_close()
+                thread.join(timeout=5)
+            return result, requests, post_delete_gets, remaining_pod
+
+        result, requests, post_delete_gets, _ = run_cleanup(
+            pod_object(), expect_success=True
+        )
+        if result.returncode:
+            fail(
+                "preconditioned cleanup did not converge:\n"
+                f"{result.stderr} requests={requests!r}"
+            )
+        if len(requests) != 1:
+            fail(
+                f"expected one real kubectl DELETE, observed {len(requests)}; "
+                f"stdout={result.stdout!r} stderr={result.stderr!r}"
+            )
+        parsed, body = requests[0]
+        if parsed.path != f"/api/v1/namespaces/default/pods/{pod}" or (
+            urllib.parse.parse_qs(parsed.query) != {"timeout": ["3s"]}
+        ):
+            fail(f"cleanup did not use exact-name singular DELETE: {parsed!r}")
+        delete_options = json.loads(body)
+        if delete_options.get("preconditions") != {
+            "uid": uid,
+            "resourceVersion": "1",
+        }:
+            fail(f"raw delete lacks exact object preconditions: {delete_options!r}")
+        if post_delete_gets < 3:
+            fail("cleanup did not poll through temporary post-delete visibility")
+
+        for description, initial_pod in (
+            ("replacement UID", pod_object(current_uid="aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee")),
+            (
+                "wrong operation label",
+                pod_object(current_operation="fedcba9876543210fedcba9876543210"),
+            ),
+            ("wrong response name", pod_object(current_name=f"{pod}-replacement")),
+            ("malformed identity", pod_object(resource_version=None)),
+        ):
+            result, requests, _, _ = run_cleanup(initial_pod, expect_success=False)
+            if result.returncode:
+                fail(f"{description} cleanup control failed:\n{result.stderr}")
+            if requests:
+                fail(f"cleanup issued DELETE for {description}")
+
+        for description, replacement in (
+            (
+                "same-name replacement UID race",
+                pod_object(
+                    current_uid="aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+                    resource_version="2",
+                ),
+            ),
+            (
+                "operation-label drift race",
+                pod_object(
+                    current_operation="fedcba9876543210fedcba9876543210",
+                    resource_version="2",
+                ),
+            ),
+        ):
+            result, requests, _, remaining_pod = run_cleanup(
+                pod_object(),
+                expect_success=False,
+                replace_before_delete=replacement,
+            )
+            if result.returncode:
+                fail(f"{description} cleanup control failed:\n{result.stderr}")
+            if len(requests) != 1 or remaining_pod != replacement:
+                fail(f"preconditioned DELETE did not preserve {description}")
+
+        replacement = pod_object(
+            current_uid="aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+            current_operation="fedcba9876543210fedcba9876543210",
+            resource_version="3",
+        )
+        result, requests, _, remaining_pod = run_cleanup(
+            pod_object(),
+            expect_success=False,
+            replace_after_delete=replacement,
+        )
+        if result.returncode:
+            fail(f"post-delete replacement cleanup control failed:\n{result.stderr}")
+        if len(requests) != 1 or remaining_pod != replacement:
+            fail("cleanup retried DELETE or removed a post-delete replacement")
+
+        result, requests, _, _ = run_cleanup(
+            pod_object(), expect_success=False, fail_get_after_delete=True
+        )
+        if result.returncode:
+            fail(f"post-delete GET error control failed:\n{result.stderr}")
+        if len(requests) != 1:
+            fail("post-delete GET error path did not issue exactly one guarded DELETE")
+
+
+def validate_cleanup_deadline_retains_owned_handle() -> None:
+    cleanup = shell_function(MIGRATION.read_text(), "cleanup_migration_pod")
+    operation = "0123456789abcdef0123456789abcdef"
+    pod = f"hermes-agent-migration-{operation}"
+    uid = "11111111-2222-3333-4444-555555555555"
+    harness = f"""set -euo pipefail
+NAMESPACE=default
+MIGRATION_POD="$EXPECTED_POD"
+MIGRATION_POD_UID="$EXPECTED_UID"
+MIGRATION_OPERATION_ID="$EXPECTED_OPERATION"
+MIGRATION_CREATE_ABSENCE_RECONCILED=0
+KUBECTL_REQUEST_TIMEOUT=1s
+KUBECTL_OUTER_TIMEOUT=2s
+KUBECTL_DELETE_VERIFY_OUTER_TIMEOUT=3s
+timeout() {{ if [ "${{1:-}}" = --foreground ]; then shift; fi; shift; "$@"; }}
+sleep() {{ SECONDS=$((SECONDS + 1)); }}
+kubectl() {{
+  case " $* " in
+    *" get pod $EXPECTED_POD "*)
+      printf '%s|%s|%s|1\\n' "$EXPECTED_POD" "$EXPECTED_UID" "$EXPECTED_OPERATION"
+      return 0
+      ;;
+    *" wait --for=delete pod/$EXPECTED_POD "*) return 1 ;;
+    *) return 64 ;;
+  esac
+}}
+delete_migration_pod_owned_collection() {{ return 0; }}
+{cleanup}
+start_seconds=$SECONDS
+if cleanup_migration_pod; then
+  printf '%s\\n' 'cleanup unexpectedly accepted a surviving owned Pod' >&2
+  exit 1
+fi
+elapsed=$((SECONDS - start_seconds))
+[ "$elapsed" -ge 3 ]
 [ "$MIGRATION_POD" = "$EXPECTED_POD" ]
 [ "$MIGRATION_POD_UID" = "$EXPECTED_UID" ]
 [ "$MIGRATION_OPERATION_ID" = "$EXPECTED_OPERATION" ]
 """
-            result = subprocess.run(
-                ["bash", "-c", harness],
-                text=True,
-                capture_output=True,
-                check=False,
-                env={
-                    **os.environ,
-                    "KUBECONFIG": str(kubeconfig),
-                    "EXPECTED_POD": pod,
-                    "EXPECTED_UID": uid,
-                    "EXPECTED_OPERATION": operation,
-                },
-                timeout=20,
-            )
-        finally:
-            server.shutdown()
-            server.server_close()
-            thread.join(timeout=5)
-        if result.returncode:
-            fail(f"real-kubectl operation-owned cleanup harness failed:\n{result.stderr}")
-        requests = getattr(server, "delete_requests")
-        if len(requests) != 1:
-            fail(
-                f"expected one real kubectl DELETE, observed {len(requests)}; "
-                f"GETs={getattr(server, 'get_requests')!r} "
-                f"stdout={result.stdout!r} stderr={result.stderr!r}"
-            )
-        parsed, _body = requests[0]
-        if parsed.path != "/api/v1/namespaces/default/pods":
-            fail(f"cleanup did not use DeleteCollection: {parsed.path!r}")
-        selectors = urllib.parse.parse_qs(parsed.query)
-        if selectors.get("fieldSelector") != [f"metadata.name={pod}"]:
-            fail(f"DeleteCollection lacks the exact name selector: {selectors!r}")
-        if selectors.get("labelSelector") != [
-            f"hermes-agent-migration-operation={operation}"
-        ]:
-            fail(f"DeleteCollection lacks the operation selector: {selectors!r}")
-        remaining = getattr(server, "pod")
-        if remaining is None or remaining["metadata"]["uid"] != replacement_uid:
-            fail("operation-owned DeleteCollection deleted an unowned same-name replacement")
+    result = subprocess.run(
+        ["bash", "-c", harness],
+        text=True,
+        capture_output=True,
+        check=False,
+        env={
+            **os.environ,
+            "EXPECTED_POD": pod,
+            "EXPECTED_UID": uid,
+            "EXPECTED_OPERATION": operation,
+        },
+    )
+    if result.returncode:
+        fail(f"cleanup deadline control failed:\n{result.stderr}")
 
 
 def validate_late_admitted_create_is_found_and_exit_cleaned() -> None:
@@ -1143,7 +1342,10 @@ kubectl() {{
       count=$((count + 1))
       printf '%s' "$count" >"$GET_COUNT"
       if [ "$(<"$POD_STATE")" = late ] && [ "$count" -ge 4 ]; then
-        printf '%s|%s\\n' "$EXPECTED_UID" "$EXPECTED_OPERATION"
+        case " $* " in
+          *resourceVersion*) printf '%s|%s|%s|1\\n' "$EXPECTED_POD" "$EXPECTED_UID" "$EXPECTED_OPERATION" ;;
+          *) printf '%s|%s\\n' "$EXPECTED_UID" "$EXPECTED_OPERATION" ;;
+        esac
       fi
       return 0
       ;;
@@ -2286,7 +2488,8 @@ def main() -> int:
         validate_cleanup_success_control,
         validate_ambiguous_admitted_create_is_operation_uid_cleaned,
         validate_cleanup_get_is_bounded,
-        validate_operation_delete_collection_uses_real_kubectl_transport,
+        validate_preconditioned_delete_converges_with_real_kubectl_transport,
+        validate_cleanup_deadline_retains_owned_handle,
         validate_late_admitted_create_is_found_and_exit_cleaned,
         validate_immediate_absence_does_not_clear_unknown_create_handle,
         validate_full_create_reconciliation_window_proves_absence,
