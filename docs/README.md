@@ -10,6 +10,7 @@ This directory contains documentation for the K8s (K3s) cluster infrastructure.
 
 ### Applications
 
+- **[hermes-agent-migration.md](hermes-agent-migration.md)** - Two-commit singleton migration from the Hestia user-service gateway to an inert-then-active Kubernetes deployment.
 - **[temporal-operations.md](temporal-operations.md)** - Temporal 1.31.2 schema ordering, immutable shard/runtime identity, manual Secret contract, restore fencing, and non-secret verification.
 - **[seerr-cutover.md](seerr-cutover.md)** - Historical Seerr cutover record for the legacy Overseerr hostname redirect.
 - **[seerr-postgres-migration.md](seerr-postgres-migration.md)** - Historical Seerr SQLite-to-PostgreSQL migration runbook, including the maintenance-window pgloader flow and the live fixes discovered during cutover.

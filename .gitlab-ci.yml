@@ -258,6 +258,7 @@ package:feedback-migrations:
       - infrastructure/**/*
       - renovate.json
       - scripts/hestia-firewalld-setup.sh
+      - scripts/hermes-agent-migration.sh
       - scripts/test_factorio_startup.sh
       - scripts/test_hestia_firewalld_setup.sh
       - scripts/test_restic_backup.sh
@@ -266,6 +267,7 @@ package:feedback-migrations:
       - scripts/test_matrix_synapse_config.py
       - scripts/test_matrix_synapse_config.py.lock
       - scripts/test_validate_factorio_manifest.py
+      - scripts/test_validate_hermes_agent_manifest.py
       - scripts/test_validate_hestia_ci_store_gc_alert.py
       - scripts/test_validate_hestia_ci_store_gc_alert.py.lock
       - scripts/test_validate_ibgateway_manifest.py
@@ -287,6 +289,7 @@ package:feedback-migrations:
       - infrastructure/**/*
       - renovate.json
       - scripts/hestia-firewalld-setup.sh
+      - scripts/hermes-agent-migration.sh
       - scripts/test_factorio_startup.sh
       - scripts/test_hestia_firewalld_setup.sh
       - scripts/test_restic_backup.sh
@@ -295,6 +298,7 @@ package:feedback-migrations:
       - scripts/test_matrix_synapse_config.py
       - scripts/test_matrix_synapse_config.py.lock
       - scripts/test_validate_factorio_manifest.py
+      - scripts/test_validate_hermes_agent_manifest.py
       - scripts/test_validate_hestia_ci_store_gc_alert.py
       - scripts/test_validate_hestia_ci_store_gc_alert.py.lock
       - scripts/test_validate_ibgateway_manifest.py
