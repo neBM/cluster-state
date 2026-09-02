@@ -272,6 +272,7 @@ package:feedback-migrations:
       - scripts/test_validate_hestia_ci_store_gc_alert.py.lock
       - scripts/test_validate_ibgateway_manifest.py
       - scripts/test_validate_versioned_migration_jobs.py
+      - scripts/test_validate_versioned_migration_jobs.py.lock
       - scripts/validate_factorio_manifest.py
       - scripts/validate_factorio_manifest.py.lock
       - scripts/validate_hestia_ci_store_gc_alert.py
@@ -279,6 +280,8 @@ package:feedback-migrations:
       - scripts/validate_ibgateway_manifest.py
       - scripts/validate_ibgateway_manifest.py.lock
       - scripts/validate_kustomize.sh
+      - scripts/validate_versioned_migration_jobs.py
+      - scripts/validate_versioned_migration_jobs.py.lock
       - scripts/validate_temporal_manifest.py
       - scripts/validate_temporal_manifest.py.lock
       - scripts/test_validate_temporal_manifest.py
@@ -304,6 +307,7 @@ package:feedback-migrations:
       - scripts/test_validate_hestia_ci_store_gc_alert.py.lock
       - scripts/test_validate_ibgateway_manifest.py
       - scripts/test_validate_versioned_migration_jobs.py
+      - scripts/test_validate_versioned_migration_jobs.py.lock
       - scripts/validate_factorio_manifest.py
       - scripts/validate_factorio_manifest.py.lock
       - scripts/validate_hestia_ci_store_gc_alert.py
@@ -311,6 +315,8 @@ package:feedback-migrations:
       - scripts/validate_ibgateway_manifest.py
       - scripts/validate_ibgateway_manifest.py.lock
       - scripts/validate_kustomize.sh
+      - scripts/validate_versioned_migration_jobs.py
+      - scripts/validate_versioned_migration_jobs.py.lock
       - scripts/validate_temporal_manifest.py
       - scripts/validate_temporal_manifest.py.lock
       - scripts/test_validate_temporal_manifest.py
