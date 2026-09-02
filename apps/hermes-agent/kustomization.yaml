@@ -8,7 +8,7 @@ resources:
 configMapGenerator:
 - name: hermes-agent-state
   literals:
-  - mode=candidate
+  - mode=active
   options:
     labels:
       app.kubernetes.io/component: state-mode
