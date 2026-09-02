@@ -654,30 +654,34 @@ EOF
 }
 
 delete_migration_pod_owned_collection() {
-  local pod="$1" uid="$2" operation="$3"
+  local pod="$1" uid="$2" operation="$3" resource_version="$4"
   [[ "$pod" =~ ^hermes-agent-migration-[0-9a-f]{32}$ ]] \
     || { printf 'WARNING: refusing invalid migration Pod name for owned deletion\n' >&2; return 1; }
   [[ "$uid" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$ ]] \
     || { printf 'WARNING: refusing invalid migration Pod UID\n' >&2; return 1; }
   [[ "$operation" =~ ^[0-9a-f]{32}$ ]] \
     || { printf 'WARNING: refusing invalid migration operation identity\n' >&2; return 1; }
+  [[ "$resource_version" =~ ^[A-Za-z0-9][A-Za-z0-9._:-]*$ ]] \
+    || { printf 'WARNING: refusing invalid migration Pod resourceVersion\n' >&2; return 1; }
   [ "$pod" = "hermes-agent-migration-${operation}" ] \
     || { printf 'WARNING: migration Pod name differs from operation identity\n' >&2; return 1; }
-  timeout --foreground "$KUBECTL_DELETE_OUTER_TIMEOUT" \
-    kubectl --request-timeout="$KUBECTL_REQUEST_TIMEOUT" \
-    delete --raw="/api/v1/namespaces/${NAMESPACE}/pods?labelSelector=hermes-agent-migration-operation%3D${operation}&fieldSelector=metadata.name%3D${pod}" \
-    >/dev/null
+  printf '{"apiVersion":"v1","kind":"DeleteOptions","preconditions":{"uid":"%s","resourceVersion":"%s"}}\n' \
+    "$uid" "$resource_version" \
+    | timeout --foreground "$KUBECTL_DELETE_OUTER_TIMEOUT" \
+      kubectl --request-timeout="$KUBECTL_REQUEST_TIMEOUT" \
+      delete --raw="/api/v1/namespaces/${NAMESPACE}/pods/${pod}" -f - >/dev/null
 }
 
 cleanup_migration_pod() {
-  local pod identity uid operation extra remaining
+  local pod identity observed_pod uid operation resource_version extra remaining
+  local deadline verify_seconds outer_seconds remaining_seconds get_timeout_seconds
   [ -n "$MIGRATION_POD" ] || return 0
   pod="$MIGRATION_POD"
   if ! identity="$(
     timeout --foreground "$KUBECTL_OUTER_TIMEOUT" \
       kubectl --request-timeout="$KUBECTL_REQUEST_TIMEOUT" -n "$NAMESPACE" \
       get pod "$pod" --ignore-not-found \
-      -o 'go-template={{.metadata.uid}}{{"|"}}{{index .metadata.labels "hermes-agent-migration-operation"}}'
+      -o 'go-template={{.metadata.name}}{{"|"}}{{.metadata.uid}}{{"|"}}{{index .metadata.labels "hermes-agent-migration-operation"}}{{"|"}}{{.metadata.resourceVersion}}'
   )"; then
     printf 'WARNING: unable to read migration Pod identity before deletion: %s\n' "$pod" >&2
     return 1
@@ -695,8 +699,12 @@ cleanup_migration_pod() {
     MIGRATION_CREATE_ABSENCE_RECONCILED=0
     return 0
   fi
-  IFS='|' read -r uid operation extra <<<"$identity"
-  if [ -z "$uid" ] || [ -n "$extra" ] \
+  IFS='|' read -r observed_pod uid operation resource_version extra <<<"$identity"
+  if [[ "$identity" == *$'\n'* ]] \
+    || [ "$observed_pod" != "$pod" ] \
+    || [[ ! "$uid" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$ ]] \
+    || [[ ! "$resource_version" =~ ^[A-Za-z0-9][A-Za-z0-9._:-]*$ ]] \
+    || [ -n "$extra" ] \
     || [ -z "$MIGRATION_OPERATION_ID" ] \
     || [ "$operation" != "$MIGRATION_OPERATION_ID" ]; then
     printf 'WARNING: migration Pod operation identity differs; refusing deletion: %s\n' "$pod" >&2
@@ -708,29 +716,68 @@ cleanup_migration_pod() {
   fi
   MIGRATION_POD_UID="$uid"
   if ! delete_migration_pod_owned_collection \
-    "$pod" "$MIGRATION_POD_UID" "$MIGRATION_OPERATION_ID"; then
-    printf 'WARNING: migration Pod operation-owned deletion failed: %s\n' "$pod" >&2
-  fi
-  timeout --foreground "$KUBECTL_DELETE_VERIFY_OUTER_TIMEOUT" \
-    kubectl --request-timeout="$KUBECTL_REQUEST_TIMEOUT" -n "$NAMESPACE" \
-      wait --for=delete "pod/$pod" --timeout=30s >/dev/null 2>&1 || true
-  if ! remaining="$(
-    timeout --foreground "$KUBECTL_OUTER_TIMEOUT" \
-      kubectl --request-timeout="$KUBECTL_REQUEST_TIMEOUT" -n "$NAMESPACE" \
-      get pod "$pod" --ignore-not-found \
-      -o 'go-template={{.metadata.uid}}{{"|"}}{{index .metadata.labels "hermes-agent-migration-operation"}}'
-  )"; then
-    printf 'WARNING: unable to verify migration Pod absence: %s\n' "$pod" >&2
+    "$pod" "$MIGRATION_POD_UID" "$MIGRATION_OPERATION_ID" "$resource_version"; then
+    printf 'WARNING: migration Pod preconditioned deletion failed: %s\n' "$pod" >&2
     return 1
   fi
-  if [ -n "$remaining" ]; then
-    printf 'WARNING: migration Pod still exists or was replaced: %s\n' "$pod" >&2
+  verify_seconds="${KUBECTL_DELETE_VERIFY_OUTER_TIMEOUT%s}"
+  outer_seconds="${KUBECTL_OUTER_TIMEOUT%s}"
+  if [[ ! "$verify_seconds" =~ ^[1-9][0-9]*$ ]] \
+    || [[ ! "$outer_seconds" =~ ^[1-9][0-9]*$ ]]; then
+    printf 'WARNING: invalid migration Pod cleanup deadline configuration\n' >&2
     return 1
   fi
-  MIGRATION_POD=""
-  MIGRATION_POD_UID=""
-  MIGRATION_OPERATION_ID=""
-  MIGRATION_CREATE_ABSENCE_RECONCILED=0
+  deadline=$((SECONDS + verify_seconds))
+  while :; do
+    remaining_seconds=$((deadline - SECONDS))
+    if (( remaining_seconds <= 0 )); then
+      printf 'WARNING: migration Pod deletion verification reached its deadline: %s\n' \
+        "$pod" >&2
+      return 1
+    fi
+    get_timeout_seconds="$outer_seconds"
+    if (( get_timeout_seconds > remaining_seconds )); then
+      get_timeout_seconds="$remaining_seconds"
+    fi
+    if ! remaining="$(
+      timeout --foreground "${get_timeout_seconds}s" \
+        kubectl --request-timeout="$KUBECTL_REQUEST_TIMEOUT" -n "$NAMESPACE" \
+        get pod "$pod" --ignore-not-found \
+        -o 'go-template={{.metadata.name}}{{"|"}}{{.metadata.uid}}{{"|"}}{{index .metadata.labels "hermes-agent-migration-operation"}}{{"|"}}{{.metadata.resourceVersion}}'
+    )"; then
+      printf 'WARNING: unable to verify migration Pod absence: %s\n' "$pod" >&2
+      return 1
+    fi
+    if (( SECONDS >= deadline )); then
+      printf 'WARNING: migration Pod deletion verification reached its deadline: %s\n' \
+        "$pod" >&2
+      return 1
+    fi
+    if [ -z "$remaining" ]; then
+      MIGRATION_POD=""
+      MIGRATION_POD_UID=""
+      MIGRATION_OPERATION_ID=""
+      MIGRATION_CREATE_ABSENCE_RECONCILED=0
+      return 0
+    fi
+    IFS='|' read -r observed_pod uid operation resource_version extra <<<"$remaining"
+    if [[ "$remaining" == *$'\n'* ]] \
+      || [ "$observed_pod" != "$pod" ] \
+      || [[ ! "$uid" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$ ]] \
+      || [[ ! "$resource_version" =~ ^[A-Za-z0-9][A-Za-z0-9._:-]*$ ]] \
+      || [ -n "$extra" ]; then
+      printf 'WARNING: malformed migration Pod identity during deletion verification: %s\n' \
+        "$pod" >&2
+      return 1
+    fi
+    if [ "$uid" != "$MIGRATION_POD_UID" ] \
+      || [ "$operation" != "$MIGRATION_OPERATION_ID" ]; then
+      printf 'WARNING: migration Pod was replaced during deletion verification: %s\n' \
+        "$pod" >&2
+      return 1
+    fi
+    sleep 1
+  done
 }
 
 cleanup_sqlite_staging() {
