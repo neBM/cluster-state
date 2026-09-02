@@ -12,13 +12,18 @@ IMAGE="nousresearch/hermes-agent:v2026.8.16.2@sha256:a39fc11620213e3669a327aff5c
 MIGRATION_POD=""
 MIGRATION_POD_UID=""
 MIGRATION_OPERATION_ID=""
+MIGRATION_CREATE_ABSENCE_RECONCILED=0
+SOURCE_ROOT_DEVICE=""
+SOURCE_ROOT_INODE=""
 SQLITE_STAGING_ROOT="/var/tmp"
 SQLITE_STAGING_DIR=""
 KUBECTL_REQUEST_TIMEOUT="15s"
 KUBECTL_OUTER_TIMEOUT="25s"
 KUBECTL_WAIT_OUTER_TIMEOUT="140s"
+KUBECTL_CREATE_RECONCILE_OUTER_TIMEOUT="25s"
 KUBECTL_DELETE_OUTER_TIMEOUT="25s"
 KUBECTL_DELETE_VERIFY_OUTER_TIMEOUT="40s"
+MIGRATION_CREATE_RECONCILE_WINDOW_SECONDS="45"
 KUBECONFIG="${HERMES_MIGRATION_KUBECONFIG:-/home/ben/.kube/config}"
 export KUBECONFIG
 
@@ -166,7 +171,9 @@ wait_for_source_inactive() {
 create_sqlite_staging() {
   SQLITE_STAGING_DIR="$(mktemp -d -- "${SQLITE_STAGING_ROOT}/hermes-agent-sqlite.XXXXXXXX")"
   chmod 0700 "$SQLITE_STAGING_DIR"
-  timeout --foreground 3300s python3 - "$SOURCE_HOME" "$SQLITE_STAGING_DIR" <<'STAGE_SQLITE_PY'
+  timeout --foreground 3300s python3 - \
+    "$SOURCE_HOME" "$SQLITE_STAGING_DIR" \
+    "$SOURCE_ROOT_DEVICE" "$SOURCE_ROOT_INODE" <<'STAGE_SQLITE_PY'
 from __future__ import annotations
 
 import hashlib
@@ -177,11 +184,25 @@ import stat
 import sys
 from pathlib import Path
 
-if len(sys.argv) != 3:
-    raise SystemExit("source and staging paths are required")
+if len(sys.argv) != 5:
+    raise SystemExit("source device and inode are required")
 
 SOURCE = Path(os.path.abspath(sys.argv[1]))
 STAGING = Path(os.path.abspath(sys.argv[2]))
+try:
+    EXPECTED_SOURCE_IDENTITY = {
+        "st_dev": int(sys.argv[3]),
+        "st_ino": int(sys.argv[4]),
+    }
+except ValueError as exc:
+    raise SystemExit("expected source identity must contain integers") from exc
+if (
+    EXPECTED_SOURCE_IDENTITY["st_dev"] < 0
+    or EXPECTED_SOURCE_IDENTITY["st_ino"] <= 0
+):
+    raise SystemExit(
+        "expected source identity must contain a nonnegative device and positive inode"
+    )
 DATABASES = (
     "state.db",
     "hermes_state.db",
@@ -249,6 +270,13 @@ def open_regular_at(directory_fd: int, name: str, description: str) -> int:
     return descriptor
 
 
+def directory_identity(descriptor: int) -> dict[str, int]:
+    info = os.fstat(descriptor)
+    if not stat.S_ISDIR(info.st_mode):
+        raise RuntimeError("source identity descriptor is not a directory")
+    return {"st_dev": info.st_dev, "st_ino": info.st_ino}
+
+
 def digest_descriptor(descriptor: int) -> str:
     value = hashlib.sha256()
     position = os.lseek(descriptor, 0, os.SEEK_CUR)
@@ -280,6 +308,9 @@ def present_database_record(descriptor: int) -> dict[str, object]:
 source_fd = open_absolute_directory(SOURCE, "source home")
 staging_fd = open_absolute_directory(STAGING, "SQLite staging directory")
 try:
+    source_root_identity = directory_identity(source_fd)
+    if source_root_identity != EXPECTED_SOURCE_IDENTITY:
+        raise RuntimeError("source home identity changed before SQLite staging")
     try:
         STAGING.relative_to(SOURCE)
     except ValueError:
@@ -356,7 +387,8 @@ try:
     top_database_records: dict[str, object] = {}
     profile_records: dict[str, object] = {}
     manifest: dict[str, object] = {
-        "version": 1,
+        "version": 2,
+        "source_root": source_root_identity,
         "databases": top_database_records,
         "profiles": profile_records,
     }
@@ -369,6 +401,10 @@ try:
         if profiles_parent_record["type"] != "directory":
             raise RuntimeError("source profiles parent is not a regular directory")
         profiles_fd = open_directory_at(source_fd, "profiles", "source profiles parent")
+        profiles_parent_record["identity"] = directory_identity(profiles_fd)
+    else:
+        profiles_parent_record["identity"] = None
+    manifest["profiles_parent"] = profiles_parent_record
     try:
         for profile in PROFILES:
             profile_record = (
@@ -382,6 +418,7 @@ try:
             ):
                 raise RuntimeError(f"profile is not a regular directory: {profile}")
             database_records = {}
+            profile_identity = None
             if profile_record["state"] == "present":
                 if profiles_fd is None:
                     raise RuntimeError("present profile lacks its contained parent")
@@ -389,6 +426,7 @@ try:
                     profiles_fd, profile, f"source profile {profile}"
                 )
                 try:
+                    profile_identity = directory_identity(profile_fd)
                     for name in DATABASES:
                         relative = Path("profiles") / profile / name
                         database_records[name] = backup_database(
@@ -402,6 +440,7 @@ try:
                 }
             profile_records[profile] = {
                 **profile_record,
+                "identity": profile_identity,
                 "databases": database_records,
             }
     finally:
@@ -445,12 +484,61 @@ new_migration_operation_id() {
   python3 -c 'import secrets; print(secrets.token_hex(16))'
 }
 
+reject_preexisting_migration_pods() {
+  local existing
+  if ! existing="$(
+    timeout --foreground "$KUBECTL_OUTER_TIMEOUT" \
+      kubectl --request-timeout="$KUBECTL_REQUEST_TIMEOUT" -n "$NAMESPACE" \
+      get pods -l app.kubernetes.io/name=hermes-agent-migration -o name
+  )"; then
+    die "unable to reconcile pre-existing migration Pods"
+  fi
+  [ -z "$existing" ] \
+    || die "a pre-existing Hermes migration Pod must be reconciled before a new operation"
+}
+
+reconcile_failed_migration_pod_create() {
+  local deadline identity uid operation extra
+  deadline=$((SECONDS + MIGRATION_CREATE_RECONCILE_WINDOW_SECONDS))
+  MIGRATION_CREATE_ABSENCE_RECONCILED=0
+  while :; do
+    if ! identity="$(
+      timeout --foreground "$KUBECTL_CREATE_RECONCILE_OUTER_TIMEOUT" \
+        kubectl --request-timeout="$KUBECTL_REQUEST_TIMEOUT" -n "$NAMESPACE" \
+        get pod "$MIGRATION_POD" --ignore-not-found \
+        -o 'go-template={{.metadata.uid}}{{"|"}}{{index .metadata.labels "hermes-agent-migration-operation"}}'
+    )"; then
+      printf 'WARNING: migration Pod admission reconciliation GET failed: %s\n' \
+        "$MIGRATION_POD" >&2
+      return 2
+    fi
+    if [ -n "$identity" ]; then
+      IFS='|' read -r uid operation extra <<<"$identity"
+      if [[ ! "$uid" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$ ]] \
+        || [ "$operation" != "$MIGRATION_OPERATION_ID" ] || [ -n "$extra" ]; then
+        printf 'WARNING: late migration Pod identity differs from retained operation: %s\n' \
+          "$MIGRATION_POD" >&2
+        return 2
+      fi
+      MIGRATION_POD_UID="$uid"
+      return 0
+    fi
+    if (( SECONDS >= deadline )); then
+      MIGRATION_CREATE_ABSENCE_RECONCILED=1
+      return 1
+    fi
+    sleep 1
+  done
+}
+
 create_migration_pod() {
   local sqlite_mount_yaml="" sqlite_volume_yaml=""
-  local create_succeeded=0 identity uid operation extra
+  local create_succeeded=0 identity uid operation extra reconcile_status
   [ -z "$MIGRATION_POD" ] || die "migration Pod ownership handle is already assigned"
   [ -z "$MIGRATION_POD_UID" ] || die "migration Pod UID handle is already assigned"
   [ -z "$MIGRATION_OPERATION_ID" ] || die "migration operation handle is already assigned"
+  reject_preexisting_migration_pods
+  MIGRATION_CREATE_ABSENCE_RECONCILED=0
   MIGRATION_OPERATION_ID="$(new_migration_operation_id)"
   [[ "$MIGRATION_OPERATION_ID" =~ ^[0-9a-f]{32}$ ]] \
     || die "failed to create a cryptographic migration operation identity"
@@ -527,6 +615,18 @@ EOF
   then
     create_succeeded=1
   fi
+  if [ "$create_succeeded" -ne 1 ]; then
+    if reconcile_failed_migration_pod_create; then
+      die "migration Pod create failed after admission; cleanup owns $MIGRATION_POD"
+    else
+      reconcile_status=$?
+    fi
+    if [ "$reconcile_status" -eq 1 ] \
+      && [ "$MIGRATION_CREATE_ABSENCE_RECONCILED" -eq 1 ]; then
+      die "migration Pod create failed; full reconciliation proved absence: $MIGRATION_POD"
+    fi
+    die "migration Pod create result is ambiguous; retained operation identity: $MIGRATION_POD"
+  fi
   if ! identity="$(
     timeout --foreground "$KUBECTL_OUTER_TIMEOUT" \
       kubectl --request-timeout="$KUBECTL_REQUEST_TIMEOUT" -n "$NAMESPACE" \
@@ -543,9 +643,6 @@ EOF
     die "migration Pod identity differs from the retained operation: $MIGRATION_POD"
   fi
   MIGRATION_POD_UID="$uid"
-  if [ "$create_succeeded" -ne 1 ]; then
-    die "migration Pod create failed after admission; cleanup owns $MIGRATION_POD"
-  fi
   if ! timeout --foreground "$KUBECTL_WAIT_OUTER_TIMEOUT" \
     kubectl --request-timeout="$KUBECTL_REQUEST_TIMEOUT" -n "$NAMESPACE" \
       wait --for=condition=Ready "pod/$MIGRATION_POD" --timeout=120s; then
@@ -556,24 +653,20 @@ EOF
   fi
 }
 
-delete_migration_pod_uid_precondition() {
-  local pod="$1" uid="$2"
+delete_migration_pod_owned_collection() {
+  local pod="$1" uid="$2" operation="$3"
   [[ "$pod" =~ ^hermes-agent-migration-[0-9a-f]{32}$ ]] \
-    || { printf 'WARNING: refusing invalid migration Pod name for UID deletion\n' >&2; return 1; }
+    || { printf 'WARNING: refusing invalid migration Pod name for owned deletion\n' >&2; return 1; }
   [[ "$uid" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$ ]] \
     || { printf 'WARNING: refusing invalid migration Pod UID\n' >&2; return 1; }
-  if timeout --foreground "$KUBECTL_OUTER_TIMEOUT" kubectl delete --help 2>/dev/null \
-    | python3 -c 'import sys; raise SystemExit(0 if "--preconditions" in sys.stdin.read() else 1)'; then
-    timeout --foreground "$KUBECTL_DELETE_OUTER_TIMEOUT" \
-      kubectl --request-timeout="$KUBECTL_REQUEST_TIMEOUT" -n "$NAMESPACE" \
-      delete pod "$pod" --preconditions="uid=$uid" \
-      --grace-period=0 --force --wait=false >/dev/null
-  else
-    printf '{"apiVersion":"v1","kind":"DeleteOptions","gracePeriodSeconds":0,"preconditions":{"uid":"%s"},"propagationPolicy":"Foreground"}\n' "$uid" \
-      | timeout --foreground "$KUBECTL_DELETE_OUTER_TIMEOUT" \
-        kubectl --request-timeout="$KUBECTL_REQUEST_TIMEOUT" \
-        delete --raw="/api/v1/namespaces/${NAMESPACE}/pods/${pod}" -f - >/dev/null
-  fi
+  [[ "$operation" =~ ^[0-9a-f]{32}$ ]] \
+    || { printf 'WARNING: refusing invalid migration operation identity\n' >&2; return 1; }
+  [ "$pod" = "hermes-agent-migration-${operation}" ] \
+    || { printf 'WARNING: migration Pod name differs from operation identity\n' >&2; return 1; }
+  timeout --foreground "$KUBECTL_DELETE_OUTER_TIMEOUT" \
+    kubectl --request-timeout="$KUBECTL_REQUEST_TIMEOUT" \
+    delete --raw="/api/v1/namespaces/${NAMESPACE}/pods?labelSelector=hermes-agent-migration-operation%3D${operation}&fieldSelector=metadata.name%3D${pod}" \
+    >/dev/null
 }
 
 cleanup_migration_pod() {
@@ -590,9 +683,16 @@ cleanup_migration_pod() {
     return 1
   fi
   if [ -z "$identity" ]; then
+    if [ -z "$MIGRATION_POD_UID" ] \
+      && [ "$MIGRATION_CREATE_ABSENCE_RECONCILED" -ne 1 ]; then
+      printf 'WARNING: immediate absence cannot reconcile unknown Pod admission: %s\n' \
+        "$pod" >&2
+      return 1
+    fi
     MIGRATION_POD=""
     MIGRATION_POD_UID=""
     MIGRATION_OPERATION_ID=""
+    MIGRATION_CREATE_ABSENCE_RECONCILED=0
     return 0
   fi
   IFS='|' read -r uid operation extra <<<"$identity"
@@ -607,8 +707,9 @@ cleanup_migration_pod() {
     return 1
   fi
   MIGRATION_POD_UID="$uid"
-  if ! delete_migration_pod_uid_precondition "$pod" "$MIGRATION_POD_UID"; then
-    printf 'WARNING: migration Pod UID-preconditioned deletion failed: %s\n' "$pod" >&2
+  if ! delete_migration_pod_owned_collection \
+    "$pod" "$MIGRATION_POD_UID" "$MIGRATION_OPERATION_ID"; then
+    printf 'WARNING: migration Pod operation-owned deletion failed: %s\n' "$pod" >&2
   fi
   timeout --foreground "$KUBECTL_DELETE_VERIFY_OUTER_TIMEOUT" \
     kubectl --request-timeout="$KUBECTL_REQUEST_TIMEOUT" -n "$NAMESPACE" \
@@ -629,6 +730,7 @@ cleanup_migration_pod() {
   MIGRATION_POD=""
   MIGRATION_POD_UID=""
   MIGRATION_OPERATION_ID=""
+  MIGRATION_CREATE_ABSENCE_RECONCILED=0
 }
 
 cleanup_sqlite_staging() {
@@ -668,7 +770,8 @@ arm_cleanup_traps() {
 run_sync() {
   local phase="$1"
   timeout --foreground 3300s \
-    kubectl -n "$NAMESPACE" exec -i "$MIGRATION_POD" -- python3 - "$phase" <<'SYNC_STATE_PY'
+    kubectl -n "$NAMESPACE" exec -i "$MIGRATION_POD" -- \
+      python3 - "$phase" "$SOURCE_ROOT_DEVICE" "$SOURCE_ROOT_INODE" <<'SYNC_STATE_PY'
 from __future__ import annotations
 
 import hashlib
@@ -956,13 +1059,27 @@ def require_manifest_database_record(
     raise RuntimeError(f"invalid SQLite staging manifest state: {description}")
 
 
-def require_manifest_profile_record(
-    state: object, path_type: object, description: str
+def require_manifest_identity(value: object, description: str) -> dict[str, int]:
+    if type(value) is not dict or set(value) != {"st_dev", "st_ino"}:
+        raise RuntimeError(f"invalid source identity record: {description}")
+    device = value["st_dev"]
+    inode = value["st_ino"]
+    if type(device) is not int or device < 0 or type(inode) is not int or inode <= 0:
+        raise RuntimeError(f"invalid source identity values: {description}")
+    return {"st_dev": device, "st_ino": inode}
+
+
+def require_manifest_directory_record(
+    state: object, path_type: object, identity: object, description: str
 ) -> dict[str, object]:
-    if state == "absent" and path_type is None:
-        return {"state": "absent", "type": None}
+    if state == "absent" and path_type is None and identity is None:
+        return {"state": "absent", "type": None, "identity": None}
     if state == "present" and type(path_type) is str and path_type == "directory":
-        return {"state": "present", "type": "directory"}
+        return {
+            "state": "present",
+            "type": "directory",
+            "identity": require_manifest_identity(identity, description),
+        }
     raise RuntimeError(f"invalid SQLite staging manifest state: {description}")
 
 
@@ -986,12 +1103,28 @@ def load_staging_manifest(staging_fd: int) -> dict[str, object]:
         os.close(manifest_fd)
     if type(manifest) is not dict or set(manifest) != {
         "version",
+        "source_root",
+        "profiles_parent",
         "databases",
         "profiles",
     }:
         raise RuntimeError("SQLite staging manifest shape differs")
-    if type(manifest["version"]) is not int or manifest["version"] != 1:
+    if type(manifest["version"]) is not int or manifest["version"] != 2:
         raise RuntimeError("SQLite staging manifest version differs")
+    source_root = require_manifest_identity(manifest["source_root"], "source root")
+    profiles_parent_value = manifest["profiles_parent"]
+    if type(profiles_parent_value) is not dict or set(profiles_parent_value) != {
+        "state",
+        "type",
+        "identity",
+    }:
+        raise RuntimeError("SQLite staging profiles-parent record differs")
+    profiles_parent = require_manifest_directory_record(
+        profiles_parent_value["state"],
+        profiles_parent_value["type"],
+        profiles_parent_value["identity"],
+        "profiles parent",
+    )
     database_values = manifest["databases"]
     if type(database_values) is not dict or set(database_values) != set(DATABASES):
         raise RuntimeError("SQLite staging top-level database membership differs")
@@ -1010,11 +1143,15 @@ def load_staging_manifest(staging_fd: int) -> dict[str, object]:
         if type(profile_value) is not dict or set(profile_value) != {
             "state",
             "type",
+            "identity",
             "databases",
         }:
             raise RuntimeError(f"SQLite staging profile record differs: {profile}")
-        profile_record = require_manifest_profile_record(
-            profile_value["state"], profile_value["type"], f"profile {profile}"
+        profile_record = require_manifest_directory_record(
+            profile_value["state"],
+            profile_value["type"],
+            profile_value["identity"],
+            f"profile {profile}",
         )
         profile_database_values = profile_value["databases"]
         if type(profile_database_values) is not dict or set(
@@ -1036,7 +1173,13 @@ def load_staging_manifest(staging_fd: int) -> dict[str, object]:
                 f"absent profile has present staged databases: {profile}"
             )
         profiles[profile] = {**profile_record, "databases": profile_databases}
-    return {"version": 1, "databases": databases, "profiles": profiles}
+    return {
+        "version": 2,
+        "source_root": source_root,
+        "profiles_parent": profiles_parent,
+        "databases": databases,
+        "profiles": profiles,
+    }
 
 
 def validate_sqlite_descriptor(descriptor: int, relative: Path) -> None:
@@ -1067,9 +1210,46 @@ def validate_database_descriptor(
     validate_sqlite_descriptor(descriptor, relative)
 
 
-def validate_source_layout(manifest: dict[str, object] | None) -> None:
+def directory_identity(descriptor: int) -> dict[str, int]:
+    info = os.fstat(descriptor)
+    if not stat.S_ISDIR(info.st_mode):
+        raise RuntimeError("source identity descriptor is not a directory")
+    return {"st_dev": info.st_dev, "st_ino": info.st_ino}
+
+
+def present_directory_record(descriptor: int) -> dict[str, object]:
+    return {
+        "state": "present",
+        "type": "directory",
+        "identity": directory_identity(descriptor),
+    }
+
+
+def close_source_context(
+    source_fd: int,
+    profiles_fd: int | None,
+    profile_fds: dict[str, int],
+) -> None:
+    for descriptor in profile_fds.values():
+        os.close(descriptor)
+    if profiles_fd is not None:
+        os.close(profiles_fd)
+    os.close(source_fd)
+
+
+def open_source_context(
+    manifest: dict[str, object] | None,
+) -> tuple[int, int | None, dict[str, int]]:
     source_fd = open_absolute_directory(SOURCE, "source mount")
+    profiles_fd: int | None = None
+    profile_fds: dict[str, int] = {}
     try:
+        root_identity = directory_identity(source_fd)
+        if root_identity != EXPECTED_SOURCE_IDENTITY:
+            raise RuntimeError("source mount identity differs from host source proof")
+        if manifest is not None and root_identity != manifest["source_root"]:
+            raise RuntimeError("source root identity drifted after host staging")
+
         for name in DATABASES:
             record = classify_at(source_fd, name)
             if record["state"] == "present" and record["type"] != "regular_file":
@@ -1080,67 +1260,66 @@ def validate_source_layout(manifest: dict[str, object] | None) -> None:
                 raise RuntimeError(f"source database drifted after staging: {name}")
 
         profiles_parent = classify_at(source_fd, "profiles")
-        profiles_fd: int | None = None
         if profiles_parent["state"] == "present":
             if profiles_parent["type"] != "directory":
                 raise RuntimeError("source profiles parent is not a regular directory")
             profiles_fd = open_directory_at(
                 source_fd, "profiles", "source profiles parent"
             )
-        try:
-            for profile in PROFILES:
-                profile_record = (
-                    classify_at(profiles_fd, profile)
-                    if profiles_fd is not None
-                    else {"state": "absent", "type": None}
-                )
-                if (
-                    profile_record["state"] == "present"
-                    and profile_record["type"] != "directory"
-                ):
+            profiles_parent = present_directory_record(profiles_fd)
+        else:
+            profiles_parent["identity"] = None
+        if manifest is not None and profiles_parent != manifest["profiles_parent"]:
+            raise RuntimeError("source profiles parent drifted after staging")
+
+        for profile in PROFILES:
+            profile_record = (
+                classify_at(profiles_fd, profile)
+                if profiles_fd is not None
+                else {"state": "absent", "type": None}
+            )
+            if profile_record["state"] == "present":
+                if profile_record["type"] != "directory" or profiles_fd is None:
                     raise RuntimeError(f"profile is not a regular directory: {profile}")
-                expected_profile = manifest["profiles"][profile] if manifest else None
-                if expected_profile is not None and profile_record != {
-                    "state": expected_profile["state"],
-                    "type": expected_profile["type"],
-                }:
-                    raise RuntimeError(
-                        f"source profile drifted after staging: {profile}"
-                    )
-                if profile_record["state"] == "absent":
-                    continue
-                if profiles_fd is None:
-                    raise RuntimeError("present profile lacks its contained parent")
                 profile_fd = open_directory_at(
                     profiles_fd, profile, f"source profile {profile}"
                 )
-                try:
-                    for name in DATABASES:
-                        relative = Path("profiles") / profile / name
-                        database_record = classify_at(profile_fd, name)
-                        if (
-                            database_record["state"] == "present"
-                            and database_record["type"] != "regular_file"
-                        ):
-                            raise RuntimeError(
-                                f"source profile database is not regular: {relative}"
-                            )
-                        if expected_profile is not None and database_record != (
-                            database_record_identity(
-                                expected_profile["databases"][name]
-                            )
-                        ):
-                            raise RuntimeError(
-                                "source profile database drifted after staging: "
-                                f"{relative}"
-                            )
-                finally:
-                    os.close(profile_fd)
-        finally:
-            if profiles_fd is not None:
-                os.close(profiles_fd)
-    finally:
-        os.close(source_fd)
+                profile_fds[profile] = profile_fd
+                profile_record = present_directory_record(profile_fd)
+            else:
+                profile_record["identity"] = None
+            expected_profile = manifest["profiles"][profile] if manifest else None
+            if expected_profile is not None and profile_record != {
+                "state": expected_profile["state"],
+                "type": expected_profile["type"],
+                "identity": expected_profile["identity"],
+            }:
+                raise RuntimeError(f"source profile drifted after staging: {profile}")
+            if profile_record["state"] == "absent":
+                continue
+            profile_fd = profile_fds[profile]
+            for name in DATABASES:
+                relative = Path("profiles") / profile / name
+                database_record = classify_at(profile_fd, name)
+                if (
+                    database_record["state"] == "present"
+                    and database_record["type"] != "regular_file"
+                ):
+                    raise RuntimeError(
+                        f"source profile database is not regular: {relative}"
+                    )
+                if expected_profile is not None and database_record != (
+                    database_record_identity(expected_profile["databases"][name])
+                ):
+                    raise RuntimeError(
+                        "source profile database drifted after staging: "
+                        f"{relative}"
+                    )
+        return source_fd, profiles_fd, profile_fds
+    except BaseException:
+        close_source_context(source_fd, profiles_fd, profile_fds)
+        raise
+
 
 
 def scan_staging_tree(
@@ -1183,7 +1362,6 @@ def verify_initial_staging() -> tuple[dict[str, object], dict[Path, int]]:
         finally:
             os.close(complete_fd)
         manifest = load_staging_manifest(staging_fd)
-        validate_source_layout(manifest)
 
         expected_files = {Path(".complete"), Path(".manifest.json")}
         expected_directories: set[Path] = set()
@@ -1278,48 +1456,81 @@ def digest(path: Path) -> bytes:
     return value.digest()
 
 
-def copy_file(source: Path, target: Path) -> None:
-    if source.is_symlink():
-        raise RuntimeError(f"refusing symlinked file: {source.relative_to(SOURCE)}")
-    if not source.exists():
+def descriptor_path(descriptor: int) -> Path:
+    return Path("/proc/self/fd") / str(descriptor)
+
+
+def copy_file(
+    source_parent_fd: int,
+    name: str,
+    target: Path,
+    description: str,
+) -> None:
+    if not name or "/" in name or name in {".", ".."}:
+        raise RuntimeError(f"invalid selected source file name: {description}")
+    record = classify_at(source_parent_fd, name)
+    if record["state"] == "absent":
         remove_path(target)
         return
-    if not source.is_file():
-        raise RuntimeError(
-            f"selected file is not regular: {source.relative_to(SOURCE)}"
-        )
+    if record["type"] != "regular_file":
+        raise RuntimeError(f"selected file is not regular: {description}")
+    source_fd = open_relative_regular(source_parent_fd, Path(name), description)
     ensure_target_directory(target.parent)
     temporary = target.with_name(f".{target.name}.migration")
     remove_path(temporary)
-    shutil.copy2(source, temporary)
-    os.chown(temporary, RUNTIME_UID, RUNTIME_GID)
-    if source.stat().st_size != temporary.stat().st_size or digest(source) != digest(
-        temporary
-    ):
-        raise RuntimeError(f"copy verification failed: {source.relative_to(SOURCE)}")
-    os.replace(temporary, target)
+    replaced = False
+    try:
+        shutil.copy2(descriptor_path(source_fd), temporary)
+        os.chown(temporary, RUNTIME_UID, RUNTIME_GID)
+        if (
+            os.fstat(source_fd).st_size != temporary.stat().st_size
+            or digest_descriptor(source_fd) != digest(temporary)
+        ):
+            raise RuntimeError(f"copy verification failed: {description}")
+        os.replace(temporary, target)
+        replaced = True
+    finally:
+        os.close(source_fd)
+        if not replaced:
+            remove_path(temporary)
 
 
-def copy_tree(source: Path, target: Path) -> None:
-    if source.is_symlink():
-        raise RuntimeError(
-            f"selected directory is not a directory: {source.relative_to(SOURCE)}"
-        )
-    if not source.exists():
+def copy_tree(
+    source_parent_fd: int,
+    name: str,
+    target: Path,
+    description: str,
+) -> None:
+    if not name or "/" in name or name in {".", ".."}:
+        raise RuntimeError(f"invalid selected source directory name: {description}")
+    record = classify_at(source_parent_fd, name)
+    if record["state"] == "absent":
         remove_path(target)
         return
-    if not source.is_dir():
-        raise RuntimeError(
-            f"selected directory is not a directory: {source.relative_to(SOURCE)}"
-        )
+    if record["type"] != "directory":
+        raise RuntimeError(f"selected directory is not a directory: {description}")
+    source_fd = open_directory_at(source_parent_fd, name, description)
     temporary = target.with_name(f".{target.name}.migration")
     remove_path(temporary)
     ensure_target_directory(temporary.parent)
-    # Preserve nested links as links: never follow them into external trees.
-    shutil.copytree(source, temporary, symlinks=True, ignore=ignored_names)
-    chown_tree(temporary)
-    remove_path(target)
-    os.replace(temporary, target)
+    replaced = False
+    try:
+        # Preserve nested links as links: never follow them into external trees.
+        shutil.copytree(
+            descriptor_path(source_fd),
+            temporary,
+            symlinks=True,
+            ignore=ignored_names,
+        )
+        chown_tree(temporary)
+        remove_path(target)
+        os.replace(temporary, target)
+        replaced = True
+    finally:
+        os.close(source_fd)
+        if not replaced:
+            remove_path(temporary)
+
 
 
 def copy_staged_descriptor(source_fd: int, target_fd: int) -> None:
@@ -1382,39 +1593,30 @@ def install_staged_database(
 
 def copy_profile(
     profile: str,
+    profile_fd: int | None,
     phase: str,
     staging_manifest: dict[str, object] | None,
     staged_descriptors: dict[Path, int],
 ) -> None:
-    source_profile = SOURCE / "profiles" / profile
     target_profile = TARGET / "profiles" / profile
-    source_record = classify_path(source_profile)
     if phase == "initial":
         if staging_manifest is None:
             raise RuntimeError("initial sync is missing its verified staging manifest")
         expected_profile = staging_manifest["profiles"][profile]
-        expected_record = {
-            "state": expected_profile["state"],
-            "type": expected_profile["type"],
-        }
-        if source_record != expected_record:
-            raise RuntimeError(f"source profile drifted during sync: {profile}")
     else:
         expected_profile = None
-    if source_record["state"] == "absent":
+    if profile_fd is None:
         remove_path(target_profile)
         return
-    if source_record["type"] != "directory":
-        raise RuntimeError(f"profile is not a regular directory: {profile}")
     ensure_target_directory(target_profile.parent)
     temporary = TARGET / "profiles" / f".{profile}.migration"
     ensure_target_directory(temporary.parent)
     remove_path(temporary)
     temporary.mkdir()
     for name in PROFILE_FILES:
-        copy_file(source_profile / name, temporary / name)
+        copy_file(profile_fd, name, temporary / name, f"profiles/{profile}/{name}")
     for name in PROFILE_DIRS:
-        copy_tree(source_profile / name, temporary / name)
+        copy_tree(profile_fd, name, temporary / name, f"profiles/{profile}/{name}")
     for name in DATABASES:
         if phase == "initial":
             relative = Path("profiles") / profile / name
@@ -1426,9 +1628,12 @@ def copy_profile(
             )
         else:
             for suffix in ("", "-wal", "-shm"):
+                source_name = f"{name}{suffix}"
                 copy_file(
-                    Path(f"{source_profile / name}{suffix}"),
-                    Path(f"{temporary / name}{suffix}"),
+                    profile_fd,
+                    source_name,
+                    temporary / source_name,
+                    f"profiles/{profile}/{source_name}",
                 )
     chown_tree(temporary)
     remove_path(target_profile)
@@ -1438,49 +1643,131 @@ def copy_profile(
 def copy_mutable_state(phase: str) -> None:
     if TARGET.is_symlink() or not TARGET.is_dir():
         raise RuntimeError("target PVC mount is not a regular directory")
-    if phase == "initial":
-        staging_manifest, staged_descriptors = verify_initial_staging()
-    else:
-        validate_source_layout(None)
-        staging_manifest = None
-        staged_descriptors = {}
+    staging_manifest: dict[str, object] | None = None
+    staged_descriptors: dict[Path, int] = {}
+    source_fd: int | None = None
+    profiles_fd: int | None = None
+    profile_fds: dict[str, int] = {}
     try:
-        os.chown(TARGET, RUNTIME_UID, RUNTIME_GID)
-        for name in TOP_FILES:
-            copy_file(SOURCE / name, TARGET / name)
-        for name in TOP_DIRS:
-            copy_tree(SOURCE / name, TARGET / name)
-        profiles_target = TARGET / "profiles"
-        ensure_target_directory(profiles_target)
-        os.chown(profiles_target, RUNTIME_UID, RUNTIME_GID)
-        for profile in PROFILES:
-            copy_profile(profile, phase, staging_manifest, staged_descriptors)
-        for name in DATABASES:
-            if phase == "initial":
-                install_staged_database(
-                    Path(name),
-                    TARGET / name,
-                    staging_manifest["databases"][name],
+        if phase == "initial":
+            staging_manifest, staged_descriptors = verify_initial_staging()
+        source_fd, profiles_fd, profile_fds = open_source_context(staging_manifest)
+        try:
+            os.chown(TARGET, RUNTIME_UID, RUNTIME_GID)
+            for name in TOP_FILES:
+                copy_file(source_fd, name, TARGET / name, name)
+            for name in TOP_DIRS:
+                copy_tree(source_fd, name, TARGET / name, name)
+            profiles_target = TARGET / "profiles"
+            ensure_target_directory(profiles_target)
+            os.chown(profiles_target, RUNTIME_UID, RUNTIME_GID)
+            for profile in PROFILES:
+                copy_profile(
+                    profile,
+                    profile_fds.get(profile),
+                    phase,
+                    staging_manifest,
                     staged_descriptors,
                 )
-            else:
-                for suffix in ("", "-wal", "-shm"):
-                    copy_file(
-                        Path(f"{SOURCE / name}{suffix}"),
-                        Path(f"{TARGET / name}{suffix}"),
+            for name in DATABASES:
+                if phase == "initial":
+                    if staging_manifest is None:
+                        raise RuntimeError("initial sync manifest was lost")
+                    install_staged_database(
+                        Path(name),
+                        TARGET / name,
+                        staging_manifest["databases"][name],
+                        staged_descriptors,
                     )
-        os.sync()
+                else:
+                    for suffix in ("", "-wal", "-shm"):
+                        source_name = f"{name}{suffix}"
+                        copy_file(
+                            source_fd,
+                            source_name,
+                            TARGET / source_name,
+                            source_name,
+                        )
+            os.sync()
+        finally:
+            close_source_context(source_fd, profiles_fd, profile_fds)
+            source_fd = None
     finally:
+        if source_fd is not None:
+            close_source_context(source_fd, profiles_fd, profile_fds)
         for descriptor in staged_descriptors.values():
             os.close(descriptor)
 
 
-phase = sys.argv[1] if len(sys.argv) == 2 else ""
+if len(sys.argv) != 4:
+    raise SystemExit("expected source device and inode are required")
+phase = sys.argv[1]
+try:
+    EXPECTED_SOURCE_IDENTITY = {
+        "st_dev": int(sys.argv[2]),
+        "st_ino": int(sys.argv[3]),
+    }
+except ValueError as exc:
+    raise SystemExit("expected source identity must contain integers") from exc
+if (
+    EXPECTED_SOURCE_IDENTITY["st_dev"] < 0
+    or EXPECTED_SOURCE_IDENTITY["st_ino"] <= 0
+):
+    raise SystemExit(
+        "expected source identity must contain a nonnegative device and positive inode"
+    )
 if phase not in {"initial", "final"}:
     raise SystemExit("phase must be initial or final")
 copy_mutable_state(phase)
 print(f"selected {phase} state sync completed")
 SYNC_STATE_PY
+}
+
+read_source_root_identity() {
+  python3 -c '
+import os
+import stat
+import sys
+
+path = sys.argv[1]
+if not os.path.isabs(path) or os.path.normpath(path) != path:
+    raise SystemExit("source home must be a normalized absolute path")
+flags = os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC
+if hasattr(os, "O_NOFOLLOW"):
+    flags |= os.O_NOFOLLOW
+fd = os.open("/", os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC)
+try:
+    for component in path.split("/")[1:]:
+        if not component or component in (".", ".."):
+            raise SystemExit("invalid source home component")
+        next_fd = os.open(component, flags, dir_fd=fd)
+        os.close(fd)
+        fd = next_fd
+    info = os.fstat(fd)
+    if not stat.S_ISDIR(info.st_mode):
+        raise SystemExit("source home is not a directory")
+    print(f"{info.st_dev}|{info.st_ino}")
+finally:
+    os.close(fd)
+' "$SOURCE_HOME"
+}
+
+capture_source_root_identity() {
+  local identity extra
+  identity="$(read_source_root_identity)" \
+    || die "source home or an ancestor is missing, non-directory, or symlinked"
+  IFS='|' read -r SOURCE_ROOT_DEVICE SOURCE_ROOT_INODE extra <<<"$identity"
+  [[ "$SOURCE_ROOT_DEVICE" =~ ^[0-9]+$ ]] \
+    && [[ "$SOURCE_ROOT_INODE" =~ ^[1-9][0-9]*$ ]] && [ -z "$extra" ] \
+    || die "source home identity is invalid"
+}
+
+recheck_source_root_identity() {
+  local identity
+  identity="$(read_source_root_identity)" \
+    || die "source home boundary changed before migration Pod creation"
+  [ "$identity" = "${SOURCE_ROOT_DEVICE}|${SOURCE_ROOT_INODE}" ] \
+    || die "source home identity changed before migration Pod creation"
 }
 
 preflight() {
@@ -1501,10 +1788,12 @@ initial_sync() {
   require_candidate_pods_inert
   assert_no_dual_authority
   arm_cleanup_traps
+  capture_source_root_identity
   create_sqlite_staging
   require_candidate_target
   require_candidate_pods_inert
   assert_no_dual_authority
+  recheck_source_root_identity
   create_migration_pod
   require_candidate_target
   require_candidate_pods_inert
@@ -1520,6 +1809,8 @@ final_sync() {
   require_candidate_pods_inert
   assert_no_dual_authority
   arm_cleanup_traps
+  capture_source_root_identity
+  recheck_source_root_identity
   create_migration_pod
   require_candidate_target
   require_candidate_pods_inert
