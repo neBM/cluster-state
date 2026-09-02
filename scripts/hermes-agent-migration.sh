@@ -162,6 +162,7 @@ create_sqlite_staging() {
   timeout --foreground 3300s python3 - "$SOURCE_HOME" "$SQLITE_STAGING_DIR" <<'STAGE_SQLITE_PY'
 from __future__ import annotations
 
+import json
 import os
 import sqlite3
 import stat
@@ -194,10 +195,27 @@ if stat.S_IMODE(STAGING.stat().st_mode) != 0o700:
     raise RuntimeError("SQLite staging directory must have mode 0700")
 
 
-def backup_database(source: Path, relative: Path) -> None:
-    if not source.exists():
-        return
-    if source.is_symlink() or not source.is_file():
+def classify_path(path: Path) -> dict[str, object]:
+    try:
+        mode = path.lstat().st_mode
+    except FileNotFoundError:
+        return {"state": "absent", "type": None}
+    if stat.S_ISLNK(mode):
+        path_type = "symlink"
+    elif stat.S_ISREG(mode):
+        path_type = "regular_file"
+    elif stat.S_ISDIR(mode):
+        path_type = "directory"
+    else:
+        path_type = "other"
+    return {"state": "present", "type": path_type}
+
+
+def backup_database(source: Path, relative: Path) -> dict[str, object]:
+    record = classify_path(source)
+    if record["state"] == "absent":
+        return record
+    if record["type"] != "regular_file":
         raise RuntimeError(f"database is not a regular file: {relative}")
     target = STAGING / relative
     target.parent.mkdir(parents=True, exist_ok=True)
@@ -222,20 +240,41 @@ def backup_database(source: Path, relative: Path) -> None:
     for suffix in ("-wal", "-shm"):
         if Path(f"{target}{suffix}").exists():
             raise RuntimeError(f"SQLite backup retained a {suffix} sidecar: {relative}")
+    return record
 
 
+top_database_records: dict[str, object] = {}
+profile_records: dict[str, object] = {}
+manifest: dict[str, object] = {
+    "version": 1,
+    "databases": top_database_records,
+    "profiles": profile_records,
+}
 for name in DATABASES:
-    backup_database(SOURCE / name, Path(name))
+    top_database_records[name] = backup_database(SOURCE / name, Path(name))
 for profile in PROFILES:
     profile_source = SOURCE / "profiles" / profile
-    if not profile_source.exists():
-        continue
-    if profile_source.is_symlink() or not profile_source.is_dir():
+    profile_record = classify_path(profile_source)
+    if profile_record["state"] == "present" and profile_record["type"] != "directory":
         raise RuntimeError(f"profile is not a regular directory: {profile}")
-    for name in DATABASES:
-        relative = Path("profiles") / profile / name
-        backup_database(profile_source / name, relative)
+    database_records = {}
+    if profile_record["state"] == "present":
+        for name in DATABASES:
+            relative = Path("profiles") / profile / name
+            database_records[name] = backup_database(profile_source / name, relative)
+    else:
+        database_records = {name: {"state": "absent", "type": None} for name in DATABASES}
+    profile_records[profile] = {**profile_record, "databases": database_records}
 
+manifest_path = STAGING / ".manifest.json"
+manifest_temporary = STAGING / ".manifest.json.tmp"
+with manifest_temporary.open("x", encoding="utf-8") as stream:
+    json.dump(manifest, stream, sort_keys=True, separators=(",", ":"))
+    stream.write("\n")
+    stream.flush()
+    os.fsync(stream.fileno())
+os.chmod(manifest_temporary, 0o600)
+os.replace(manifest_temporary, manifest_path)
 complete = STAGING / ".complete"
 complete.touch(mode=0o600, exist_ok=False)
 STAGE_SQLITE_PY
@@ -319,11 +358,24 @@ EOF
 }
 
 cleanup_migration_pod() {
-  if [ -n "$MIGRATION_POD" ]; then
-    kubectl -n "$NAMESPACE" delete pod "$MIGRATION_POD" \
-      --ignore-not-found --wait=true --timeout=60s >/dev/null || true
-    MIGRATION_POD=""
+  local pod remaining
+  [ -n "$MIGRATION_POD" ] || return 0
+  pod="$MIGRATION_POD"
+  if ! kubectl -n "$NAMESPACE" delete pod "$pod" \
+    --ignore-not-found --wait=true --timeout=60s >/dev/null; then
+    printf 'WARNING: migration Pod deletion command failed: %s\n' "$pod" >&2
   fi
+  if ! remaining="$(
+    kubectl -n "$NAMESPACE" get pod "$pod" --ignore-not-found -o name 2>/dev/null
+  )"; then
+    printf 'WARNING: unable to verify migration Pod absence: %s\n' "$pod" >&2
+    return 1
+  fi
+  if [ -n "$remaining" ]; then
+    printf 'WARNING: migration Pod still exists: %s\n' "$pod" >&2
+    return 1
+  fi
+  MIGRATION_POD=""
 }
 
 cleanup_sqlite_staging() {
@@ -344,8 +396,14 @@ cleanup_sqlite_staging() {
 }
 
 cleanup_migration_resources() {
-  cleanup_migration_pod
-  cleanup_sqlite_staging
+  local status=0
+  if ! cleanup_migration_pod; then
+    status=1
+  fi
+  if ! cleanup_sqlite_staging; then
+    status=1
+  fi
+  return "$status"
 }
 
 arm_cleanup_traps() {
@@ -361,9 +419,11 @@ run_sync() {
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 import shutil
 import sqlite3
+import stat
 import sys
 from pathlib import Path
 
@@ -471,6 +531,182 @@ FORBIDDEN_NAMES = {
 }
 
 
+def classify_path(path: Path) -> dict[str, object]:
+    try:
+        mode = path.lstat().st_mode
+    except FileNotFoundError:
+        return {"state": "absent", "type": None}
+    if stat.S_ISLNK(mode):
+        path_type = "symlink"
+    elif stat.S_ISREG(mode):
+        path_type = "regular_file"
+    elif stat.S_ISDIR(mode):
+        path_type = "directory"
+    else:
+        path_type = "other"
+    return {"state": "present", "type": path_type}
+
+
+def require_manifest_record(
+    value: object, present_type: str, description: str
+) -> dict[str, object]:
+    if type(value) is not dict or set(value) != {"state", "type"}:
+        raise RuntimeError(f"invalid SQLite staging manifest record: {description}")
+    state = value["state"]
+    path_type = value["type"]
+    if state == "absent" and path_type is None:
+        return {"state": "absent", "type": None}
+    if state == "present" and type(path_type) is str and path_type == present_type:
+        return {"state": "present", "type": present_type}
+    raise RuntimeError(f"invalid SQLite staging manifest state: {description}")
+
+
+def load_staging_manifest() -> dict[str, object]:
+    manifest_path = SQLITE_BACKUPS / ".manifest.json"
+    if classify_path(manifest_path) != {"state": "present", "type": "regular_file"}:
+        raise RuntimeError("SQLite staging manifest is missing or not regular")
+    try:
+        with manifest_path.open(encoding="utf-8") as stream:
+            manifest = json.load(stream)
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        raise RuntimeError("SQLite staging manifest is unreadable") from exc
+    if type(manifest) is not dict or set(manifest) != {
+        "version",
+        "databases",
+        "profiles",
+    }:
+        raise RuntimeError("SQLite staging manifest shape differs")
+    if type(manifest["version"]) is not int or manifest["version"] != 1:
+        raise RuntimeError("SQLite staging manifest version differs")
+    database_values = manifest["databases"]
+    if type(database_values) is not dict or set(database_values) != set(DATABASES):
+        raise RuntimeError("SQLite staging top-level database membership differs")
+    databases = {
+        name: require_manifest_record(
+            database_values[name], "regular_file", f"database {name}"
+        )
+        for name in DATABASES
+    }
+    profile_values = manifest["profiles"]
+    if type(profile_values) is not dict or set(profile_values) != set(PROFILES):
+        raise RuntimeError("SQLite staging profile membership differs")
+    profiles = {}
+    for profile in PROFILES:
+        profile_value = profile_values[profile]
+        if type(profile_value) is not dict or set(profile_value) != {
+            "state",
+            "type",
+            "databases",
+        }:
+            raise RuntimeError(f"SQLite staging profile record differs: {profile}")
+        profile_record = require_manifest_record(
+            {"state": profile_value["state"], "type": profile_value["type"]},
+            "directory",
+            f"profile {profile}",
+        )
+        profile_database_values = profile_value["databases"]
+        if type(profile_database_values) is not dict or set(
+            profile_database_values
+        ) != set(DATABASES):
+            raise RuntimeError(
+                f"SQLite staging profile database membership differs: {profile}"
+            )
+        profile_databases = {
+            name: require_manifest_record(
+                profile_database_values[name],
+                "regular_file",
+                f"profile database {profile}/{name}",
+            )
+            for name in DATABASES
+        }
+        if profile_record["state"] == "absent" and any(
+            record["state"] != "absent" for record in profile_databases.values()
+        ):
+            raise RuntimeError(
+                f"absent profile has present staged databases: {profile}"
+            )
+        profiles[profile] = {**profile_record, "databases": profile_databases}
+    return {"version": 1, "databases": databases, "profiles": profiles}
+
+
+def validate_staged_database(path: Path, relative: Path) -> None:
+    if classify_path(path) != {"state": "present", "type": "regular_file"}:
+        raise RuntimeError(f"staged database is missing or not regular: {relative}")
+    connection = sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=30)
+    try:
+        if connection.execute("PRAGMA quick_check").fetchone() != ("ok",):
+            raise RuntimeError(f"staged database quick_check failed: {relative}")
+        if connection.execute("PRAGMA journal_mode").fetchone() != ("delete",):
+            raise RuntimeError(f"staged database is not self-contained: {relative}")
+    finally:
+        connection.close()
+
+
+def verify_initial_staging() -> dict[str, object]:
+    if classify_path(SQLITE_BACKUPS) != {"state": "present", "type": "directory"}:
+        raise RuntimeError("SQLite backup mount is not a regular directory")
+    complete = SQLITE_BACKUPS / ".complete"
+    if classify_path(complete) != {"state": "present", "type": "regular_file"}:
+        raise RuntimeError("SQLite backup staging is incomplete")
+    manifest = load_staging_manifest()
+    expected_files = {Path(".complete"), Path(".manifest.json")}
+    for name in DATABASES:
+        relative = Path(name)
+        record = manifest["databases"][name]
+        if classify_path(SOURCE / relative) != record:
+            raise RuntimeError(f"source database drifted after staging: {relative}")
+        staged = SQLITE_BACKUPS / relative
+        if record["state"] == "present":
+            expected_files.add(relative)
+            validate_staged_database(staged, relative)
+        elif classify_path(staged)["state"] != "absent":
+            raise RuntimeError(f"unexpected staged database: {relative}")
+    for profile in PROFILES:
+        profile_value = manifest["profiles"][profile]
+        profile_record = {
+            "state": profile_value["state"],
+            "type": profile_value["type"],
+        }
+        profile_relative = Path("profiles") / profile
+        if classify_path(SOURCE / profile_relative) != profile_record:
+            raise RuntimeError(f"source profile drifted after staging: {profile}")
+        for name in DATABASES:
+            relative = profile_relative / name
+            record = profile_value["databases"][name]
+            if profile_record["state"] == "present" and classify_path(
+                SOURCE / relative
+            ) != record:
+                raise RuntimeError(
+                    f"source profile database drifted after staging: {relative}"
+                )
+            staged = SQLITE_BACKUPS / relative
+            if record["state"] == "present":
+                expected_files.add(relative)
+                validate_staged_database(staged, relative)
+            elif classify_path(staged)["state"] != "absent":
+                raise RuntimeError(f"unexpected staged database: {relative}")
+    expected_directories = set()
+    for relative in expected_files:
+        parent = relative.parent
+        while parent != Path("."):
+            expected_directories.add(parent)
+            parent = parent.parent
+    actual_files = set()
+    actual_directories = set()
+    for path in SQLITE_BACKUPS.rglob("*"):
+        relative = path.relative_to(SQLITE_BACKUPS)
+        record = classify_path(path)
+        if record["type"] == "regular_file":
+            actual_files.add(relative)
+        elif record["type"] == "directory":
+            actual_directories.add(relative)
+        else:
+            raise RuntimeError(f"unexpected SQLite staging path type: {relative}")
+    if actual_files != expected_files or actual_directories != expected_directories:
+        raise RuntimeError("SQLite staging contents differ from manifest")
+    return manifest
+
+
 def remove_path(path: Path) -> None:
     if path.is_symlink() or path.is_file():
         path.unlink(missing_ok=True)
@@ -532,10 +768,12 @@ def copy_file(source: Path, target: Path) -> None:
 
 
 def copy_tree(source: Path, target: Path) -> None:
+    if source.is_symlink():
+        raise RuntimeError(f"selected directory is not a directory: {source.relative_to(SOURCE)}")
     if not source.exists():
         remove_path(target)
         return
-    if source.is_symlink() or not source.is_dir():
+    if not source.is_dir():
         raise RuntimeError(f"selected directory is not a directory: {source.relative_to(SOURCE)}")
     temporary = target.with_name(f".{target.name}.migration")
     remove_path(temporary)
@@ -547,22 +785,16 @@ def copy_tree(source: Path, target: Path) -> None:
     os.replace(temporary, target)
 
 
-def install_staged_database(source: Path, target: Path) -> None:
-    relative = source.relative_to(SOURCE)
+def install_staged_database(
+    relative: Path, target: Path, record: dict[str, object]
+) -> None:
     staged = SQLITE_BACKUPS / relative
-    if source.is_symlink():
-        raise RuntimeError(f"database is not a regular file: {relative}")
-    if not source.exists():
-        if staged.exists() or staged.is_symlink():
-            raise RuntimeError(f"unexpected staged database: {relative}")
+    if record["state"] == "absent":
         remove_path(target)
         for suffix in ("-wal", "-shm"):
             remove_path(Path(f"{target}{suffix}"))
         return
-    if not source.is_file():
-        raise RuntimeError(f"database is not a regular file: {relative}")
-    if staged.is_symlink() or not staged.is_file():
-        raise RuntimeError(f"staged database is missing or not regular: {relative}")
+    validate_staged_database(staged, relative)
     ensure_target_directory(target.parent)
     temporary = target.with_name(f".{target.name}.migration")
     remove_path(temporary)
@@ -577,22 +809,37 @@ def install_staged_database(source: Path, target: Path) -> None:
             raise RuntimeError(f"staged database is not self-contained: {relative}")
     finally:
         target_db.close()
-    os.chmod(temporary, source.stat().st_mode & 0o777)
+    os.chmod(temporary, staged.stat().st_mode & 0o777)
     os.chown(temporary, RUNTIME_UID, RUNTIME_GID)
     os.replace(temporary, target)
     for suffix in ("-wal", "-shm"):
         remove_path(Path(f"{target}{suffix}"))
 
 
-def copy_profile(profile: str, phase: str) -> None:
+def copy_profile(
+    profile: str, phase: str, staging_manifest: dict[str, object] | None
+) -> None:
     source_profile = SOURCE / "profiles" / profile
     target_profile = TARGET / "profiles" / profile
-    ensure_target_directory(target_profile.parent)
-    if not source_profile.exists():
+    source_record = classify_path(source_profile)
+    if phase == "initial":
+        if staging_manifest is None:
+            raise RuntimeError("initial sync is missing its verified staging manifest")
+        expected_profile = staging_manifest["profiles"][profile]
+        expected_record = {
+            "state": expected_profile["state"],
+            "type": expected_profile["type"],
+        }
+        if source_record != expected_record:
+            raise RuntimeError(f"source profile drifted during sync: {profile}")
+    else:
+        expected_profile = None
+    if source_record["state"] == "absent":
         remove_path(target_profile)
         return
-    if source_profile.is_symlink() or not source_profile.is_dir():
+    if source_record["type"] != "directory":
         raise RuntimeError(f"profile is not a regular directory: {profile}")
+    ensure_target_directory(target_profile.parent)
     temporary = TARGET / "profiles" / f".{profile}.migration"
     ensure_target_directory(temporary.parent)
     remove_path(temporary)
@@ -603,7 +850,10 @@ def copy_profile(profile: str, phase: str) -> None:
         copy_tree(source_profile / name, temporary / name)
     for name in DATABASES:
         if phase == "initial":
-            install_staged_database(source_profile / name, temporary / name)
+            relative = Path("profiles") / profile / name
+            install_staged_database(
+                relative, temporary / name, expected_profile["databases"][name]
+            )
         else:
             for suffix in ("", "-wal", "-shm"):
                 copy_file(Path(f"{source_profile / name}{suffix}"), Path(f"{temporary / name}{suffix}"))
@@ -615,12 +865,7 @@ def copy_profile(profile: str, phase: str) -> None:
 def copy_mutable_state(phase: str) -> None:
     if TARGET.is_symlink() or not TARGET.is_dir():
         raise RuntimeError("target PVC mount is not a regular directory")
-    if phase == "initial":
-        complete = SQLITE_BACKUPS / ".complete"
-        if SQLITE_BACKUPS.is_symlink() or not SQLITE_BACKUPS.is_dir():
-            raise RuntimeError("SQLite backup mount is not a regular directory")
-        if complete.is_symlink() or not complete.is_file():
-            raise RuntimeError("SQLite backup staging is incomplete")
+    staging_manifest = verify_initial_staging() if phase == "initial" else None
     os.chown(TARGET, RUNTIME_UID, RUNTIME_GID)
     for name in TOP_FILES:
         copy_file(SOURCE / name, TARGET / name)
@@ -630,10 +875,12 @@ def copy_mutable_state(phase: str) -> None:
     ensure_target_directory(profiles_target)
     os.chown(profiles_target, RUNTIME_UID, RUNTIME_GID)
     for profile in PROFILES:
-        copy_profile(profile, phase)
+        copy_profile(profile, phase, staging_manifest)
     for name in DATABASES:
         if phase == "initial":
-            install_staged_database(SOURCE / name, TARGET / name)
+            install_staged_database(
+                Path(name), TARGET / name, staging_manifest["databases"][name]
+            )
         else:
             for suffix in ("", "-wal", "-shm"):
                 copy_file(Path(f"{SOURCE / name}{suffix}"), Path(f"{TARGET / name}{suffix}"))
