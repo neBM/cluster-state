@@ -10,7 +10,7 @@ The image is pinned by tag and digest. The API and webhook are ClusterIP-only; t
 
 `scripts/hermes-agent-migration.sh` must run as Ben on Hestia with the normal user systemd session and `/home/ben/.kube/config`. It has no implicit mutation: every write requires one of the explicit `initial-sync`, `final-sync`, or `rollback` subcommands. `preflight` is read-only. Run `final-sync` and `rollback` from a separate SSH/TTY or transient user unit outside the running Hermes gateway process: an in-gateway terminal is intentionally fenced from stopping its own parent gateway.
 
-The sync is deliberately selective. It copies durable configuration, channel routing/thread state and aliases, webhook subscriptions and HMAC material, the allowlisted SQLite databases, pending-message recovery, sessions, skills, plugins, hooks, cron, memories, platform and pairing state, MCP tokens, scripts, plans, workflows, Kanban state, and only the five operational profiles. Nested symlinks are preserved without following them. It recursively excludes source checkouts/workspaces, `.git`, virtual environments, dependency trees, caches, logs, backups, checkpoints, temporary directories, profile `bin`, and profile LSP state. The initial sync uses Python's SQLite backup API for live databases; only the stopped-source final sync copies exact database/WAL/SHM files.
+The sync is deliberately selective. It copies durable configuration, channel routing/thread state and aliases, webhook subscriptions and HMAC material, the allowlisted SQLite databases, pending-message recovery, sessions, skills, plugins, hooks, cron, memories, platform and pairing state, MCP tokens, scripts, plans, workflows, Kanban state, and only the five operational profiles. Nested symlinks are preserved without following them. It recursively excludes source checkouts/workspaces, `.git`, virtual environments, dependency trees, caches, logs, backups, checkpoints, temporary directories, profile `bin`, and profile LSP state. For the initial sync, the script first creates verified SQLite online backups on Hestia in a bounded host-side step using a fresh mode-0700 directory under `/var/tmp`, then mounts that exact staging directory read-only so the migration pod never opens live WAL databases through its read-only source mount. The staged files are checksum- and `quick_check`-verified again on the PVC. The stopped-source final sync still copies the exact database/WAL/SHM files. Migration-pod and SQLite-staging cleanup is armed before staging and runs on success, failure, or signal.
 
 ## Commit 1: provision an inert candidate
 
@@ -44,7 +44,7 @@ The sync is deliberately selective. It copies durable configuration, channel rou
    scripts/hermes-agent-migration.sh preflight
    ```
 
-   The source user service may remain active for this step because the target is inert. The ephemeral migration pod mounts `/home/ben/.hermes` read-only and is deleted after the bounded operation.
+   The source user service may remain active for this step because the target is inert. Before creating the ephemeral migration pod, the script writes self-contained SQLite online backups into a private transient Hestia directory outside `/home/ben/.hermes`. The pod mounts `/home/ben/.hermes` read-only for non-database state and mounts only that exact staging directory read-only for initial-sync databases; both the pod and staging directory are removed by the armed cleanup trap.
 
 4. Smoke the copied state through a one-shot CLI while keeping the gateway off:
 

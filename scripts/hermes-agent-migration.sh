@@ -10,6 +10,8 @@ PVC_NAME="hermes-agent-state"
 SELECTOR="app.kubernetes.io/name=hermes-agent"
 IMAGE="nousresearch/hermes-agent:v2026.8.16.2@sha256:a39fc11620213e3669a327aff5c6cb1eb2b8a238c6044e33e7ef8885833d89a7"
 MIGRATION_POD=""
+SQLITE_STAGING_ROOT="/var/tmp"
+SQLITE_STAGING_DIR=""
 KUBECONFIG="${HERMES_MIGRATION_KUBECONFIG:-/home/ben/.kube/config}"
 export KUBECONFIG
 
@@ -42,6 +44,7 @@ check_prerequisites() {
   need_command python3
   need_command systemctl
   need_command timeout
+  need_command mktemp
   local host
   host="$(hostname -s | tr '[:upper:]' '[:lower:]')"
   [ "$host" = "hestia" ] || die "this command must run on hestia (found $host)"
@@ -153,7 +156,102 @@ wait_for_source_inactive() {
   die "source unit did not reach inactive with MainPID=0"
 }
 
+create_sqlite_staging() {
+  SQLITE_STAGING_DIR="$(mktemp -d -- "${SQLITE_STAGING_ROOT}/hermes-agent-sqlite.XXXXXXXX")"
+  chmod 0700 "$SQLITE_STAGING_DIR"
+  timeout --foreground 3300s python3 - "$SOURCE_HOME" "$SQLITE_STAGING_DIR" <<'STAGE_SQLITE_PY'
+from __future__ import annotations
+
+import os
+import sqlite3
+import stat
+import sys
+from pathlib import Path
+
+if len(sys.argv) != 3:
+    raise SystemExit("source and staging paths are required")
+
+SOURCE = Path(sys.argv[1]).resolve()
+STAGING = Path(sys.argv[2]).resolve()
+DATABASES = (
+    "state.db",
+    "hermes_state.db",
+    "projects.db",
+    "kanban.db",
+    "memory_store.db",
+    "verification_evidence.db",
+    "response_store.db",
+)
+PROFILES = ("codexlane", "implementer", "observer", "orchestrator", "reviewer")
+
+try:
+    STAGING.relative_to(SOURCE)
+except ValueError:
+    pass
+else:
+    raise RuntimeError("SQLite staging directory must be outside the source home")
+if stat.S_IMODE(STAGING.stat().st_mode) != 0o700:
+    raise RuntimeError("SQLite staging directory must have mode 0700")
+
+
+def backup_database(source: Path, relative: Path) -> None:
+    if not source.exists():
+        return
+    if source.is_symlink() or not source.is_file():
+        raise RuntimeError(f"database is not a regular file: {relative}")
+    target = STAGING / relative
+    target.parent.mkdir(parents=True, exist_ok=True)
+    current = target.parent
+    while current != STAGING:
+        os.chmod(current, 0o700)
+        current = current.parent
+    temporary = target.with_name(f".{target.name}.backup")
+    source_db = sqlite3.connect(f"file:{source}?mode=ro", uri=True, timeout=30)
+    target_db = sqlite3.connect(temporary)
+    try:
+        source_db.backup(target_db)
+        if target_db.execute("PRAGMA journal_mode=DELETE").fetchone() != ("delete",):
+            raise RuntimeError(f"SQLite backup is not self-contained: {relative}")
+        if target_db.execute("PRAGMA quick_check").fetchone() != ("ok",):
+            raise RuntimeError(f"SQLite backup quick_check failed: {relative}")
+    finally:
+        target_db.close()
+        source_db.close()
+    os.chmod(temporary, 0o600)
+    os.replace(temporary, target)
+    for suffix in ("-wal", "-shm"):
+        if Path(f"{target}{suffix}").exists():
+            raise RuntimeError(f"SQLite backup retained a {suffix} sidecar: {relative}")
+
+
+for name in DATABASES:
+    backup_database(SOURCE / name, Path(name))
+for profile in PROFILES:
+    profile_source = SOURCE / "profiles" / profile
+    if not profile_source.exists():
+        continue
+    if profile_source.is_symlink() or not profile_source.is_dir():
+        raise RuntimeError(f"profile is not a regular directory: {profile}")
+    for name in DATABASES:
+        relative = Path("profiles") / profile / name
+        backup_database(profile_source / name, relative)
+
+complete = STAGING / ".complete"
+complete.touch(mode=0o600, exist_ok=False)
+STAGE_SQLITE_PY
+}
+
 create_migration_pod() {
+  local sqlite_mount_yaml="" sqlite_volume_yaml=""
+  if [ -n "$SQLITE_STAGING_DIR" ]; then
+    sqlite_mount_yaml='    - name: sqlite-backups
+      mountPath: /sqlite-backups
+      readOnly: true'
+    sqlite_volume_yaml="  - name: sqlite-backups
+    hostPath:
+      path: ${SQLITE_STAGING_DIR}
+      type: Directory"
+  fi
   MIGRATION_POD="$(kubectl create -f - -o 'jsonpath={.metadata.name}' <<EOF
 apiVersion: v1
 kind: Pod
@@ -199,6 +297,7 @@ spec:
       mountPath: /target
     - name: tmp
       mountPath: /tmp
+${sqlite_mount_yaml}
   volumes:
   - name: source
     hostPath:
@@ -209,12 +308,10 @@ spec:
       claimName: ${PVC_NAME}
   - name: tmp
     emptyDir: {}
+${sqlite_volume_yaml}
 EOF
 )"
   [ -n "$MIGRATION_POD" ] || die "failed to create migration pod"
-  trap cleanup_migration_pod EXIT
-  trap 'exit 130' INT
-  trap 'exit 143' TERM
   if ! kubectl -n "$NAMESPACE" wait --for=condition=Ready "pod/$MIGRATION_POD" --timeout=120s; then
     kubectl -n "$NAMESPACE" describe "pod/$MIGRATION_POD" >&2 || true
     die "migration pod did not become ready"
@@ -229,10 +326,38 @@ cleanup_migration_pod() {
   fi
 }
 
+cleanup_sqlite_staging() {
+  [ -n "$SQLITE_STAGING_DIR" ] || return 0
+  case "$SQLITE_STAGING_DIR" in
+    "$SQLITE_STAGING_ROOT"/hermes-agent-sqlite.*)
+      if ! rm -rf -- "$SQLITE_STAGING_DIR"; then
+        printf 'WARNING: failed to remove SQLite staging directory\n' >&2
+        return 1
+      fi
+      ;;
+    *)
+      printf 'WARNING: refusing unexpected SQLite staging cleanup path\n' >&2
+      return 1
+      ;;
+  esac
+  SQLITE_STAGING_DIR=""
+}
+
+cleanup_migration_resources() {
+  cleanup_migration_pod
+  cleanup_sqlite_staging
+}
+
+arm_cleanup_traps() {
+  trap cleanup_migration_resources EXIT
+  trap 'exit 130' INT
+  trap 'exit 143' TERM
+}
+
 run_sync() {
   local phase="$1"
   timeout --foreground 3300s \
-    kubectl -n "$NAMESPACE" exec -i "$MIGRATION_POD" -- python3 - "$phase" <<'PY'
+    kubectl -n "$NAMESPACE" exec -i "$MIGRATION_POD" -- python3 - "$phase" <<'SYNC_STATE_PY'
 from __future__ import annotations
 
 import hashlib
@@ -244,6 +369,7 @@ from pathlib import Path
 
 SOURCE = Path("/source")
 TARGET = Path("/target")
+SQLITE_BACKUPS = Path("/sqlite-backups")
 RUNTIME_UID = 10000
 RUNTIME_GID = 10000
 TOP_FILES = (
@@ -421,26 +547,36 @@ def copy_tree(source: Path, target: Path) -> None:
     os.replace(temporary, target)
 
 
-def backup_database(source: Path, target: Path) -> None:
+def install_staged_database(source: Path, target: Path) -> None:
+    relative = source.relative_to(SOURCE)
+    staged = SQLITE_BACKUPS / relative
+    if source.is_symlink():
+        raise RuntimeError(f"database is not a regular file: {relative}")
     if not source.exists():
+        if staged.exists() or staged.is_symlink():
+            raise RuntimeError(f"unexpected staged database: {relative}")
         remove_path(target)
         for suffix in ("-wal", "-shm"):
             remove_path(Path(f"{target}{suffix}"))
         return
-    if source.is_symlink() or not source.is_file():
-        raise RuntimeError(f"database is not a regular file: {source.relative_to(SOURCE)}")
+    if not source.is_file():
+        raise RuntimeError(f"database is not a regular file: {relative}")
+    if staged.is_symlink() or not staged.is_file():
+        raise RuntimeError(f"staged database is missing or not regular: {relative}")
     ensure_target_directory(target.parent)
     temporary = target.with_name(f".{target.name}.migration")
     remove_path(temporary)
-    source_db = sqlite3.connect(f"file:{source}?mode=ro", uri=True, timeout=30)
-    target_db = sqlite3.connect(temporary)
+    shutil.copy2(staged, temporary)
+    if staged.stat().st_size != temporary.stat().st_size or digest(staged) != digest(temporary):
+        raise RuntimeError(f"staged database copy verification failed: {relative}")
+    target_db = sqlite3.connect(f"file:{temporary}?mode=ro", uri=True, timeout=30)
     try:
-        source_db.backup(target_db)
         if target_db.execute("PRAGMA quick_check").fetchone() != ("ok",):
-            raise RuntimeError(f"SQLite backup quick_check failed: {source.relative_to(SOURCE)}")
+            raise RuntimeError(f"staged database quick_check failed: {relative}")
+        if target_db.execute("PRAGMA journal_mode").fetchone() != ("delete",):
+            raise RuntimeError(f"staged database is not self-contained: {relative}")
     finally:
         target_db.close()
-        source_db.close()
     os.chmod(temporary, source.stat().st_mode & 0o777)
     os.chown(temporary, RUNTIME_UID, RUNTIME_GID)
     os.replace(temporary, target)
@@ -467,7 +603,7 @@ def copy_profile(profile: str, phase: str) -> None:
         copy_tree(source_profile / name, temporary / name)
     for name in DATABASES:
         if phase == "initial":
-            backup_database(source_profile / name, temporary / name)
+            install_staged_database(source_profile / name, temporary / name)
         else:
             for suffix in ("", "-wal", "-shm"):
                 copy_file(Path(f"{source_profile / name}{suffix}"), Path(f"{temporary / name}{suffix}"))
@@ -479,6 +615,12 @@ def copy_profile(profile: str, phase: str) -> None:
 def copy_mutable_state(phase: str) -> None:
     if TARGET.is_symlink() or not TARGET.is_dir():
         raise RuntimeError("target PVC mount is not a regular directory")
+    if phase == "initial":
+        complete = SQLITE_BACKUPS / ".complete"
+        if SQLITE_BACKUPS.is_symlink() or not SQLITE_BACKUPS.is_dir():
+            raise RuntimeError("SQLite backup mount is not a regular directory")
+        if complete.is_symlink() or not complete.is_file():
+            raise RuntimeError("SQLite backup staging is incomplete")
     os.chown(TARGET, RUNTIME_UID, RUNTIME_GID)
     for name in TOP_FILES:
         copy_file(SOURCE / name, TARGET / name)
@@ -491,7 +633,7 @@ def copy_mutable_state(phase: str) -> None:
         copy_profile(profile, phase)
     for name in DATABASES:
         if phase == "initial":
-            backup_database(SOURCE / name, TARGET / name)
+            install_staged_database(SOURCE / name, TARGET / name)
         else:
             for suffix in ("", "-wal", "-shm"):
                 copy_file(Path(f"{SOURCE / name}{suffix}"), Path(f"{TARGET / name}{suffix}"))
@@ -503,7 +645,7 @@ if phase not in {"initial", "final"}:
     raise SystemExit("phase must be initial or final")
 copy_mutable_state(phase)
 print(f"selected {phase} state sync completed")
-PY
+SYNC_STATE_PY
 }
 
 preflight() {
@@ -523,11 +665,16 @@ initial_sync() {
   require_candidate_target
   require_candidate_pods_inert
   assert_no_dual_authority
+  arm_cleanup_traps
+  create_sqlite_staging
+  require_candidate_target
+  require_candidate_pods_inert
+  assert_no_dual_authority
   create_migration_pod
   require_candidate_target
   require_candidate_pods_inert
   run_sync initial
-  cleanup_migration_pod
+  cleanup_migration_resources
   trap - EXIT INT TERM
 }
 
@@ -537,6 +684,7 @@ final_sync() {
   require_candidate_target
   require_candidate_pods_inert
   assert_no_dual_authority
+  arm_cleanup_traps
   create_migration_pod
   require_candidate_target
   require_candidate_pods_inert
@@ -546,7 +694,7 @@ final_sync() {
   require_candidate_pods_inert
   assert_no_dual_authority
   run_sync final
-  cleanup_migration_pod
+  cleanup_migration_resources
   trap - EXIT INT TERM
   printf 'final sync complete; source remains stopped and target remains candidate\n'
 }
