@@ -269,6 +269,7 @@ package:feedback-migrations:
       - scripts/test_validate_hestia_ci_store_gc_alert.py
       - scripts/test_validate_hestia_ci_store_gc_alert.py.lock
       - scripts/test_validate_ibgateway_manifest.py
+      - scripts/test_validate_versioned_migration_jobs.py
       - scripts/validate_factorio_manifest.py
       - scripts/validate_factorio_manifest.py.lock
       - scripts/validate_hestia_ci_store_gc_alert.py
@@ -298,6 +299,7 @@ package:feedback-migrations:
       - scripts/test_validate_hestia_ci_store_gc_alert.py
       - scripts/test_validate_hestia_ci_store_gc_alert.py.lock
       - scripts/test_validate_ibgateway_manifest.py
+      - scripts/test_validate_versioned_migration_jobs.py
       - scripts/validate_factorio_manifest.py
       - scripts/validate_factorio_manifest.py.lock
       - scripts/validate_hestia_ci_store_gc_alert.py
