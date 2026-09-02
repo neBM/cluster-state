@@ -1,4 +1,8 @@
 #!/usr/bin/env python3
+# /// script
+# requires-python = ">=3.11"
+# dependencies = ["PyYAML==6.0.3"]
+# ///
 
 from __future__ import annotations
 
@@ -6,14 +10,15 @@ import re
 import subprocess
 import sys
 from pathlib import Path
+from typing import Any
+
+import yaml
+from yaml.constructor import ConstructorError
+from yaml.nodes import MappingNode
 
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 GITLAB_KUSTOMIZATION = REPO_ROOT / "apps/gitlab/kustomization.yaml"
-GITLAB_RELEASE_LITERAL_RE = re.compile(
-    r"^\s*-\s*(?P<key>appVersion|migrationVersion)=(?P<version>\S+)\s*$",
-    re.MULTILINE,
-)
 GITLAB_VERSION_RE = re.compile(
     r"^v(?P<major>[1-9]\d*)\.(?P<minor>[0-9]|1[01])\.(?P<patch>0|[1-9]\d*)$"
 )
@@ -23,10 +28,83 @@ TARGETS = (
 )
 
 
+class UniqueKeySafeLoader(yaml.SafeLoader):
+    pass
+
+
+def construct_unique_mapping(
+    loader: UniqueKeySafeLoader, node: MappingNode, deep: bool = False
+) -> dict[Any, Any]:
+    loader.flatten_mapping(node)
+    mapping: dict[Any, Any] = {}
+    for key_node, value_node in node.value:
+        key = loader.construct_object(key_node, deep=deep)
+        try:
+            duplicate = key in mapping
+        except TypeError as exc:
+            raise ConstructorError(
+                "while constructing a mapping",
+                node.start_mark,
+                "found unhashable key",
+                key_node.start_mark,
+            ) from exc
+        if duplicate:
+            raise ConstructorError(
+                "while constructing a mapping",
+                node.start_mark,
+                f"duplicate mapping key {key!r}",
+                key_node.start_mark,
+            )
+        mapping[key] = loader.construct_object(value_node, deep=deep)
+    return mapping
+
+
+UniqueKeySafeLoader.add_constructor(
+    yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG,
+    construct_unique_mapping,
+)
+
+
 def parse_gitlab_release_versions(kustomization: str) -> tuple[str, str]:
+    try:
+        document = yaml.load(kustomization, Loader=UniqueKeySafeLoader)
+    except yaml.YAMLError as exc:
+        raise ValueError(f"invalid Kustomization YAML: {exc}") from exc
+
+    if type(document) is not dict:
+        raise ValueError("expected Kustomization to be a mapping")
+
+    generators = document.get("configMapGenerator")
+    if type(generators) is not list:
+        raise ValueError("expected configMapGenerator to be a list")
+
+    release_generators: list[dict[str, Any]] = []
+    for index, generator in enumerate(generators):
+        if type(generator) is not dict:
+            raise ValueError(f"configMapGenerator[{index}] must be a mapping")
+        name = generator.get("name")
+        if type(name) is not str:
+            raise ValueError(f"configMapGenerator[{index}].name must be a string")
+        if name == "gitlab-release":
+            release_generators.append(generator)
+
+    if len(release_generators) != 1:
+        raise ValueError(
+            "expected exactly one configMapGenerator named 'gitlab-release', "
+            f"found {len(release_generators)}"
+        )
+
+    literals = release_generators[0].get("literals")
+    if type(literals) is not list:
+        raise ValueError("gitlab-release literals must be a list")
+
     versions: dict[str, list[str]] = {"appVersion": [], "migrationVersion": []}
-    for match in GITLAB_RELEASE_LITERAL_RE.finditer(kustomization):
-        versions[match.group("key")].append(match.group("version"))
+    for index, literal in enumerate(literals):
+        if type(literal) is not str:
+            raise ValueError(f"gitlab-release literals[{index}] must be a string")
+        key, separator, value = literal.partition("=")
+        if separator and key in versions:
+            versions[key].append(value)
 
     for key, values in versions.items():
         if len(values) != 1:

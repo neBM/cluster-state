@@ -1,4 +1,8 @@
 #!/usr/bin/env python3
+# /// script
+# requires-python = ">=3.11"
+# dependencies = ["PyYAML==6.0.3"]
+# ///
 
 from __future__ import annotations
 
@@ -11,18 +15,92 @@ from validate_versioned_migration_jobs import (
 
 
 class GitLabVersionInvariantTests(unittest.TestCase):
-    def test_parses_release_versions(self) -> None:
+    def test_parses_quoted_and_unquoted_release_versions(self) -> None:
         app_version, migration_version = parse_gitlab_release_versions(
             """
-            literals:
-            - appVersion=v19.2.4
-            - migrationVersion=v19.3.0
-            - migrationRunSuffix=r1
+            apiVersion: kustomize.config.k8s.io/v1beta1
+            kind: Kustomization
+            configMapGenerator:
+            - name: gitlab-release
+              literals:
+              - "appVersion=v19.2.4"
+              - migrationVersion=v19.3.0
+              - migrationRunSuffix=r1
             """
         )
 
         self.assertEqual(app_version, "v19.2.4")
         self.assertEqual(migration_version, "v19.3.0")
+
+    def test_decoy_generator_cannot_mask_effective_release_drift(self) -> None:
+        versions = parse_gitlab_release_versions(
+            """
+            apiVersion: kustomize.config.k8s.io/v1beta1
+            kind: Kustomization
+            configMapGenerator:
+            - name: gitlab-release
+              literals:
+              - "appVersion=v19.1.0"
+              - migrationVersion=v19.3.0
+            - name: unrelated-release
+              literals:
+              - appVersion=v19.3.0
+            """
+        )
+
+        self.assertEqual(versions, ("v19.1.0", "v19.3.0"))
+        with self.assertRaisesRegex(ValueError, "more than one minor release ahead"):
+            validate_gitlab_version_drift(*versions)
+
+    def test_rejects_duplicate_gitlab_release_generators(self) -> None:
+        with self.assertRaisesRegex(
+            ValueError,
+            "expected exactly one configMapGenerator named 'gitlab-release', found 2",
+        ):
+            parse_gitlab_release_versions(
+                """
+                configMapGenerator:
+                - name: gitlab-release
+                  literals:
+                  - appVersion=v19.3.0
+                - name: gitlab-release
+                  literals:
+                  - migrationVersion=v19.3.0
+                """
+            )
+
+    def test_rejects_duplicate_release_literals(self) -> None:
+        with self.assertRaisesRegex(
+            ValueError, "expected exactly one appVersion literal, found 2"
+        ):
+            parse_gitlab_release_versions(
+                """
+                configMapGenerator:
+                - name: gitlab-release
+                  literals:
+                  - appVersion=v19.3.0
+                  - "appVersion=v19.2.4"
+                  - migrationVersion=v19.3.0
+                """
+            )
+
+    def test_rejects_duplicate_yaml_configuration_keys(self) -> None:
+        with self.assertRaisesRegex(
+            ValueError, "duplicate mapping key 'configMapGenerator'"
+        ):
+            parse_gitlab_release_versions(
+                """
+                configMapGenerator:
+                - name: gitlab-release
+                  literals:
+                  - appVersion=v19.3.0
+                  - migrationVersion=v19.3.0
+                configMapGenerator:
+                - name: unrelated-release
+                  literals:
+                  - appVersion=v19.1.0
+                """
+            )
 
     def test_rejects_malformed_versions(self) -> None:
         for version in ("19.3.0", "v19.3", "v19.three.0"):
