@@ -1929,6 +1929,10 @@ def validate_staged_sqlite_regression() -> None:
         target = root / "target"
         database = source / "profiles" / "implementer" / "projects.db"
         database.parent.mkdir(parents=True)
+        top_config = b"top-level-selected-regular-file\n"
+        profile_config = b"profile-selected-regular-file\n"
+        (source / "config.yaml").write_bytes(top_config)
+        (database.parent / "config.yaml").write_bytes(profile_config)
         staging.mkdir(mode=0o700)
         target.mkdir()
 
@@ -1967,6 +1971,12 @@ def validate_staged_sqlite_regression() -> None:
         if synced.returncode:
             fail(f"staged initial sync failed:\n{synced.stderr}")
 
+        if (target / "config.yaml").read_bytes() != top_config:
+            fail("initial sync did not copy exact top-level selected regular-file bytes")
+        if (
+            target / "profiles" / "implementer" / "config.yaml"
+        ).read_bytes() != profile_config:
+            fail("initial sync did not copy exact profile selected regular-file bytes")
         copied = target / "profiles" / "implementer" / "projects.db"
         with sqlite3.connect(f"file:{copied}?mode=ro", uri=True) as connection:
             if connection.execute("PRAGMA quick_check").fetchone() != ("ok",):
@@ -1987,8 +1997,10 @@ def assert_post_preflight_source_swap_is_safe(
 ) -> None:
     copied_profile = target / "profiles" / "implementer" / "config.yaml"
     if result.returncode:
-        assert_rejected_before_target_mutation(result, sentinel, description)
-    elif not copied_profile.is_file() or copied_profile.read_text() != expected_profile_value:
+        fail(f"{description} failed instead of copying retained source data:\n{result.stderr}")
+    if not sentinel.is_file() or sentinel.read_text() != "new-top-level":
+        fail(f"{description} did not copy the retained source-root file")
+    if not copied_profile.is_file() or copied_profile.read_text() != expected_profile_value:
         fail(f"{description} did not stay bound to the retained profile inode")
     for path in target.rglob("*"):
         if path.is_file() and path.read_text(errors="ignore") == external_value:

@@ -1448,12 +1448,12 @@ def chown_tree(path: Path) -> None:
                 )
 
 
-def digest(path: Path) -> bytes:
+def digest(path: Path) -> str:
     value = hashlib.sha256()
     with path.open("rb") as stream:
         for chunk in iter(lambda: stream.read(1024 * 1024), b""):
             value.update(chunk)
-    return value.digest()
+    return value.hexdigest()
 
 
 def descriptor_path(descriptor: int) -> Path:
