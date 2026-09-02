@@ -12,4 +12,4 @@ resources:
 
 images:
 - name: "victoriametrics/victoria-metrics"
-  newTag: "v1.150.0"
+  newTag: "v1.151.0"
