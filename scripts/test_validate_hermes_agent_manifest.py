@@ -248,7 +248,7 @@ def validate_manifests() -> None:
     if re.search(r"^kind: (Ingress|IngressRoute)\b", rendered, re.MULTILINE):
         fail("Hermes package must not render an Ingress or IngressRoute")
 
-    require(kustomization, "- mode=active", "active deployment")
+    require(kustomization, "- mode=candidate", "candidate default")
     if len(re.findall(r"^\s*- mode=", kustomization, re.MULTILINE)) != 1:
         fail("deployment mode must be one GitOps literal")
     require(kustomization, "name: hermes-agent-state", "generated state ConfigMap")
