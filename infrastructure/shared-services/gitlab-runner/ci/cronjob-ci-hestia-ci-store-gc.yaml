@@ -96,8 +96,8 @@ spec:
               podman_store=(
                 podman
                 --tmpdir=/tmp/libpod
-                --root=/var/lib/containers/storage
-                --runroot=/run/containers/storage
+                --root=/var/lib/ci-containers-nocow/storage
+                --runroot=/run/ci-containers-prune
                 --storage-driver=overlay
               )
               "${podman_store[@]}" container prune --force --filter until=168h
@@ -161,10 +161,14 @@ spec:
               runAsNonRoot: false
               runAsUser: 0
             volumeMounts:
-            - mountPath: /var/lib/containers/storage
+            - mountPath: /var/lib/ci-containers-nocow/storage
               name: podman-storage
             - mountPath: /run/containers
               name: run
+            - mountPath: /run/ci-containers-prune
+              name: podman-runroot
+            - mountPath: /run/libpod
+              name: libpod-tmp
             - mountPath: /run/lock
               name: run-lock
             - mountPath: /tmp
@@ -184,6 +188,10 @@ spec:
             name: podman-storage
           - emptyDir: {}
             name: run
+          - emptyDir: {}
+            name: podman-runroot
+          - emptyDir: {}
+            name: libpod-tmp
           - emptyDir: {medium: Memory}
             name: run-lock
           - emptyDir: {}
