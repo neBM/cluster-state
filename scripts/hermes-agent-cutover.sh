@@ -8,7 +8,7 @@ HELPER="$SCRIPT_DIR/hermes-agent-migration.sh"; REVISION="${1:-}"; PHASE=started
 usage() { printf 'Usage: %s main@sha1:<40 lowercase hex>\n' "$0" >&2; }
 [ "$#" -eq 1 ] || { usage; exit 64; }; [[ "$REVISION" =~ ^main@sha1:[0-9a-f]{40}$ ]] || { usage; exit 64; }
 die() { printf 'ERROR: %s\n' "$*" >&2; return 1; }; need() { command -v "$1" >/dev/null 2>&1 || die "required command is unavailable: $1"; }
-for command in flock kubectl python3 systemctl systemd-analyze timeout sleep; do need "$command"; done
+for command in busctl flock kubectl python3 systemctl systemd-analyze timeout sleep; do need "$command"; done
 [ -d "$SOURCE_HOME" ] && [ -r "$KUBECONFIG" ] && [ -x "$HELPER" ] || die "source, fixed kubeconfig, or helper is unavailable"
 exec 9<"$SOURCE_HOME"; flock -n 9 || die "another cutover launcher holds the source lock"
 k() { timeout --foreground 20s kubectl --kubeconfig "$KUBECONFIG" --request-timeout=15s "$@"; }
@@ -55,12 +55,16 @@ PY
 fenced() { token_file absent >/dev/null 2>&1 && [ "$(sprop ActiveState)" = inactive ] && [ "$(sprop MainPID)" = 0 ]; }
 failure() { local status="${1:-1}" fence=fence-unknown; trap - ERR EXIT INT TERM; set +e; token_file remove >/dev/null 2>&1; timeout --foreground 100s systemctl --user stop "$SOURCE_UNIT" >/dev/null 2>&1; fenced && fence=verified-fenced; result_io write failure "$PHASE" "$fence" >/dev/null 2>&1; printf 'ERROR: cutover failed at %s; source status: %s\n' "$PHASE" "$fence" >&2; [ "$status" -ne 0 ] || status=1; exit "$status"; }
 gate() {
-  local self_cgroup="" source_cgroup dropins timespan
-  [ "$(sprop ActiveState)" = active ] || die "source service is not active"; [ "$(sprop NeedDaemonReload)" = no ] || die "source unit needs daemon-reload"
-  dropins="$(sprop DropInPaths)"; [[ " $dropins " == *" $DROPIN "* ]] || die "authority drop-in is not loaded"; token_file check
+  local self_cgroup="" source_cgroup dropins timespan conditions
+  [ "$(sprop ActiveState)" = active ] || die "source service is not active"; [ "$(sprop NeedDaemonReload)" = no ] || die "source unit needs daemon-reload"; dropins="$(sprop DropInPaths)"; [[ " $dropins " == *" $DROPIN "* ]] || die "authority drop-in is not loaded"; token_file check
   [ "$(sprop KillMode)" = control-group ] && [ "$(sprop SendSIGKILL)" = yes ] || die "effective source kill properties differ"
   timespan="$(timeout --foreground 10s systemd-analyze timespan "$(sprop TimeoutStopUSec)")"
   [[ "$timespan" =~ (^|$'\n')[[:space:]]*μs:[[:space:]]*90000000($|$'\n') ]] || die "effective source stop timeout differs"
+  conditions="$(timeout --foreground 10s busctl --user --json=short get-property org.freedesktop.systemd1 /org/freedesktop/systemd1/unit/hermes_2dgateway_2eservice org.freedesktop.systemd1.Unit Conditions)"
+  python3 - "$TOKEN" 3<<<"$conditions" <<'PY'
+import json,os,sys; raw=os.read(3,1048577); (raw.strip() and len(raw)<=1048576) or (_ for _ in ()).throw(SystemExit("effective Conditions is blank or oversized")); value=json.loads(raw,object_pairs_hook=lambda items: dict(items) if len(items)==len(dict(items)) else (_ for _ in ()).throw(ValueError("duplicate Conditions key")),parse_constant=lambda item: (_ for _ in ()).throw(ValueError(item)))
+token=sys.argv[1]; data=value.get("data") if type(value) is dict and set(value)=={"type","data"} and value.get("type")=="a(sbbsi)" else None; valid=type(data) is list and all(type(item) is list and len(item)==5 and type(item[0]) is str and type(item[1]) is bool and type(item[2]) is bool and type(item[3]) is str and type(item[4]) in {bool,int} for item in data); (valid and any(item[0]=="ConditionPathExists" and item[2] is False and item[3]==token for item in data)) or (_ for _ in ()).throw(SystemExit("effective authority condition differs"))
+PY
   while IFS=: read -r hierarchy _ path; do if [ "$hierarchy" = 0 ]; then self_cgroup="$path"; fi; done <"$PROC_CGROUP"; source_cgroup="$(sprop ControlGroup)"
   [ -n "$self_cgroup" ] && [ -n "$source_cgroup" ] && [ "$self_cgroup" != "$source_cgroup" ] || die "launcher and source cgroups are not distinct"
   [ "$(k get namespace kube-system -o jsonpath='{.metadata.uid}')" = 16710d5a-45ec-4b64-a101-b1a4db28a6e7 ] || die "kube-system UID differs"

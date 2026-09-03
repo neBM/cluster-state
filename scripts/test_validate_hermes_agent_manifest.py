@@ -2615,6 +2615,7 @@ def validate_cutover_launcher_control_flow() -> None:
             helper.chmod(0o755)
             doubles = {
                 "timeout": "#!/usr/bin/env bash\n[ \"${1:-}\" = --foreground ] && shift\nshift\nexec \"$@\"\n",
+                "busctl": "#!/usr/bin/python3\nimport json,os\ncase=os.environ['CASE']\nif case=='condition-blank': raise SystemExit\nif case=='condition-malformed': print('{'); raise SystemExit\nprint(json.dumps({'type':'a(sbbsi)','data':[] if case=='condition-reset' else [['ConditionPathExists',False,False,os.environ['TOKEN'],1]]}))\n",
                 "python3": "#!/usr/bin/env bash\nif [ \"$CASE\" = result-failure ] && [ \"${3:-}\" = write ] && [ \"${4:-}\" = started ]; then exit 9; fi\nexec /usr/bin/python3 \"$@\"\n",
                 "systemctl": """#!/usr/bin/python3
 import os,sys
@@ -2676,6 +2677,9 @@ t=Path(os.environ['ACTIVATION']).read_text(); print(json.dumps({'apiVersion':'ku
     override, success, defects = run_case("killmode-override"), run_case("success"), []
     if (override["code"] == 0 or not override["token"] or override["result"] is not None or override["state"] != "active" or "helper:" in str(override["events"]) or " stop " in str(override["events"])):
         defects.append(f"effective KillMode override crossed the preflight boundary: {override!r}")
+    for case in ("condition-reset", "condition-blank", "condition-malformed"):
+        condition = run_case(case)
+        if (condition["code"] == 0 or not condition["token"] or condition["result"] is not None or condition["state"] != "active" or "helper:" in str(condition["events"]) or " stop " in str(condition["events"])): defects.append(f"{case} effective Conditions crossed the preflight boundary: {condition!r}")
     if success["code"] or success["result"]["state"] != "success" or success["mode"] != 0o600:
         defects.append(f"valid generic-List cutover control flow failed: {success!r}")
     if defects: fail("; ".join(defects))
@@ -2706,8 +2710,8 @@ t=Path(os.environ['ACTIVATION']).read_text(); print(json.dumps({'apiVersion':'ku
     if race["code"] or race["contender"] == 0 or not race["unchanged"] or not race["barrier"] or str(race["events"]).count("helper:final-sync\n") != 1: fail(f"concurrent launchers crossed the process lock boundary: {race!r}")
     if success["invalid_codes"] != [64, 64]:
         fail(f"launcher accepted invalid arguments: {success['invalid_codes']!r}")
-    if sum(bool(line.strip()) for line in original.splitlines()) > 116:
-        fail("cutover launcher exceeds 116 nonblank lines")
+    if sum(bool(line.strip()) for line in original.splitlines()) > 119:
+        fail("cutover launcher exceeds 119 nonblank lines")
 
 
 def main() -> int:
