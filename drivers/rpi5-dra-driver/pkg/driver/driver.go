@@ -5,13 +5,11 @@ import (
 	"fmt"
 	"time"
 
-	"google.golang.org/grpc"
 	resourceapi "k8s.io/api/resource/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/dynamic-resource-allocation/kubeletplugin"
 	"k8s.io/klog/v2"
-	drahealthv1alpha1 "k8s.io/kubelet/pkg/apis/dra-health/v1alpha1"
 )
 
 // DriverName is the DRA driver name registered with the kubelet.
@@ -23,8 +21,6 @@ const DeviceName = "drm-decoder-0"
 // Plugin implements kubeletplugin.DRAPlugin for the Pi5 hardware transcode
 // devices. It writes and removes CDI specs on prepare/unprepare.
 type Plugin struct {
-	drahealthv1alpha1.UnimplementedDRAResourceHealthServer
-
 	devices  *Devices
 	client   kubernetes.Interface
 	nodeName string
@@ -95,51 +91,52 @@ func (p *Plugin) UnprepareResourceClaims(
 	return result, nil
 }
 
-// NodeWatchResources implements the optional kubelet DRAResourceHealth service.
+// WatchHealthStatus implements kubeletplugin.DRAPlugin.
 // Kubelet reconnects to this stream and expects a complete device-health list.
 // The driver currently has one logical ResourceSlice device on Pi nodes. Report
 // it as healthy while the plugin process is running and refresh before kubelet's
 // timeout can mark it unknown. Non-Pi nodes may still run the plugin to clean up
 // stale allocations; those nodes publish no ResourceSlice and report no health
 // devices.
-func (p *Plugin) NodeWatchResources(
-	_ *drahealthv1alpha1.NodeWatchResourcesRequest,
-	stream grpc.ServerStreamingServer[drahealthv1alpha1.NodeWatchResourcesResponse],
-) error {
+func (p *Plugin) WatchHealthStatus(ctx context.Context, reports chan<- kubeletplugin.DeviceHealthReport) error {
 	const refresh = 30 * time.Second
 
-	send := func() error {
-		response := &drahealthv1alpha1.NodeWatchResourcesResponse{}
+	send := func() bool {
+		report := kubeletplugin.DeviceHealthReport{}
 		if p.devices.HasH264 || p.devices.HasHEVC {
-			response.Devices = []*drahealthv1alpha1.DeviceHealth{
+			report.Devices = []kubeletplugin.DeviceHealth{
 				{
-					Device: &drahealthv1alpha1.DeviceIdentifier{
-						PoolName:   p.nodeName,
-						DeviceName: DeviceName,
-					},
-					Health:                    drahealthv1alpha1.HealthStatus_HEALTHY,
-					LastUpdatedTime:           time.Now().Unix(),
-					HealthCheckTimeoutSeconds: int64((2 * refresh).Seconds()),
-					Message:                   "Pi5 DRA device plugin is running",
+					PoolName:           p.nodeName,
+					DeviceName:         DeviceName,
+					Health:             kubeletplugin.HealthStatusHealthy,
+					LastUpdated:        time.Now(),
+					HealthCheckTimeout: 2 * refresh,
+					Message:            "Pi5 DRA device plugin is running",
 				},
 			}
 		}
-		return stream.Send(response)
+
+		select {
+		case <-ctx.Done():
+			return false
+		case reports <- report:
+			return true
+		}
 	}
 
-	if err := send(); err != nil {
-		return err
+	if !send() {
+		return nil
 	}
 
 	ticker := time.NewTicker(refresh)
 	defer ticker.Stop()
 	for {
 		select {
-		case <-stream.Context().Done():
-			return stream.Context().Err()
+		case <-ctx.Done():
+			return nil
 		case <-ticker.C:
-			if err := send(); err != nil {
-				return err
+			if !send() {
+				return nil
 			}
 		}
 	}
