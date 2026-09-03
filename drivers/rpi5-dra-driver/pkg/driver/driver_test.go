@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"testing"
+	"time"
 
 	corev1 "k8s.io/api/core/v1"
 	resourceapi "k8s.io/api/resource/v1"
@@ -12,6 +13,58 @@ import (
 	"k8s.io/client-go/kubernetes/fake"
 	"k8s.io/dynamic-resource-allocation/kubeletplugin"
 )
+
+var _ kubeletplugin.DRAPlugin = (*Plugin)(nil)
+
+func TestWatchHealthStatusReportsDevice(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	reports := make(chan kubeletplugin.DeviceHealthReport)
+	errCh := make(chan error, 1)
+	plugin := NewPlugin(testDevices(), fake.NewSimpleClientset(), "heracles")
+
+	go func() {
+		errCh <- plugin.WatchHealthStatus(ctx, reports)
+	}()
+
+	select {
+	case report := <-reports:
+		if len(report.Devices) != 1 {
+			t.Fatalf("expected 1 device health status, got %d", len(report.Devices))
+		}
+		device := report.Devices[0]
+		if device.PoolName != "heracles" {
+			t.Errorf("unexpected pool name: %q", device.PoolName)
+		}
+		if device.DeviceName != DeviceName {
+			t.Errorf("unexpected device name: %q", device.DeviceName)
+		}
+		if device.Health != kubeletplugin.HealthStatusHealthy {
+			t.Errorf("unexpected health status: %q", device.Health)
+		}
+		if device.LastUpdated.IsZero() {
+			t.Error("expected a health observation timestamp")
+		}
+		if device.HealthCheckTimeout != time.Minute {
+			t.Errorf("unexpected health check timeout: %s", device.HealthCheckTimeout)
+		}
+		if device.Message != "Pi5 DRA device plugin is running" {
+			t.Errorf("unexpected health message: %q", device.Message)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for initial device health report")
+	}
+
+	cancel()
+	select {
+	case err := <-errCh:
+		if err != nil {
+			t.Fatalf("WatchHealthStatus returned after cancellation: %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("WatchHealthStatus did not stop after cancellation")
+	}
+}
 
 func TestPrepareResourceClaimsUsesClaimScopedCDI(t *testing.T) {
 	cdiDir = t.TempDir()
