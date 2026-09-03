@@ -1299,6 +1299,8 @@ def open_source_context(
 
         for name in DATABASES:
             record = classify_at(source_fd, name)
+            if record["state"] == "absent" and any(classify_at(source_fd, f"{name}{suffix}")["state"] == "present" for suffix in ("-wal", "-shm", "-journal")):
+                raise RuntimeError(f"source database companion exists without main: {name}")
             if record["state"] == "present" and record["type"] != "regular_file":
                 raise RuntimeError(f"source database is not regular: {name}")
             if manifest is not None and record != database_record_identity(
@@ -1348,6 +1350,8 @@ def open_source_context(
             for name in DATABASES:
                 relative = Path("profiles") / profile / name
                 database_record = classify_at(profile_fd, name)
+                if database_record["state"] == "absent" and any(classify_at(profile_fd, f"{name}{suffix}")["state"] == "present" for suffix in ("-wal", "-shm", "-journal")):
+                    raise RuntimeError(f"source database companion exists without main: {relative}")
                 if (
                     database_record["state"] == "present"
                     and database_record["type"] != "regular_file"

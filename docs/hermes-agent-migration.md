@@ -31,7 +31,7 @@ The parent/operator completes every safe pre-stop action before asking the user 
    SendSIGKILL=yes
    ```
 
-5. Prove the user manager needs no daemon reload, the source is active, `/home/ben/.kube/config` is readable, and `kube-system` UID is `16710d5a-45ec-4b64-a101-b1a4db28a6e7`.
+5. Prove the user manager needs no daemon reload, the source is active, the effective unit has `KillMode=control-group`, `SendSIGKILL=yes`, and a semantically parsed 90,000,000 μs stop timeout, `/home/ben/.kube/config` is readable, and `kube-system` UID is `16710d5a-45ec-4b64-a101-b1a4db28a6e7`.
 
 The one-shot repeats only decision-relevant checks. It first takes a nonblocking process-lifetime lock on the fixed source directory; contention fails before result or authority mutation. No drain tokens, optional-platform health quorum, transient-unit identity, or `INVOCATION_ID` is required.
 
@@ -71,7 +71,7 @@ The owner-`0600` atomic result is `/home/ben/.hermes/k8s-cutover-result.json`. I
 
 ## Fail-fenced behavior
 
-After its destructive trap is armed, every error, signal, or premature exit attempts token removal with parent-directory fsync and stops the source service. It never starts Hestia. It records or reports `verified-fenced` only after direct proof; otherwise it reports `fence-unknown`. Treat `fence-unknown` as an authority incident: stop both sides and establish actual token, source, Pod, and PVC-consumer state before recovery.
+After its destructive trap is armed, the launcher removes and parent-directory-fsyncs the token, proves it absent, and only then enters helper final sync. Every error, signal, or premature exit repeats token removal and stops the source service; it never starts Hestia. It records or reports `verified-fenced` only after direct proof; otherwise it reports `fence-unknown`. Treat `fence-unknown` as an authority incident: stop both sides and establish actual token, source, Pod, and PVC-consumer state before recovery.
 
 ## Target-first recovery
 

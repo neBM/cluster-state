@@ -8,7 +8,7 @@ HELPER="$SCRIPT_DIR/hermes-agent-migration.sh"; REVISION="${1:-}"; PHASE=started
 usage() { printf 'Usage: %s main@sha1:<40 lowercase hex>\n' "$0" >&2; }
 [ "$#" -eq 1 ] || { usage; exit 64; }; [[ "$REVISION" =~ ^main@sha1:[0-9a-f]{40}$ ]] || { usage; exit 64; }
 die() { printf 'ERROR: %s\n' "$*" >&2; return 1; }; need() { command -v "$1" >/dev/null 2>&1 || die "required command is unavailable: $1"; }
-for command in flock kubectl python3 systemctl timeout sleep; do need "$command"; done
+for command in flock kubectl python3 systemctl systemd-analyze timeout sleep; do need "$command"; done
 [ -d "$SOURCE_HOME" ] && [ -r "$KUBECONFIG" ] && [ -x "$HELPER" ] || die "source, fixed kubeconfig, or helper is unavailable"
 exec 9<"$SOURCE_HOME"; flock -n 9 || die "another cutover launcher holds the source lock"
 k() { timeout --foreground 20s kubectl --kubeconfig "$KUBECONFIG" --request-timeout=15s "$@"; }
@@ -55,9 +55,12 @@ PY
 fenced() { token_file absent >/dev/null 2>&1 && [ "$(sprop ActiveState)" = inactive ] && [ "$(sprop MainPID)" = 0 ]; }
 failure() { local status="${1:-1}" fence=fence-unknown; trap - ERR EXIT INT TERM; set +e; token_file remove >/dev/null 2>&1; timeout --foreground 100s systemctl --user stop "$SOURCE_UNIT" >/dev/null 2>&1; fenced && fence=verified-fenced; result_io write failure "$PHASE" "$fence" >/dev/null 2>&1; printf 'ERROR: cutover failed at %s; source status: %s\n' "$PHASE" "$fence" >&2; [ "$status" -ne 0 ] || status=1; exit "$status"; }
 gate() {
-  local self_cgroup="" source_cgroup dropins
+  local self_cgroup="" source_cgroup dropins timespan
   [ "$(sprop ActiveState)" = active ] || die "source service is not active"; [ "$(sprop NeedDaemonReload)" = no ] || die "source unit needs daemon-reload"
   dropins="$(sprop DropInPaths)"; [[ " $dropins " == *" $DROPIN "* ]] || die "authority drop-in is not loaded"; token_file check
+  [ "$(sprop KillMode)" = control-group ] && [ "$(sprop SendSIGKILL)" = yes ] || die "effective source kill properties differ"
+  timespan="$(timeout --foreground 10s systemd-analyze timespan "$(sprop TimeoutStopUSec)")"
+  [[ "$timespan" =~ (^|$'\n')[[:space:]]*μs:[[:space:]]*90000000($|$'\n') ]] || die "effective source stop timeout differs"
   while IFS=: read -r hierarchy _ path; do if [ "$hierarchy" = 0 ]; then self_cgroup="$path"; fi; done <"$PROC_CGROUP"; source_cgroup="$(sprop ControlGroup)"
   [ -n "$self_cgroup" ] && [ -n "$source_cgroup" ] && [ "$self_cgroup" != "$source_cgroup" ] || die "launcher and source cgroups are not distinct"
   [ "$(k get namespace kube-system -o jsonpath='{.metadata.uid}')" = 16710d5a-45ec-4b64-a101-b1a4db28a6e7 ] || die "kube-system UID differs"
@@ -95,10 +98,11 @@ if type(generation) is not int or type(annotations) is not dict or type(conditio
 if annotations.get("reconcile.fluxcd.io/requestedAt")!=token or status.get("lastHandledReconcileAt")!=token or status.get("lastAppliedRevision")!=revision or status.get("observedGeneration")!=generation or not any(item.get("type")=="Ready" and item.get("status")=="True" for item in conditions): raise SystemExit(75)
 PY
 }
-result_io check; result_io write started started not-fenced; gate
+result_io check; gate; result_io write started started not-fenced
 trap 'failure $?' ERR EXIT; trap 'failure 130' INT; trap 'failure 143' TERM
+token_file remove; token_file absent
 HERMES_MIGRATION_KUBECONFIG="$KUBECONFIG" "$HELPER" final-sync
-token_file remove; fenced || die "source did not remain fenced after final sync"; result_io write synced synced verified-fenced; PHASE=synced; pod_boundary
+fenced || die "source did not remain fenced after final sync"; result_io write synced synced verified-fenced; PHASE=synced; pod_boundary
 ACTIVATION_TOKEN="activate-$(python3 -c 'import secrets; print(secrets.token_hex(16))')"; [[ "$ACTIVATION_TOKEN" =~ ^activate-[0-9a-f]{32}$ ]] || die "activation token generation failed"
 result_io write activation-attempted activation-attempted verified-fenced; PHASE=activation-attempted
 PATCH="$(printf '{"metadata":{"annotations":{"reconcile.fluxcd.io/requestedAt":"%s"}},"spec":{"suspend":false}}' "$ACTIVATION_TOKEN")"; k -n flux-system patch kustomization apps --type=merge -p "$PATCH" >/dev/null

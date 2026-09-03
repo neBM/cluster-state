@@ -2564,6 +2564,14 @@ def validate_final_sync_replaces_then_recovers_selected_state() -> None:
             if rejected.returncode == 0: accepted.append(str(relative))
             if path.read_bytes() != b"not a SQLite database": fail("final sync mutated a corrupt source database")
         if accepted: fail(f"final sync accepted corrupt present allowlisted databases: {accepted!r}")
+        for index, (parent, suffix) in enumerate((parent, suffix) for parent in (Path("."), Path("profiles/implementer")) for suffix in ("-wal", "-shm", "-journal")):
+            orphan_source, orphan_target = root / f"orphan-source-{index}", root / f"orphan-target-{index}"
+            (orphan_source / parent).mkdir(parents=True); sentinel = seed_target_sentinel(orphan_target)
+            sidecar = orphan_source / parent / f"state.db{suffix}"; sidecar.write_bytes(b"orphan companion")
+            rejected = run_sync(orphan_source, staging, orphan_target, phase="final")
+            assert_rejected_before_target_mutation(rejected, sentinel, f"orphan allowlisted companion {parent}/state.db{suffix}")
+            if sidecar.read_bytes() != b"orphan companion" or "selected final state sync completed" in rejected.stdout:
+                fail(f"orphan allowlisted companion was mutated or reported normalized: {parent}/state.db{suffix}")
         script = function_body(MIGRATION.read_text(), "run_sync")
         if 'timeout --foreground 3300s' not in script or "1200s" in script:
             fail("final sync must retain the original 3300-second outer timeout")
@@ -2603,7 +2611,7 @@ def validate_cutover_launcher_control_flow() -> None:
                 transformed = transformed.replace(old, new)
             launcher.write_text(transformed); launcher.chmod(0o755)
             helper = root / "hermes-agent-migration.sh"
-            helper.write_text("#!/usr/bin/env bash\nprintf 'helper:%s\\n' \"$1\" >>\"$EVENTS\"\nif [ \"$1\" = final-sync ]; then\n [ \"$CASE\" != lock-race ] || { : >\"$BARRIER\"; while [ ! -e \"$RELEASE\" ]; do sleep .02; done; }\n case \"$CASE\" in helper-failure|fence-failure) exit 9;; esac\n printf inactive >\"$STATE\"; printf 0 >\"$PID\"\nfi\n")
+            helper.write_text("#!/usr/bin/env bash\nprintf 'helper:%s\\n' \"$1\" >>\"$EVENTS\"\nif [ \"$1\" = final-sync ]; then\n [ ! -e \"$TOKEN\" ] || { printf 'helper-token-present\\n' >>\"$EVENTS\"; exit 8; }\n [ \"$CASE\" != lock-race ] || { : >\"$BARRIER\"; while [ ! -e \"$RELEASE\" ]; do sleep .02; done; }\n case \"$CASE\" in helper-failure|fence-failure) exit 9;; helper-signal) kill -TERM \"$PPID\"; exit 9;; esac\n printf inactive >\"$STATE\"; printf 0 >\"$PID\"\nfi\n")
             helper.chmod(0o755)
             doubles = {
                 "timeout": "#!/usr/bin/env bash\n[ \"${1:-}\" = --foreground ] && shift\nshift\nexec \"$@\"\n",
@@ -2615,9 +2623,11 @@ a=sys.argv[1:]; e=Path(os.environ['EVENTS']); e.open('a').write('systemctl:'+ ' 
 if 'stop' in a:
  if os.environ['CASE']=='fence-failure': raise SystemExit(9)
  Path(os.environ['STATE']).write_text('inactive'); Path(os.environ['PID']).write_text('0'); raise SystemExit(0)
-p=a[a.index('-p')+1]; values={'ActiveState':Path(os.environ['STATE']).read_text(),'MainPID':Path(os.environ['PID']).read_text(),'ControlGroup':'/control/source','DropInPaths':os.environ['DROPIN'],'NeedDaemonReload':'no'}
+p=a[a.index('-p')+1]; kill='mixed' if os.environ['CASE']=='killmode-override' else 'control-group'
+values={'ActiveState':Path(os.environ['STATE']).read_text(),'MainPID':Path(os.environ['PID']).read_text(),'ControlGroup':'/control/source','DropInPaths':os.environ['DROPIN'],'NeedDaemonReload':'no','KillMode':kill,'SendSIGKILL':'yes','TimeoutStopUSec':'1min 30s'}
 print(values.get(p,''))
 """,
+                "systemd-analyze": "#!/usr/bin/env bash\n[ \"$#\" -eq 2 ] && [ \"$1\" = timespan ] && [ \"$2\" = '1min 30s' ] || exit 2\nprintf 'Original: 1min 30s\\n      μs: 90000000\\n   Human: 1min 30s\\n'\n",
                 "kubectl": """#!/usr/bin/python3
 import json,os,sys
 from pathlib import Path
@@ -2642,7 +2652,7 @@ t=Path(os.environ['ACTIVATION']).read_text(); print(json.dumps({'apiVersion':'ku
             env = {**os.environ, "PATH": f"{fakebin}:{os.environ['PATH']}", "CASE": case,
                    "STATE": str(state), "PID": str(pid), "EVENTS": str(events), "DROPIN": str(dropin),
                    "RESULT": str(result), "ACTIVATION": str(activation), "REV": revision,
-                   "BARRIER": str(barrier), "RELEASE": str(release)}
+                   "BARRIER": str(barrier), "RELEASE": str(release), "TOKEN": str(token)}
             if case == "lock-race":
                 first = subprocess.Popen([launcher, revision], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=env, start_new_session=True)
                 deadline = time.monotonic() + 5
@@ -2663,9 +2673,12 @@ t=Path(os.environ['ACTIVATION']).read_text(); print(json.dumps({'apiVersion':'ku
                     "mode": result.stat().st_mode & 0o777 if result.is_file() else None,
                     "stderr": completed.stderr, "invalid_codes": invalid_codes}
 
-    success = run_case("success")
+    override, success, defects = run_case("killmode-override"), run_case("success"), []
+    if (override["code"] == 0 or not override["token"] or override["result"] is not None or override["state"] != "active" or "helper:" in str(override["events"]) or " stop " in str(override["events"])):
+        defects.append(f"effective KillMode override crossed the preflight boundary: {override!r}")
     if success["code"] or success["result"]["state"] != "success" or success["mode"] != 0o600:
-        fail(f"valid generic-List cutover control flow failed: {success!r}")
+        defects.append(f"valid generic-List cutover control flow failed: {success!r}")
+    if defects: fail("; ".join(defects))
     ordered(str(success["events"]), ["helper:final-sync", "get pods --chunk-size=0 -o json",
                                     "patch-result:activation-attempted", "helper:verify-target"], "cutover")
     initial = run_case("result-failure")
@@ -2674,6 +2687,9 @@ t=Path(os.environ['ACTIVATION']).read_text(); print(json.dumps({'apiVersion':'ku
     helper = run_case("helper-failure")
     if helper["code"] == 0 or helper["result"]["fence"] != "verified-fenced" or helper["token"] or helper["state"] != "inactive" or " start " in helper["events"]:
         fail(f"helper failure was not honestly fail-fenced: {helper!r}")
+    signal = run_case("helper-signal")
+    if signal["code"] == 0 or not isinstance(signal["result"], dict) or signal["result"].get("fence") != "verified-fenced" or signal["token"] or signal["state"] != "inactive" or " start " in str(signal["events"]):
+        fail(f"helper signal was not honestly fail-fenced: {signal!r}")
     unknown = run_case("fence-failure")
     if unknown["code"] == 0 or unknown["result"]["fence"] != "fence-unknown" or " start " in unknown["events"]:
         fail(f"failed fence operation was misreported: {unknown!r}")
@@ -2690,8 +2706,8 @@ t=Path(os.environ['ACTIVATION']).read_text(); print(json.dumps({'apiVersion':'ku
     if race["code"] or race["contender"] == 0 or not race["unchanged"] or not race["barrier"] or str(race["events"]).count("helper:final-sync\n") != 1: fail(f"concurrent launchers crossed the process lock boundary: {race!r}")
     if success["invalid_codes"] != [64, 64]:
         fail(f"launcher accepted invalid arguments: {success['invalid_codes']!r}")
-    if sum(bool(line.strip()) for line in original.splitlines()) > 112:
-        fail("cutover launcher exceeds 112 nonblank lines")
+    if sum(bool(line.strip()) for line in original.splitlines()) > 116:
+        fail("cutover launcher exceeds 116 nonblank lines")
 
 
 def main() -> int:
