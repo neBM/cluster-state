@@ -2615,7 +2615,7 @@ def validate_cutover_launcher_control_flow() -> None:
             helper.chmod(0o755)
             doubles = {
                 "timeout": "#!/usr/bin/env bash\n[ \"${1:-}\" = --foreground ] && shift\nshift\nexec \"$@\"\n",
-                "busctl": "#!/usr/bin/python3\nimport json,os\ncase=os.environ['CASE']\nif case=='condition-blank': raise SystemExit\nif case=='condition-malformed': print('{'); raise SystemExit\nprint(json.dumps({'type':'a(sbbsi)','data':[] if case=='condition-reset' else [['ConditionPathExists',False,False,os.environ['TOKEN'],1]]}))\n",
+                "busctl": "#!/usr/bin/python3\nimport json,os\ncase=os.environ['CASE']\nif case=='condition-blank': raise SystemExit\nif case=='condition-malformed': print('{'); raise SystemExit\ndata=[] if case=='condition-reset' else [['ConditionPathExists',case=='condition-trigger',False,os.environ['TOKEN'],True if case=='condition-bool-state' else 1]]\nprint(json.dumps({'type':'a(sbbsi)','data':data}))\n",
                 "python3": "#!/usr/bin/env bash\nif [ \"$CASE\" = result-failure ] && [ \"${3:-}\" = write ] && [ \"${4:-}\" = started ]; then exit 9; fi\nexec /usr/bin/python3 \"$@\"\n",
                 "systemctl": """#!/usr/bin/python3
 import os,sys
@@ -2677,7 +2677,7 @@ t=Path(os.environ['ACTIVATION']).read_text(); print(json.dumps({'apiVersion':'ku
     override, success, defects = run_case("killmode-override"), run_case("success"), []
     if (override["code"] == 0 or not override["token"] or override["result"] is not None or override["state"] != "active" or "helper:" in str(override["events"]) or " stop " in str(override["events"])):
         defects.append(f"effective KillMode override crossed the preflight boundary: {override!r}")
-    for case in ("condition-reset", "condition-blank", "condition-malformed"):
+    for case in ("condition-reset", "condition-blank", "condition-malformed", "condition-trigger", "condition-bool-state"):
         condition = run_case(case)
         if (condition["code"] == 0 or not condition["token"] or condition["result"] is not None or condition["state"] != "active" or "helper:" in str(condition["events"]) or " stop " in str(condition["events"])): defects.append(f"{case} effective Conditions crossed the preflight boundary: {condition!r}")
     if success["code"] or success["result"]["state"] != "success" or success["mode"] != 0o600:
