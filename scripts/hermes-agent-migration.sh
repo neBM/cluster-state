@@ -1904,7 +1904,7 @@ final_sync() {
   create_migration_pod
   require_candidate_target
   require_candidate_pods_inert
-  timeout 60s systemctl --user stop "$SOURCE_UNIT"
+  timeout 120s systemctl --user stop "$SOURCE_UNIT"
   wait_for_source_inactive
   require_candidate_target
   require_candidate_pods_inert

@@ -242,6 +242,14 @@ def validate_manifests() -> None:
     service = (APP / "service-default-hermes-agent.yaml").read_text()
     pvc = (APP / "persistentvolumeclaim-default-hermes-agent-state.yaml").read_text()
     kustomization = (APP / "kustomization.yaml").read_text()
+    ci = (ROOT / ".gitlab-ci.yml").read_text()
+    manifest_rules = re.search(r"^\.validate_manifest_rules:[^\n]*\n(?P<body>.*?)(?=^\S)", ci, re.MULTILINE | re.DOTALL)
+    if manifest_rules is None:
+        fail(".gitlab-ci.yml lacks .validate_manifest_rules")
+    changes_lists = dict(re.findall(r"^  - if: (?P<condition>[^\n]+)\n    changes:\n(?P<changes>(?:      - [^\n]+\n)+)", manifest_rules.group("body"), re.MULTILINE))
+    for condition in ('$CI_PIPELINE_SOURCE == "merge_request_event"', '$CI_COMMIT_BRANCH == "main"'):
+        if "      - scripts/hermes-agent-cutover.sh\n" not in changes_lists.get(condition, ""):
+            fail(f".validate_manifest_rules lacks cutover validation trigger for {condition}")
 
     require(apps_rendered, IMAGE, "immutable Hermes image in apps render")
     if apps_rendered.count(IMAGE) != 1:
@@ -289,16 +297,8 @@ def validate_manifests() -> None:
     require(storage_class, "volumeBindingMode: WaitForFirstConsumer", "WFFC binding")
 
     require(service, "type: ClusterIP", "ClusterIP service")
-    expected_ports = {
-        ("api", "8642", "8642"),
-        ("webhook", "8644", "8644"),
-    }
-    actual_ports = set(
-        re.findall(
-            r"- name: (\w+)\n\s+port: (\d+)\n\s+protocol: TCP\n\s+targetPort: (\d+)",
-            service,
-        )
-    )
+    expected_ports = {("api", "8642", "8642"), ("webhook", "8644", "8644")}
+    actual_ports = set(re.findall(r"- name: (\w+)\n\s+port: (\d+)\n\s+protocol: TCP\n\s+targetPort: (\d+)", service))
     if actual_ports != expected_ports:
         fail(f"Service ports differ: {actual_ports!r}")
     if re.search(r"NodePort|LoadBalancer|externalIPs|hostPort", sources):
@@ -357,9 +357,11 @@ def validate_migration_script() -> None:
         fail("migration script must not copy the whole source tree")
 
     final_sync = function_body(script, "final_sync")
+    if re.findall(r'^\s*(timeout\s+\S+\s+systemctl --user stop "\$SOURCE_UNIT")$', final_sync, re.MULTILINE) != ['timeout 120s systemctl --user stop "$SOURCE_UNIT"']:
+        fail("final-sync source stop must use the exact 120-second outer timeout")
     ordered(
         final_sync,
-        ['systemctl --user stop "$SOURCE_UNIT"', "wait_for_source_inactive", "require_candidate_target", "run_sync final"],
+        ['timeout 120s systemctl --user stop "$SOURCE_UNIT"', "wait_for_source_inactive", "require_candidate_target", "run_sync final"],
         "final-sync stop/proof/copy",
     )
     rollback = function_body(script, "rollback")
@@ -371,9 +373,7 @@ def validate_migration_script() -> None:
     require(script, "assert_no_dual_authority", "dual-authority fail-closed guard")
     require(script, "persistentVolumeClaim:", "migration PVC mount")
     require(script, "hostPath:", "read-only source hostPath")
-    if script.count("mountPath: /source") != 1 or not re.search(
-        r"- name: source\n\s+mountPath: /source\n\s+readOnly: true", script
-    ):
+    if script.count("mountPath: /source") != 1 or not re.search(r"- name: source\n\s+mountPath: /source\n\s+readOnly: true", script):
         fail("source hostPath must remain one read-only mount")
     if script.count("mountPath: /sqlite-backups") != 1 or not re.search(
         r"- name: sqlite-backups\n\s+mountPath: /sqlite-backups\n\s+readOnly: true", script
@@ -455,7 +455,7 @@ def validate_migration_script() -> None:
             "capture_source_root_identity",
             "recheck_source_root_identity",
             "create_migration_pod",
-            'systemctl --user stop "$SOURCE_UNIT"',
+            'timeout 120s systemctl --user stop "$SOURCE_UNIT"',
             "wait_for_source_inactive",
             "run_sync final",
         ],
