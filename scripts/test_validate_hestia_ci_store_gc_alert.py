@@ -116,6 +116,16 @@ def test_podman_runtime_paths(module: ModuleType) -> None:
     if tmpdir_options != ["--tmpdir=/tmp/libpod"]:
         failures.append(f"global Podman tmpdir expected ['--tmpdir=/tmp/libpod'], got {tmpdir_options!r}")
 
+    root_options = [line.strip() for line in script.splitlines() if line.strip().startswith("--root=")]
+    expected_root_options = [f"--root={module.GC_MOUNT_PATH}"]
+    if root_options != expected_root_options:
+        failures.append(f"Podman graph root expected {expected_root_options!r}, got {root_options!r}")
+
+    runroot_options = [line.strip() for line in script.splitlines() if line.strip().startswith("--runroot=")]
+    expected_runroot_options = [f"--runroot={module.GC_RUNROOT_PATH}"]
+    if runroot_options != expected_runroot_options:
+        failures.append(f"Podman runroot expected {expected_runroot_options!r}, got {runroot_options!r}")
+
     environment = container.get("env")
     tmpdir_environment = (
         [entry for entry in environment if type(entry) is dict and entry.get("name") == "TMPDIR"]
@@ -127,6 +137,31 @@ def test_podman_runtime_paths(module: ModuleType) -> None:
         failures.append(f"TMPDIR environment expected {expected_tmpdir_environment!r}, got {tmpdir_environment!r}")
 
     volume_mounts = container.get("volumeMounts")
+    graph_root_mounts = (
+        [mount for mount in volume_mounts if type(mount) is dict and mount.get("name") == "podman-storage"]
+        if type(volume_mounts) is list
+        else []
+    )
+    expected_graph_root_mounts = [{"mountPath": module.GC_MOUNT_PATH, "name": "podman-storage"}]
+    if not module.strict_equal(graph_root_mounts, expected_graph_root_mounts):
+        failures.append(f"graph-root mounts expected {expected_graph_root_mounts!r}, got {graph_root_mounts!r}")
+
+    db_runtime_mounts = (
+        [
+            mount
+            for mount in volume_mounts
+            if type(mount) is dict and mount.get("name") in {"podman-runroot", "libpod-tmp"}
+        ]
+        if type(volume_mounts) is list
+        else []
+    )
+    expected_db_runtime_mounts = [
+        {"mountPath": module.GC_RUNROOT_PATH, "name": "podman-runroot"},
+        {"mountPath": module.GC_LIBPOD_TMP_PATH, "name": "libpod-tmp"},
+    ]
+    if not module.strict_equal(db_runtime_mounts, expected_db_runtime_mounts):
+        failures.append(f"Podman DB runtime mounts expected {expected_db_runtime_mounts!r}, got {db_runtime_mounts!r}")
+
     runtime_mounts = (
         [
             mount
@@ -144,6 +179,22 @@ def test_podman_runtime_paths(module: ModuleType) -> None:
         failures.append(f"runtime mounts expected {expected_runtime_mounts!r}, got {runtime_mounts!r}")
 
     volumes = pod_spec.get("volumes")
+    db_runtime_volumes = (
+        [
+            volume
+            for volume in volumes
+            if type(volume) is dict and volume.get("name") in {"podman-runroot", "libpod-tmp"}
+        ]
+        if type(volumes) is list
+        else []
+    )
+    expected_db_runtime_volumes = [
+        {"emptyDir": {}, "name": "podman-runroot"},
+        {"emptyDir": {}, "name": "libpod-tmp"},
+    ]
+    if not module.strict_equal(db_runtime_volumes, expected_db_runtime_volumes):
+        failures.append(f"Podman DB runtime volumes expected {expected_db_runtime_volumes!r}, got {db_runtime_volumes!r}")
+
     runtime_volumes = (
         [
             volume
@@ -332,14 +383,30 @@ def main() -> int:
         alert = "infrastructure/observability-ui/grafana/_grafana_alert_rules.yaml"
         wrapper = "scripts/validate_kustomize.sh"
         mutations = (
-            ("gc-wrong-target", gc, module.GC_HOST_PATH, "/var/lib/ci-containers-nocow", "GC volumes"),
-            ("gc-cache-scope", gc, module.GC_HOST_PATH, "/var/lib/ci-cache-nocow", "GC volumes"),
+            ("gc-aliased-graph-root-mount", gc, f"            - mountPath: {module.GC_MOUNT_PATH}\n              name: podman-storage\n", "            - mountPath: /var/lib/containers/storage\n              name: podman-storage\n", "GC volumeMounts"),
+            ("gc-aliased-graph-root-option", gc, f"                --root={module.GC_MOUNT_PATH}\n", "                --root=/var/lib/containers/storage\n", "GC script"),
+            ("gc-wrong-runroot-option", gc, f"                --runroot={module.GC_RUNROOT_PATH}\n", "                --runroot=/run/containers/storage\n", "GC script"),
+            ("gc-wrong-target", gc, f"              path: {module.GC_HOST_PATH}\n              type: Directory\n            name: podman-storage\n", "              path: /var/lib/ci-containers-nocow\n              type: Directory\n            name: podman-storage\n", "GC volumes"),
+            ("gc-cache-scope", gc, f"              path: {module.GC_HOST_PATH}\n              type: Directory\n            name: podman-storage\n", "              path: /var/lib/ci-cache-nocow\n              type: Directory\n            name: podman-storage\n", "GC volumes"),
+            ("gc-hostpath-widening", gc, f"              path: {module.GC_HOST_PATH}\n              type: Directory\n            name: podman-storage\n", f"              path: {module.GC_HOST_PATH}\n              type: Directory\n            name: podman-storage\n          - hostPath:\n              path: /var/lib/ci-cache-nocow\n              type: Directory\n            name: extra-host-storage\n", "GC volumes"),
             ("gc-missing-podman-tmpdir", gc, "                --tmpdir=/tmp/libpod\n", "", "GC script"),
             ("gc-wrong-podman-tmpdir", gc, "                --tmpdir=/tmp/libpod\n", "                --tmpdir=/run/libpod\n", "GC script"),
             ("gc-duplicate-podman-tmpdir", gc, "                --tmpdir=/tmp/libpod\n", "                --tmpdir=/tmp/libpod\n                --tmpdir=/tmp/libpod\n", "GC script"),
             ("gc-missing-tmpdir-environment", gc, "            - name: TMPDIR\n              value: /tmp\n", "", "GC container environment"),
             ("gc-wrong-tmpdir-environment", gc, "            - name: TMPDIR\n              value: /tmp\n", "            - name: TMPDIR\n              value: /var/tmp\n", "GC container environment"),
             ("gc-duplicate-tmpdir-environment", gc, "            - name: TMPDIR\n              value: /tmp\n", "            - name: TMPDIR\n              value: /tmp\n            - name: TMPDIR\n              value: /tmp\n", "GC container environment"),
+            ("gc-missing-podman-runroot-mount", gc, f"            - mountPath: {module.GC_RUNROOT_PATH}\n              name: podman-runroot\n", "", "GC volumeMounts"),
+            ("gc-wrong-podman-runroot-mount", gc, f"            - mountPath: {module.GC_RUNROOT_PATH}\n              name: podman-runroot\n", "            - mountPath: /run/ci-containers-prune-wrong\n              name: podman-runroot\n", "GC volumeMounts"),
+            ("gc-duplicate-podman-runroot-mount", gc, f"            - mountPath: {module.GC_RUNROOT_PATH}\n              name: podman-runroot\n", f"            - mountPath: {module.GC_RUNROOT_PATH}\n              name: podman-runroot\n            - mountPath: {module.GC_RUNROOT_PATH}\n              name: podman-runroot\n", "GC volumeMounts"),
+            ("gc-missing-libpod-tmp-mount", gc, f"            - mountPath: {module.GC_LIBPOD_TMP_PATH}\n              name: libpod-tmp\n", "", "GC volumeMounts"),
+            ("gc-wrong-libpod-tmp-mount", gc, f"            - mountPath: {module.GC_LIBPOD_TMP_PATH}\n              name: libpod-tmp\n", "            - mountPath: /run/libpod-wrong\n              name: libpod-tmp\n", "GC volumeMounts"),
+            ("gc-duplicate-libpod-tmp-mount", gc, f"            - mountPath: {module.GC_LIBPOD_TMP_PATH}\n              name: libpod-tmp\n", f"            - mountPath: {module.GC_LIBPOD_TMP_PATH}\n              name: libpod-tmp\n            - mountPath: {module.GC_LIBPOD_TMP_PATH}\n              name: libpod-tmp\n", "GC volumeMounts"),
+            ("gc-missing-podman-runroot-volume", gc, "          - emptyDir: {}\n            name: podman-runroot\n", "", "GC volumes"),
+            ("gc-wrong-podman-runroot-volume", gc, "          - emptyDir: {}\n            name: podman-runroot\n", "          - emptyDir: {medium: Memory}\n            name: podman-runroot\n", "GC volumes"),
+            ("gc-duplicate-podman-runroot-volume", gc, "          - emptyDir: {}\n            name: podman-runroot\n", "          - emptyDir: {}\n            name: podman-runroot\n          - emptyDir: {}\n            name: podman-runroot\n", "GC volumes"),
+            ("gc-missing-libpod-tmp-volume", gc, "          - emptyDir: {}\n            name: libpod-tmp\n", "", "GC volumes"),
+            ("gc-wrong-libpod-tmp-volume", gc, "          - emptyDir: {}\n            name: libpod-tmp\n", "          - emptyDir: {medium: Memory}\n            name: libpod-tmp\n", "GC volumes"),
+            ("gc-duplicate-libpod-tmp-volume", gc, "          - emptyDir: {}\n            name: libpod-tmp\n", "          - emptyDir: {}\n            name: libpod-tmp\n          - emptyDir: {}\n            name: libpod-tmp\n", "GC volumes"),
             ("gc-missing-run-lock-mount", gc, "            - mountPath: /run/lock\n              name: run-lock\n", "", "GC volumeMounts"),
             ("gc-broad-run-lock-mount", gc, "            - mountPath: /run/lock\n              name: run-lock\n", "            - mountPath: /run\n              name: run-lock\n", "GC volumeMounts"),
             ("gc-duplicate-run-lock-mount", gc, "            - mountPath: /run/lock\n              name: run-lock\n", "            - mountPath: /run/lock\n              name: run-lock\n            - mountPath: /run/lock\n              name: run-lock\n", "GC volumeMounts"),

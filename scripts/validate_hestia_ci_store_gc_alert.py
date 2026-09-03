@@ -22,8 +22,10 @@ GC_IMAGE = (
     "sha256:c6c3feef40a5c825a98e62a11c8ed4c36ec603327d56eb629230a671e527c3dd"
 )
 GC_HOST_PATH = "/var/lib/ci-containers-nocow/storage"
-GC_MOUNT_PATH = "/var/lib/containers/storage"
+GC_MOUNT_PATH = "/var/lib/ci-containers-nocow/storage"
 GC_TMPDIR = "/tmp"
+GC_RUNROOT_PATH = "/run/ci-containers-prune"
+GC_LIBPOD_TMP_PATH = "/run/libpod"
 GC_RUN_LOCK_PATH = "/run/lock"
 GC_SHM_PATH = "/dev/shm"
 SA_TOKEN_PATH = "/var/run/secrets/kubernetes.io/serviceaccount/token"
@@ -98,7 +100,7 @@ podman_store=(
   podman
   --tmpdir=/tmp/libpod
   --root={GC_MOUNT_PATH}
-  --runroot=/run/containers/storage
+  --runroot={GC_RUNROOT_PATH}
   --storage-driver=overlay
 )
 "${{podman_store[@]}}" container prune --force --filter until=168h
@@ -326,6 +328,8 @@ def validate_gc(resources: list[dict[str, Any]], checks: Checks) -> None:
         [
             {"mountPath": GC_MOUNT_PATH, "name": "podman-storage"},
             {"mountPath": "/run/containers", "name": "run"},
+            {"mountPath": GC_RUNROOT_PATH, "name": "podman-runroot"},
+            {"mountPath": GC_LIBPOD_TMP_PATH, "name": "libpod-tmp"},
             {"mountPath": GC_RUN_LOCK_PATH, "name": "run-lock"},
             {"mountPath": "/tmp", "name": "tmp"},
             {"mountPath": GC_SHM_PATH, "name": "dev-shm"},
@@ -337,6 +341,8 @@ def validate_gc(resources: list[dict[str, Any]], checks: Checks) -> None:
         [
             {"hostPath": {"path": GC_HOST_PATH, "type": "Directory"}, "name": "podman-storage"},
             {"emptyDir": {}, "name": "run"},
+            {"emptyDir": {}, "name": "podman-runroot"},
+            {"emptyDir": {}, "name": "libpod-tmp"},
             {"emptyDir": {"medium": "Memory"}, "name": "run-lock"},
             {"emptyDir": {}, "name": "tmp"},
             {"emptyDir": {"medium": "Memory", "sizeLimit": "64Mi"}, "name": "dev-shm"},
