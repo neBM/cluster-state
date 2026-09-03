@@ -14,6 +14,7 @@ import subprocess
 import sys
 import tempfile
 import threading
+import time
 import urllib.parse
 from pathlib import Path
 from typing import NoReturn
@@ -21,6 +22,7 @@ from typing import NoReturn
 ROOT = Path(__file__).resolve().parent.parent
 APP = ROOT / "apps/hermes-agent"
 MIGRATION = ROOT / "scripts/hermes-agent-migration.sh"
+CUTOVER = ROOT / "scripts/hermes-agent-cutover.sh"
 IMAGE = (
     "nousresearch/hermes-agent:v2026.8.16.2@"
     "sha256:a39fc11620213e3669a327aff5c6cb1eb2b8a238c6044e33e7ef8885833d89a7"
@@ -240,6 +242,14 @@ def validate_manifests() -> None:
     service = (APP / "service-default-hermes-agent.yaml").read_text()
     pvc = (APP / "persistentvolumeclaim-default-hermes-agent-state.yaml").read_text()
     kustomization = (APP / "kustomization.yaml").read_text()
+    ci = (ROOT / ".gitlab-ci.yml").read_text()
+    manifest_rules = re.search(r"^\.validate_manifest_rules:[^\n]*\n(?P<body>.*?)(?=^\S)", ci, re.MULTILINE | re.DOTALL)
+    if manifest_rules is None:
+        fail(".gitlab-ci.yml lacks .validate_manifest_rules")
+    changes_lists = dict(re.findall(r"^  - if: (?P<condition>[^\n]+)\n    changes:\n(?P<changes>(?:      - [^\n]+\n)+)", manifest_rules.group("body"), re.MULTILINE))
+    for condition in ('$CI_PIPELINE_SOURCE == "merge_request_event"', '$CI_COMMIT_BRANCH == "main"'):
+        if "      - scripts/hermes-agent-cutover.sh\n" not in changes_lists.get(condition, ""):
+            fail(f".validate_manifest_rules lacks cutover validation trigger for {condition}")
 
     require(apps_rendered, IMAGE, "immutable Hermes image in apps render")
     if apps_rendered.count(IMAGE) != 1:
@@ -287,16 +297,8 @@ def validate_manifests() -> None:
     require(storage_class, "volumeBindingMode: WaitForFirstConsumer", "WFFC binding")
 
     require(service, "type: ClusterIP", "ClusterIP service")
-    expected_ports = {
-        ("api", "8642", "8642"),
-        ("webhook", "8644", "8644"),
-    }
-    actual_ports = set(
-        re.findall(
-            r"- name: (\w+)\n\s+port: (\d+)\n\s+protocol: TCP\n\s+targetPort: (\d+)",
-            service,
-        )
-    )
+    expected_ports = {("api", "8642", "8642"), ("webhook", "8644", "8644")}
+    actual_ports = set(re.findall(r"- name: (\w+)\n\s+port: (\d+)\n\s+protocol: TCP\n\s+targetPort: (\d+)", service))
     if actual_ports != expected_ports:
         fail(f"Service ports differ: {actual_ports!r}")
     if re.search(r"NodePort|LoadBalancer|externalIPs|hostPort", sources):
@@ -355,9 +357,11 @@ def validate_migration_script() -> None:
         fail("migration script must not copy the whole source tree")
 
     final_sync = function_body(script, "final_sync")
+    if re.findall(r'^\s*(timeout\s+\S+\s+systemctl --user stop "\$SOURCE_UNIT")$', final_sync, re.MULTILINE) != ['timeout 120s systemctl --user stop "$SOURCE_UNIT"']:
+        fail("final-sync source stop must use the exact 120-second outer timeout")
     ordered(
         final_sync,
-        ['systemctl --user stop "$SOURCE_UNIT"', "wait_for_source_inactive", "require_candidate_target", "run_sync final"],
+        ['timeout 120s systemctl --user stop "$SOURCE_UNIT"', "wait_for_source_inactive", "require_candidate_target", "run_sync final"],
         "final-sync stop/proof/copy",
     )
     rollback = function_body(script, "rollback")
@@ -369,9 +373,7 @@ def validate_migration_script() -> None:
     require(script, "assert_no_dual_authority", "dual-authority fail-closed guard")
     require(script, "persistentVolumeClaim:", "migration PVC mount")
     require(script, "hostPath:", "read-only source hostPath")
-    if script.count("mountPath: /source") != 1 or not re.search(
-        r"- name: source\n\s+mountPath: /source\n\s+readOnly: true", script
-    ):
+    if script.count("mountPath: /source") != 1 or not re.search(r"- name: source\n\s+mountPath: /source\n\s+readOnly: true", script):
         fail("source hostPath must remain one read-only mount")
     if script.count("mountPath: /sqlite-backups") != 1 or not re.search(
         r"- name: sqlite-backups\n\s+mountPath: /sqlite-backups\n\s+readOnly: true", script
@@ -453,7 +455,7 @@ def validate_migration_script() -> None:
             "capture_source_root_identity",
             "recheck_source_root_identity",
             "create_migration_pod",
-            'systemctl --user stop "$SOURCE_UNIT"',
+            'timeout 120s systemctl --user stop "$SOURCE_UNIT"',
             "wait_for_source_inactive",
             "run_sync final",
         ],
@@ -2480,6 +2482,238 @@ fi
             fail(f"host final-sync source identity walk is unsafe:\n{result.stderr}")
 
 
+def validate_final_sync_replaces_then_recovers_selected_state() -> None:
+    with tempfile.TemporaryDirectory(prefix="hermes-final-sync-") as temporary:
+        root = Path(temporary)
+        source, target, staging = root / "source", root / "target", root / "staging"
+        nested = source / "sessions" / "nested"
+        nested.mkdir(parents=True)
+        (source / "profiles" / "implementer").mkdir(parents=True)
+        (source / "config.yaml").write_text("current")
+        (source / "profiles" / "implementer" / "config.yaml").write_text("profile")
+        create_database(source / "state.db", "state")
+        create_database(source / "hermes_state.db", "hermes")
+        suffix_database = nested / "archive-journal"
+        create_database(suffix_database, "suffix-database")
+        (nested / "notes-wal").write_bytes(b"unrelated suffix data")
+        wal_database = nested / "events.sqlite"
+        connection = sqlite3.connect(wal_database)
+        try:
+            connection.execute("PRAGMA journal_mode=WAL")
+            connection.execute("PRAGMA wal_autocheckpoint=0")
+            connection.execute("CREATE TABLE retained(value TEXT NOT NULL)")
+            connection.execute("INSERT INTO retained VALUES ('committed-wal')")
+            connection.commit()
+            wal_database.chmod(0o700)
+            source_snapshot = {
+                str(path.relative_to(source)): (path.read_bytes(), path.stat().st_mode & 0o777)
+                for path in source.rglob("*") if path.is_file()
+            }
+            target.mkdir()
+            (target / "state.db").write_bytes(b"SQLite format 3\x00corrupt")
+            (target / "hermes_state.db").mkdir()
+            (target / "config.yaml").mkdir()
+            (target / "profiles").write_text("wrong type")
+            (target / "stale").write_text("remove")
+            synced = run_sync(source, staging, target, phase="final")
+            if synced.returncode:
+                fail(f"stopped-source final sync failed:\n{synced.stderr}")
+            if source_snapshot != {
+                str(path.relative_to(source)): (path.read_bytes(), path.stat().st_mode & 0o777)
+                for path in source.rglob("*") if path.is_file()
+            }:
+                fail("final sync mutated the stopped source fixture")
+        finally:
+            connection.close()
+        for actual, value in ((target / "state.db", "state"), (target / "hermes_state.db", "hermes"),
+                              (target / "sessions" / "nested" / "archive-journal", "suffix-database"),
+                              (target / "sessions" / "nested" / "events.sqlite", "committed-wal")):
+            with sqlite3.connect(f"file:{actual}?mode=ro", uri=True) as database:
+                if database.execute("SELECT value FROM retained").fetchone() != (value,):
+                    fail(f"final sync lost database content: {actual}")
+                if database.execute("PRAGMA journal_mode").fetchone() != ("delete",):
+                    fail(f"final sync did not select DELETE mode: {actual}")
+        copied_wal = target / "sessions" / "nested" / "events.sqlite"
+        if copied_wal.stat().st_mode & 0o777 != 0o700:
+            fail("final sync did not preserve database mode")
+        if (target / "sessions" / "nested" / "notes-wal").read_bytes() != b"unrelated suffix data":
+            fail("final sync removed unrelated suffix-named selected data")
+        if not (target / "sessions" / "nested" / "archive-journal").is_file():
+            fail("final sync removed a SQLite database ending in -journal")
+        databases = (target / "state.db", target / "hermes_state.db", copied_wal,
+                     target / "sessions" / "nested" / "archive-journal")
+        if any(Path(f"{database}{suffix}").exists() for database in databases for suffix in ("-wal", "-shm", "-journal")):
+            fail("final sync retained an associated SQLite sidecar")
+        if not (target / "config.yaml").is_file() or not (target / "profiles" / "implementer").is_dir():
+            fail("final sync did not replace destination type conflicts")
+        if (target / "stale").exists():
+            fail("final sync retained stale unapproved target state")
+        collision_source, collision_target = root / "collision-source", root / "collision-target"
+        (collision_source / "sessions").mkdir(parents=True); collision_target.mkdir()
+        create_database(collision_source / "sessions" / "ledger", "main")
+        create_database(collision_source / "sessions" / "ledger-journal", "collision")
+        collided = run_sync(collision_source, staging, collision_target, phase="final")
+        if collided.returncode == 0 or "database/companion path collision" not in collided.stderr:
+            fail(f"final sync did not explicitly reject an ambiguous SQLite collision: {collided.stderr}")
+        accepted = []
+        for index, relative in enumerate((Path("state.db"), Path("profiles/implementer/state.db"))):
+            corrupt_source, corrupt_target = root / f"corrupt-source-{index}", root / f"corrupt-target-{index}"
+            corrupt_source.mkdir(); corrupt_target.mkdir(); path = corrupt_source / relative
+            path.parent.mkdir(parents=True, exist_ok=True); path.write_bytes(b"not a SQLite database")
+            rejected = run_sync(corrupt_source, staging, corrupt_target, phase="final")
+            if rejected.returncode == 0: accepted.append(str(relative))
+            if path.read_bytes() != b"not a SQLite database": fail("final sync mutated a corrupt source database")
+        if accepted: fail(f"final sync accepted corrupt present allowlisted databases: {accepted!r}")
+        for index, (parent, suffix) in enumerate((parent, suffix) for parent in (Path("."), Path("profiles/implementer")) for suffix in ("-wal", "-shm", "-journal")):
+            orphan_source, orphan_target = root / f"orphan-source-{index}", root / f"orphan-target-{index}"
+            (orphan_source / parent).mkdir(parents=True); sentinel = seed_target_sentinel(orphan_target)
+            sidecar = orphan_source / parent / f"state.db{suffix}"; sidecar.write_bytes(b"orphan companion")
+            rejected = run_sync(orphan_source, staging, orphan_target, phase="final")
+            assert_rejected_before_target_mutation(rejected, sentinel, f"orphan allowlisted companion {parent}/state.db{suffix}")
+            if sidecar.read_bytes() != b"orphan companion" or "selected final state sync completed" in rejected.stdout:
+                fail(f"orphan allowlisted companion was mutated or reported normalized: {parent}/state.db{suffix}")
+        script = function_body(MIGRATION.read_text(), "run_sync")
+        if 'timeout --foreground 3300s' not in script or "1200s" in script:
+            fail("final sync must retain the original 3300-second outer timeout")
+
+
+def validate_cutover_launcher_control_flow() -> None:
+    """Command-double control-flow qualification; not a production cutover rehearsal."""
+    original = CUTOVER.read_text()
+    revision = "main@sha1:" + "a" * 40
+
+    def run_case(case: str, prior: str | None = None) -> dict[str, object]:
+        with tempfile.TemporaryDirectory(prefix=f"hermes-cutover-{case}-") as temporary:
+            root, fakebin = Path(temporary), Path(temporary) / "bin"
+            source, kubeconfig, dropin = root / "home", root / "kubeconfig", root / "fence.conf"
+            source.mkdir(); fakebin.mkdir(); kubeconfig.write_text("fake")
+            token, result = source / "gateway-authority.enabled", source / "k8s-cutover-result.json"
+            token.touch(mode=0o600)
+            dropin.write_bytes(b"[Unit]\nConditionPathExists=/home/ben/.hermes/gateway-authority.enabled\n[Service]\nKillMode=control-group\nTimeoutStopSec=90s\nSendSIGKILL=yes\n")
+            dropin.chmod(0o600)
+            if prior:
+                result.write_text(json.dumps({"state": prior, "lastPhase": prior, "revision": revision,
+                                              "fence": "verified-fenced"}) + "\n")
+                result.chmod(0o600)
+            state, pid, events, activation = root / "state", root / "pid", root / "events", root / "activation"
+            barrier, release = root / "barrier", root / "release"
+            state.write_text("active"); pid.write_text("4242"); events.write_text("")
+            proc_cgroup = root / "proc-cgroup"; proc_cgroup.write_text("0::/control/cutover\n")
+            launcher = root / "hermes-agent-cutover.sh"
+            transformed = original
+            for old, new in {
+                'SOURCE_HOME="/home/ben/.hermes"': f'SOURCE_HOME="{source}"',
+                'SOURCE_UNIT="hermes-gateway.service"': 'SOURCE_UNIT="fake-source.service"',
+                'KUBECONFIG="/home/ben/.kube/config"': f'KUBECONFIG="{kubeconfig}"',
+                'DROPIN="/home/ben/.config/systemd/user/hermes-gateway.service.d/20-authority-fence.conf"': f'DROPIN="{dropin}"',
+                'PROC_CGROUP="/proc/$$/cgroup"': f'PROC_CGROUP="{proc_cgroup}"',
+            }.items():
+                transformed = transformed.replace(old, new)
+            launcher.write_text(transformed); launcher.chmod(0o755)
+            helper = root / "hermes-agent-migration.sh"
+            helper.write_text("#!/usr/bin/env bash\nprintf 'helper:%s\\n' \"$1\" >>\"$EVENTS\"\nif [ \"$1\" = final-sync ]; then\n [ ! -e \"$TOKEN\" ] || { printf 'helper-token-present\\n' >>\"$EVENTS\"; exit 8; }\n [ \"$CASE\" != lock-race ] || { : >\"$BARRIER\"; while [ ! -e \"$RELEASE\" ]; do sleep .02; done; }\n case \"$CASE\" in helper-failure|fence-failure) exit 9;; helper-signal) kill -TERM \"$PPID\"; exit 9;; esac\n printf inactive >\"$STATE\"; printf 0 >\"$PID\"\nfi\n")
+            helper.chmod(0o755)
+            doubles = {
+                "timeout": "#!/usr/bin/env bash\n[ \"${1:-}\" = --foreground ] && shift\nshift\nexec \"$@\"\n",
+                "busctl": "#!/usr/bin/python3\nimport json,os\ncase=os.environ['CASE']\nif case=='condition-blank': raise SystemExit\nif case=='condition-malformed': print('{'); raise SystemExit\ndata=[] if case=='condition-reset' else [['ConditionPathExists',case=='condition-trigger',False,os.environ['TOKEN'],True if case=='condition-bool-state' else 1]]\nprint(json.dumps({'type':'a(sbbsi)','data':data}))\n",
+                "python3": "#!/usr/bin/env bash\nif [ \"$CASE\" = result-failure ] && [ \"${3:-}\" = write ] && [ \"${4:-}\" = started ]; then exit 9; fi\nexec /usr/bin/python3 \"$@\"\n",
+                "systemctl": """#!/usr/bin/python3
+import os,sys
+from pathlib import Path
+a=sys.argv[1:]; e=Path(os.environ['EVENTS']); e.open('a').write('systemctl:'+ ' '.join(a)+'\\n')
+if 'stop' in a:
+ if os.environ['CASE']=='fence-failure': raise SystemExit(9)
+ Path(os.environ['STATE']).write_text('inactive'); Path(os.environ['PID']).write_text('0'); raise SystemExit(0)
+p=a[a.index('-p')+1]; kill='mixed' if os.environ['CASE']=='killmode-override' else 'control-group'
+values={'ActiveState':Path(os.environ['STATE']).read_text(),'MainPID':Path(os.environ['PID']).read_text(),'ControlGroup':'/control/source','DropInPaths':os.environ['DROPIN'],'NeedDaemonReload':'no','KillMode':kill,'SendSIGKILL':'yes','TimeoutStopUSec':'1min 30s'}
+print(values.get(p,''))
+""",
+                "systemd-analyze": "#!/usr/bin/env bash\n[ \"$#\" -eq 2 ] && [ \"$1\" = timespan ] && [ \"$2\" = '1min 30s' ] || exit 2\nprintf 'Original: 1min 30s\\n      μs: 90000000\\n   Human: 1min 30s\\n'\n",
+                "kubectl": """#!/usr/bin/python3
+import json,os,sys
+from pathlib import Path
+a=sys.argv[1:]; e=Path(os.environ['EVENTS']); e.open('a').write('kubectl:'+ ' '.join(a)+'\\n'); case=os.environ['CASE']; rev=os.environ['REV']
+if 'patch' in a:
+ r=json.loads(Path(os.environ['RESULT']).read_text()); e.open('a').write('patch-result:'+r['state']+'\\n'); payload=json.loads(a[a.index('-p')+1]); Path(os.environ['ACTIVATION']).write_text(payload['metadata']['annotations']['reconcile.fluxcd.io/requestedAt']); raise SystemExit(0)
+if 'pods' in a:
+ items=[]
+ if case=='target-pod': items=[{'apiVersion':'v1','kind':'Pod','metadata':{'name':'hermes-agent-x','namespace':'default','labels':{}},'spec':{}}]
+ if case=='pvc-pod': items=[{'apiVersion':'v1','kind':'Pod','metadata':{'name':'consumer','namespace':'default'},'spec':{'volumes':[{'persistentVolumeClaim':{'claimName':'hermes-agent-state'}}]}}]
+ print(json.dumps({'apiVersion':'v1','kind':'List','metadata':{'continue':None},'items':items})); raise SystemExit(0)
+if 'namespace' in a: print('16710d5a-45ec-4b64-a101-b1a4db28a6e7'); raise SystemExit(0)
+i=a.index('get'); kind,name=a[i+1:i+3]
+if kind=='gitrepository': print('true|'+rev); raise SystemExit(0)
+if name=='cluster-state': print('true'); raise SystemExit(0)
+if not Path(os.environ['ACTIVATION']).exists(): print('true'); raise SystemExit(0)
+t=Path(os.environ['ACTIVATION']).read_text(); print(json.dumps({'apiVersion':'kustomize.toolkit.fluxcd.io/v1','kind':'Kustomization','metadata':{'name':'apps','namespace':'flux-system','generation':8,'annotations':{'reconcile.fluxcd.io/requestedAt':t}},'spec':{'suspend':False},'status':{'lastHandledReconcileAt':t,'lastAppliedRevision':rev,'observedGeneration':8,'conditions':[{'type':'Ready','status':'True','reason':'AnyReason'}]}}))
+""",
+            }
+            for name, body in doubles.items():
+                path = fakebin / name; path.write_text(body); path.chmod(0o755)
+            env = {**os.environ, "PATH": f"{fakebin}:{os.environ['PATH']}", "CASE": case,
+                   "STATE": str(state), "PID": str(pid), "EVENTS": str(events), "DROPIN": str(dropin),
+                   "RESULT": str(result), "ACTIVATION": str(activation), "REV": revision,
+                   "BARRIER": str(barrier), "RELEASE": str(release), "TOKEN": str(token)}
+            if case == "lock-race":
+                first = subprocess.Popen([launcher, revision], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=env, start_new_session=True)
+                deadline = time.monotonic() + 5
+                while not barrier.exists() and first.poll() is None and time.monotonic() < deadline: time.sleep(.01)
+                before = (result.read_bytes(), events.read_text(), token.exists(), state.read_text())
+                second = subprocess.Popen([launcher, revision], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=env, start_new_session=True)
+                while second.poll() is None and events.read_text().count("helper:final-sync\n") < 2 and time.monotonic() < deadline: time.sleep(.01)
+                unchanged = before == (result.read_bytes(), events.read_text(), token.exists(), state.read_text())
+                if second.poll() is None: os.killpg(second.pid, 9)
+                second.communicate(timeout=20); release.touch(); first.communicate(timeout=20)
+                return {"code": first.returncode, "contender": second.returncode, "unchanged": unchanged, "events": events.read_text(), "barrier": barrier.exists()}
+            completed = subprocess.run([launcher, revision], capture_output=True, text=True, env=env, timeout=20)
+            invalid_codes = [subprocess.run([launcher, *arguments], capture_output=True, env=env).returncode
+                             for arguments in ([], ["MAIN@sha1:" + "a" * 40])]
+            value = json.loads(result.read_text()) if result.is_file() else None
+            return {"code": completed.returncode, "events": events.read_text(), "token": token.exists(),
+                    "state": state.read_text(), "result": value,
+                    "mode": result.stat().st_mode & 0o777 if result.is_file() else None,
+                    "stderr": completed.stderr, "invalid_codes": invalid_codes}
+
+    override, success, defects = run_case("killmode-override"), run_case("success"), []
+    if (override["code"] == 0 or not override["token"] or override["result"] is not None or override["state"] != "active" or "helper:" in str(override["events"]) or " stop " in str(override["events"])):
+        defects.append(f"effective KillMode override crossed the preflight boundary: {override!r}")
+    for case in ("condition-reset", "condition-blank", "condition-malformed", "condition-trigger", "condition-bool-state"):
+        condition = run_case(case)
+        if (condition["code"] == 0 or not condition["token"] or condition["result"] is not None or condition["state"] != "active" or "helper:" in str(condition["events"]) or " stop " in str(condition["events"])): defects.append(f"{case} effective Conditions crossed the preflight boundary: {condition!r}")
+    if success["code"] or success["result"]["state"] != "success" or success["mode"] != 0o600:
+        defects.append(f"valid generic-List cutover control flow failed: {success!r}")
+    if defects: fail("; ".join(defects))
+    ordered(str(success["events"]), ["helper:final-sync", "get pods --chunk-size=0 -o json",
+                                    "patch-result:activation-attempted", "helper:verify-target"], "cutover")
+    initial = run_case("result-failure")
+    if initial["code"] == 0 or not initial["token"] or initial["state"] != "active" or " stop " in initial["events"] or "helper:" in initial["events"]:
+        fail(f"initial result failure crossed the destructive boundary: {initial!r}")
+    helper = run_case("helper-failure")
+    if helper["code"] == 0 or helper["result"]["fence"] != "verified-fenced" or helper["token"] or helper["state"] != "inactive" or " start " in helper["events"]:
+        fail(f"helper failure was not honestly fail-fenced: {helper!r}")
+    signal = run_case("helper-signal")
+    if signal["code"] == 0 or not isinstance(signal["result"], dict) or signal["result"].get("fence") != "verified-fenced" or signal["token"] or signal["state"] != "inactive" or " start " in str(signal["events"]):
+        fail(f"helper signal was not honestly fail-fenced: {signal!r}")
+    unknown = run_case("fence-failure")
+    if unknown["code"] == 0 or unknown["result"]["fence"] != "fence-unknown" or " start " in unknown["events"]:
+        fail(f"failed fence operation was misreported: {unknown!r}")
+    for prior in ("activation-attempted", "success"):
+        blocked = run_case(f"prior-{prior}", prior)
+        if blocked["code"] == 0 or not blocked["token"] or blocked["state"] != "active" or "helper:" in blocked["events"]:
+            fail(f"prior {prior} result did not block rerun: {blocked!r}")
+    for case in ("target-pod", "pvc-pod"):
+        blocked = run_case(case)
+        if (blocked["code"] == 0 or " patch " in blocked["events"]
+                or blocked["result"]["fence"] != "verified-fenced" or blocked["result"]["lastPhase"] != "synced"):
+            fail(f"{case} did not block activation: {blocked!r}")
+    race = run_case("lock-race")
+    if race["code"] or race["contender"] == 0 or not race["unchanged"] or not race["barrier"] or str(race["events"]).count("helper:final-sync\n") != 1: fail(f"concurrent launchers crossed the process lock boundary: {race!r}")
+    if success["invalid_codes"] != [64, 64]:
+        fail(f"launcher accepted invalid arguments: {success['invalid_codes']!r}")
+    if sum(bool(line.strip()) for line in original.splitlines()) > 119:
+        fail("cutover launcher exceeds 119 nonblank lines")
+
+
 def main() -> int:
     checks = (
         validate_manifests,
@@ -2520,6 +2754,8 @@ def main() -> int:
         validate_same_shape_source_root_replacement_rejected_before_mutation,
         validate_same_shape_profiles_parent_replacement_rejected_before_mutation,
         validate_host_source_identity_walk_rejects_final_symlink_paths,
+        validate_final_sync_replaces_then_recovers_selected_state,
+        validate_cutover_launcher_control_flow,
     )
     failures = []
     for check in checks:

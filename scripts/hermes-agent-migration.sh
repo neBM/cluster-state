@@ -364,7 +364,7 @@ try:
                 target.parent, "staging database parent"
             )
             try:
-                for suffix in ("-wal", "-shm"):
+                for suffix in ("-wal", "-shm", "-journal"):
                     if (
                         classify_at(target_parent_fd, f"{target.name}{suffix}")["state"]
                         != "absent"
@@ -1299,6 +1299,8 @@ def open_source_context(
 
         for name in DATABASES:
             record = classify_at(source_fd, name)
+            if record["state"] == "absent" and any(classify_at(source_fd, f"{name}{suffix}")["state"] == "present" for suffix in ("-wal", "-shm", "-journal")):
+                raise RuntimeError(f"source database companion exists without main: {name}")
             if record["state"] == "present" and record["type"] != "regular_file":
                 raise RuntimeError(f"source database is not regular: {name}")
             if manifest is not None and record != database_record_identity(
@@ -1348,6 +1350,8 @@ def open_source_context(
             for name in DATABASES:
                 relative = Path("profiles") / profile / name
                 database_record = classify_at(profile_fd, name)
+                if database_record["state"] == "absent" and any(classify_at(profile_fd, f"{name}{suffix}")["state"] == "present" for suffix in ("-wal", "-shm", "-journal")):
+                    raise RuntimeError(f"source database companion exists without main: {relative}")
                 if (
                     database_record["state"] == "present"
                     and database_record["type"] != "regular_file"
@@ -1462,6 +1466,51 @@ def remove_path(path: Path) -> None:
         shutil.rmtree(path)
 
 
+def normalize_final_sqlite() -> None:
+    required = {TARGET / name for name in DATABASES if (TARGET / name).is_file()}
+    required |= {TARGET / "profiles" / profile / name for profile in PROFILES for name in DATABASES if (TARGET / "profiles" / profile / name).is_file()}
+    databases = set(required)
+    for path in TARGET.rglob("*"):
+        if path.is_symlink() or not path.is_file():
+            continue
+        with path.open("rb") as stream:
+            if stream.read(16) == b"SQLite format 3\x00":
+                databases.add(path)
+    sidecars = {Path(f"{path}{suffix}") for path in databases for suffix in ("-wal", "-shm", "-journal")}
+    if set(databases) & sidecars: raise RuntimeError("SQLite database/companion path collision")
+    for path in databases:
+        with path.open("rb") as stream:
+            if stream.read(16) != b"SQLite format 3\x00": raise RuntimeError(f"allowlisted database lacks SQLite magic: {path.relative_to(TARGET)}")
+        mode = stat.S_IMODE(path.stat(follow_symlinks=False).st_mode)
+        connection = sqlite3.connect(path, timeout=30)
+        try:
+            connection.execute("SELECT count(*) FROM sqlite_master").fetchone()
+            if connection.execute("PRAGMA journal_mode=DELETE").fetchone() != ("delete",):
+                raise RuntimeError(f"SQLite journal normalization failed: {path.relative_to(TARGET)}")
+            if connection.execute("PRAGMA quick_check").fetchone() != ("ok",):
+                raise RuntimeError(f"SQLite quick_check failed: {path.relative_to(TARGET)}")
+        finally:
+            connection.close()
+            os.chmod(path, mode, follow_symlinks=False)
+    for path in sidecars:
+        remove_path(path)
+    if any(classify_path(path)["state"] != "absent" for path in sidecars):
+        raise RuntimeError("target retained an associated SQLite sidecar")
+
+
+def converge_target() -> None:
+    allowed = set(TOP_FILES) | set(TOP_DIRS) | set(DATABASES) | {"profiles"}
+    allowed |= {f"{name}{suffix}" for name in DATABASES for suffix in ("-wal", "-shm", "-journal")}
+    for path in TARGET.iterdir():
+        if path.name not in allowed:
+            remove_path(path)
+    profiles = TARGET / "profiles"
+    if profiles.is_dir() and not profiles.is_symlink():
+        for path in profiles.iterdir():
+            if path.name not in PROFILES:
+                remove_path(path)
+
+
 def ensure_target_directory(path: Path) -> None:
     try:
         relative = path.relative_to(TARGET)
@@ -1470,14 +1519,8 @@ def ensure_target_directory(path: Path) -> None:
     current = TARGET
     for part in relative.parts:
         current /= part
-        if current.is_symlink():
-            raise RuntimeError(
-                f"refusing symlinked target directory: {current.relative_to(TARGET)}"
-            )
-        if current.exists() and not current.is_dir():
-            raise RuntimeError(
-                f"target parent is not a directory: {current.relative_to(TARGET)}"
-            )
+        if current.is_symlink() or (current.exists() and not current.is_dir()):
+            remove_path(current)
         current.mkdir(exist_ok=True)
 
 
@@ -1534,6 +1577,7 @@ def copy_file(
             or digest_descriptor(source_fd) != digest(temporary)
         ):
             raise RuntimeError(f"copy verification failed: {description}")
+        remove_path(target)
         os.replace(temporary, target)
         replaced = True
     finally:
@@ -1601,7 +1645,7 @@ def install_staged_database(
 ) -> None:
     if record["state"] == "absent":
         remove_path(target)
-        for suffix in ("-wal", "-shm"):
+        for suffix in ("-wal", "-shm", "-journal"):
             remove_path(Path(f"{target}{suffix}"))
         return
     try:
@@ -1627,6 +1671,7 @@ def install_staged_database(
         os.fchown(temporary_fd, RUNTIME_UID, RUNTIME_GID)
         os.close(temporary_fd)
         temporary_fd = -1
+        remove_path(target)
         os.replace(temporary, target)
         replaced = True
     finally:
@@ -1634,7 +1679,7 @@ def install_staged_database(
             os.close(temporary_fd)
         if not replaced:
             remove_path(temporary)
-    for suffix in ("-wal", "-shm"):
+    for suffix in ("-wal", "-shm", "-journal"):
         remove_path(Path(f"{target}{suffix}"))
 
 
@@ -1674,7 +1719,7 @@ def copy_profile(
                 staged_descriptors,
             )
         else:
-            for suffix in ("", "-wal", "-shm"):
+            for suffix in ("", "-wal", "-shm", "-journal"):
                 source_name = f"{name}{suffix}"
                 copy_file(
                     profile_fd,
@@ -1701,6 +1746,7 @@ def copy_mutable_state(phase: str) -> None:
         source_fd, profiles_fd, profile_fds = open_source_context(staging_manifest)
         try:
             os.chown(TARGET, RUNTIME_UID, RUNTIME_GID)
+            converge_target()
             for name in TOP_FILES:
                 copy_file(source_fd, name, TARGET / name, name)
             for name in TOP_DIRS:
@@ -1727,7 +1773,7 @@ def copy_mutable_state(phase: str) -> None:
                         staged_descriptors,
                     )
                 else:
-                    for suffix in ("", "-wal", "-shm"):
+                    for suffix in ("", "-wal", "-shm", "-journal"):
                         source_name = f"{name}{suffix}"
                         copy_file(
                             source_fd,
@@ -1735,6 +1781,7 @@ def copy_mutable_state(phase: str) -> None:
                             TARGET / source_name,
                             source_name,
                         )
+            if phase == "final": normalize_final_sqlite()
             os.sync()
         finally:
             close_source_context(source_fd, profiles_fd, profile_fds)
@@ -1861,7 +1908,7 @@ final_sync() {
   create_migration_pod
   require_candidate_target
   require_candidate_pods_inert
-  timeout 60s systemctl --user stop "$SOURCE_UNIT"
+  timeout 120s systemctl --user stop "$SOURCE_UNIT"
   wait_for_source_inactive
   require_candidate_target
   require_candidate_pods_inert
@@ -1902,7 +1949,7 @@ verify_target() {
   timeout 30s kubectl -n "$NAMESPACE" exec "$pod" -- python3 -c \
     'import urllib.request; r=urllib.request.urlopen("http://127.0.0.1:8644/health", timeout=5); raise SystemExit(0 if 200 <= r.status < 300 else 1)'
   timeout 30s kubectl -n "$NAMESPACE" exec "$pod" -- /opt/hermes/.venv/bin/python -c \
-    'import json, pathlib, urllib.request, yaml; config=yaml.safe_load(pathlib.Path("/opt/data/config.yaml").read_text()) or {}; key=config.get("API_SERVER_KEY"); assert key, "API_SERVER_KEY is unavailable"; request=urllib.request.Request("http://127.0.0.1:8642/health/detailed", headers={"Authorization": "Bearer "+key}); health=json.load(urllib.request.urlopen(request, timeout=5)); expected={"api_server", "feishu", "matrix", "webhook"}; states={name: (health.get("platforms", {}).get(name, {}) or {}).get("state") for name in expected}; assert health.get("status") == "ok" and all(state == "connected" for state in states.values()), f"platform health differs: {states}"'
+    'import json, pathlib, sys, urllib.request, yaml; config=yaml.safe_load(pathlib.Path("/opt/data/config.yaml").read_text()) or {}; key=config.get("API_SERVER_KEY"); key or sys.exit("API_SERVER_KEY is unavailable"); request=urllib.request.Request("http://127.0.0.1:8642/health/detailed", headers={"Authorization": "Bearer "+key}); health=json.load(urllib.request.urlopen(request, timeout=5)); expected={"api_server", "feishu", "matrix", "webhook"}; states={name: (health.get("platforms", {}).get(name, {}) or {}).get("state") for name in expected}; (health.get("status") == "ok" and all(state == "connected" for state in states.values())) or sys.exit(f"platform health differs: {states}")'
   timeout 30s kubectl -n "$NAMESPACE" exec "$pod" -- /bin/sh -ec \
     'test -f /opt/data/config.yaml && test -d /opt/data/sessions && test -d /opt/data/cron'
   local service_type ports
