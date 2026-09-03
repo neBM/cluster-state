@@ -95,6 +95,7 @@ spec:
 
               podman_store=(
                 podman
+                --tmpdir=/tmp/libpod
                 --root=/var/lib/containers/storage
                 --runroot=/run/containers/storage
                 --storage-driver=overlay
@@ -140,6 +141,8 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: metadata.uid
+            - name: TMPDIR
+              value: /tmp
             image: quay.io/podman/stable@sha256:c6c3feef40a5c825a98e62a11c8ed4c36ec603327d56eb629230a671e527c3dd
             imagePullPolicy: IfNotPresent
             name: podman-gc
@@ -162,8 +165,12 @@ spec:
               name: podman-storage
             - mountPath: /run/containers
               name: run
+            - mountPath: /run/lock
+              name: run-lock
             - mountPath: /tmp
               name: tmp
+            - mountPath: /dev/shm
+              name: dev-shm
           enableServiceLinks: true
           nodeSelector:
             kubernetes.io/arch: amd64
@@ -177,5 +184,9 @@ spec:
             name: podman-storage
           - emptyDir: {}
             name: run
+          - emptyDir: {medium: Memory}
+            name: run-lock
           - emptyDir: {}
             name: tmp
+          - emptyDir: {medium: Memory, sizeLimit: 64Mi}
+            name: dev-shm

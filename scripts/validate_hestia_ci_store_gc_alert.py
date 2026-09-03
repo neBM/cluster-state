@@ -23,6 +23,9 @@ GC_IMAGE = (
 )
 GC_HOST_PATH = "/var/lib/ci-containers-nocow/storage"
 GC_MOUNT_PATH = "/var/lib/containers/storage"
+GC_TMPDIR = "/tmp"
+GC_RUN_LOCK_PATH = "/run/lock"
+GC_SHM_PATH = "/dev/shm"
 SA_TOKEN_PATH = "/var/run/secrets/kubernetes.io/serviceaccount/token"
 SA_CA_PATH = "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
 JOB_LABEL = "ci.brmartin.co.uk/job"
@@ -93,6 +96,7 @@ PY
 
 podman_store=(
   podman
+  --tmpdir=/tmp/libpod
   --root={GC_MOUNT_PATH}
   --runroot=/run/containers/storage
   --storage-driver=overlay
@@ -289,8 +293,9 @@ def validate_gc(resources: list[dict[str, Any]], checks: Checks) -> None:
         [
             {"name": "NODE_NAME", "valueFrom": {"fieldRef": {"fieldPath": "spec.nodeName"}}},
             {"name": "POD_UID", "valueFrom": {"fieldRef": {"fieldPath": "metadata.uid"}}},
+            {"name": "TMPDIR", "value": GC_TMPDIR},
         ],
-        "GC identity environment",
+        "GC container environment",
     )
     checks.true("--filter until=168h" in actual_script, "GC operations must be age-bounded at 168h")
     checks.true('"${podman_store[@]}" rm --force "${stale_external_ids[@]}"' in actual_script, "GC must remove stale external containers through Podman's documented force path")
@@ -321,7 +326,9 @@ def validate_gc(resources: list[dict[str, Any]], checks: Checks) -> None:
         [
             {"mountPath": GC_MOUNT_PATH, "name": "podman-storage"},
             {"mountPath": "/run/containers", "name": "run"},
+            {"mountPath": GC_RUN_LOCK_PATH, "name": "run-lock"},
             {"mountPath": "/tmp", "name": "tmp"},
+            {"mountPath": GC_SHM_PATH, "name": "dev-shm"},
         ],
         "GC volumeMounts",
     )
@@ -330,7 +337,9 @@ def validate_gc(resources: list[dict[str, Any]], checks: Checks) -> None:
         [
             {"hostPath": {"path": GC_HOST_PATH, "type": "Directory"}, "name": "podman-storage"},
             {"emptyDir": {}, "name": "run"},
+            {"emptyDir": {"medium": "Memory"}, "name": "run-lock"},
             {"emptyDir": {}, "name": "tmp"},
+            {"emptyDir": {"medium": "Memory", "sizeLimit": "64Mi"}, "name": "dev-shm"},
         ],
         "GC volumes",
     )
