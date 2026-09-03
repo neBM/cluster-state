@@ -93,6 +93,78 @@ def mutation(
     print(f"PASS mutation {name}")
 
 
+def test_podman_runtime_paths(module: ModuleType) -> None:
+    resources = module.render(ROOT, "infrastructure/shared-services")
+    cronjobs = [
+        resource
+        for resource in resources
+        if resource.get("kind") == "CronJob"
+        and resource.get("metadata", {}).get("name") == "hestia-ci-store-gc"
+    ]
+    if len(cronjobs) != 1:
+        raise AssertionError(f"expected one production GC CronJob, got {len(cronjobs)}")
+    pod_spec = module.pod_spec(cronjobs[0])
+    containers = pod_spec.get("containers")
+    if type(containers) is not list or len(containers) != 1 or type(containers[0]) is not dict:
+        raise AssertionError("production GC must contain exactly one container")
+    container = containers[0]
+    arguments = container.get("args")
+    script = arguments[0] if type(arguments) is list and len(arguments) == 1 and type(arguments[0]) is str else ""
+
+    failures = []
+    tmpdir_options = [line.strip() for line in script.splitlines() if line.strip().startswith("--tmpdir=")]
+    if tmpdir_options != ["--tmpdir=/tmp/libpod"]:
+        failures.append(f"global Podman tmpdir expected ['--tmpdir=/tmp/libpod'], got {tmpdir_options!r}")
+
+    environment = container.get("env")
+    tmpdir_environment = (
+        [entry for entry in environment if type(entry) is dict and entry.get("name") == "TMPDIR"]
+        if type(environment) is list
+        else []
+    )
+    expected_tmpdir_environment = [{"name": "TMPDIR", "value": "/tmp"}]
+    if not module.strict_equal(tmpdir_environment, expected_tmpdir_environment):
+        failures.append(f"TMPDIR environment expected {expected_tmpdir_environment!r}, got {tmpdir_environment!r}")
+
+    volume_mounts = container.get("volumeMounts")
+    runtime_mounts = (
+        [
+            mount
+            for mount in volume_mounts
+            if type(mount) is dict and mount.get("name") in {"run-lock", "dev-shm"}
+        ]
+        if type(volume_mounts) is list
+        else []
+    )
+    expected_runtime_mounts = [
+        {"mountPath": "/run/lock", "name": "run-lock"},
+        {"mountPath": "/dev/shm", "name": "dev-shm"},
+    ]
+    if not module.strict_equal(runtime_mounts, expected_runtime_mounts):
+        failures.append(f"runtime mounts expected {expected_runtime_mounts!r}, got {runtime_mounts!r}")
+
+    volumes = pod_spec.get("volumes")
+    runtime_volumes = (
+        [
+            volume
+            for volume in volumes
+            if type(volume) is dict and volume.get("name") in {"run-lock", "dev-shm"}
+        ]
+        if type(volumes) is list
+        else []
+    )
+    expected_runtime_volumes = [
+        {"emptyDir": {"medium": "Memory"}, "name": "run-lock"},
+        {"emptyDir": {"medium": "Memory", "sizeLimit": "64Mi"}, "name": "dev-shm"},
+    ]
+    if not module.strict_equal(runtime_volumes, expected_runtime_volumes):
+        failures.append(f"runtime volumes expected {expected_runtime_volumes!r}, got {runtime_volumes!r}")
+
+    if failures:
+        raise AssertionError("production Podman runtime-path contract is incomplete:\n- " + "\n- ".join(failures))
+    print("PASS production Podman runtime-path contract")
+
+
 def pod(uid: str, name: str, phase: str, node: str, labels: dict[str, str]) -> dict[str, object]:
     return {
         "metadata": {"uid": uid, "name": name, "namespace": "ci", "labels": labels},
@@ -247,6 +319,7 @@ def test_runtime_gate(module: ModuleType) -> None:
 
 def main() -> int:
     module = load_validator()
+    test_podman_runtime_paths(module)
     clean = run(ROOT)
     if clean.returncode:
         raise AssertionError(f"canonical desired state rejected:\n{clean.stdout}{clean.stderr}")
@@ -261,6 +334,25 @@ def main() -> int:
         mutations = (
             ("gc-wrong-target", gc, module.GC_HOST_PATH, "/var/lib/ci-containers-nocow", "GC volumes"),
             ("gc-cache-scope", gc, module.GC_HOST_PATH, "/var/lib/ci-cache-nocow", "GC volumes"),
+            ("gc-missing-podman-tmpdir", gc, "                --tmpdir=/tmp/libpod\n", "", "GC script"),
+            ("gc-wrong-podman-tmpdir", gc, "                --tmpdir=/tmp/libpod\n", "                --tmpdir=/run/libpod\n", "GC script"),
+            ("gc-duplicate-podman-tmpdir", gc, "                --tmpdir=/tmp/libpod\n", "                --tmpdir=/tmp/libpod\n                --tmpdir=/tmp/libpod\n", "GC script"),
+            ("gc-missing-tmpdir-environment", gc, "            - name: TMPDIR\n              value: /tmp\n", "", "GC container environment"),
+            ("gc-wrong-tmpdir-environment", gc, "            - name: TMPDIR\n              value: /tmp\n", "            - name: TMPDIR\n              value: /var/tmp\n", "GC container environment"),
+            ("gc-duplicate-tmpdir-environment", gc, "            - name: TMPDIR\n              value: /tmp\n", "            - name: TMPDIR\n              value: /tmp\n            - name: TMPDIR\n              value: /tmp\n", "GC container environment"),
+            ("gc-missing-run-lock-mount", gc, "            - mountPath: /run/lock\n              name: run-lock\n", "", "GC volumeMounts"),
+            ("gc-broad-run-lock-mount", gc, "            - mountPath: /run/lock\n              name: run-lock\n", "            - mountPath: /run\n              name: run-lock\n", "GC volumeMounts"),
+            ("gc-duplicate-run-lock-mount", gc, "            - mountPath: /run/lock\n              name: run-lock\n", "            - mountPath: /run/lock\n              name: run-lock\n            - mountPath: /run/lock\n              name: run-lock\n", "GC volumeMounts"),
+            ("gc-missing-run-lock-volume", gc, "          - emptyDir: {medium: Memory}\n            name: run-lock\n", "", "GC volumes"),
+            ("gc-wrong-run-lock-volume", gc, "          - emptyDir: {medium: Memory}\n            name: run-lock\n", "          - emptyDir: {}\n            name: run-lock\n", "GC volumes"),
+            ("gc-duplicate-run-lock-volume", gc, "          - emptyDir: {medium: Memory}\n            name: run-lock\n", "          - emptyDir: {medium: Memory}\n            name: run-lock\n          - emptyDir: {medium: Memory}\n            name: run-lock\n", "GC volumes"),
+            ("gc-missing-dev-shm-mount", gc, "            - mountPath: /dev/shm\n              name: dev-shm\n", "", "GC volumeMounts"),
+            ("gc-wrong-dev-shm-mount", gc, "            - mountPath: /dev/shm\n              name: dev-shm\n", "            - mountPath: /dev/shm-wrong\n              name: dev-shm\n", "GC volumeMounts"),
+            ("gc-duplicate-dev-shm-mount", gc, "            - mountPath: /dev/shm\n              name: dev-shm\n", "            - mountPath: /dev/shm\n              name: dev-shm\n            - mountPath: /dev/shm\n              name: dev-shm\n", "GC volumeMounts"),
+            ("gc-missing-dev-shm-volume", gc, "          - emptyDir: {medium: Memory, sizeLimit: 64Mi}\n            name: dev-shm\n", "", "GC volumes"),
+            ("gc-wrong-dev-shm-medium", gc, "          - emptyDir: {medium: Memory, sizeLimit: 64Mi}\n            name: dev-shm\n", "          - emptyDir: {sizeLimit: 64Mi}\n            name: dev-shm\n", "GC volumes"),
+            ("gc-wrong-dev-shm-size", gc, "          - emptyDir: {medium: Memory, sizeLimit: 64Mi}\n            name: dev-shm\n", "          - emptyDir: {medium: Memory, sizeLimit: 128Mi}\n            name: dev-shm\n", "GC volumes"),
+            ("gc-duplicate-dev-shm-volume", gc, "          - emptyDir: {medium: Memory, sizeLimit: 64Mi}\n            name: dev-shm\n", "          - emptyDir: {medium: Memory, sizeLimit: 64Mi}\n            name: dev-shm\n          - emptyDir: {medium: Memory, sizeLimit: 64Mi}\n            name: dev-shm\n", "GC volumes"),
             ("gc-not-age-bounded", gc, "--filter until=168h --format json", "--filter until=24h --format json", "GC script"),
             ("gc-overlap", gc, "concurrencyPolicy: Forbid", "concurrencyPolicy: Allow", "CronJob concurrencyPolicy"),
             ("gc-no-scheduler-lock", gc, 'matchLabels:\n                    ci.brmartin.co.uk/job: "true"\n                topologyKey:', 'matchLabels:\n                    ci.brmartin.co.uk/job: "false"\n                topologyKey:', "GC scheduler exclusion"),
