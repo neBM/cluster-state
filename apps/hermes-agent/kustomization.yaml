@@ -10,6 +10,9 @@ configMapGenerator:
   literals:
   - mode=candidate
   options:
+    annotations:
+      # Temporary ownership-transfer protection; remove only after old owner inventories relinquish this object.
+      kustomize.toolkit.fluxcd.io/prune: disabled
     labels:
       app.kubernetes.io/component: state-mode
       app.kubernetes.io/name: hermes-agent

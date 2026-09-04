@@ -231,12 +231,97 @@ def render(relative: str) -> str:
     return result.stdout
 
 
+def rendered_object(text: str, kind: str, name_pattern: str) -> str:
+    matches = []
+    for document in text.split("\n---\n"):
+        if not re.search(rf"^kind: {re.escape(kind)}$", document, re.MULTILINE):
+            continue
+        metadata_match = re.search(
+            r"^metadata:\n(?P<body>(?:^  .*\n|^$)+)", document, re.MULTILINE
+        )
+        if metadata_match is not None and re.search(
+            rf"^  name: {name_pattern}$", metadata_match.group("body"), re.MULTILINE
+        ):
+            matches.append(document)
+    if len(matches) != 1:
+        fail(
+            f"expected exactly one rendered {kind} with metadata.name "
+            f"matching {name_pattern!r}"
+        )
+    return matches[0]
+
+
+def rendered_annotation_subjects(
+    text: str, annotation: str
+) -> list[tuple[str, str, str]]:
+    subjects = []
+    for document in text.split("\n---\n"):
+        metadata_match = re.search(
+            r"^metadata:\n(?P<body>(?:^  .*\n|^$)+)",
+            document,
+            re.MULTILINE,
+        )
+        if metadata_match is None:
+            continue
+        annotations_match = re.search(
+            r"^  annotations:\n(?P<body>(?:^    .*\n|^$)+)",
+            metadata_match.group("body"),
+            re.MULTILINE,
+        )
+        if annotations_match is None:
+            continue
+        annotation_match = re.search(
+            rf"^    {re.escape(annotation)}: (?P<value>\S+)$",
+            annotations_match.group("body"),
+            re.MULTILINE,
+        )
+        if annotation_match is None:
+            continue
+        kind_match = re.search(r"^kind: (?P<kind>\S+)$", document, re.MULTILINE)
+        name_match = re.search(
+            r"^  name: (?P<name>\S+)$", metadata_match.group("body"), re.MULTILINE
+        )
+        if kind_match is None or name_match is None:
+            fail("annotated rendered object lacks a kind or metadata.name")
+        kind = kind_match.group("kind")
+        name = name_match.group("name")
+        if kind == "ConfigMap" and re.fullmatch(r"hermes-agent-state-[a-z0-9]+", name):
+            name = "hermes-agent-state"
+        subjects.append((kind, name, annotation_match.group("value")))
+    return subjects
+
+
+def validate_rendered_annotation_subjects_are_scoped_to_annotations() -> None:
+    annotation = "kustomize.toolkit.fluxcd.io/prune"
+    label_only = """apiVersion: v1
+kind: Service
+metadata:
+  name: label-only
+  labels:
+    kustomize.toolkit.fluxcd.io/prune: disabled
+"""
+    annotated = """apiVersion: v1
+kind: Service
+metadata:
+  name: annotated
+  annotations:
+    kustomize.toolkit.fluxcd.io/prune: disabled
+"""
+    if rendered_annotation_subjects(label_only, annotation):
+        fail("metadata.labels was accepted as metadata.annotations")
+    if rendered_annotation_subjects(annotated, annotation) != [
+        ("Service", "annotated", "disabled")
+    ]:
+        fail("exact metadata.annotations key/value was not returned")
+
+
 def validate_manifests() -> None:
     if not (APP / "kustomization.yaml").is_file():
         fail("apps/hermes-agent Kustomize package is missing")
 
     rendered = render("apps/hermes-agent")
     apps_rendered = render("apps")
+    observability_rendered = render("infrastructure/observability-ui")
     sources = "\n".join(path.read_text() for path in sorted(APP.glob("*.yaml")))
     deployment = (APP / "deployment-default-hermes-agent.yaml").read_text()
     service = (APP / "service-default-hermes-agent.yaml").read_text()
@@ -255,14 +340,58 @@ def validate_manifests() -> None:
     if apps_rendered.count(IMAGE) != 1:
         fail("apps render must contain the immutable Hermes image exactly once")
     require((ROOT / "apps/kustomization.yaml").read_text(), "- hermes-agent\n", "apps registration")
+    grafana_kustomization = (
+        ROOT / "infrastructure/observability-ui/grafana/kustomization.yaml"
+    ).read_text()
+    require(
+        grafana_kustomization,
+        "- service-default-hermes-webhook.yaml\n",
+        "Grafana-owned Hermes webhook Service",
+    )
+    require(
+        grafana_kustomization,
+        "- endpointslice-default-hermes-webhook.yaml\n",
+        "Grafana-owned Hermes webhook EndpointSlice",
+    )
     if re.search(r"^kind: (Ingress|IngressRoute)\b", rendered, re.MULTILINE):
         fail("Hermes package must not render an Ingress or IngressRoute")
 
+    rendered_deployment = rendered_object(rendered, "Deployment", "hermes-agent")
+    rendered_state = rendered_object(
+        rendered, "ConfigMap", r"hermes-agent-state-[a-z0-9]+"
+    )
     require(kustomization, "- mode=candidate", "candidate default")
     if len(re.findall(r"^\s*- mode=", kustomization, re.MULTILINE)) != 1:
         fail("deployment mode must be one GitOps literal")
     require(kustomization, "name: hermes-agent-state", "generated state ConfigMap")
-    require(deployment, "replicas: 1", "singleton replica count")
+    pre_handoff_defects = []
+    if re.findall(r"^  replicas: (\S+)$", deployment, re.MULTILINE) != ["0"]:
+        pre_handoff_defects.append("desired candidate replicas must be exactly 0")
+    if re.findall(
+        r"^spec:\n  replicas: (\S+)$", rendered_deployment, re.MULTILINE
+    ) != ["0"]:
+        pre_handoff_defects.append("rendered candidate replicas must be exactly 0")
+    if re.findall(r"^data:\n  mode: (\S+)$", rendered_state, re.MULTILINE) != [
+        "candidate"
+    ]:
+        pre_handoff_defects.append("rendered mode must be exactly candidate")
+    prune_annotation = "kustomize.toolkit.fluxcd.io/prune"
+    protected = rendered_annotation_subjects(
+        rendered + "\n---\n" + observability_rendered,
+        prune_annotation,
+    )
+    expected_protected = {
+        ("Deployment", "hermes-agent", "disabled"),
+        ("Service", "hermes-agent", "disabled"),
+        ("PersistentVolumeClaim", "hermes-agent-state", "disabled"),
+        ("ConfigMap", "hermes-agent-state", "disabled"),
+        ("Service", "hermes-webhook", "disabled"),
+        ("EndpointSlice", "hermes-webhook-hestia", "disabled"),
+    }
+    if len(protected) != len(expected_protected) or set(protected) != expected_protected:
+        pre_handoff_defects.append(f"prune-disabled handoff objects differ: {protected!r}")
+    if pre_handoff_defects:
+        fail("; ".join(pre_handoff_defects))
     require(deployment, "type: Recreate", "Recreate strategy")
     require(deployment, "kubernetes.io/hostname: hestia", "Hestia node pin")
     require(deployment, IMAGE, "immutable image")
@@ -2716,6 +2845,7 @@ t=Path(os.environ['ACTIVATION']).read_text(); print(json.dumps({'apiVersion':'ku
 
 def main() -> int:
     checks = (
+        validate_rendered_annotation_subjects_are_scoped_to_annotations,
         validate_manifests,
         validate_migration_script,
         validate_cleanup_failure_is_aggregated,

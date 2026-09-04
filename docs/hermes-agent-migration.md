@@ -2,6 +2,14 @@
 
 This is a singleton-authority migration from `/home/ben/.hermes` on Hestia to the retained `default/hermes-agent-state` PVC. Never run the Hestia gateway and Kubernetes gateway concurrently.
 
+## Current pre-handoff state
+
+The Git desired state for this pre-handoff tranche is `mode=candidate` with Deployment `spec.replicas: 0`. This manifest records desired state only: it does not prove that Flux has reconciled the cluster, and live state must not be inferred from it.
+
+This tranche keeps all six handoff objects under their existing Flux owner paths and adds the temporary `kustomize.toolkit.fluxcd.io/prune: disabled` annotation there. It must be merged before live state is proved and a separate change moves ownership. Before that ownership transfer, prove from the live cluster that the Deployment's desired replica count and all applicable status replica counts are zero, that no Hermes Agent Pods exist, and that the exact prune-disabled annotation is live on all six identified objects: Deployment `hermes-agent`, Service `hermes-agent`, PersistentVolumeClaim `hermes-agent-state`, generated ConfigMap `hermes-agent-state-*`, Service `hermes-webhook`, and EndpointSlice `hermes-webhook-hestia`.
+
+This tranche is not cutover-ready. The existing `scripts/hermes-agent-cutover.sh` launcher remains forbidden until a later reviewed cutover revision explicitly authorizes it.
+
 ## State allowlist and exclusions
 
 The migration copies only:
@@ -35,7 +43,9 @@ The parent/operator completes every safe pre-stop action before asking the user 
 
 The one-shot repeats only decision-relevant checks. It first takes a nonblocking process-lifetime lock on the fixed source directory; contention fails before result or authority mutation. No drain tokens, optional-platform health quorum, transient-unit identity, or `INVOCATION_ID` is required.
 
-## User one-shot command
+## Future user one-shot command (forbidden during pre-handoff)
+
+Do not run this launcher for the current pre-handoff revision.
 
 Set the exact value supplied by the parent:
 

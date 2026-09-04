@@ -3,10 +3,13 @@ kind: Deployment
 metadata:
   name: hermes-agent
   namespace: default
+  annotations:
+    # Temporary ownership-transfer protection; remove only after old owner inventories relinquish this object.
+    kustomize.toolkit.fluxcd.io/prune: disabled
   labels:
     app.kubernetes.io/name: hermes-agent
 spec:
-  replicas: 1
+  replicas: 0
   revisionHistoryLimit: 2
   strategy:
     type: Recreate
