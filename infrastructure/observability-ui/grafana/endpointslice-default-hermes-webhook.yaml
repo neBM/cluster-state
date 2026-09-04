@@ -3,6 +3,9 @@ kind: EndpointSlice
 metadata:
   name: hermes-webhook-hestia
   namespace: default
+  annotations:
+    # Temporary ownership-transfer protection; remove only after old owner inventories relinquish this object.
+    kustomize.toolkit.fluxcd.io/prune: disabled
   labels:
     kubernetes.io/service-name: hermes-webhook
     app.kubernetes.io/name: hermes-webhook

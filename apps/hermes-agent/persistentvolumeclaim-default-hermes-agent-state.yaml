@@ -3,6 +3,9 @@ kind: PersistentVolumeClaim
 metadata:
   name: hermes-agent-state
   namespace: default
+  annotations:
+    # Temporary ownership-transfer protection; remove only after old owner inventories relinquish this object.
+    kustomize.toolkit.fluxcd.io/prune: disabled
   labels:
     app.kubernetes.io/name: hermes-agent
 spec:
