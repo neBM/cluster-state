@@ -121,7 +121,7 @@ def validate() -> None:
         fail("rejected migration script still exists")
     script = CUTOVER.read_text()
     for needle in (
-        "/home/ben/.hermes", "SOURCE_CLI=/home/ben/.local/bin/hermes", "/home/ben/.kube/config", "/var/lib/rancher/k3s/storage/",
+        "/home/ben/.hermes", "/home/ben/.kube/config", "/var/lib/rancher/k3s/storage/",
         "persistentVolumeReclaimPolicy", "sudo -n rsync -aHAX --delete", "PRAGMA quick_check;", "10000:10000"):
         require(script, needle, "cutover safety boundary")
     for pattern in (
@@ -134,12 +134,67 @@ def validate() -> None:
         require(script, f"--exclude='{pattern}'", "root-anchored source exclusion")
     if "--exclude='hermes-agent/'" in script:
         fail("unanchored hermes-agent exclusion can discard nested durable state")
-    if not re.search(r'^preflight\(\) \{.*?\[\[ -x "\$SOURCE_CLI" \]\].*?^\}', script, re.MULTILINE | re.DOTALL):
-        fail("preflight must prove the source Hermes CLI is executable")
+    if "SOURCE_CLI" in script:
+        fail("cutover must not depend on the Hermes CLI")
+    if re.search(r"\bhermes\s+gateway\s+stop\b", script):
+        fail("Hermes CLI stop can publish a watcher-triggering marker")
+
+    hook = re.search(r"^source_has_planned_stop_hook\(\) \{(?P<body>.*?)^\}", script, re.MULTILINE | re.DOTALL)
+    if hook is None:
+        fail("effective systemd planned-stop hook preflight is missing")
+    hook_body = hook.group("body")
+    require(
+        hook_body,
+        'timeout 10s systemctl --user show "$SOURCE_UNIT" --property=ExecStop --value',
+        "bounded effective ExecStop read",
+    )
+    direct_hook = (
+        '[[ "$exec_stop" =~ \\{[[:space:]]+path=([^[:space:]\\;]+)'
+        '[[:space:]]*\\;[[:space:]]*argv\\[\\]=([^[:space:]\\;]+)'
+        '[[:space:]]+-m[[:space:]]+hermes_systemd_planned_stop'
+        '[[:space:]]+\\$MAINPID[[:space:]]*\\; ]] || return 1'
+    )
+    require(hook_body, direct_hook, "direct planned-stop module argv proof")
+    require(
+        hook_body,
+        '[[ "${BASH_REMATCH[1]}" == "${BASH_REMATCH[2]}" ]]',
+        "effective ExecStop path and argv executable agreement",
+    )
+
+    preflight_match = re.search(r"^preflight\(\) \{(?P<body>.*?)^\}", script, re.MULTILINE | re.DOTALL)
+    if preflight_match is None:
+        fail("preflight function is missing")
+    preflight_body = preflight_match.group("body")
+    ordered(
+        preflight_body,
+        ["source_active", "source_has_planned_stop_hook", "resolve_destination", "target_zero"],
+        "preflight",
+    )
+    require(
+        preflight_body,
+        'source_has_planned_stop_hook || die "loaded source unit lacks the planned-stop ExecStop hook"',
+        "fail-closed effective hook gate",
+    )
+
+    inactive = re.search(r"^source_inactive\(\) \{(?P<body>.*?)^\}", script, re.MULTILINE | re.DOTALL)
+    if inactive is None:
+        fail("source inactive proof is missing")
+    ordered(inactive.group("body"), ["sprop ActiveState", "sprop MainPID"], "source inactive proof")
+
     main = script[script.find("  cutover)") :]
-    ordered(main, ['"$SOURCE_CLI" gateway stop', "source_inactive", "target_zero", "copy_state", "reconcile apps", "kubectl rollout status", "reconcile observability-ui", "get service hermes-webhook", '"http://$cluster_ip:8644/health"', "reconcile cluster-state"], "cutover")
-    if "systemctl --user stop" in script:
-        fail("raw source systemd stop bypasses Hermes planned-stop handling")
+    direct_stop = 'systemctl --user stop "$SOURCE_UNIT"'
+    ordered(
+        main,
+        [
+            "preflight", "require_cutover_gate", "SOURCE_TOUCHED=true", direct_stop,
+            "source_inactive", "target_zero", "copy_state", "reconcile apps",
+            "kubectl rollout status", "reconcile observability-ui", "get service hermes-webhook",
+            '"http://$cluster_ip:8644/health"', "reconcile cluster-state",
+        ],
+        "cutover",
+    )
+    if script.count(direct_stop) != 1:
+        fail("source must have exactly one direct systemd stop path")
     post_observability = main[main.find("reconcile observability-ui") :]
     retry_curl = 'curl --fail --silent --show-error --retry 30 --retry-all-errors --retry-delay 1 --max-time 120 "http://$cluster_ip:8644/health"'
     require(post_observability, retry_curl, "bounded webhook propagation retry")

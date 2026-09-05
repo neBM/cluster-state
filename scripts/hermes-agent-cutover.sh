@@ -3,7 +3,6 @@ set -Eeuo pipefail
 umask 077
 
 SOURCE_HOME=/home/ben/.hermes
-SOURCE_CLI=/home/ben/.local/bin/hermes
 SOURCE_UNIT=hermes-gateway.service
 KUBECONFIG=/home/ben/.kube/config
 NAMESPACE=default
@@ -26,6 +25,13 @@ die() { printf 'ERROR: %s\n' "$*" >&2; return 1; }
 need() { command -v "$1" >/dev/null 2>&1 || die "required command not found: $1"; }
 k() { kubectl "$@"; }
 sprop() { systemctl --user show "$SOURCE_UNIT" -p "$1" --value; }
+
+source_has_planned_stop_hook() {
+  local exec_stop
+  exec_stop="$(timeout 10s systemctl --user show "$SOURCE_UNIT" --property=ExecStop --value)" || return 1
+  [[ "$exec_stop" =~ \{[[:space:]]+path=([^[:space:]\;]+)[[:space:]]*\;[[:space:]]*argv\[\]=([^[:space:]\;]+)[[:space:]]+-m[[:space:]]+hermes_systemd_planned_stop[[:space:]]+\$MAINPID[[:space:]]*\; ]] || return 1
+  [[ "${BASH_REMATCH[1]}" == "${BASH_REMATCH[2]}" ]]
+}
 
 source_active() {
   [[ "$(sprop ActiveState)" == active && "$(sprop MainPID)" =~ ^[1-9][0-9]*$ ]]
@@ -72,14 +78,14 @@ preflight() {
   local command
   [[ "$(hostname -s | tr '[:upper:]' '[:lower:]')" == hestia ]] || die "cutover must run on hestia"
   [[ -d "$SOURCE_HOME" && -r "$KUBECONFIG" ]] || die "source home or fixed kubeconfig is unavailable"
-  [[ -x "$SOURCE_CLI" ]] || die "source Hermes CLI is not executable"
-  for command in curl hostname kubectl python3 rsync sqlite3 sudo systemctl; do need "$command"; done
+  for command in curl hostname kubectl python3 rsync sqlite3 sudo systemctl timeout; do need "$command"; done
   sudo -n true || die "passwordless sudo is unavailable"
   source_active || die "source Hermes service is not active with a nonzero MainPID"
+  source_has_planned_stop_hook || die "loaded source unit lacks the planned-stop ExecStop hook"
   curl --fail --silent --show-error --max-time 5 http://127.0.0.1:8644/health >/dev/null || die "source health check failed"
   resolve_destination
   target_zero || die "target Deployment or Pods are not zero"
-  printf 'preflight ok: source active; target inactive; retained PVC is local on hestia\n'
+  printf 'preflight ok: source active with planned-stop hook; target inactive; retained PVC is local on hestia\n'
 }
 
 require_cutover_gate() {
@@ -203,7 +209,7 @@ case "${1:-}" in
     trap 'rollback 130' INT
     trap 'rollback 143' TERM
     SOURCE_TOUCHED=true
-    "$SOURCE_CLI" gateway stop
+    systemctl --user stop "$SOURCE_UNIT"
     source_inactive || die "source did not become inactive with MainPID=0"
     target_zero || die "target changed before copy"
     copy_state
