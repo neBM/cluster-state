@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate the minimal inactive Hermes Agent cutover preparation."""
+"""Validate the minimal Hermes Agent activation desired state."""
 
 from __future__ import annotations
 
@@ -13,6 +13,7 @@ from typing import NoReturn
 
 ROOT = Path(__file__).resolve().parent.parent
 APP = ROOT / "apps/hermes-agent"
+OBSERVABILITY = ROOT / "infrastructure/observability-ui/grafana"
 CUTOVER = ROOT / "scripts/hermes-agent-cutover.sh"
 MIGRATION = ROOT / "scripts/hermes-agent-migration.sh"
 
@@ -35,9 +36,9 @@ def ordered(text: str, needles: list[str], label: str) -> None:
         cursor += len(needle)
 
 
-def render() -> str:
+def render(path: Path) -> str:
     kustomize = shutil.which("kustomize")
-    command = [kustomize, "build", str(APP)] if kustomize else ["kubectl", "kustomize", str(APP)]
+    command = [kustomize, "build", str(path)] if kustomize else ["kubectl", "kustomize", str(path)]
     env = os.environ.copy()
     env["KUBECONFIG"] = "/dev/null"
     result = subprocess.run(command, text=True, capture_output=True, env=env, check=False)
@@ -59,13 +60,16 @@ def document(rendered: str, kind: str, name: str) -> str:
 
 
 def validate() -> None:
-    rendered = render()
+    rendered = render(APP)
+    observability = render(OBSERVABILITY)
     deployment = document(rendered, "Deployment", "hermes-agent")
     pvc = document(rendered, "PersistentVolumeClaim", "hermes-agent-state")
     service = document(rendered, "Service", "hermes-agent")
+    webhook = document(observability, "Service", "hermes-webhook")
+    static_slice = document(observability, "EndpointSlice", "hermes-webhook-hestia")
     sources = "\n".join(path.read_text() for path in sorted(APP.glob("*.yaml")))
 
-    require(deployment, "replicas: 0", "inactive replica count")
+    require(deployment, "replicas: 1", "active replica count")
     require(deployment, "type: Recreate", "Recreate strategy")
     require(deployment, "kubernetes.io/hostname: hestia", "Hestia node selection")
     direct = "command:\n        - /opt/hermes/docker/entrypoint-dispatch.sh\n        - gateway\n        - run"
@@ -95,6 +99,15 @@ def validate() -> None:
         fail(f"unexpected service ports: {ports!r}")
     if re.search(r"\b(NodePort|LoadBalancer|externalIPs|externalName):?\b", service):
         fail("Hermes Service has external exposure")
+
+    require(webhook, "type: ClusterIP", "webhook ClusterIP service")
+    require(webhook, "selector:\n    app.kubernetes.io/name: hermes-agent", "native webhook selector")
+    require(static_slice, "endpoints: []", "inert static EndpointSlice")
+    slice_source = (OBSERVABILITY / "endpointslice-default-hermes-webhook.yaml").read_text()
+    if "192.168.1.5" in static_slice or "kustomize.toolkit.fluxcd.io/prune: disabled" in slice_source:
+        fail("static EndpointSlice retains the Hestia route or prune-disabled annotation")
+    kustomization = (OBSERVABILITY / "kustomization.yaml").read_text()
+    require(kustomization, "- endpointslice-default-hermes-webhook.yaml", "inert EndpointSlice reference")
 
     kinds = re.findall(r"^kind: (\S+)$", rendered, re.MULTILINE)
     if set(kinds) != {"Deployment", "PersistentVolumeClaim", "Service"} or len(kinds) != 3:
@@ -135,6 +148,11 @@ def validate() -> None:
         fail("unanchored hermes-agent exclusion can discard nested durable state")
     main = script[script.find("  cutover)") :]
     ordered(main, ["systemctl --user stop", "source_inactive", "copy_state", "reconcile apps", "kubectl rollout status", "reconcile observability-ui", "get service hermes-webhook", '"http://$cluster_ip:8644/health"', "reconcile cluster-state"], "cutover")
+    post_observability = main[main.find("reconcile observability-ui") :]
+    retry_curl = 'curl --fail --silent --show-error --retry 30 --retry-all-errors --retry-delay 1 --max-time 120 "http://$cluster_ip:8644/health"'
+    require(post_observability, retry_curl, "bounded webhook propagation retry")
+    if script.count("--retry-all-errors") != 1:
+        fail("only the post-observability webhook health check may retry")
     ordered(script, ["ACTIVATION_ATTEMPTED=false", "  cutover)", "ACTIVATION_ATTEMPTED=true\n    reconcile apps"], "activation flag")
     rollback = re.search(r"^rollback\(\) \{(?P<body>.*?)^\}", script, re.MULTILINE | re.DOTALL)
     if rollback is None:

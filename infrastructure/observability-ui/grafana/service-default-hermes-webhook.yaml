@@ -11,6 +11,8 @@ metadata:
     app.kubernetes.io/component: automation
 spec:
   type: ClusterIP
+  selector:
+    app.kubernetes.io/name: hermes-agent
   ports:
   - name: http
     port: 8644

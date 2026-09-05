@@ -206,7 +206,7 @@ case "${1:-}" in
     reconcile observability-ui
     cluster_ip="$(k -n "$NAMESPACE" get service hermes-webhook -o jsonpath='{.spec.clusterIP}')"
     [[ -n "$cluster_ip" && "$cluster_ip" != None ]] || die "Hermes webhook ClusterIP is unavailable"
-    curl --fail --silent --show-error --max-time 15 "http://$cluster_ip:8644/health" >/dev/null
+    curl --fail --silent --show-error --retry 30 --retry-all-errors --retry-delay 1 --max-time 120 "http://$cluster_ip:8644/health" >/dev/null
     reconcile cluster-state
     trap - ERR INT TERM
     printf 'cutover success: Kubernetes Hermes is healthy at %s; Hestia Hermes remains stopped\n' "$REVISION"
