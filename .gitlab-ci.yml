@@ -258,7 +258,6 @@ package:feedback-migrations:
       - infrastructure/**/*
       - renovate.json
       - scripts/hestia-firewalld-setup.sh
-      - scripts/hermes-agent-migration.sh
       - scripts/hermes-agent-cutover.sh
       - scripts/test_factorio_startup.sh
       - scripts/test_hestia_firewalld_setup.sh
@@ -294,7 +293,6 @@ package:feedback-migrations:
       - infrastructure/**/*
       - renovate.json
       - scripts/hestia-firewalld-setup.sh
-      - scripts/hermes-agent-migration.sh
       - scripts/hermes-agent-cutover.sh
       - scripts/test_factorio_startup.sh
       - scripts/test_hestia_firewalld_setup.sh
