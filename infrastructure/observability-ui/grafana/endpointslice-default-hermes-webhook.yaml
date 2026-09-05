@@ -3,9 +3,6 @@ kind: EndpointSlice
 metadata:
   name: hermes-webhook-hestia
   namespace: default
-  annotations:
-    # Temporary ownership-transfer protection; remove only after old owner inventories relinquish this object.
-    kustomize.toolkit.fluxcd.io/prune: disabled
   labels:
     kubernetes.io/service-name: hermes-webhook
     app.kubernetes.io/name: hermes-webhook
@@ -15,8 +12,4 @@ ports:
 - name: http
   protocol: TCP
   port: 8644
-endpoints:
-- addresses:
-  - 192.168.1.5
-  conditions:
-    ready: true
+endpoints: []
