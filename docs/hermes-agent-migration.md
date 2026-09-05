@@ -12,7 +12,7 @@ This activation revision makes the native Kubernetes path the Git desired state:
 - state uses the `local-path-retain` PVC and the Service is ClusterIP-only; and
 - there is no candidate mode, migration Pod, Ingress, or externally exposed Service.
 
-Live activation remains gated. With this revision on Git `main`, the parent `cluster-state`, `apps`, and `observability-ui` Kustomizations remain suspended; therefore the live Deployment stays at zero replicas with no target Pod even though Git desires one. The `cluster-state` GitRepository stays active so source-controller can fetch the revision.
+Live activation remains gated. With this revision on Git `main`, the parent `cluster-state`, `apps`, and `observability-ui` Kustomizations remain suspended; therefore the live Deployment stays at zero replicas with no target Pod even though Git desires one. Allow the `cluster-state` GitRepository to fetch the exact activation revision, then it may be suspended to pin that artifact through the cutover handoff.
 
 Until the user-run cutover resumes `observability-ui`, the live selectorless `default/hermes-webhook` Service and its static EndpointSlice still route to Hestia at `192.168.1.5`. This revision adds the native Hermes selector but deliberately retains the static EndpointSlice manifest as an inert `endpoints: []` resource and removes its temporary prune-disabled annotation. Removing the prune-disabled file in this same revision would leave the live Hestia endpoint behind.
 
@@ -55,9 +55,11 @@ The controller performs these steps while `hermes-gateway.service` is still acti
    until [ "$(kubectl -n flux-system get gitrepository cluster-state \
      -o jsonpath='{.status.artifact.revision}')" = "$REVISION" ]; do sleep 2; done
    printf 'artifact ready: %s\n' "$REVISION"
+   kubectl -n flux-system patch gitrepository cluster-state --type=merge \
+     -p '{"spec":{"suspend":true}}'
    ```
 
-Do not proceed unless all three Kustomizations still show `SUSPENDED=true`, the live target Deployment still desires zero replicas, and no Hermes target Pod exists.
+Do not proceed unless the GitRepository still reports the exact activation artifact, all three Kustomizations show `SUSPENDED=true`, the live target Deployment still desires zero replicas, and no Hermes target Pod exists.
 
 ## User-run cutover
 
@@ -68,7 +70,7 @@ From an independent SSH shell on Hestia, repeat preflight and then run the cutov
 ./scripts/hermes-agent-cutover.sh cutover "$REVISION"
 ```
 
-The cutover command resolves the destination from the live PVC and PV, stops and verifies the Hestia service, copies selected durable state with `rsync`, validates copied SQLite databases, sets ownership to `10000:10000`, then resumes in this order: `apps`, `observability-ui`, `cluster-state`. It waits for the Deployment rollout, checks the native Hermes ClusterIP health, reconciles observability, then uses bounded retries to tolerate ordinary EndpointSlice-controller propagation before proving the switched `default/hermes-webhook` ClusterIP reaches `/health` and reconnecting `cluster-state`.
+The cutover command resolves the destination from the live PVC and PV, invokes the supported `/home/ben/.local/bin/hermes gateway stop` path so Hermes records a planned stop, then strictly proves `ActiveState=inactive` and `MainPID=0` before rechecking target zero and copying selected durable state. It validates copied SQLite databases, sets ownership to `10000:10000`, then resumes in this order: `apps`, `observability-ui`, `cluster-state`. It waits for the Deployment rollout, checks the native Hermes ClusterIP health, reconciles observability, then uses bounded retries to tolerate ordinary EndpointSlice-controller propagation before proving the switched `default/hermes-webhook` ClusterIP reaches `/health` and reconnecting `cluster-state`.
 
 The copy preserves Hermes configuration, credentials, databases, sessions, skills, plugins, cron, memories, platforms, scripts, plans, workflows, Kanban, pairing, pending messages, hooks, and durable profile state. It excludes source checkouts, virtual environments, caches, logs, backups and snapshots, checkpoints, worktrees and workspaces, rootless container storage, profile runtime/build state, temporary/LSP/bin trees, runtime result, PID, and lock files, and obsolete top-level state-database recovery artifacts.
 
@@ -95,7 +97,7 @@ After the result is accepted, make a routine cleanup commit that deletes the now
 
 The failure boundary is whether Kubernetes activation was attempted:
 
-- **Before activation:** after stopping Hestia but before attempting `reconcile apps`, the script re-suspends the parent, `apps`, and `observability-ui`, scales the target to zero, proves zero desired replicas and no target Pods, then restores Hestia automatically. No target could have accepted writes and the original static Hestia EndpointSlice remains in place. If fencing, zero proof, restart, or health proof fails, Hestia remains stopped.
+- **Before activation:** after stopping Hestia but before attempting `reconcile apps`, the script re-suspends the parent, `apps`, and `observability-ui`, scales the target to zero, proves zero desired replicas and no target Pods, then restores Hestia automatically. It polls source activity and `/health` for up to about 60 seconds so ordinary startup is not misclassified. No target could have accepted writes and the original static Hestia EndpointSlice remains in place. If fencing, zero proof, restart, or bounded health proof fails, Hestia remains stopped.
 - **After an activation attempt:** the script treats the target as potentially having accepted writes. It re-suspends the same three reconcilers, attempts to scale and prove the target at zero, and deliberately leaves Hestia stopped even when target zero is proven.
 
 Post-activation recovery is controller-owned and fail-closed. First inspect and reconcile any target-side changes. While the reconcilers remain suspended, revert the tiny activation desired-state change: restore `replicas: 0`, remove the Hermes selector from `default/hermes-webhook`, and restore the static Hestia endpoint plus its temporary prune-disabled annotation. Then reconcile and verify the Hestia webhook route, prove both zero desired replicas and no target Pods, and only then start and health-check Hestia Hermes. Any failed or unknown Kubernetes read, write, reconciliation, route check, or zero proof stops this sequence with Hestia still stopped; do not continue through an uncertain result.

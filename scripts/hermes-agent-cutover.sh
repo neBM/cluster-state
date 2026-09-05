@@ -3,6 +3,7 @@ set -Eeuo pipefail
 umask 077
 
 SOURCE_HOME=/home/ben/.hermes
+SOURCE_CLI=/home/ben/.local/bin/hermes
 SOURCE_UNIT=hermes-gateway.service
 KUBECONFIG=/home/ben/.kube/config
 NAMESPACE=default
@@ -34,6 +35,15 @@ source_inactive() {
   [[ "$(sprop ActiveState)" == inactive && "$(sprop MainPID)" == 0 ]]
 }
 
+wait_for_source_health() {
+  local deadline=$((SECONDS + 60))
+  while (( SECONDS < deadline )); do
+    source_active && curl --fail --silent --max-time 1 http://127.0.0.1:8644/health >/dev/null && return 0
+    sleep 1
+  done
+  return 1
+}
+
 target_zero() {
   local pods replicas
   replicas="$(k -n "$NAMESPACE" get deployment "$DEPLOYMENT" -o jsonpath='{.spec.replicas}')"
@@ -62,6 +72,7 @@ preflight() {
   local command
   [[ "$(hostname -s | tr '[:upper:]' '[:lower:]')" == hestia ]] || die "cutover must run on hestia"
   [[ -d "$SOURCE_HOME" && -r "$KUBECONFIG" ]] || die "source home or fixed kubeconfig is unavailable"
+  [[ -x "$SOURCE_CLI" ]] || die "source Hermes CLI is not executable"
   for command in curl hostname kubectl python3 rsync sqlite3 sudo systemctl; do need "$command"; done
   sudo -n true || die "passwordless sudo is unavailable"
   source_active || die "source Hermes service is not active with a nonzero MainPID"
@@ -118,7 +129,7 @@ rollback() {
     fi
     if [[ "$target_fenced" == true && "$target_zero_proven" == true ]]; then
       if [[ "$ACTIVATION_ATTEMPTED" == false ]]; then
-        if systemctl --user start "$SOURCE_UNIT" && source_active && curl --fail --silent --max-time 10 http://127.0.0.1:8644/health >/dev/null; then
+        if systemctl --user start "$SOURCE_UNIT" && wait_for_source_health; then
           restored=true
         fi
       fi
@@ -192,7 +203,7 @@ case "${1:-}" in
     trap 'rollback 130' INT
     trap 'rollback 143' TERM
     SOURCE_TOUCHED=true
-    systemctl --user stop "$SOURCE_UNIT"
+    "$SOURCE_CLI" gateway stop
     source_inactive || die "source did not become inactive with MainPID=0"
     target_zero || die "target changed before copy"
     copy_state

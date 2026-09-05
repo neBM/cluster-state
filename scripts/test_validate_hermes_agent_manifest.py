@@ -121,33 +121,25 @@ def validate() -> None:
         fail("rejected migration script still exists")
     script = CUTOVER.read_text()
     for needle in (
-        "/home/ben/.hermes",
-        "/home/ben/.kube/config",
-        "/var/lib/rancher/k3s/storage/",
-        "persistentVolumeReclaimPolicy",
-        "sudo -n rsync -aHAX --delete",
-        "PRAGMA quick_check;",
-        "10000:10000",
-    ):
+        "/home/ben/.hermes", "SOURCE_CLI=/home/ben/.local/bin/hermes", "/home/ben/.kube/config", "/var/lib/rancher/k3s/storage/",
+        "persistentVolumeReclaimPolicy", "sudo -n rsync -aHAX --delete", "PRAGMA quick_check;", "10000:10000"):
         require(script, needle, "cutover safety boundary")
     for pattern in (
-        "/state.db.corrupt-*",
-        "/state.db.malformed-*",
-        "/state.db.rebuilt-*",
-        "/state-db-cutover-*",
-        "/repair_state_db_cutover.sh",
-    ):
+        "/state.db.corrupt-*", "/state.db.malformed-*", "/state.db.rebuilt-*",
+        "/state-db-cutover-*", "/repair_state_db_cutover.sh"):
         require(script, f"--exclude='{pattern}'", "obsolete recovery exclusion")
-    root_only = (
-        "/.git/", "/node_modules/", "/source/", "/sources/", "/repo/", "/repos/",
-        "/repositories/", "/checkout/", "/checkouts/", "/hermes-agent/", "/hermes-agent-*/",
-    )
+    root_only = ("/.git/", "/node_modules/", "/source/", "/sources/", "/repo/", "/repos/", "/repositories/",
+                 "/checkout/", "/checkouts/", "/hermes-agent/", "/hermes-agent-*/")
     for pattern in root_only:
         require(script, f"--exclude='{pattern}'", "root-anchored source exclusion")
     if "--exclude='hermes-agent/'" in script:
         fail("unanchored hermes-agent exclusion can discard nested durable state")
+    if not re.search(r'^preflight\(\) \{.*?\[\[ -x "\$SOURCE_CLI" \]\].*?^\}', script, re.MULTILINE | re.DOTALL):
+        fail("preflight must prove the source Hermes CLI is executable")
     main = script[script.find("  cutover)") :]
-    ordered(main, ["systemctl --user stop", "source_inactive", "copy_state", "reconcile apps", "kubectl rollout status", "reconcile observability-ui", "get service hermes-webhook", '"http://$cluster_ip:8644/health"', "reconcile cluster-state"], "cutover")
+    ordered(main, ['"$SOURCE_CLI" gateway stop', "source_inactive", "target_zero", "copy_state", "reconcile apps", "kubectl rollout status", "reconcile observability-ui", "get service hermes-webhook", '"http://$cluster_ip:8644/health"', "reconcile cluster-state"], "cutover")
+    if "systemctl --user stop" in script:
+        fail("raw source systemd stop bypasses Hermes planned-stop handling")
     post_observability = main[main.find("reconcile observability-ui") :]
     retry_curl = 'curl --fail --silent --show-error --retry 30 --retry-all-errors --retry-delay 1 --max-time 120 "http://$cluster_ip:8644/health"'
     require(post_observability, retry_curl, "bounded webhook propagation retry")
@@ -158,10 +150,17 @@ def validate() -> None:
     if rollback is None:
         fail("rollback function is missing")
     body = rollback.group("body")
-    ordered(body, ["suspend apps", "scale deployment", "wait_for_zero", "systemctl --user start"], "target-first rollback")
-    require(body, 'if [[ "$ACTIVATION_ATTEMPTED" == false ]]; then\n        if systemctl --user start', "pre-activation-only source restart")
+    ordered(body, ["suspend apps", "scale deployment", "wait_for_zero", "systemctl --user start", "wait_for_source_health"], "target-first rollback")
+    require(body, 'if [[ "$ACTIVATION_ATTEMPTED" == false ]]; then\n        if systemctl --user start "$SOURCE_UNIT" && wait_for_source_health; then', "pre-activation-only bounded source restart proof")
     if body.count("systemctl --user start") != 1:
         fail("source restart must have exactly one pre-activation path")
+    health_wait = re.search(r"^wait_for_source_health\(\) \{(?P<body>.*?)^\}", script, re.MULTILINE | re.DOTALL)
+    if health_wait is None:
+        fail("bounded source health wait is missing")
+    for needle in ("deadline=$((SECONDS + 60))", "SECONDS < deadline", "source_active", "8644/health", "sleep 1"):
+        require(health_wait.group("body"), needle, "bounded source health wait")
+    if script.count("wait_for_source_health") != 2:
+        fail("source health wait must be defined once and used only by rollback")
 
     ci = (ROOT / ".gitlab-ci.yml").read_text()
     if ci.count("scripts/hermes-agent-cutover.sh") != 2 or ci.count("scripts/test_validate_hermes_agent_manifest.py") != 2:
