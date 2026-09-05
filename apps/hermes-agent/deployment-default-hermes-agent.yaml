@@ -36,22 +36,9 @@ spec:
         image: nousresearch/hermes-agent:v2026.8.16.2@sha256:a39fc11620213e3669a327aff5c6cb1eb2b8a238c6044e33e7ef8885833d89a7
         imagePullPolicy: IfNotPresent
         command:
-        - /bin/sh
-        - -ec
-        - |
-          mode="$(cat /etc/hermes-agent-state/mode)"
-          case "$mode" in
-            candidate)
-              exec sleep infinity
-              ;;
-            active)
-              exec /opt/hermes/docker/entrypoint-dispatch.sh gateway run
-              ;;
-            *)
-              echo "invalid Hermes deployment mode" >&2
-              exit 64
-              ;;
-          esac
+        - /opt/hermes/docker/entrypoint-dispatch.sh
+        - gateway
+        - run
         env:
         - name: HERMES_HOME
           value: /opt/data
@@ -71,33 +58,17 @@ spec:
           containerPort: 8644
           protocol: TCP
         readinessProbe:
-          exec:
-            command:
-            - /bin/sh
-            - -ec
-            - |
-              mode="$(cat /etc/hermes-agent-state/mode)"
-              if [ "$mode" = "candidate" ]; then
-                exit 0
-              fi
-              [ "$mode" = "active" ]
-              exec python3 -c 'import urllib.request; response = urllib.request.urlopen("http://127.0.0.1:8644/health", timeout=3); raise SystemExit(0 if 200 <= response.status < 300 else 1)'
+          httpGet:
+            path: /health
+            port: webhook
           initialDelaySeconds: 2
           periodSeconds: 10
           timeoutSeconds: 5
           failureThreshold: 3
         livenessProbe:
-          exec:
-            command:
-            - /bin/sh
-            - -ec
-            - |
-              mode="$(cat /etc/hermes-agent-state/mode)"
-              if [ "$mode" = "candidate" ]; then
-                exit 0
-              fi
-              [ "$mode" = "active" ]
-              exec python3 -c 'import urllib.request; response = urllib.request.urlopen("http://127.0.0.1:8644/health", timeout=3); raise SystemExit(0 if 200 <= response.status < 300 else 1)'
+          httpGet:
+            path: /health
+            port: webhook
           initialDelaySeconds: 10
           periodSeconds: 20
           timeoutSeconds: 5
@@ -119,9 +90,6 @@ spec:
         volumeMounts:
         - name: state
           mountPath: /opt/data
-        - name: mode
-          mountPath: /etc/hermes-agent-state
-          readOnly: true
         - name: tmp
           mountPath: /tmp
         - name: run
@@ -132,9 +100,6 @@ spec:
       - name: state
         persistentVolumeClaim:
           claimName: hermes-agent-state
-      - name: mode
-        configMap:
-          name: hermes-agent-state
       - name: tmp
         emptyDir:
           medium: Memory
