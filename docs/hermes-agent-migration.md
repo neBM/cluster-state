@@ -18,7 +18,7 @@ Until the user-run cutover resumes `observability-ui`, the live selectorless `de
 
 ## Controller preparation
 
-The controller performs these steps while `hermes-gateway.service` is still active.
+The controller performs these steps while `hermes-gateway.service` is still active. The source gateway must already be running the watcher-aware upstream repair, and systemd must have loaded the generated unit whose effective `ExecStop` directly invokes `-m hermes_systemd_planned_stop $MAINPID`. Preflight reads the effective unit with `systemctl --user show`; it blocks if the service is not active or the patched hook is not loaded, so updating only an on-disk unit is insufficient.
 
 1. Confirm the inactive preparation is on `main` and reconciled. Run the read-only host preflight:
 
@@ -70,7 +70,7 @@ From an independent SSH shell on Hestia, repeat preflight and then run the cutov
 ./scripts/hermes-agent-cutover.sh cutover "$REVISION"
 ```
 
-The cutover command resolves the destination from the live PVC and PV, invokes the supported `/home/ben/.local/bin/hermes gateway stop` path so Hermes records a planned stop, then strictly proves `ActiveState=inactive` and `MainPID=0` before rechecking target zero and copying selected durable state. It validates copied SQLite databases, sets ownership to `10000:10000`, then resumes in this order: `apps`, `observability-ui`, `cluster-state`. It waits for the Deployment rollout, checks the native Hermes ClusterIP health, reconciles observability, then uses bounded retries to tolerate ordinary EndpointSlice-controller propagation before proving the switched `default/hermes-webhook` ClusterIP reaches `/health` and reconnecting `cluster-state`.
+The cutover command resolves the destination from the live PVC and PV, verifies that effective upstream-compatible hook, then calls `systemctl --user stop hermes-gateway.service` directly. This is safe only with the hook: it writes a non-watcher-triggering planned-stop marker for the real systemd SIGTERM handler. The cutover must not call `hermes gateway stop`, whose CLI marker can be consumed early by the filesystem watcher. After the stop it strictly proves `ActiveState=inactive` and `MainPID=0` before rechecking target zero and copying selected durable state. It validates copied SQLite databases, sets ownership to `10000:10000`, then resumes in this order: `apps`, `observability-ui`, `cluster-state`. It waits for the Deployment rollout, checks the native Hermes ClusterIP health, reconciles observability, then uses bounded retries to tolerate ordinary EndpointSlice-controller propagation before proving the switched `default/hermes-webhook` ClusterIP reaches `/health` and reconnecting `cluster-state`.
 
 The copy preserves Hermes configuration, credentials, databases, sessions, skills, plugins, cron, memories, platforms, scripts, plans, workflows, Kanban, pairing, pending messages, hooks, and durable profile state. It excludes source checkouts, virtual environments, caches, logs, backups and snapshots, checkpoints, worktrees and workspaces, rootless container storage, profile runtime/build state, temporary/LSP/bin trees, runtime result, PID, and lock files, and obsolete top-level state-database recovery artifacts.
 
