@@ -261,6 +261,8 @@ package:feedback-migrations:
 package:hermes-workspace:
   stage: package
   needs: []
+  tags:
+    - k8s-amd64
   image: quay.io/buildah/stable:latest
   variables:
     GIT_STRATEGY: fetch
@@ -269,30 +271,22 @@ package:hermes-workspace:
   script:
     - |
       set -eu
-      manifest_name="hermes-workspace-${CI_JOB_ID}"
-      for ARCH in amd64 arm64; do
-        buildah build \
-          --arch ${ARCH} \
-          --build-arg TARGETARCH=${ARCH} \
-          --build-arg OCI_REVISION=${CI_COMMIT_SHA} \
-          --layers \
-          --cache-from ${HERMES_WORKSPACE_IMAGE_CACHE}-${ARCH} \
-          --cache-to ${HERMES_WORKSPACE_IMAGE_CACHE}-${ARCH} \
-          -t ${HERMES_WORKSPACE_IMAGE}:${CI_COMMIT_SHA}-${ARCH} \
-          apps/hermes-workspace/image/
-        buildah push ${HERMES_WORKSPACE_IMAGE}:${CI_COMMIT_SHA}-${ARCH}
-      done
-      buildah manifest create "${manifest_name}"
-      buildah manifest add "${manifest_name}" \
-        docker://${HERMES_WORKSPACE_IMAGE}:${CI_COMMIT_SHA}-amd64
-      buildah manifest add "${manifest_name}" \
-        docker://${HERMES_WORKSPACE_IMAGE}:${CI_COMMIT_SHA}-arm64
-      buildah manifest push --all --format v2s2 \
+      buildah build \
+        --arch amd64 \
+        --build-arg TARGETARCH=amd64 \
+        --build-arg OCI_REVISION=${CI_COMMIT_SHA} \
+        --layers \
+        --cache-from ${HERMES_WORKSPACE_IMAGE_CACHE}-amd64 \
+        --cache-to ${HERMES_WORKSPACE_IMAGE_CACHE}-amd64 \
+        -t ${HERMES_WORKSPACE_IMAGE}:${CI_COMMIT_SHA} \
+        apps/hermes-workspace/image/
+      buildah push --format v2s2 \
         --digestfile apps/hermes-workspace/image/hermes-workspace-image.digest \
-        "${manifest_name}" \
+        ${HERMES_WORKSPACE_IMAGE}:${CI_COMMIT_SHA} \
         docker://${HERMES_WORKSPACE_IMAGE}:${CI_COMMIT_SHA}
-      grep -Eq '^sha256:[0-9a-f]{64}$' \
-        apps/hermes-workspace/image/hermes-workspace-image.digest
+      digest="$(cat apps/hermes-workspace/image/hermes-workspace-image.digest)"
+      test "$(printf '%s' "${digest}" | wc -c)" -eq 71
+      printf '%s\n' "${digest}" | grep -Eq '^sha256:[0-9a-f]{64}$'
   artifacts:
     name: hermes-workspace-image-${CI_COMMIT_SHA}
     paths:

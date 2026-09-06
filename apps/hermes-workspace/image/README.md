@@ -16,14 +16,14 @@ The bundled tools are the immediate repository workflow set: Bash/POSIX utilitie
 
 ## Supply-chain and publication contract
 
-The maintained Ubuntu 24.04 base is pinned to the OCI index digest `sha256:33ceb71981b602c1a7443a53469e4dba065f7503eab3078a2d7a57a2ab987517`. Docker Hub's primary registry index was checked for native `linux/amd64` (`sha256:1e0a86e57d247923571b75e0aaf48a1449cf8c543d51fb3e07a4a7d7bfa79316`) and `linux/arm64/v8` (`sha256:95fa486768020359141f1318720f43e7982ef926c792891d984aef9aaf05e7ea`) manifests. Distro package names are fixed, installed with `--no-install-recommends`, and package indexes are removed in the installation layer.
+The maintained Ubuntu 24.04 base is pinned to the OCI index digest `sha256:33ceb71981b602c1a7443a53469e4dba065f7503eab3078a2d7a57a2ab987517`. Docker Hub's primary registry index was checked for its native `linux/amd64` manifest (`sha256:1e0a86e57d247923571b75e0aaf48a1449cf8c543d51fb3e07a4a7d7bfa79316`). Distro package names are fixed, installed with `--no-install-recommends`, and package indexes are removed in the installation layer. A temporary no-op `ssh-keygen` shadows the maintainer-script call only while `openssh-server` is configured, then is removed; the final real client binary remains and the layer asserts that no host-key file was created.
 
-Standalone downloads are version- and SHA-256-pinned for both architectures from their primary release sources:
+Standalone downloads are version- and SHA-256-pinned for `linux/amd64` from their primary release sources:
 
 | Tool | Version | Primary evidence |
 | --- | --- | --- |
 | uv | 0.12.10 | `https://github.com/astral-sh/uv/releases/tag/0.12.10` and each archive's adjacent `.sha256` |
 | glab | 1.116.0 | `https://gitlab.com/gitlab-org/cli/-/releases/v1.116.0` and release `checksums.txt` |
-| kubectl | v1.34.11 | `https://dl.k8s.io/release/v1.34.11/bin/linux/<arch>/kubectl{,.sha256}` |
+| kubectl | v1.34.11 | `https://dl.k8s.io/release/v1.34.11/bin/linux/amd64/kubectl{,.sha256}` |
 
-CI publishes `amd64`, `arm64`, and multi-architecture images under the full immutable commit-SHA tag; it never publishes this image as `latest`. The package job records the registry-produced manifest digest as an artifact. A future deployment must use `repository@sha256:...` from that successful CI artifact rather than treating the commit-SHA tag as deployment authority.
+CI routes the package job to the repository's `k8s-amd64` lane and publishes one single-architecture `linux/amd64` image under the full immutable commit-SHA tag; it never publishes this image as `latest` or creates a multi-architecture index. The package job records the registry-produced image-manifest digest as an artifact. A future deployment must use `repository@sha256:...` from that successful CI artifact rather than treating the commit-SHA tag as deployment authority.

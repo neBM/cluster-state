@@ -13,6 +13,10 @@ ROOT = Path(__file__).resolve().parent.parent
 IMAGE = ROOT / "apps/hermes-workspace/image"
 CI = ROOT / ".gitlab-ci.yml"
 VALIDATION_ENTRYPOINT = ROOT / "scripts/validate_kustomize.sh"
+AMD64_RUNNER_PATCH = (
+    ROOT
+    / "infrastructure/shared-services/gitlab-runner/runners/amd64/patch-deployment.yaml"
+)
 
 EXPECTED_IMAGE_FILES = {
     ".dockerignore",
@@ -29,13 +33,10 @@ BASE = (
 PINNED_ARGUMENTS = {
     "UV_VERSION": "0.12.10",
     "UV_AMD64_SHA256": "173d95a0c32d18c896c46ba6fafbf3cf9c14ab74b033f81b76c883ef492a976b",
-    "UV_ARM64_SHA256": "9ff6b9d4665edcdd3a88dcc73cd1eb641754deb927f14e8c62ebfde6bf4f5f5e",
     "GLAB_VERSION": "1.116.0",
     "GLAB_AMD64_SHA256": "173cc61ea94c562f2ccd831f320d25b73982192e82810064552282482e3713ea",
-    "GLAB_ARM64_SHA256": "3e59a0c5db5b281c552543cc1018873ecdd551b07737cfdb932c6543aa39d88c",
     "KUBECTL_VERSION": "v1.34.11",
     "KUBECTL_AMD64_SHA256": "8efbb9435132a190920eb65a47a8c1ecf755ad85ab57a600c9bedbab460bb7a8",
-    "KUBECTL_ARM64_SHA256": "5b045a4712674c88a56fd98eef4285689738b7fbe8735e1b9ee3509521af5cb4",
 }
 REQUIRED_PACKAGES = {
     "bash",
@@ -101,6 +102,21 @@ def top_level_block(text: str, key: str) -> str:
     return match.group(0)
 
 
+def top_level_blocks(text: str) -> dict[str, str]:
+    starts = list(
+        re.finditer(
+            r"^(?P<key>[A-Za-z_.][^\n]*):[^\n]*\n",
+            text,
+            re.MULTILINE,
+        )
+    )
+    blocks: dict[str, str] = {}
+    for index, match in enumerate(starts):
+        end = starts[index + 1].start() if index + 1 < len(starts) else len(text)
+        blocks[match.group("key")] = text[match.start() : end]
+    return blocks
+
+
 def validate_file_inventory() -> dict[str, str]:
     if not IMAGE.is_dir():
         fail("workspace image directory is absent: apps/hermes-workspace/image")
@@ -158,10 +174,29 @@ def validate_dockerfile(text: str) -> None:
     for pattern in FORBIDDEN_TOOL_PATTERNS:
         forbid(package_match.group("packages"), pattern, "workspace package")
 
-    require(text, 'case "${TARGETARCH}" in', "explicit target architecture selection")
-    for arch in ("amd64", "arm64"):
-        require(text, f"{arch})", f"{arch} build support")
-    require(text, '*) echo "unsupported TARGETARCH: ${TARGETARCH}" >&2; exit 1 ;;', "closed architecture set")
+    ordered(
+        text,
+        (
+            "printf '#!/bin/sh\\nexit 0\\n' > /usr/local/sbin/ssh-keygen",
+            "chmod 0755 /usr/local/sbin/ssh-keygen",
+            'test "$(command -v ssh-keygen)" = /usr/local/sbin/ssh-keygen',
+            "apt-get install --yes --no-install-recommends",
+            "rm -f /usr/local/sbin/ssh-keygen",
+            "test -x /usr/bin/ssh-keygen",
+            'test "$(command -v ssh-keygen)" = /usr/bin/ssh-keygen',
+            'test -z "$(find /etc/ssh -maxdepth 1 -name \'ssh_host_*\' -print -quit)"',
+        ),
+        "temporary package-configuration ssh-keygen guard",
+    )
+    forbid(text, r"\bdpkg-divert\b", "ssh-keygen diversion residue")
+    forbid(
+        text,
+        r"\brm\s+(?:-[A-Za-z]*f[A-Za-z]*\s+)?/etc/ssh/ssh_host_",
+        "post-generation host-key deletion",
+    )
+
+    require(text, 'test "${TARGETARCH}" = amd64', "native amd64 build guard")
+    forbid(text, r"\b(?:arm64|aarch64)\b", "foreign architecture support")
 
     for artifact in ("uv.tar.gz", "glab.tar.gz", "kubectl"):
         ordered(
@@ -189,7 +224,6 @@ def validate_dockerfile(text: str) -> None:
         "--shell /bin/bash workspace",
         "usermod --password '*' workspace",
         "install -d -o 10000 -g 10000 -m 0700 /workspace",
-        "rm -f /etc/ssh/ssh_host_*",
         "EXPOSE 2222",
         'HEALTHCHECK CMD ["/usr/local/bin/hermes-workspace-healthcheck"]',
         'ENTRYPOINT ["/usr/local/sbin/hermes-workspace-entrypoint"]',
@@ -314,6 +348,8 @@ def validate_readme(text: str) -> None:
         "port `2222`",
         "SFTP",
         "root only to start `sshd`",
+        "single-architecture `linux/amd64`",
+        "`k8s-amd64`",
         "commit-SHA tag",
         "digest",
         "Agent Sandbox",
@@ -327,36 +363,76 @@ def validate_dockerignore(text: str) -> None:
         fail(".dockerignore must expose only the exact build inputs")
 
 
-def validate_ci(ci: str, validation_entrypoint: str) -> None:
+def validate_ci(ci: str, validation_entrypoint: str, amd64_runner_patch: str) -> None:
     require(ci, "HERMES_WORKSPACE_IMAGE: ${CI_REGISTRY_IMAGE}/hermes-workspace", "workspace image variable")
     require(ci, "HERMES_WORKSPACE_IMAGE_CACHE: ${CI_REGISTRY_IMAGE}/hermes-workspace/cache", "workspace cache variable")
     rules = top_level_block(ci, ".rules_hermes_workspace")
     require(rules, 'if: $CI_COMMIT_BRANCH == "main"', "main-only image publication")
     require(rules, "apps/hermes-workspace/image/**/*", "image publication change rule")
 
+    runner_match = re.search(
+        r"^[ \t]*- name: RUNNER_NAME[ \t]*\n"
+        r"[ \t]*value: (?P<name>[A-Za-z0-9._-]+)[ \t]*$",
+        amd64_runner_patch,
+        re.MULTILINE,
+    )
+    if runner_match is None:
+        fail("cannot establish the native amd64 runner tag from repository desired state")
+    runner_tag = runner_match.group("name")
+    if runner_tag != "k8s-amd64":
+        fail(f"unexpected native amd64 runner convention: {runner_tag!r}")
+    require(
+        amd64_runner_patch,
+        "kubernetes.io/arch: amd64",
+        "native amd64 runner node selection",
+    )
+
     job = top_level_block(ci, "package:hermes-workspace")
+    tags_match = re.search(r"^  tags:\n(?P<tags>(?:    - [^\n]+\n)+)", job, re.MULTILINE)
+    if tags_match is None:
+        fail("workspace package job must select the native amd64 runner")
+    job_tags = re.findall(r"^    - ([^\s]+)\s*$", tags_match.group("tags"), re.MULTILINE)
+    if job_tags != [runner_tag]:
+        fail(f"workspace package job tags must be exactly {[runner_tag]!r}, got {job_tags!r}")
+
+    tagged_blocks = [
+        key
+        for key, block in top_level_blocks(ci).items()
+        if re.search(r"^  tags:\s*$", block, re.MULTILINE)
+    ]
+    if tagged_blocks != ["package:hermes-workspace"]:
+        fail(
+            "only the native Hermes workspace package job may be architecture-routed, "
+            f"got {tagged_blocks!r}"
+        )
+
     for needle in (
         "stage: package",
         "image: quay.io/buildah/stable:latest",
         "before_script: *buildah_before",
-        "for ARCH in amd64 arm64",
-        "--arch ${ARCH}",
-        "--build-arg TARGETARCH=${ARCH}",
+        "--arch amd64",
+        "--build-arg TARGETARCH=amd64",
         "--build-arg OCI_REVISION=${CI_COMMIT_SHA}",
-        "${HERMES_WORKSPACE_IMAGE}:${CI_COMMIT_SHA}-${ARCH}",
+        "-t ${HERMES_WORKSPACE_IMAGE}:${CI_COMMIT_SHA}",
         "apps/hermes-workspace/image/",
-        "buildah manifest create",
-        "${HERMES_WORKSPACE_IMAGE}:${CI_COMMIT_SHA}-amd64",
-        "${HERMES_WORKSPACE_IMAGE}:${CI_COMMIT_SHA}-arm64",
+        "buildah push --format v2s2",
         "--digestfile apps/hermes-workspace/image/hermes-workspace-image.digest",
+        "docker://${HERMES_WORKSPACE_IMAGE}:${CI_COMMIT_SHA}",
+        'digest="$(cat apps/hermes-workspace/image/hermes-workspace-image.digest)"',
+        'test "$(printf \'%s\' "${digest}" | wc -c)" -eq 71',
+        "printf '%s\\n' \"${digest}\" | grep -Eq '^sha256:[0-9a-f]{64}$'",
         "${HERMES_WORKSPACE_IMAGE}:${CI_COMMIT_SHA}",
-        "sha256:[0-9a-f]{64}",
         "artifacts:",
         "apps/hermes-workspace/image/hermes-workspace-image.digest",
         "rules:",
         "*rules_hermes_workspace",
     ):
         require(job, needle, "workspace package job")
+    if job.count("buildah build") != 1 or job.count("buildah push") != 1:
+        fail("workspace package job must build and push exactly one native image")
+    forbid(job, r"\b(?:arm64|aarch64)\b", "foreign workspace image build")
+    forbid(job, r"\bbuildah\s+manifest\b", "multi-architecture workspace index")
+    forbid(job, r"\bfor\s+ARCH\b", "workspace architecture loop")
     forbid(job, r"CI_COMMIT_SHORT_SHA", "short image tag")
     workspace_references = "\n".join(
         line for line in job.splitlines() if "HERMES_WORKSPACE_IMAGE" in line
@@ -379,7 +455,11 @@ def validate() -> None:
     validate_healthcheck(texts["healthcheck.py"])
     validate_readme(texts["README.md"])
     validate_dockerignore(texts[".dockerignore"])
-    validate_ci(CI.read_text(), VALIDATION_ENTRYPOINT.read_text())
+    validate_ci(
+        CI.read_text(),
+        VALIDATION_ENTRYPOINT.read_text(),
+        AMD64_RUNNER_PATCH.read_text(),
+    )
 
 
 if __name__ == "__main__":
