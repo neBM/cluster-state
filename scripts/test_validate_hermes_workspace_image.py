@@ -268,7 +268,8 @@ def validate_dockerfile(text: str) -> None:
             "cleanup_ssh_keygen_diversion",
             "trap - EXIT HUP INT TERM",
             "test -x /usr/bin/ssh-keygen",
-            'key_types="$(ssh-keygen -Q key)"',
+            'test "$(dpkg-query --search /usr/bin/ssh-keygen)" = "openssh-client: /usr/bin/ssh-keygen"',
+            'key_types="$(ssh -Q key)"',
             'test -n "${key_types}"',
             "test ! -e /usr/bin/ssh-keygen.distrib",
             "test ! -e /usr/local/sbin/ssh-keygen",
@@ -284,7 +285,12 @@ def validate_dockerfile(text: str) -> None:
         ('test -z "${diversion}"', "absent ssh-keygen diversion", 2),
         ('test "$(command -v ssh-keygen)" = /usr/bin/ssh-keygen', "exact ssh-keygen path", 2),
         ("test -x /usr/bin/ssh-keygen", "restored ssh-keygen executable", 1),
-        ('test -n "${key_types}"', "real ssh-keygen behavior", 1),
+        (
+            'test "$(dpkg-query --search /usr/bin/ssh-keygen)" = "openssh-client: /usr/bin/ssh-keygen"',
+            "restored ssh-keygen package owner",
+            1,
+        ),
+        ('test -n "${key_types}"', "OpenSSH client-suite behavior", 1),
         ("test ! -e /usr/bin/ssh-keygen.distrib", "absent diverted binary residue", 1),
         ("test ! -e /usr/local/sbin/ssh-keygen", "absent obsolete stub", 1),
         ('test -z "${host_keys}"', "absent generated host keys", 1),
@@ -292,7 +298,7 @@ def validate_dockerfile(text: str) -> None:
         require_standalone_shell_command(text, command, label, count=count)
     for command, label, count in (
         ('diversion="$(dpkg-divert --list /usr/bin/ssh-keygen)"', "diversion query", 3),
-        ('key_types="$(ssh-keygen -Q key)"', "real ssh-keygen query", 1),
+        ('key_types="$(ssh -Q key)"', "OpenSSH client key-type query", 1),
         (
             'host_keys="$(find /etc/ssh -maxdepth 1 -name \'ssh_host_*\' -print -quit)"',
             "host-key query",
@@ -300,6 +306,7 @@ def validate_dockerfile(text: str) -> None:
         ),
     ):
         require_standalone_shell_command(text, command, label, count=count)
+    forbid(text, r"\bssh-keygen\s+-Q\s+key\b", "invalid ssh-keygen key-type query")
     forbid(text, r">\s*/usr/local/sbin/ssh-keygen", "PATH-shadow ssh-keygen stub")
     forbid(
         text,
@@ -608,7 +615,8 @@ def validate_ci(ci: str, validation_entrypoint: str, executor_node_selector: str
         'test ! -e "${rootfs}/usr/local/sbin/ssh-keygen"',
         'diversion="$(buildah run "${container}" -- dpkg-divert --list /usr/bin/ssh-keygen)"',
         'test -z "${diversion}"',
-        'key_types="$(buildah run "${container}" -- /usr/bin/ssh-keygen -Q key)"',
+        'test "$(buildah run "${container}" -- dpkg-query --search /usr/bin/ssh-keygen)" = "openssh-client: /usr/bin/ssh-keygen"',
+        'key_types="$(buildah run "${container}" -- /usr/bin/ssh -Q key)"',
         'test -n "${key_types}"',
         'test -x "${rootfs}/usr/sbin/sshd"',
         'test -f "${rootfs}/etc/ssh/sshd_config"',
@@ -652,6 +660,7 @@ def validate_ci(ci: str, validation_entrypoint: str, executor_node_selector: str
         require(verify_job, needle, "MR real image verification job")
     for command in verify_assertions:
         require_exact_shell_line(verify_job, command, "MR image assertion")
+    forbid(verify_job, r"\bssh-keygen\s+-Q\s+key\b", "invalid ssh-keygen key-type query")
     if verify_job.count("buildah build") != 1:
         fail("workspace image verification job must build exactly one native image")
     for pattern, label in (

@@ -64,7 +64,8 @@ RUN set -eux; \
     trap - EXIT HUP INT TERM; \
     test -x /usr/bin/ssh-keygen; \
     test "$(command -v ssh-keygen)" = /usr/bin/ssh-keygen; \
-    key_types="$(ssh-keygen -Q key)"; \
+    test "$(dpkg-query --search /usr/bin/ssh-keygen)" = "openssh-client: /usr/bin/ssh-keygen"; \
+    key_types="$(ssh -Q key)"; \
     test -n "${key_types}"; \
     test ! -e /usr/bin/ssh-keygen.distrib; \
     test ! -e /usr/local/sbin/ssh-keygen; \
