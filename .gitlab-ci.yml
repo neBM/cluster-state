@@ -262,7 +262,7 @@ package:hermes-workspace:
   stage: package
   needs: []
   tags:
-    - k8s-amd64
+    - amd64
   image: quay.io/buildah/stable:latest
   variables:
     GIT_STRATEGY: fetch
