@@ -1,0 +1,164 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: hermes-workspace
+  namespace: default
+  labels:
+    app.kubernetes.io/name: hermes-workspace
+spec:
+  replicas: 1
+  revisionHistoryLimit: 2
+  progressDeadlineSeconds: 600
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: hermes-workspace
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: hermes-workspace
+    spec:
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      hostNetwork: false
+      hostPID: false
+      hostIPC: false
+      shareProcessNamespace: false
+      dnsPolicy: ClusterFirst
+      dnsConfig:
+        options:
+        - name: ndots
+          value: "1"
+      restartPolicy: Always
+      terminationGracePeriodSeconds: 30
+      nodeSelector:
+        kubernetes.io/arch: amd64
+        kubernetes.io/hostname: hestia
+      initContainers:
+      - name: prepare-workspace
+        image: registry.brmartin.co.uk:443/ben/cluster-state/hermes-workspace@sha256:b5e9837584ac4f7719d02591ee9338ec8ce03e70ee543b34a2c7cbc02121942c
+        imagePullPolicy: IfNotPresent
+        command:
+        - /bin/sh
+        - -ceu
+        - |-
+          chown 0:0 /workspace /run /tmp
+          chmod 0700 /workspace
+          chmod 0755 /run
+          chmod 1777 /tmp
+          chown 10000:10000 /workspace
+        resources:
+          requests:
+            cpu: 10m
+            memory: 16Mi
+            ephemeral-storage: 16Mi
+          limits:
+            cpu: 100m
+            memory: 64Mi
+            ephemeral-storage: 64Mi
+        securityContext:
+          runAsUser: 0
+          runAsGroup: 0
+          privileged: false
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          seccompProfile:
+            type: RuntimeDefault
+          capabilities:
+            drop:
+            - ALL
+            add:
+            - CHOWN
+        volumeMounts:
+        - name: workspace
+          mountPath: /workspace
+        - name: run
+          mountPath: /run
+        - name: tmp
+          mountPath: /tmp
+      containers:
+      - name: hermes-workspace
+        image: registry.brmartin.co.uk:443/ben/cluster-state/hermes-workspace@sha256:b5e9837584ac4f7719d02591ee9338ec8ce03e70ee543b34a2c7cbc02121942c
+        imagePullPolicy: IfNotPresent
+        ports:
+        - name: ssh
+          containerPort: 2222
+          protocol: TCP
+        startupProbe:
+          exec:
+            command:
+            - /usr/local/bin/hermes-workspace-healthcheck
+          periodSeconds: 2
+          timeoutSeconds: 1
+          failureThreshold: 60
+        readinessProbe:
+          exec:
+            command:
+            - /usr/local/bin/hermes-workspace-healthcheck
+          periodSeconds: 5
+          timeoutSeconds: 1
+          failureThreshold: 3
+        livenessProbe:
+          exec:
+            command:
+            - /usr/local/bin/hermes-workspace-healthcheck
+          periodSeconds: 10
+          timeoutSeconds: 1
+          failureThreshold: 3
+        resources:
+          requests:
+            cpu: 250m
+            memory: 512Mi
+            ephemeral-storage: 512Mi
+          limits:
+            cpu: "2"
+            memory: 4Gi
+            ephemeral-storage: 4Gi
+        securityContext:
+          runAsUser: 0
+          runAsGroup: 0
+          privileged: false
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          seccompProfile:
+            type: RuntimeDefault
+          capabilities:
+            drop:
+            - ALL
+            add:
+            - CHOWN
+            - DAC_OVERRIDE
+            - SETGID
+            - SETUID
+            - SYS_CHROOT
+        volumeMounts:
+        - name: workspace
+          mountPath: /workspace
+        - name: run
+          mountPath: /run
+        - name: tmp
+          mountPath: /tmp
+        - name: ssh-server
+          mountPath: /run/secrets/hermes-workspace
+          readOnly: true
+      volumes:
+      - name: workspace
+        persistentVolumeClaim:
+          claimName: hermes-workspace
+      - name: run
+        emptyDir:
+          medium: Memory
+          sizeLimit: 64Mi
+      - name: tmp
+        emptyDir:
+          sizeLimit: 2Gi
+      - name: ssh-server
+        secret:
+          secretName: hermes-workspace-ssh-server
+          defaultMode: 0400
+          items:
+          - key: ssh_host_ed25519_key
+            path: ssh_host_ed25519_key
+          - key: authorized_keys
+            path: authorized_keys
