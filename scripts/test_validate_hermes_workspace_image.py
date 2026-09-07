@@ -18,7 +18,7 @@ AMD64_EXECUTOR_NODE_SELECTOR = (
     / "infrastructure/shared-services/gitlab-runner/runners/amd64/fragments/80-node-selector.toml"
 )
 # Repository policy only; server registration and actual job-runner identity are live CI evidence.
-HERMES_WORKSPACE_JOB_TAG = "k8s-amd64"
+HERMES_WORKSPACE_JOB_TAG = "amd64"
 
 EXPECTED_IMAGE_FILES = {
     ".dockerignore",
