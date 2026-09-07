@@ -172,7 +172,11 @@ EXPECTED_DEPLOYMENT = {
                                     "key": "ssh_host_ed25519_key",
                                     "path": "ssh_host_ed25519_key",
                                 },
-                                {"key": "authorized_keys", "path": "authorized_keys"},
+                                {
+                                    "key": "authorized_keys",
+                                    "path": "authorized_keys",
+                                    "mode": 0o444,
+                                },
                             ],
                         },
                     },
