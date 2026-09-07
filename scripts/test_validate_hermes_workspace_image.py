@@ -13,10 +13,12 @@ ROOT = Path(__file__).resolve().parent.parent
 IMAGE = ROOT / "apps/hermes-workspace/image"
 CI = ROOT / ".gitlab-ci.yml"
 VALIDATION_ENTRYPOINT = ROOT / "scripts/validate_kustomize.sh"
-AMD64_RUNNER_PATCH = (
+AMD64_EXECUTOR_NODE_SELECTOR = (
     ROOT
-    / "infrastructure/shared-services/gitlab-runner/runners/amd64/patch-deployment.yaml"
+    / "infrastructure/shared-services/gitlab-runner/runners/amd64/fragments/80-node-selector.toml"
 )
+# Repository policy only; server registration and actual job-runner identity are live CI evidence.
+HERMES_WORKSPACE_JOB_TAG = "k8s-amd64"
 
 EXPECTED_IMAGE_FILES = {
     ".dockerignore",
@@ -363,37 +365,58 @@ def validate_dockerignore(text: str) -> None:
         fail(".dockerignore must expose only the exact build inputs")
 
 
-def validate_ci(ci: str, validation_entrypoint: str, amd64_runner_patch: str) -> None:
+def validate_executor_node_selector(text: str) -> None:
+    tables = re.findall(r"^\[[^\]\n]+\][ \t]*$", text, re.MULTILINE)
+    expected_table = "[runners.kubernetes.node_selector]"
+    if tables != [expected_table]:
+        fail(f"executor fragment TOML tables must be exactly {[expected_table]!r}, got {tables!r}")
+
+    entries = re.findall(
+        r'^[ \t]*"kubernetes\.io/arch"[ \t]*=[^\n]*$',
+        text,
+        re.MULTILINE,
+    )
+    expected_entry = '  "kubernetes.io/arch" = "amd64"'
+    if entries != [expected_entry]:
+        fail(
+            "executor job-pod architecture selector must be exactly "
+            f"{expected_entry!r}, got {entries!r}"
+        )
+
+
+def validate_executor_node_selector_mutation(text: str) -> None:
+    mutant = text.replace(
+        '  "kubernetes.io/arch" = "amd64"',
+        '  "kubernetes.io/arch" = "arm64"',
+        1,
+    )
+    if mutant == text:
+        fail("cannot construct the arm64 executor node-selector mutation")
+    try:
+        validate_executor_node_selector(mutant)
+    except AssertionError:
+        return
+    fail("arm64 executor job-pod selector mutation escaped validation")
+
+
+def validate_ci(ci: str, validation_entrypoint: str, executor_node_selector: str) -> None:
     require(ci, "HERMES_WORKSPACE_IMAGE: ${CI_REGISTRY_IMAGE}/hermes-workspace", "workspace image variable")
     require(ci, "HERMES_WORKSPACE_IMAGE_CACHE: ${CI_REGISTRY_IMAGE}/hermes-workspace/cache", "workspace cache variable")
     rules = top_level_block(ci, ".rules_hermes_workspace")
     require(rules, 'if: $CI_COMMIT_BRANCH == "main"', "main-only image publication")
     require(rules, "apps/hermes-workspace/image/**/*", "image publication change rule")
-
-    runner_match = re.search(
-        r"^[ \t]*- name: RUNNER_NAME[ \t]*\n"
-        r"[ \t]*value: (?P<name>[A-Za-z0-9._-]+)[ \t]*$",
-        amd64_runner_patch,
-        re.MULTILINE,
-    )
-    if runner_match is None:
-        fail("cannot establish the native amd64 runner tag from repository desired state")
-    runner_tag = runner_match.group("name")
-    if runner_tag != "k8s-amd64":
-        fail(f"unexpected native amd64 runner convention: {runner_tag!r}")
-    require(
-        amd64_runner_patch,
-        "kubernetes.io/arch: amd64",
-        "native amd64 runner node selection",
-    )
+    validate_executor_node_selector(executor_node_selector)
 
     job = top_level_block(ci, "package:hermes-workspace")
     tags_match = re.search(r"^  tags:\n(?P<tags>(?:    - [^\n]+\n)+)", job, re.MULTILINE)
     if tags_match is None:
         fail("workspace package job must select the native amd64 runner")
     job_tags = re.findall(r"^    - ([^\s]+)\s*$", tags_match.group("tags"), re.MULTILINE)
-    if job_tags != [runner_tag]:
-        fail(f"workspace package job tags must be exactly {[runner_tag]!r}, got {job_tags!r}")
+    if job_tags != [HERMES_WORKSPACE_JOB_TAG]:
+        fail(
+            "workspace package job tags must be exactly "
+            f"{[HERMES_WORKSPACE_JOB_TAG]!r}, got {job_tags!r}"
+        )
 
     tagged_blocks = [
         key
@@ -455,11 +478,13 @@ def validate() -> None:
     validate_healthcheck(texts["healthcheck.py"])
     validate_readme(texts["README.md"])
     validate_dockerignore(texts[".dockerignore"])
+    executor_node_selector = AMD64_EXECUTOR_NODE_SELECTOR.read_text()
     validate_ci(
         CI.read_text(),
         VALIDATION_ENTRYPOINT.read_text(),
-        AMD64_RUNNER_PATCH.read_text(),
+        executor_node_selector,
     )
+    validate_executor_node_selector_mutation(executor_node_selector)
 
 
 if __name__ == "__main__":
