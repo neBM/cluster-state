@@ -14,6 +14,8 @@ variables:
   FEEDBACK_MIGRATIONS_IMAGE: ${CI_REGISTRY_IMAGE}/feedback-migrations
   FEEDBACK_MIGRATIONS_IMAGE_CACHE: ${CI_REGISTRY_IMAGE}/feedback-migrations/cache
   FEEDBACK_GOOSE_VERSION: v3.27.1
+  HERMES_WORKSPACE_IMAGE: ${CI_REGISTRY_IMAGE}/hermes-workspace
+  HERMES_WORKSPACE_IMAGE_CACHE: ${CI_REGISTRY_IMAGE}/hermes-workspace/cache
 
 .buildah_before: &buildah_before
   - mkdir -p ${CI_PROJECT_DIR}/.local/share/containers
@@ -43,6 +45,12 @@ variables:
     changes:
       - apps/feedback/migrations/**/*
       - apps/feedback/kustomization.yaml
+      - .gitlab-ci.yml
+
+.rules_hermes_workspace: &rules_hermes_workspace
+  - if: $CI_COMMIT_BRANCH == "main"
+    changes:
+      - apps/hermes-workspace/image/**/*
       - .gitlab-ci.yml
 
 compile:rpi5-dra-driver:
@@ -250,6 +258,43 @@ package:feedback-migrations:
   rules:
     - *rules_feedback_migrations
 
+package:hermes-workspace:
+  stage: package
+  needs: []
+  tags:
+    - k8s-amd64
+  image: quay.io/buildah/stable:latest
+  variables:
+    GIT_STRATEGY: fetch
+    GIT_DEPTH: "1"
+  before_script: *buildah_before
+  script:
+    - |
+      set -eu
+      buildah build \
+        --arch amd64 \
+        --build-arg TARGETARCH=amd64 \
+        --build-arg OCI_REVISION=${CI_COMMIT_SHA} \
+        --layers \
+        --cache-from ${HERMES_WORKSPACE_IMAGE_CACHE}-amd64 \
+        --cache-to ${HERMES_WORKSPACE_IMAGE_CACHE}-amd64 \
+        -t ${HERMES_WORKSPACE_IMAGE}:${CI_COMMIT_SHA} \
+        apps/hermes-workspace/image/
+      buildah push --format v2s2 \
+        --digestfile apps/hermes-workspace/image/hermes-workspace-image.digest \
+        ${HERMES_WORKSPACE_IMAGE}:${CI_COMMIT_SHA} \
+        docker://${HERMES_WORKSPACE_IMAGE}:${CI_COMMIT_SHA}
+      digest="$(cat apps/hermes-workspace/image/hermes-workspace-image.digest)"
+      test "$(printf '%s' "${digest}" | wc -c)" -eq 71
+      printf '%s\n' "${digest}" | grep -Eq '^sha256:[0-9a-f]{64}$'
+  artifacts:
+    name: hermes-workspace-image-${CI_COMMIT_SHA}
+    paths:
+      - apps/hermes-workspace/image/hermes-workspace-image.digest
+    expire_in: 1 week
+  rules:
+    - *rules_hermes_workspace
+
 .validate_manifest_rules: &validate_manifest_rules
   - if: $CI_PIPELINE_SOURCE == "merge_request_event"
     changes:
@@ -268,6 +313,7 @@ package:feedback-migrations:
       - scripts/test_matrix_synapse_config.py.lock
       - scripts/test_validate_factorio_manifest.py
       - scripts/test_validate_hermes_agent_manifest.py
+      - scripts/test_validate_hermes_workspace_image.py
       - scripts/test_validate_hestia_ci_store_gc_alert.py
       - scripts/test_validate_hestia_ci_store_gc_alert.py.lock
       - scripts/test_validate_ibgateway_manifest.py
@@ -303,6 +349,7 @@ package:feedback-migrations:
       - scripts/test_matrix_synapse_config.py.lock
       - scripts/test_validate_factorio_manifest.py
       - scripts/test_validate_hermes_agent_manifest.py
+      - scripts/test_validate_hermes_workspace_image.py
       - scripts/test_validate_hestia_ci_store_gc_alert.py
       - scripts/test_validate_hestia_ci_store_gc_alert.py.lock
       - scripts/test_validate_ibgateway_manifest.py
