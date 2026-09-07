@@ -23,10 +23,14 @@ ENV HOME=/workspace \
 
 RUN set -eux; \
     export DEBIAN_FRONTEND=noninteractive; \
+    cleanup_ssh_keygen_diversion() { \
+      diversion="$(dpkg-divert --list /usr/bin/ssh-keygen)"; \
+      if [ -n "${diversion}" ]; then \
+        rm -f /usr/bin/ssh-keygen; \
+        dpkg-divert --local --rename --remove /usr/bin/ssh-keygen; \
+      fi; \
+    }; \
     apt-get update; \
-    printf '#!/bin/sh\nexit 0\n' > /usr/local/sbin/ssh-keygen; \
-    chmod 0755 /usr/local/sbin/ssh-keygen; \
-    test "$(command -v ssh-keygen)" = /usr/local/sbin/ssh-keygen; \
     apt-get install --yes --no-install-recommends \
       bash \
       build-essential \
@@ -39,19 +43,37 @@ RUN set -eux; \
       gzip \
       jq \
       make \
-      openssh-server \
+      openssh-client \
       patch \
       procps \
       python3 \
       shellcheck \
       tar \
       unzip \
-      util-linux \
-    && rm -f /usr/local/sbin/ssh-keygen \
-    && test -x /usr/bin/ssh-keygen \
-    && test "$(command -v ssh-keygen)" = /usr/bin/ssh-keygen \
-    && test -z "$(find /etc/ssh -maxdepth 1 -name 'ssh_host_*' -print -quit)" \
-    && rm -rf /var/lib/apt/lists/*; \
+      util-linux; \
+    diversion="$(dpkg-divert --list /usr/bin/ssh-keygen)"; \
+    test -z "${diversion}"; \
+    trap cleanup_ssh_keygen_diversion EXIT; \
+    trap 'exit 1' HUP INT TERM; \
+    dpkg-divert --local --rename --add /usr/bin/ssh-keygen; \
+    printf '#!/bin/sh\nexit 0\n' > /usr/bin/ssh-keygen; \
+    chmod 0755 /usr/bin/ssh-keygen; \
+    test "$(command -v ssh-keygen)" = /usr/bin/ssh-keygen; \
+    apt-get install --yes --no-install-recommends openssh-server; \
+    cleanup_ssh_keygen_diversion; \
+    trap - EXIT HUP INT TERM; \
+    test -x /usr/bin/ssh-keygen; \
+    test "$(command -v ssh-keygen)" = /usr/bin/ssh-keygen; \
+    test "$(dpkg-query --search /usr/bin/ssh-keygen)" = "openssh-client: /usr/bin/ssh-keygen"; \
+    key_types="$(ssh -Q key)"; \
+    test -n "${key_types}"; \
+    test ! -e /usr/bin/ssh-keygen.distrib; \
+    test ! -e /usr/local/sbin/ssh-keygen; \
+    diversion="$(dpkg-divert --list /usr/bin/ssh-keygen)"; \
+    test -z "${diversion}"; \
+    host_keys="$(find /etc/ssh -maxdepth 1 -name 'ssh_host_*' -print -quit)"; \
+    test -z "${host_keys}"; \
+    rm -rf /var/lib/apt/lists/*; \
     groupadd --gid 10000 workspace; \
     useradd --uid 10000 --gid 10000 --home-dir /workspace --no-create-home --shell /bin/bash workspace; \
     usermod --password '*' workspace; \

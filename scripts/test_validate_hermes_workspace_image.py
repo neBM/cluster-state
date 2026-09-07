@@ -19,6 +19,10 @@ AMD64_EXECUTOR_NODE_SELECTOR = (
 )
 # Repository policy only; server registration and actual job-runner identity are live CI evidence.
 HERMES_WORKSPACE_JOB_TAG = "amd64"
+BUILDAH_IMAGE = (
+    "quay.io/buildah/stable@sha256:"
+    "ddc2141c484387e6c71bc3a42c24875d3a340582b96a3f2693de7138092c4107"
+)
 
 EXPECTED_IMAGE_FILES = {
     ".dockerignore",
@@ -52,6 +56,7 @@ REQUIRED_PACKAGES = {
     "gzip",
     "jq",
     "make",
+    "openssh-client",
     "openssh-server",
     "patch",
     "procps",
@@ -91,6 +96,41 @@ def ordered(text: str, needles: tuple[str, ...], label: str) -> None:
         if found < 0:
             fail(f"incorrect {label} ordering: {needles!r}")
         cursor = found + len(needle)
+
+
+def flattened_shell(text: str) -> str:
+    return re.sub(r"\\\n\s*", " ", text)
+
+
+def require_standalone_shell_command(
+    text: str,
+    command: str,
+    label: str,
+    *,
+    count: int = 1,
+) -> None:
+    expected = f"{command}; \\"
+    matches = [line.strip() for line in text.splitlines() if command in line]
+    if matches != [expected] * count:
+        fail(
+            f"{label} must be a standalone fail-closed command exactly {count} time(s), "
+            f"got {matches!r}"
+        )
+
+
+def require_exact_shell_line(
+    text: str,
+    command: str,
+    label: str,
+    *,
+    count: int = 1,
+) -> None:
+    matches = [line.strip() for line in text.splitlines() if command in line]
+    if matches != [command] * count:
+        fail(
+            f"{label} must be an unmasked standalone command exactly {count} time(s), "
+            f"got {matches!r}"
+        )
 
 
 def top_level_block(text: str, key: str) -> str:
@@ -161,36 +201,113 @@ def validate_dockerfile(text: str) -> None:
     ):
         require(text, f"{label}=", f"OCI label {label}")
 
-    package_match = re.search(
-        r"apt-get install --yes --no-install-recommends(?P<packages>.*?)&&\s*rm -rf /var/lib/apt/lists/\*",
-        text,
-        re.DOTALL,
+    shell = flattened_shell(text)
+    package_matches = re.findall(
+        r"apt-get install --yes --no-install-recommends\s+(?P<packages>[^;]+);",
+        shell,
     )
-    if package_match is None:
-        fail("missing deterministic no-recommends apt installation and index cleanup")
-    package_words = set(re.findall(r"\b[a-z][a-z0-9.+-]*\b", package_match.group("packages")))
-    missing_packages = REQUIRED_PACKAGES - package_words
-    if missing_packages:
-        fail(f"missing required distro packages: {sorted(missing_packages)!r}")
+    if len(package_matches) != 2:
+        fail("workspace packages must use exactly two no-recommends apt installations")
+    package_sets = [
+        set(re.findall(r"\b[a-z][a-z0-9.+-]*\b", packages))
+        for packages in package_matches
+    ]
+    expected_client_packages = REQUIRED_PACKAGES - {"openssh-server"}
+    if package_sets[0] != expected_client_packages:
+        fail(
+            "openssh-client and tool packages must be installed before diversion: "
+            f"expected {sorted(expected_client_packages)!r}, got {sorted(package_sets[0])!r}"
+        )
+    if package_sets[1] != {"openssh-server"}:
+        fail(
+            "openssh-server must be the only package installed while ssh-keygen is diverted, "
+            f"got {sorted(package_sets[1])!r}"
+        )
+    for packages in package_matches:
+        for pattern in FORBIDDEN_TOOL_PATTERNS:
+            forbid(packages, pattern, "workspace package")
+    require(text, "rm -rf /var/lib/apt/lists/*", "apt index cleanup")
 
-    for pattern in FORBIDDEN_TOOL_PATTERNS:
-        forbid(package_match.group("packages"), pattern, "workspace package")
-
+    cleanup_match = re.search(
+        r"cleanup_ssh_keygen_diversion\(\) \{(?P<body>.*?)^    \}",
+        text,
+        re.MULTILINE | re.DOTALL,
+    )
+    if cleanup_match is None:
+        fail("missing trap-safe ssh-keygen diversion cleanup function")
     ordered(
-        text,
+        cleanup_match.group("body"),
         (
-            "printf '#!/bin/sh\\nexit 0\\n' > /usr/local/sbin/ssh-keygen",
-            "chmod 0755 /usr/local/sbin/ssh-keygen",
-            'test "$(command -v ssh-keygen)" = /usr/local/sbin/ssh-keygen',
-            "apt-get install --yes --no-install-recommends",
-            "rm -f /usr/local/sbin/ssh-keygen",
-            "test -x /usr/bin/ssh-keygen",
-            'test "$(command -v ssh-keygen)" = /usr/bin/ssh-keygen',
-            'test -z "$(find /etc/ssh -maxdepth 1 -name \'ssh_host_*\' -print -quit)"',
+            'diversion="$(dpkg-divert --list /usr/bin/ssh-keygen)"',
+            'if [ -n "${diversion}" ]; then',
+            "rm -f /usr/bin/ssh-keygen",
+            "dpkg-divert --local --rename --remove /usr/bin/ssh-keygen",
         ),
-        "temporary package-configuration ssh-keygen guard",
+        "ssh-keygen diversion cleanup",
     )
-    forbid(text, r"\bdpkg-divert\b", "ssh-keygen diversion residue")
+    for needle in (
+        "trap cleanup_ssh_keygen_diversion EXIT",
+        "trap 'exit 1' HUP INT TERM",
+    ):
+        require(text, needle, "trap-safe ssh-keygen diversion cleanup")
+
+    operations = shell[shell.find("apt-get update;") :]
+    ordered(
+        operations,
+        (
+            "apt-get install --yes --no-install-recommends",
+            'diversion="$(dpkg-divert --list /usr/bin/ssh-keygen)"',
+            'test -z "${diversion}"',
+            "trap cleanup_ssh_keygen_diversion EXIT",
+            "trap 'exit 1' HUP INT TERM",
+            "dpkg-divert --local --rename --add /usr/bin/ssh-keygen",
+            "printf '#!/bin/sh\\nexit 0\\n' > /usr/bin/ssh-keygen",
+            "chmod 0755 /usr/bin/ssh-keygen",
+            'test "$(command -v ssh-keygen)" = /usr/bin/ssh-keygen',
+            "apt-get install --yes --no-install-recommends openssh-server",
+            "cleanup_ssh_keygen_diversion",
+            "trap - EXIT HUP INT TERM",
+            "test -x /usr/bin/ssh-keygen",
+            'test "$(dpkg-query --search /usr/bin/ssh-keygen)" = "openssh-client: /usr/bin/ssh-keygen"',
+            'key_types="$(ssh -Q key)"',
+            'test -n "${key_types}"',
+            "test ! -e /usr/bin/ssh-keygen.distrib",
+            "test ! -e /usr/local/sbin/ssh-keygen",
+            'diversion="$(dpkg-divert --list /usr/bin/ssh-keygen)"',
+            'test -z "${diversion}"',
+            'host_keys="$(find /etc/ssh -maxdepth 1 -name \'ssh_host_*\' -print -quit)"',
+            'test -z "${host_keys}"',
+            "rm -rf /var/lib/apt/lists/*",
+        ),
+        "keyless package installation and residue checks",
+    )
+    for command, label, count in (
+        ('test -z "${diversion}"', "absent ssh-keygen diversion", 2),
+        ('test "$(command -v ssh-keygen)" = /usr/bin/ssh-keygen', "exact ssh-keygen path", 2),
+        ("test -x /usr/bin/ssh-keygen", "restored ssh-keygen executable", 1),
+        (
+            'test "$(dpkg-query --search /usr/bin/ssh-keygen)" = "openssh-client: /usr/bin/ssh-keygen"',
+            "restored ssh-keygen package owner",
+            1,
+        ),
+        ('test -n "${key_types}"', "OpenSSH client-suite behavior", 1),
+        ("test ! -e /usr/bin/ssh-keygen.distrib", "absent diverted binary residue", 1),
+        ("test ! -e /usr/local/sbin/ssh-keygen", "absent obsolete stub", 1),
+        ('test -z "${host_keys}"', "absent generated host keys", 1),
+    ):
+        require_standalone_shell_command(text, command, label, count=count)
+    for command, label, count in (
+        ('diversion="$(dpkg-divert --list /usr/bin/ssh-keygen)"', "diversion query", 3),
+        ('key_types="$(ssh -Q key)"', "OpenSSH client key-type query", 1),
+        (
+            'host_keys="$(find /etc/ssh -maxdepth 1 -name \'ssh_host_*\' -print -quit)"',
+            "host-key query",
+            1,
+        ),
+    ):
+        require_standalone_shell_command(text, command, label, count=count)
+    forbid(text, r"\bssh-keygen\s+-Q\s+key\b", "invalid ssh-keygen key-type query")
+    forbid(text, r">\s*/usr/local/sbin/ssh-keygen", "PATH-shadow ssh-keygen stub")
     forbid(
         text,
         r"\brm\s+(?:-[A-Za-z]*f[A-Za-z]*\s+)?/etc/ssh/ssh_host_",
@@ -351,7 +468,9 @@ def validate_readme(text: str) -> None:
         "SFTP",
         "root only to start `sshd`",
         "single-architecture `linux/amd64`",
-        "`k8s-amd64`",
+        "`amd64` runner",
+        "exact `/usr/bin/ssh-keygen`",
+        "`dpkg-divert`",
         "commit-SHA tag",
         "digest",
         "Agent Sandbox",
@@ -405,6 +524,16 @@ def validate_ci(ci: str, validation_entrypoint: str, executor_node_selector: str
     rules = top_level_block(ci, ".rules_hermes_workspace")
     require(rules, 'if: $CI_COMMIT_BRANCH == "main"', "main-only image publication")
     require(rules, "apps/hermes-workspace/image/**/*", "image publication change rule")
+    forbid(rules, r"merge_request_event", "merge-request image publication")
+    verify_rules = top_level_block(ci, ".rules_verify_hermes_workspace")
+    require(
+        verify_rules,
+        'if: $CI_PIPELINE_SOURCE == "merge_request_event"',
+        "MR-only real image verification",
+    )
+    require(verify_rules, "apps/hermes-workspace/image/**/*", "image verification change rule")
+    require(verify_rules, ".gitlab-ci.yml", "CI verification change rule")
+    forbid(verify_rules, r"CI_COMMIT_BRANCH", "branch image verification")
     validate_executor_node_selector(executor_node_selector)
 
     job = top_level_block(ci, "package:hermes-workspace")
@@ -423,24 +552,26 @@ def validate_ci(ci: str, validation_entrypoint: str, executor_node_selector: str
         for key, block in top_level_blocks(ci).items()
         if re.search(r"^  tags:\s*$", block, re.MULTILINE)
     ]
-    if tagged_blocks != ["package:hermes-workspace"]:
+    if tagged_blocks != ["package:hermes-workspace", "verify:hermes-workspace-image"]:
         fail(
-            "only the native Hermes workspace package job may be architecture-routed, "
+            "only the native Hermes workspace package and image-verification jobs may be "
+            "architecture-routed, "
             f"got {tagged_blocks!r}"
         )
 
     for needle in (
         "stage: package",
-        "image: quay.io/buildah/stable:latest",
+        f"image: {BUILDAH_IMAGE}",
         "before_script: *buildah_before",
+        "--format docker",
         "--arch amd64",
-        "--build-arg TARGETARCH=amd64",
-        "--build-arg OCI_REVISION=${CI_COMMIT_SHA}",
-        "-t ${HERMES_WORKSPACE_IMAGE}:${CI_COMMIT_SHA}",
+        '--build-arg "TARGETARCH=amd64"',
+        '--build-arg "OCI_REVISION=${CI_COMMIT_SHA}"',
+        '-t "${HERMES_WORKSPACE_IMAGE}:${CI_COMMIT_SHA}"',
         "apps/hermes-workspace/image/",
         "buildah push --format v2s2",
         "--digestfile apps/hermes-workspace/image/hermes-workspace-image.digest",
-        "docker://${HERMES_WORKSPACE_IMAGE}:${CI_COMMIT_SHA}",
+        '"docker://${HERMES_WORKSPACE_IMAGE}:${CI_COMMIT_SHA}"',
         'digest="$(cat apps/hermes-workspace/image/hermes-workspace-image.digest)"',
         'test "$(printf \'%s\' "${digest}" | wc -c)" -eq 71',
         "printf '%s\\n' \"${digest}\" | grep -Eq '^sha256:[0-9a-f]{64}$'",
@@ -461,6 +592,86 @@ def validate_ci(ci: str, validation_entrypoint: str, executor_node_selector: str
         line for line in job.splitlines() if "HERMES_WORKSPACE_IMAGE" in line
     )
     forbid(workspace_references, r"(?:^|[/:])latest(?:\s|$)", "mutable workspace publication")
+
+    verify_job = top_level_block(ci, "verify:hermes-workspace-image")
+    verify_tags_match = re.search(
+        r"^  tags:\n(?P<tags>(?:    - [^\n]+\n)+)", verify_job, re.MULTILINE
+    )
+    if verify_tags_match is None:
+        fail("workspace image verification job must select the native amd64 runner")
+    verify_tags = re.findall(
+        r"^    - ([^\s]+)\s*$", verify_tags_match.group("tags"), re.MULTILINE
+    )
+    if verify_tags != [HERMES_WORKSPACE_JOB_TAG]:
+        fail(
+            "workspace image verification tags must be exactly "
+            f"{[HERMES_WORKSPACE_JOB_TAG]!r}, got {verify_tags!r}"
+        )
+    verify_assertions = (
+        'host_keys="$(find "${rootfs}/etc/ssh" -maxdepth 1 -name \'ssh_host_*\' -print -quit)"',
+        'test -z "${host_keys}"',
+        'test -x "${rootfs}/usr/bin/ssh-keygen"',
+        'test ! -e "${rootfs}/usr/bin/ssh-keygen.distrib"',
+        'test ! -e "${rootfs}/usr/local/sbin/ssh-keygen"',
+        'diversion="$(buildah run "${container}" -- dpkg-divert --list /usr/bin/ssh-keygen)"',
+        'test -z "${diversion}"',
+        'test "$(buildah run "${container}" -- dpkg-query --search /usr/bin/ssh-keygen)" = "openssh-client: /usr/bin/ssh-keygen"',
+        'key_types="$(buildah run "${container}" -- /usr/bin/ssh -Q key)"',
+        'test -n "${key_types}"',
+        'test -x "${rootfs}/usr/sbin/sshd"',
+        'test -f "${rootfs}/etc/ssh/sshd_config"',
+        'test -x "${rootfs}/usr/local/bin/uv"',
+        'test -x "${rootfs}/usr/local/bin/uvx"',
+        'test -x "${rootfs}/usr/local/bin/glab"',
+        'test -x "${rootfs}/usr/local/bin/kubectl"',
+        'test -x "${rootfs}/usr/local/sbin/hermes-workspace-entrypoint"',
+        'test -x "${rootfs}/usr/local/bin/hermes-workspace-healthcheck"',
+        'test "$(buildah inspect --type image --format \'{{.Docker.OS}}\' "${verify_image}")" = linux',
+        'test "$(buildah inspect --type image --format \'{{.Docker.Architecture}}\' "${verify_image}")" = amd64',
+        'test "$(buildah inspect --type image --format \'{{.Docker.Config.User}}\' "${verify_image}")" = 0:0',
+        'test "$(buildah inspect --type image --format \'{{.Docker.Config.WorkingDir}}\' "${verify_image}")" = /workspace',
+        'test "$(buildah inspect --type image --format \'{{len .Docker.Config.Entrypoint}}\' "${verify_image}")" -eq 1',
+        'test "$(buildah inspect --type image --format \'{{index .Docker.Config.Entrypoint 0}}\' "${verify_image}")" = /usr/local/sbin/hermes-workspace-entrypoint',
+        'test "$(buildah inspect --type image --format \'{{len .Docker.Config.Healthcheck.Test}}\' "${verify_image}")" -eq 2',
+        'test "$(buildah inspect --type image --format \'{{index .Docker.Config.Healthcheck.Test 0}}\' "${verify_image}")" = CMD',
+        'test "$(buildah inspect --type image --format \'{{index .Docker.Config.Healthcheck.Test 1}}\' "${verify_image}")" = /usr/local/bin/hermes-workspace-healthcheck',
+    )
+    for needle in (
+        "stage: validate",
+        "needs: []",
+        f"image: {BUILDAH_IMAGE}",
+        "set -eu",
+        'verify_image="localhost/hermes-workspace-verify:${CI_COMMIT_SHA}"',
+        "trap cleanup EXIT",
+        "trap 'exit 1' HUP INT TERM",
+        'buildah umount "${container}"',
+        'buildah rm "${container}"',
+        'buildah rmi "${verify_image}"',
+        "buildah build",
+        "--format docker",
+        "--arch amd64",
+        '--build-arg "TARGETARCH=amd64"',
+        '--build-arg "OCI_REVISION=${CI_COMMIT_SHA}"',
+        'container="$(buildah from "${verify_image}")"',
+        'rootfs="$(buildah mount "${container}")"',
+        *verify_assertions,
+        "rules: *rules_verify_hermes_workspace",
+    ):
+        require(verify_job, needle, "MR real image verification job")
+    for command in verify_assertions:
+        require_exact_shell_line(verify_job, command, "MR image assertion")
+    forbid(verify_job, r"\bssh-keygen\s+-Q\s+key\b", "invalid ssh-keygen key-type query")
+    if verify_job.count("buildah build") != 1:
+        fail("workspace image verification job must build exactly one native image")
+    for pattern, label in (
+        (r"\bbuildah\s+(?:login|push|manifest)\b", "publishing or registry login"),
+        (r"\b(?:arm64|aarch64)\b", "foreign workspace image build"),
+        (r"CI_COMMIT_SHORT_SHA", "short image tag"),
+        (r"HERMES_WORKSPACE_IMAGE(?:_CACHE)?", "registry-backed verification image"),
+    ):
+        forbid(verify_job, pattern, label)
+    if ci.count(BUILDAH_IMAGE) != 2:
+        fail("only both Hermes workspace jobs must use the pinned Buildah producer")
 
     validator_path = "scripts/test_validate_hermes_workspace_image.py"
     if ci.count(validator_path) != 2:
