@@ -47,6 +47,9 @@ spec:
           chmod 0700 /workspace
           chmod 0755 /run
           chmod 1777 /tmp
+          mkdir -p /run/secrets/hermes-workspace
+          chown 0:0 /run/secrets /run/secrets/hermes-workspace
+          chmod 0755 /run/secrets /run/secrets/hermes-workspace
           chown 10000:10000 /workspace
         resources:
           requests:
@@ -140,7 +143,12 @@ spec:
         - name: tmp
           mountPath: /tmp
         - name: ssh-server
-          mountPath: /run/secrets/hermes-workspace
+          mountPath: /run/secrets/hermes-workspace/ssh_host_ed25519_key
+          subPath: ssh_host_ed25519_key
+          readOnly: true
+        - name: ssh-server
+          mountPath: /run/secrets/hermes-workspace/authorized_keys
+          subPath: authorized_keys
           readOnly: true
       volumes:
       - name: workspace

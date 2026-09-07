@@ -109,6 +109,9 @@ EXPECTED_DEPLOYMENT = {
                             "chmod 0700 /workspace\n"
                             "chmod 0755 /run\n"
                             "chmod 1777 /tmp\n"
+                            "mkdir -p /run/secrets/hermes-workspace\n"
+                            "chown 0:0 /run/secrets /run/secrets/hermes-workspace\n"
+                            "chmod 0755 /run/secrets /run/secrets/hermes-workspace\n"
                             "chown 10000:10000 /workspace",
                         ],
                         "resources": {
@@ -149,7 +152,16 @@ EXPECTED_DEPLOYMENT = {
                             {"name": "tmp", "mountPath": "/tmp"},
                             {
                                 "name": "ssh-server",
-                                "mountPath": "/run/secrets/hermes-workspace",
+                                "mountPath": (
+                                    "/run/secrets/hermes-workspace/ssh_host_ed25519_key"
+                                ),
+                                "subPath": "ssh_host_ed25519_key",
+                                "readOnly": True,
+                            },
+                            {
+                                "name": "ssh-server",
+                                "mountPath": "/run/secrets/hermes-workspace/authorized_keys",
+                                "subPath": "authorized_keys",
                                 "readOnly": True,
                             },
                         ],
