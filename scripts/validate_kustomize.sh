@@ -119,6 +119,7 @@ uv --no-config run --locked --script "${repo_root}/scripts/test_validate_version
 uv run --locked --script "${repo_root}/scripts/validate_ibgateway_manifest.py"
 python3 "${repo_root}/scripts/test_validate_ibgateway_manifest.py"
 python3 "${repo_root}/scripts/test_validate_hermes_agent_manifest.py"
+uv --no-config run --script "${repo_root}/scripts/test_validate_hermes_workspace_foundation.py"
 python3 "${repo_root}/scripts/test_validate_hermes_workspace_image.py"
 uv run --locked --script "${repo_root}/scripts/test_matrix_synapse_config.py"
 uv run --locked --script "${repo_root}/scripts/validate_temporal_manifest.py"

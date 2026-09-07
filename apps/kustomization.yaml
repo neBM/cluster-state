@@ -6,6 +6,7 @@ resources:
 - feedback
 - glitchtip
 - hermes-agent
+- hermes-workspace
 - jayne-martin-counselling
 - keycloak
 - lldap
