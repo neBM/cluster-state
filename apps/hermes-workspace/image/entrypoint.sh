@@ -72,7 +72,7 @@ validate_authorized_keys() {
       || fail "authorized_keys contains an invalid public key"
     ((key_count += 1))
   done < "$authorized_keys"
-  (( key_count == 0 )) && fail "authorized_keys contains no public keys"
+  (( key_count > 0 )) || fail "authorized_keys contains no public keys"
 }
 
 (($# == 0)) || fail "entrypoint arguments are not supported"
