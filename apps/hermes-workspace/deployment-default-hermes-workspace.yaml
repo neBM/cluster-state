@@ -32,8 +32,6 @@ spec:
           value: "1"
       restartPolicy: Always
       terminationGracePeriodSeconds: 30
-      nodeSelector:
-        kubernetes.io/arch: arm64
       initContainers:
       - name: prepare-workspace
         image: registry.brmartin.co.uk:443/ben/cluster-state/hermes-workspace@sha256:1e0a06ff8f3b75a0a0bfc2b3fd5858750a9e30d03e6d44afb7d360e445393bd1

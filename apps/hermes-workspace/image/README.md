@@ -16,9 +16,9 @@ The bundled tools are the immediate repository workflow set: Bash/POSIX utilitie
 
 ## GitOps runtime candidate
 
-The init and main containers are pinned to the independently registry-qualified multi-architecture index `registry.brmartin.co.uk:443/ben/cluster-state/hermes-workspace@sha256:1e0a06ff8f3b75a0a0bfc2b3fd5858750a9e30d03e6d44afb7d360e445393bd1`. The Pod selects only `kubernetes.io/arch: arm64`, leaving both Heracles and Nyx eligible while excluding Hestia, and persists only `/workspace` on the new dynamically provisioned `hermes-workspace-windsor` RWX claim using `windsor-nfs-rwx`. Image publication alone is non-authorizing: the candidate is not deployed or activated merely because its index was published.
+The init and main containers are pinned to the independently registry-qualified multi-architecture index `registry.brmartin.co.uk:443/ben/cluster-state/hermes-workspace@sha256:1e0a06ff8f3b75a0a0bfc2b3fd5858750a9e30d03e6d44afb7d360e445393bd1`. The Pod sets no application placement constraint, so the default Kubernetes scheduler can select any qualified `linux/amd64` or `linux/arm64` node, and persists only `/workspace` on the new dynamically provisioned `hermes-workspace-windsor` RWX claim using `windsor-nfs-rwx`. Image publication alone is non-authorizing: the candidate is not deployed or activated merely because its index was published.
 
-Runtime qualification remains pending. Do not activate this workspace as an agent backend until Flux applies the exact revision, dynamic NFS provisioning and the fail-closed init ownership gate succeed, the live container `imageID` proves the qualified arm64 child, SSH/SFTP and persistence checks pass, and the Cilium policy is verified.
+Runtime qualification remains pending. Do not activate this workspace as an agent backend until Flux applies the exact revision, dynamic NFS provisioning and the fail-closed init ownership gate succeed, the live container `imageID` proves the qualified child selected for that node, SSH/SFTP and persistence checks pass, and the Cilium policy is verified.
 
 ## Supply-chain and publication contract
 

@@ -29,24 +29,12 @@ PVC = "hermes-workspace-windsor"
 NAMESPACE = "default"
 APP_LABEL = "app.kubernetes.io/name"
 LABELS = {APP_LABEL: WORKSPACE}
-IMAGE = (
-    "registry.brmartin.co.uk:443/ben/cluster-state/hermes-workspace@sha256:"
-    "1e0a06ff8f3b75a0a0bfc2b3fd5858750a9e30d03e6d44afb7d360e445393bd1"
-)
+IMAGE = "registry.brmartin.co.uk:443/ben/cluster-state/hermes-workspace@sha256:1e0a06ff8f3b75a0a0bfc2b3fd5858750a9e30d03e6d44afb7d360e445393bd1"
 OLD_IMAGE = IMAGE.split("@", 1)[0] + "@sha256:b5e9837584ac4f7719d02591ee9338ec8ce03e70ee543b34a2c7cbc02121942c"
 SECRET = "hermes-workspace-ssh-server"
 HEALTHCHECK = ["/usr/local/bin/hermes-workspace-healthcheck"]
-RESOURCE_FILES = [
-    "ciliumnetworkpolicy-default-hermes-workspace.yaml",
-    "deployment-default-hermes-workspace.yaml",
-    "persistentvolumeclaim-default-hermes-workspace-windsor.yaml",
-    "service-default-hermes-workspace.yaml",
-]
-EXPECTED_KUSTOMIZATION = {
-    "apiVersion": "kustomize.config.k8s.io/v1beta1",
-    "kind": "Kustomization",
-    "resources": RESOURCE_FILES,
-}
+RESOURCE_FILES = ["ciliumnetworkpolicy-default-hermes-workspace.yaml", "deployment-default-hermes-workspace.yaml", "persistentvolumeclaim-default-hermes-workspace-windsor.yaml", "service-default-hermes-workspace.yaml"]
+EXPECTED_KUSTOMIZATION = {"apiVersion": "kustomize.config.k8s.io/v1beta1", "kind": "Kustomization", "resources": RESOURCE_FILES}
 CONTAINER_SECURITY = {
     "runAsUser": 0,
     "runAsGroup": 0,
@@ -70,8 +58,7 @@ INIT_SECURITY = {
 }
 
 def probe(period: int, failures: int) -> dict[str, Any]:
-    return {"exec": {"command": HEALTHCHECK}, "periodSeconds": period,
-            "timeoutSeconds": 1, "failureThreshold": failures}
+    return {"exec": {"command": HEALTHCHECK}, "periodSeconds": period, "timeoutSeconds": 1, "failureThreshold": failures}
 
 
 EXPECTED_DEPLOYMENT = {
@@ -97,7 +84,6 @@ EXPECTED_DEPLOYMENT = {
                 "dnsConfig": {"options": [{"name": "ndots", "value": "1"}]},
                 "restartPolicy": "Always",
                 "terminationGracePeriodSeconds": 30,
-                "nodeSelector": {"kubernetes.io/arch": "arm64"},
                 "initContainers": [
                     {
                         "name": "prepare-workspace",
@@ -258,6 +244,13 @@ def validate_object_set(objects: list[dict[str, Any]], label: str) -> None:
     if indexed.keys() != expected.keys():
         fail(f"{label}: expected identities {sorted(expected)!r}, got {sorted(indexed)!r}")
     for identifier, wanted in expected.items():
+        pod_spec = (((indexed[identifier].get("spec") or {}).get("template") or {}).get("spec") or {})
+        placement = set(pod_spec) & {
+            "nodeSelector", "nodeName", "affinity", "schedulerName",
+            "topologySpreadConstraints", "tolerations",
+        }
+        if placement:
+            fail(f"{label}: Deployment placement overrides are forbidden: {sorted(placement)!r}")
         if not strict_equal(indexed[identifier], wanted):
             fail(f"{label}: {identifier!r} semantics differ from the exact contract")
 
@@ -327,9 +320,15 @@ def run_mutations() -> None:
     cases: list[tuple[str, Callable[[list[dict[str, Any]]], None]]] = [
         ("mutable image", lambda docs: main(docs).update(image=IMAGE.split("@", 1)[0] + ":latest")),
         ("old image digest", lambda docs: main(docs).update(image=OLD_IMAGE)),
-        ("old amd64 selector", lambda docs: deploy(docs).update(nodeSelector={"kubernetes.io/arch": "amd64"})),
-        ("Hestia hostname selector", lambda docs: deploy(docs)["nodeSelector"].update({"kubernetes.io/hostname": "hestia"})),
-        ("missing arm selector", lambda docs: deploy(docs).update(nodeSelector={})),
+        ("arm64 nodeSelector", lambda docs: deploy(docs).update(nodeSelector={"kubernetes.io/arch": "arm64"})),
+        ("amd64 nodeSelector", lambda docs: deploy(docs).update(nodeSelector={"kubernetes.io/arch": "amd64"})),
+        ("hostname nodeSelector", lambda docs: deploy(docs).update(nodeSelector={"kubernetes.io/hostname": "worker"})),
+        ("arbitrary nodeSelector", lambda docs: deploy(docs).update(nodeSelector={"example.com/pool": "workspace"})),
+        ("nodeName", lambda docs: deploy(docs).update(nodeName="worker")),
+        ("affinity", lambda docs: deploy(docs).update(affinity={"nodeAffinity": {}})),
+        ("schedulerName", lambda docs: deploy(docs).update(schedulerName="custom-scheduler")),
+        ("topology spread", lambda docs: deploy(docs).update(topologySpreadConstraints=[])),
+        ("tolerations", lambda docs: deploy(docs).update(tolerations=[])),
         ("wrong Secret source", lambda docs: deploy(docs)["volumes"][3]["secret"].update(secretName="wrong")),
         ("Secret manifest/data", lambda docs: docs.append({"apiVersion": "v1", "kind": "Secret", "metadata": {"name": SECRET, "namespace": NAMESPACE}, "data": {}})),
         ("service-account token", lambda docs: deploy(docs).update(automountServiceAccountToken=True)),
