@@ -21,7 +21,7 @@ variables:
 .buildah_before: &buildah_before
   - mkdir -p ${CI_PROJECT_DIR}/.local/share/containers
   - export XDG_RUNTIME_DIR=${CI_PROJECT_DIR}/.local
-  - buildah login -u "$CI_REGISTRY_USER" -p "$CI_REGISTRY_PASSWORD" "$CI_REGISTRY"
+  - printf '%s' "$CI_REGISTRY_PASSWORD" | buildah login --username "$CI_REGISTRY_USER" --password-stdin "$CI_REGISTRY"
 
 .rules_rpi5: &rules_rpi5
   - if: $CI_COMMIT_BRANCH == "main"
@@ -486,14 +486,192 @@ publish:hermes-workspace:index:
 
       assert_index() {
         index_json="$1"
-        test "$(grep -Ec '"digest":' "${index_json}")" -eq 2
-        test "$(grep -Ec "\"digest\": \"${amd64_digest}\"" "${index_json}")" -eq 1
-        test "$(grep -Ec "\"digest\": \"${arm64_digest}\"" "${index_json}")" -eq 1
-        test "$(grep -Ec '"architecture":' "${index_json}")" -eq 2
-        test "$(grep -Ec '"architecture": "amd64"' "${index_json}")" -eq 1
-        test "$(grep -Ec '"architecture": "arm64"' "${index_json}")" -eq 1
-        test "$(grep -Ec '"os":' "${index_json}")" -eq 2
-        test "$(grep -Ec '"os": "linux"' "${index_json}")" -eq 2
+        awk \
+          -v amd64_digest="${amd64_digest}" \
+          -v arm64_digest="${arm64_digest}" \
+          '
+          function reject() {
+            failed = 1
+          }
+
+          function reset_descriptor() {
+            descriptor_media = ""
+            descriptor_digest = ""
+            descriptor_architecture = ""
+            descriptor_os = ""
+            media_count = 0
+            digest_count = 0
+            platform_count = 0
+            architecture_count = 0
+            os_count = 0
+          }
+
+          function finish_descriptor() {
+            if (media_count != 1 ||
+                digest_count != 1 ||
+                platform_count != 1 ||
+                architecture_count != 1 ||
+                os_count != 1 ||
+                descriptor_media != expected_manifest ||
+                descriptor_os != "linux") {
+              reject()
+              return
+            }
+            if (descriptor_digest == amd64_digest &&
+                descriptor_architecture == "amd64") {
+              seen_amd64++
+              return
+            }
+            if (descriptor_digest == arm64_digest &&
+                descriptor_architecture == "arm64") {
+              seen_arm64++
+              return
+            }
+            reject()
+          }
+
+          BEGIN {
+            expected_list = "application/vnd.docker.distribution.manifest.list.v2+json"
+            expected_manifest = "application/vnd.docker.distribution.manifest.v2+json"
+          }
+
+          {
+            last_line = $0
+          }
+
+          NR == 1 {
+            if ($0 != "{") {
+              reject()
+            }
+            next
+          }
+
+          $0 ~ /^    "schemaVersion": / {
+            schema_count++
+            if ($0 != "    \"schemaVersion\": 2,") {
+              reject()
+            }
+            next
+          }
+
+          $0 ~ /^    "mediaType": / {
+            top_media_count++
+            if ($0 != "    \"mediaType\": \"" expected_list "\",") {
+              reject()
+            }
+            next
+          }
+
+          $0 == "    \"manifests\": [" {
+            if (in_manifests || manifest_array_count != 0) {
+              reject()
+            }
+            manifest_array_count++
+            in_manifests = 1
+            next
+          }
+
+          in_manifests && !in_descriptor && $0 == "        {" {
+            descriptor_count++
+            in_descriptor = 1
+            reset_descriptor()
+            next
+          }
+
+          in_manifests && in_descriptor && !in_platform && $0 ~ /^        },?$/ {
+            finish_descriptor()
+            in_descriptor = 0
+            next
+          }
+
+          in_manifests && in_descriptor && !in_platform &&
+          $0 ~ /^            "mediaType": / {
+            media_count++
+            if ($0 == "            \"mediaType\": \"" expected_manifest "\",") {
+              descriptor_media = expected_manifest
+            } else {
+              reject()
+            }
+            next
+          }
+
+          in_manifests && in_descriptor && !in_platform &&
+          $0 == "            \"digest\": \"" amd64_digest "\"," {
+            digest_count++
+            descriptor_digest = amd64_digest
+            next
+          }
+
+          in_manifests && in_descriptor && !in_platform &&
+          $0 == "            \"digest\": \"" arm64_digest "\"," {
+            digest_count++
+            descriptor_digest = arm64_digest
+            next
+          }
+
+          in_manifests && in_descriptor && !in_platform &&
+          $0 ~ /^            "digest": / {
+            digest_count++
+            reject()
+            next
+          }
+
+          in_manifests && in_descriptor && !in_platform &&
+          $0 == "            \"platform\": {" {
+            platform_count++
+            in_platform = 1
+            next
+          }
+
+          in_manifests && in_descriptor && in_platform &&
+          $0 ~ /^                "architecture": "[^"]+",?$/ {
+            architecture_count++
+            descriptor_architecture = $0
+            sub(/^                "architecture": "/, "", descriptor_architecture)
+            sub(/",?$/, "", descriptor_architecture)
+            next
+          }
+
+          in_manifests && in_descriptor && in_platform &&
+          $0 ~ /^                "os": "[^"]+",?$/ {
+            os_count++
+            descriptor_os = $0
+            sub(/^                "os": "/, "", descriptor_os)
+            sub(/",?$/, "", descriptor_os)
+            next
+          }
+
+          in_manifests && in_descriptor && in_platform && $0 ~ /^            },?$/ {
+            in_platform = 0
+            next
+          }
+
+          in_manifests && !in_descriptor && $0 == "    ]" {
+            manifests_closed_count++
+            in_manifests = 0
+            next
+          }
+
+          in_manifests && !in_descriptor {
+            reject()
+          }
+
+          END {
+            valid = (last_line == "}" &&
+                     !failed &&
+                     !in_manifests &&
+                     !in_descriptor &&
+                     !in_platform &&
+                     schema_count == 1 &&
+                     top_media_count == 1 &&
+                     manifest_array_count == 1 &&
+                     manifests_closed_count == 1 &&
+                     descriptor_count == 2 &&
+                     seen_amd64 == 1 &&
+                     seen_arm64 == 1)
+            exit !valid
+          }
+          ' "${index_json}"
       }
 
       buildah manifest create "${manifest}"
@@ -501,7 +679,7 @@ publish:hermes-workspace:index:
       buildah manifest add "${manifest}" "docker://${arm64_ref}"
       buildah manifest inspect "${manifest}" > "${local_index_json}"
       assert_index "${local_index_json}"
-      buildah manifest push --all --format oci \
+      buildah manifest push --all --format v2s2 \
         --digestfile "${index_digest_file}" \
         "${manifest}" \
         "docker://${HERMES_WORKSPACE_IMAGE}:${CI_COMMIT_SHA}"
