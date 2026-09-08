@@ -1,6 +1,6 @@
 # Hermes SSH workspace image
 
-This directory is the complete build context for a minimal SSH development workspace. It does **not** contain Hermes. The image has no Kubernetes API dependency or host integration, and `/workspace` is its only persistent project-data contract, so the same image can be used by an ordinary Deployment now and a future Kubernetes SIG Agent Sandbox PodTemplate later.
+This directory is the complete build context for a minimal SSH development workspace. It does **not** contain Hermes. The image has no Kubernetes API dependency or host integration, and `/workspace` is its only persistent project-data contract. The image is currently a producer artifact only: no Deployment, PVC, or Service references it in desired state, so it is not deployed by this repository.
 
 ## Runtime contract
 
@@ -8,7 +8,7 @@ This directory is the complete build context for a minimal SSH development works
 - `/workspace` must be a real directory owned by UID/GID `10000:10000`, mode `0700`, and writable by that user. Startup fails otherwise.
 - Authentication is public-key only. Password, keyboard-interactive, root, host-based, GSSAPI, Kerberos, agent/TCP/Unix-socket/X11 forwarding, tunnels, gateway ports, user environment, and user rc files are disabled. The internal SFTP subsystem supports current OpenSSH `scp` clients.
 - Key material is never built or generated. Mount one read-only Secret at `/run/secrets/hermes-workspace`; its `ssh_host_ed25519_key` item must be root-owned mode `0400` or `0600`, and its `authorized_keys` item must be root-owned, non-writable, non-executable, non-empty, and syntactically valid. The exact paths are `/run/secrets/hermes-workspace/ssh_host_ed25519_key` and `/run/secrets/hermes-workspace/authorized_keys`. Startup also verifies that both resolve inside that read-only Secret mount.
-- The image supports a read-only root filesystem. A later workload must mount writable ephemeral volumes at `/run` (root-owned `0755`) and `/tmp` (root-owned `1777`), then mount the read-only Secret below `/run/secrets/hermes-workspace`. `/run/sshd` is the only daemon runtime-state directory. Mount the persistent project volume only at `/workspace`.
+- The image supports a read-only root filesystem. A workload must mount writable ephemeral volumes at `/run` (root-owned `0755`) and `/tmp` (root-owned `1777`), then mount the read-only Secret below `/run/secrets/hermes-workspace`. `/run/sshd` is the only daemon runtime-state directory. Mount the persistent project volume only at `/workspace`.
 - Do not mount a home directory, hostPath, kubeconfig, service-account token, container socket, or other credential. The image contains neither sudo nor a container engine/init system.
 - The OCI health check opens localhost port `2222` and requires an SSH-2.0 banner without presenting credentials.
 
@@ -16,14 +16,18 @@ The bundled tools are the immediate repository workflow set: Bash/POSIX utilitie
 
 ## Supply-chain and publication contract
 
-The maintained Ubuntu 24.04 base is pinned to the OCI index digest `sha256:33ceb71981b602c1a7443a53469e4dba065f7503eab3078a2d7a57a2ab987517`. Docker Hub's primary registry index was checked for its native `linux/amd64` manifest (`sha256:1e0a86e57d247923571b75e0aaf48a1449cf8c543d51fb3e07a4a7d7bfa79316`). Distro package names are fixed, installed with `--no-install-recommends`, and package indexes are removed in the installation layer. The build installs `openssh-client` and the other tools first, uses `dpkg-divert` to replace the exact `/usr/bin/ssh-keygen` path with a temporary no-op only while `openssh-server` is configured, and restores the packaged client binary through trap-safe cleanup. Standalone final assertions require the real client behavior, no diversion or stub residue, and no host-key files.
+The maintained Ubuntu 24.04 base is pinned to the OCI index digest `sha256:33ceb71981b602c1a7443a53469e4dba065f7503eab3078a2d7a57a2ab987517`. That authenticated index contains the exact native `linux/amd64` child `sha256:1e0a86e57d247923571b75e0aaf48a1449cf8c543d51fb3e07a4a7d7bfa79316` and `linux/arm64` child `sha256:95fa486768020359141f1318720f43e7982ef926c792891d984aef9aaf05e7ea`. Distro package names are fixed, installed with `--no-install-recommends`, and package indexes are removed in the installation layer. The build installs `openssh-client` and the other tools first, uses `dpkg-divert` to replace the exact `/usr/bin/ssh-keygen` path with a temporary no-op only while `openssh-server` is configured, and restores the packaged client binary through trap-safe cleanup. Standalone final assertions require real OpenSSH client behavior, no diversion or stub residue, and no host-key files.
 
-Standalone downloads are version- and SHA-256-pinned for `linux/amd64` from their primary release sources:
+Standalone downloads are version- and SHA-256-pinned for both native architectures from their primary release sources:
 
-| Tool | Version | Primary evidence |
-| --- | --- | --- |
-| uv | 0.12.10 | `https://github.com/astral-sh/uv/releases/tag/0.12.10` and each archive's adjacent `.sha256` |
-| glab | 1.116.0 | `https://gitlab.com/gitlab-org/cli/-/releases/v1.116.0` and release `checksums.txt` |
-| kubectl | v1.34.11 | `https://dl.k8s.io/release/v1.34.11/bin/linux/amd64/kubectl{,.sha256}` |
+| Tool | Version | `linux/amd64` SHA-256 | `linux/arm64` SHA-256 |
+| --- | --- | --- | --- |
+| uv | 0.12.10 | `173d95a0c32d18c896c46ba6fafbf3cf9c14ab74b033f81b76c883ef492a976b` | `9ff6b9d4665edcdd3a88dcc73cd1eb641754deb927f14e8c62ebfde6bf4f5f5e` |
+| glab | 1.116.0 | `173cc61ea94c562f2ccd831f320d25b73982192e82810064552282482e3713ea` | `3e59a0c5db5b281c552543cc1018873ecdd551b07737cfdb932c6543aa39d88c` |
+| kubectl | v1.34.11 | `8efbb9435132a190920eb65a47a8c1ecf755ad85ab57a600c9bedbab460bb7a8` | `5b045a4712674c88a56fd98eef4285689738b7fbe8735e1b9ee3509521af5cb4` |
 
-CI routes both workspace-image jobs to the registered `amd64` runner and pins their Buildah producer by digest. Merge requests that change the image or CI build one non-published Docker-format image and inspect its final root filesystem and image configuration. The main-only package job publishes one single-architecture `linux/amd64` image under the full immutable commit-SHA tag; it never publishes this image as `latest` or creates a multi-architecture index. The package job records the registry-produced image-manifest digest as an artifact. A future deployment must use `repository@sha256:...` from that successful CI artifact rather than treating the commit-SHA tag as deployment authority.
+All five image jobs use Buildah from the authenticated multi-architecture index `quay.io/buildah/stable@sha256:56e6ebc9bb71c8303b1968fb51304d3512e14a1b8c730bd0b27ebdf772a34ceb`. Merge-request verification runs once on each of the native `amd64` and `arm64` runners, verifies the locally built image with no registry login or publication, and then removes local Buildah state.
+
+On protected default-branch pipelines, the native package jobs build and verify once before pushing the architecture-separated transport tags `${CI_COMMIT_SHA}-amd64` and `${CI_COMMIT_SHA}-arm64`. Each leaf exports an exact repository-by-digest reference without a trailing newline. After both leaves and manifest validation succeed, an untagged metadata-only publisher adds those digest references to one OCI index, requires exactly one Linux descriptor for each architecture, pushes the index once under the full commit-SHA tag `${CI_COMMIT_SHA}`, and reads the published index back by digest. Nothing in this pipeline publishes `latest` or a short-SHA tag.
+
+The publisher artifact `hermes-workspace-image.ref` contains the repository plus final index digest and is the only deployment-authority output. The architecture transport tags and their leaf artifacts are provenance inputs, not deployment authority. This image pipeline does not create or update a runtime workload.

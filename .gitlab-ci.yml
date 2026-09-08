@@ -2,6 +2,7 @@ stages:
   - compile
   - package
   - validate
+  - publish
 
 variables:
   ACT_IMAGE: ${CI_REGISTRY}/ben/act:latest
@@ -45,18 +46,6 @@ variables:
     changes:
       - apps/feedback/migrations/**/*
       - apps/feedback/kustomization.yaml
-      - .gitlab-ci.yml
-
-.rules_hermes_workspace: &rules_hermes_workspace
-  - if: $CI_COMMIT_BRANCH == "main"
-    changes:
-      - apps/hermes-workspace/image/**/*
-      - .gitlab-ci.yml
-
-.rules_verify_hermes_workspace: &rules_verify_hermes_workspace
-  - if: $CI_PIPELINE_SOURCE == "merge_request_event"
-    changes:
-      - apps/hermes-workspace/image/**/*
       - .gitlab-ci.yml
 
 compile:rpi5-dra-driver:
@@ -264,12 +253,12 @@ package:feedback-migrations:
   rules:
     - *rules_feedback_migrations
 
-package:hermes-workspace:
+package:hermes-workspace:amd64:
   stage: package
   needs: []
   tags:
     - amd64
-  image: quay.io/buildah/stable@sha256:ddc2141c484387e6c71bc3a42c24875d3a340582b96a3f2693de7138092c4107
+  image: quay.io/buildah/stable@sha256:56e6ebc9bb71c8303b1968fb51304d3512e14a1b8c730bd0b27ebdf772a34ceb
   variables:
     GIT_STRATEGY: fetch
     GIT_DEPTH: "1"
@@ -277,6 +266,16 @@ package:hermes-workspace:
   script:
     - |
       set -eu
+      test "$(uname -m)" = x86_64
+      package_image="localhost/hermes-workspace-package-amd64:${CI_COMMIT_SHA}"
+      digest_file="${CI_PROJECT_DIR}/.amd64.digest"
+      cleanup() {
+        set +e
+        rm -f "${digest_file}"
+        buildah rmi "${package_image}" >/dev/null
+      }
+      trap cleanup EXIT
+      trap 'exit 1' HUP INT TERM
       buildah build \
         --format docker \
         --arch amd64 \
@@ -285,29 +284,91 @@ package:hermes-workspace:
         --layers \
         --cache-from "${HERMES_WORKSPACE_IMAGE_CACHE}-amd64" \
         --cache-to "${HERMES_WORKSPACE_IMAGE_CACHE}-amd64" \
-        -t "${HERMES_WORKSPACE_IMAGE}:${CI_COMMIT_SHA}" \
+        -t "${package_image}" \
         apps/hermes-workspace/image/
+      ./scripts/verify_hermes_workspace_image.sh "${package_image}" amd64 "${CI_COMMIT_SHA}"
       buildah push --format v2s2 \
-        --digestfile apps/hermes-workspace/image/hermes-workspace-image.digest \
-        "${HERMES_WORKSPACE_IMAGE}:${CI_COMMIT_SHA}" \
-        "docker://${HERMES_WORKSPACE_IMAGE}:${CI_COMMIT_SHA}"
-      digest="$(cat apps/hermes-workspace/image/hermes-workspace-image.digest)"
-      test "$(printf '%s' "${digest}" | wc -c)" -eq 71
+        --digestfile "${digest_file}" \
+        "${package_image}" \
+        "docker://${HERMES_WORKSPACE_IMAGE}:${CI_COMMIT_SHA}-amd64"
+      digest="$(cat "${digest_file}")"
       printf '%s\n' "${digest}" | grep -Eq '^sha256:[0-9a-f]{64}$'
+      printf '%s' "${HERMES_WORKSPACE_IMAGE}@${digest}" > amd64.ref
+      test "$(wc -l < amd64.ref)" -eq 0
+      test "$(cat amd64.ref)" = "${HERMES_WORKSPACE_IMAGE}@${digest}"
   artifacts:
-    name: hermes-workspace-image-${CI_COMMIT_SHA}
+    name: hermes-workspace-amd64-${CI_COMMIT_SHA}
     paths:
-      - apps/hermes-workspace/image/hermes-workspace-image.digest
+      - amd64.ref
     expire_in: 1 week
   rules:
-    - *rules_hermes_workspace
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $CI_COMMIT_REF_PROTECTED == "true"'
+      changes:
+        - apps/hermes-workspace/image/**/*
+        - scripts/verify_hermes_workspace_image.sh
+        - .gitlab-ci.yml
 
-verify:hermes-workspace-image:
+package:hermes-workspace:arm64:
+  stage: package
+  needs: []
+  tags:
+    - arm64
+  image: quay.io/buildah/stable@sha256:56e6ebc9bb71c8303b1968fb51304d3512e14a1b8c730bd0b27ebdf772a34ceb
+  variables:
+    GIT_STRATEGY: fetch
+    GIT_DEPTH: "1"
+  before_script: *buildah_before
+  script:
+    - |
+      set -eu
+      test "$(uname -m)" = aarch64
+      package_image="localhost/hermes-workspace-package-arm64:${CI_COMMIT_SHA}"
+      digest_file="${CI_PROJECT_DIR}/.arm64.digest"
+      cleanup() {
+        set +e
+        rm -f "${digest_file}"
+        buildah rmi "${package_image}" >/dev/null
+      }
+      trap cleanup EXIT
+      trap 'exit 1' HUP INT TERM
+      buildah build \
+        --format docker \
+        --arch arm64 \
+        --build-arg "TARGETARCH=arm64" \
+        --build-arg "OCI_REVISION=${CI_COMMIT_SHA}" \
+        --layers \
+        --cache-from "${HERMES_WORKSPACE_IMAGE_CACHE}-arm64" \
+        --cache-to "${HERMES_WORKSPACE_IMAGE_CACHE}-arm64" \
+        -t "${package_image}" \
+        apps/hermes-workspace/image/
+      ./scripts/verify_hermes_workspace_image.sh "${package_image}" arm64 "${CI_COMMIT_SHA}"
+      buildah push --format v2s2 \
+        --digestfile "${digest_file}" \
+        "${package_image}" \
+        "docker://${HERMES_WORKSPACE_IMAGE}:${CI_COMMIT_SHA}-arm64"
+      digest="$(cat "${digest_file}")"
+      printf '%s\n' "${digest}" | grep -Eq '^sha256:[0-9a-f]{64}$'
+      printf '%s' "${HERMES_WORKSPACE_IMAGE}@${digest}" > arm64.ref
+      test "$(wc -l < arm64.ref)" -eq 0
+      test "$(cat arm64.ref)" = "${HERMES_WORKSPACE_IMAGE}@${digest}"
+  artifacts:
+    name: hermes-workspace-arm64-${CI_COMMIT_SHA}
+    paths:
+      - arm64.ref
+    expire_in: 1 week
+  rules:
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $CI_COMMIT_REF_PROTECTED == "true"'
+      changes:
+        - apps/hermes-workspace/image/**/*
+        - scripts/verify_hermes_workspace_image.sh
+        - .gitlab-ci.yml
+
+verify:hermes-workspace:amd64:
   stage: validate
   needs: []
   tags:
     - amd64
-  image: quay.io/buildah/stable@sha256:ddc2141c484387e6c71bc3a42c24875d3a340582b96a3f2693de7138092c4107
+  image: quay.io/buildah/stable@sha256:56e6ebc9bb71c8303b1968fb51304d3512e14a1b8c730bd0b27ebdf772a34ceb
   variables:
     GIT_STRATEGY: fetch
     GIT_DEPTH: "1"
@@ -317,22 +378,16 @@ verify:hermes-workspace-image:
   script:
     - |
       set -eu
-      verify_image="localhost/hermes-workspace-verify:${CI_COMMIT_SHA}"
-      container=""
-      rootfs=""
+      test "$(uname -m)" = x86_64
+      verify_image="localhost/hermes-workspace-verify-amd64:${CI_COMMIT_SHA}"
       cleanup() {
         set +e
-        if [ -n "${rootfs}" ]; then
-          buildah umount "${container}"
-        fi
-        if [ -n "${container}" ]; then
-          buildah rm "${container}"
-        fi
-        buildah rmi "${verify_image}"
+        buildah rm --all >/dev/null
+        buildah rmi "${verify_image}" >/dev/null
+        buildah rmi --all >/dev/null
       }
       trap cleanup EXIT
       trap 'exit 1' HUP INT TERM
-
       buildah build \
         --format docker \
         --arch amd64 \
@@ -340,38 +395,134 @@ verify:hermes-workspace-image:
         --build-arg "OCI_REVISION=${CI_COMMIT_SHA}" \
         -t "${verify_image}" \
         apps/hermes-workspace/image/
-      container="$(buildah from "${verify_image}")"
-      rootfs="$(buildah mount "${container}")"
+      ./scripts/verify_hermes_workspace_image.sh "${verify_image}" amd64 "${CI_COMMIT_SHA}"
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+      changes:
+        - apps/hermes-workspace/image/**/*
+        - scripts/verify_hermes_workspace_image.sh
+        - .gitlab-ci.yml
 
-      host_keys="$(find "${rootfs}/etc/ssh" -maxdepth 1 -name 'ssh_host_*' -print -quit)"
-      test -z "${host_keys}"
-      test -x "${rootfs}/usr/bin/ssh-keygen"
-      test ! -e "${rootfs}/usr/bin/ssh-keygen.distrib"
-      test ! -e "${rootfs}/usr/local/sbin/ssh-keygen"
-      diversion="$(buildah run "${container}" -- dpkg-divert --list /usr/bin/ssh-keygen)"
-      test -z "${diversion}"
-      test "$(buildah run "${container}" -- dpkg-query --search /usr/bin/ssh-keygen)" = "openssh-client: /usr/bin/ssh-keygen"
-      key_types="$(buildah run "${container}" -- /usr/bin/ssh -Q key)"
-      test -n "${key_types}"
-      test -x "${rootfs}/usr/sbin/sshd"
-      test -f "${rootfs}/etc/ssh/sshd_config"
-      test -x "${rootfs}/usr/local/bin/uv"
-      test -x "${rootfs}/usr/local/bin/uvx"
-      test -x "${rootfs}/usr/local/bin/glab"
-      test -x "${rootfs}/usr/local/bin/kubectl"
-      test -x "${rootfs}/usr/local/sbin/hermes-workspace-entrypoint"
-      test -x "${rootfs}/usr/local/bin/hermes-workspace-healthcheck"
+verify:hermes-workspace:arm64:
+  stage: validate
+  needs: []
+  tags:
+    - arm64
+  image: quay.io/buildah/stable@sha256:56e6ebc9bb71c8303b1968fb51304d3512e14a1b8c730bd0b27ebdf772a34ceb
+  variables:
+    GIT_STRATEGY: fetch
+    GIT_DEPTH: "1"
+  before_script:
+    - mkdir -p ${CI_PROJECT_DIR}/.local/share/containers
+    - export XDG_RUNTIME_DIR=${CI_PROJECT_DIR}/.local
+  script:
+    - |
+      set -eu
+      test "$(uname -m)" = aarch64
+      verify_image="localhost/hermes-workspace-verify-arm64:${CI_COMMIT_SHA}"
+      cleanup() {
+        set +e
+        buildah rm --all >/dev/null
+        buildah rmi "${verify_image}" >/dev/null
+        buildah rmi --all >/dev/null
+      }
+      trap cleanup EXIT
+      trap 'exit 1' HUP INT TERM
+      buildah build \
+        --format docker \
+        --arch arm64 \
+        --build-arg "TARGETARCH=arm64" \
+        --build-arg "OCI_REVISION=${CI_COMMIT_SHA}" \
+        -t "${verify_image}" \
+        apps/hermes-workspace/image/
+      ./scripts/verify_hermes_workspace_image.sh "${verify_image}" arm64 "${CI_COMMIT_SHA}"
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+      changes:
+        - apps/hermes-workspace/image/**/*
+        - scripts/verify_hermes_workspace_image.sh
+        - .gitlab-ci.yml
 
-      test "$(buildah inspect --type image --format '{{.Docker.OS}}' "${verify_image}")" = linux
-      test "$(buildah inspect --type image --format '{{.Docker.Architecture}}' "${verify_image}")" = amd64
-      test "$(buildah inspect --type image --format '{{.Docker.Config.User}}' "${verify_image}")" = 0:0
-      test "$(buildah inspect --type image --format '{{.Docker.Config.WorkingDir}}' "${verify_image}")" = /workspace
-      test "$(buildah inspect --type image --format '{{len .Docker.Config.Entrypoint}}' "${verify_image}")" -eq 1
-      test "$(buildah inspect --type image --format '{{index .Docker.Config.Entrypoint 0}}' "${verify_image}")" = /usr/local/sbin/hermes-workspace-entrypoint
-      test "$(buildah inspect --type image --format '{{len .Docker.Config.Healthcheck.Test}}' "${verify_image}")" -eq 2
-      test "$(buildah inspect --type image --format '{{index .Docker.Config.Healthcheck.Test 0}}' "${verify_image}")" = CMD
-      test "$(buildah inspect --type image --format '{{index .Docker.Config.Healthcheck.Test 1}}' "${verify_image}")" = /usr/local/bin/hermes-workspace-healthcheck
-  rules: *rules_verify_hermes_workspace
+publish:hermes-workspace:index:
+  stage: publish
+  needs:
+    - job: package:hermes-workspace:amd64
+      artifacts: true
+    - job: package:hermes-workspace:arm64
+      artifacts: true
+    - job: validate:manifests
+      artifacts: false
+  image: quay.io/buildah/stable@sha256:56e6ebc9bb71c8303b1968fb51304d3512e14a1b8c730bd0b27ebdf772a34ceb
+  variables:
+    GIT_STRATEGY: fetch
+    GIT_DEPTH: "1"
+  before_script: *buildah_before
+  script:
+    - |
+      set -eu
+      manifest="localhost/hermes-workspace-index-${CI_PIPELINE_ID}-${CI_JOB_ID}:${CI_COMMIT_SHA}"
+      index_digest_file="${CI_PROJECT_DIR}/.hermes-workspace-index.digest"
+      local_index_json="${CI_PROJECT_DIR}/.hermes-workspace-index.local.json"
+      published_index_json="${CI_PROJECT_DIR}/.hermes-workspace-index.published.json"
+      cleanup() {
+        set +e
+        buildah manifest rm "${manifest}" >/dev/null
+        rm -f "${index_digest_file}" "${local_index_json}" "${published_index_json}"
+      }
+      trap cleanup EXIT
+      trap 'exit 1' HUP INT TERM
+
+      amd64_ref="$(cat amd64.ref)"
+      arm64_ref="$(cat arm64.ref)"
+      test "$(wc -l < amd64.ref)" -eq 0
+      test "$(wc -l < arm64.ref)" -eq 0
+      amd64_digest="${amd64_ref#*@}"
+      arm64_digest="${arm64_ref#*@}"
+      test "${amd64_ref}" = "${HERMES_WORKSPACE_IMAGE}@${amd64_digest}"
+      test "${arm64_ref}" = "${HERMES_WORKSPACE_IMAGE}@${arm64_digest}"
+      test "${amd64_ref}" != "${arm64_ref}"
+      printf '%s\n' "${amd64_digest}" | grep -Eq '^sha256:[0-9a-f]{64}$'
+      printf '%s\n' "${arm64_digest}" | grep -Eq '^sha256:[0-9a-f]{64}$'
+
+      assert_index() {
+        index_json="$1"
+        test "$(grep -Ec '"digest":' "${index_json}")" -eq 2
+        test "$(grep -Ec "\"digest\": \"${amd64_digest}\"" "${index_json}")" -eq 1
+        test "$(grep -Ec "\"digest\": \"${arm64_digest}\"" "${index_json}")" -eq 1
+        test "$(grep -Ec '"architecture":' "${index_json}")" -eq 2
+        test "$(grep -Ec '"architecture": "amd64"' "${index_json}")" -eq 1
+        test "$(grep -Ec '"architecture": "arm64"' "${index_json}")" -eq 1
+        test "$(grep -Ec '"os":' "${index_json}")" -eq 2
+        test "$(grep -Ec '"os": "linux"' "${index_json}")" -eq 2
+      }
+
+      buildah manifest create "${manifest}"
+      buildah manifest add "${manifest}" "docker://${amd64_ref}"
+      buildah manifest add "${manifest}" "docker://${arm64_ref}"
+      buildah manifest inspect "${manifest}" > "${local_index_json}"
+      assert_index "${local_index_json}"
+      buildah manifest push --all --format oci \
+        --digestfile "${index_digest_file}" \
+        "${manifest}" \
+        "docker://${HERMES_WORKSPACE_IMAGE}:${CI_COMMIT_SHA}"
+      index_digest="$(cat "${index_digest_file}")"
+      printf '%s\n' "${index_digest}" | grep -Eq '^sha256:[0-9a-f]{64}$'
+      printf '%s' "${HERMES_WORKSPACE_IMAGE}@${index_digest}" > hermes-workspace-image.ref
+      test "$(wc -l < hermes-workspace-image.ref)" -eq 0
+      test "$(cat hermes-workspace-image.ref)" = "${HERMES_WORKSPACE_IMAGE}@${index_digest}"
+      buildah manifest inspect "docker://${HERMES_WORKSPACE_IMAGE}@${index_digest}" > "${published_index_json}"
+      assert_index "${published_index_json}"
+  artifacts:
+    name: hermes-workspace-image-${CI_COMMIT_SHA}
+    paths:
+      - hermes-workspace-image.ref
+    expire_in: 1 week
+  rules:
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $CI_COMMIT_REF_PROTECTED == "true"'
+      changes:
+        - apps/hermes-workspace/image/**/*
+        - scripts/verify_hermes_workspace_image.sh
+        - .gitlab-ci.yml
 
 .validate_manifest_rules: &validate_manifest_rules
   - if: $CI_PIPELINE_SOURCE == "merge_request_event"
@@ -392,6 +543,7 @@ verify:hermes-workspace-image:
       - scripts/test_validate_factorio_manifest.py
       - scripts/test_validate_hermes_agent_manifest.py
       - scripts/test_validate_hermes_workspace_image.py
+      - scripts/verify_hermes_workspace_image.sh
       - scripts/test_validate_hestia_ci_store_gc_alert.py
       - scripts/test_validate_hestia_ci_store_gc_alert.py.lock
       - scripts/test_validate_ibgateway_manifest.py
@@ -428,6 +580,7 @@ verify:hermes-workspace-image:
       - scripts/test_validate_factorio_manifest.py
       - scripts/test_validate_hermes_agent_manifest.py
       - scripts/test_validate_hermes_workspace_image.py
+      - scripts/verify_hermes_workspace_image.sh
       - scripts/test_validate_hestia_ci_store_gc_alert.py
       - scripts/test_validate_hestia_ci_store_gc_alert.py.lock
       - scripts/test_validate_ibgateway_manifest.py
