@@ -434,12 +434,17 @@ def validate_entrypoint(text: str) -> None:
         "runuser -u workspace -- test -w /workspace",
         'fail "/run must be root-owned and not group/other writable"',
         "ssh-keygen -l -f /dev/stdin",
-        "key_count == 0",
+        '(( key_count > 0 )) || fail "authorized_keys contains no public keys"',
         '[[ "$host_mode" == 400 || "$host_mode" == 600 ]]',
         "/usr/sbin/sshd -t -f /etc/ssh/sshd_config",
         "exec /usr/sbin/sshd -D -e -f /etc/ssh/sshd_config",
     ):
         require(text, needle, "startup safety check")
+    forbid(
+        text,
+        re.escape('(( key_count == 0 )) && fail "authorized_keys contains no public keys"'),
+        "errexit-prone zero-count authorized-keys assertion",
+    )
     forbid(text, r"ssh-keygen\s+-A", "startup host-key generation")
     forbid(text, r"(?:passwd|chpasswd|useradd|groupadd)", "runtime identity mutation")
 
