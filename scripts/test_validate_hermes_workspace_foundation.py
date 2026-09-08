@@ -24,7 +24,16 @@ from yaml.nodes import MappingNode
 ROOT = Path(__file__).resolve().parent.parent
 FLUX_APPS = Path("clusters/k3s-homelab/flux-system/kustomization-apps.yaml")
 WORKSPACE = "hermes-workspace"
+PVC = "hermes-workspace-windsor"
 POLICY_FILE = "ciliumnetworkpolicy-default-hermes-workspace.yaml"
+DEPLOYMENT_FILES = [
+    POLICY_FILE,
+    "deployment-default-hermes-workspace.yaml",
+    "persistentvolumeclaim-default-hermes-workspace-windsor.yaml",
+    "service-default-hermes-workspace.yaml",
+]
+FOUNDATION_SOURCE_NAMES = {"kustomization.yaml", POLICY_FILE}
+DEPLOYED_SOURCE_NAMES = {"kustomization.yaml", *DEPLOYMENT_FILES}
 APP_LABEL = "app.kubernetes.io/name"
 PRIVATE_EXCEPTIONS = [
     "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "169.254.0.0/16",
@@ -34,6 +43,10 @@ EXPECTED_KUSTOMIZATION = {
     "apiVersion": "kustomize.config.k8s.io/v1beta1",
     "kind": "Kustomization",
     "resources": [POLICY_FILE],
+}
+EXPECTED_DEPLOYED_KUSTOMIZATION = {
+    **EXPECTED_KUSTOMIZATION,
+    "resources": DEPLOYMENT_FILES,
 }
 EXPECTED_POLICY = {
     "apiVersion": "cilium.io/v2",
@@ -195,17 +208,46 @@ def validate_repository(root: Path) -> None:
         fail("authoritative apps Kustomization must include hermes-workspace exactly once")
 
     workspace = apps / WORKSPACE
-    source_names = {path.name for path in workspace.glob("*.yaml")}
-    expected_names = {"kustomization.yaml", POLICY_FILE}
-    if source_names != expected_names:
+    source_names = {
+        path.name for path in workspace.iterdir() if path.suffix in {".yaml", ".yml"}
+    }
+    if source_names not in (FOUNDATION_SOURCE_NAMES, DEPLOYED_SOURCE_NAMES):
         fail(
-            "Hermes workspace foundation source set: "
-            f"expected {sorted(expected_names)!r}, got {sorted(source_names)!r}"
+            "Hermes workspace source set must be exactly the foundation or deployed phase: "
+            f"got {sorted(source_names)!r}"
         )
-    if load_object(workspace / "kustomization.yaml") != EXPECTED_KUSTOMIZATION:
-        fail("Hermes workspace Kustomization differs from the policy-only contract")
+    deployed = source_names == DEPLOYED_SOURCE_NAMES
+    expected_kustomization = (
+        EXPECTED_DEPLOYED_KUSTOMIZATION if deployed else EXPECTED_KUSTOMIZATION
+    )
+    if load_object(workspace / "kustomization.yaml") != expected_kustomization:
+        fail("Hermes workspace Kustomization differs from its exact phase contract")
     validate_workspace_objects([load_object(workspace / POLICY_FILE)], "policy source")
-    validate_workspace_objects(render(workspace), "workspace render")
+
+    workspace_objects = render(workspace)
+    identities = sorted(
+        (
+            item.get("kind", ""),
+            (item.get("metadata") or {}).get("namespace", ""),
+            (item.get("metadata") or {}).get("name", ""),
+        )
+        for item in workspace_objects
+    )
+    expected_identities = [("CiliumNetworkPolicy", "default", WORKSPACE)]
+    if deployed:
+        expected_identities.extend(
+            [
+                ("Deployment", "default", WORKSPACE),
+                ("PersistentVolumeClaim", "default", PVC),
+                ("Service", "default", WORKSPACE),
+            ]
+        )
+    if identities != sorted(expected_identities):
+        fail(f"workspace render identities differ from the exact phase: {identities!r}")
+    validate_workspace_objects(
+        [item for item in workspace_objects if item.get("kind") == "CiliumNetworkPolicy"],
+        "workspace policy render",
+    )
 
     target = [
         item
