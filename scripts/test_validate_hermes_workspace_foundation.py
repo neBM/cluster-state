@@ -26,6 +26,8 @@ FLUX_APPS = Path("clusters/k3s-homelab/flux-system/kustomization-apps.yaml")
 WORKSPACE = "hermes-workspace"
 PVC = "hermes-workspace-windsor"
 POLICY_FILE = "ciliumnetworkpolicy-default-hermes-workspace.yaml"
+CILIUM_CONFIG_FILE = "infrastructure/platform/cilium-config.yaml"
+CILIUM_NODE_CONFIG_FILE = "infrastructure/platform/cilium-node-selector-labels.yaml"
 DEPLOYMENT_FILES = [
     POLICY_FILE,
     "deployment-default-hermes-workspace.yaml",
@@ -97,7 +99,54 @@ EXPECTED_POLICY = {
                     },
                 ],
             },
+            {
+                "toNodes": [
+                    {"matchLabels": {"kubernetes.io/hostname": "hestia"}},
+                ],
+                "toPorts": [
+                    {"ports": [{"port": "443", "protocol": "TCP"}]},
+                ],
+            },
+            {
+                "toEntities": ["host"],
+                "toPorts": [
+                    {
+                        "ports": [{"port": "443", "protocol": "TCP"}],
+                        "serverNames": ["git.brmartin.co.uk"],
+                    },
+                ],
+            },
         ],
+    },
+}
+EXPECTED_CILIUM_CONFIG = {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+        "name": "cilium-config",
+        "namespace": "kube-system",
+        "annotations": {
+            "kustomize.toolkit.fluxcd.io/prune": "Disabled",
+            "kustomize.toolkit.fluxcd.io/ssa": "Merge",
+        },
+    },
+    "data": {
+        "enable-l7-proxy": "true",
+        "enable-node-selector-labels": "true",
+        "node-labels": "kubernetes.io/hostname",
+    },
+}
+EXPECTED_CILIUM_NODE_CONFIG = {
+    "apiVersion": "cilium.io/v2",
+    "kind": "CiliumNodeConfig",
+    "metadata": {"name": "node-selector-labels", "namespace": "kube-system"},
+    "spec": {
+        "nodeSelector": {},
+        "defaults": {
+            "enable-l7-proxy": "true",
+            "enable-node-selector-labels": "true",
+            "node-labels": "kubernetes.io/hostname",
+        },
     },
 }
 
@@ -200,6 +249,15 @@ def validate_workspace_objects(objects: list[dict[str, Any]], label: str) -> Non
         fail(f"{label}: CiliumNetworkPolicy/hermes-workspace semantics differ from the exact contract")
 
 
+def validate_cilium_prerequisites(
+    config: dict[str, Any], node_config: dict[str, Any], label: str
+) -> None:
+    if config != EXPECTED_CILIUM_CONFIG:
+        fail(f"{label}: global Cilium L7 proxy and hostname identity prerequisites differ")
+    if node_config != EXPECTED_CILIUM_NODE_CONFIG:
+        fail(f"{label}: all-node Cilium L7 proxy and hostname identity prerequisites differ")
+
+
 def validate_repository(root: Path) -> None:
     apps = authoritative_apps(root)
     apps_kustomization = load_object(apps / "kustomization.yaml")
@@ -223,6 +281,11 @@ def validate_repository(root: Path) -> None:
     if load_object(workspace / "kustomization.yaml") != expected_kustomization:
         fail("Hermes workspace Kustomization differs from its exact phase contract")
     validate_workspace_objects([load_object(workspace / POLICY_FILE)], "policy source")
+    validate_cilium_prerequisites(
+        load_object(root / CILIUM_CONFIG_FILE),
+        load_object(root / CILIUM_NODE_CONFIG_FILE),
+        "platform source",
+    )
 
     workspace_objects = render(workspace)
     identities = sorted(
@@ -270,6 +333,29 @@ def rejected(label: str, mutate: Callable[[list[dict[str, Any]]], None]) -> None
     fail(f"{label}: mutation escaped validation")
 
 
+def rejected_prerequisite(
+    label: str,
+    mutate: Callable[[dict[str, Any], dict[str, Any]], None],
+) -> None:
+    config = copy.deepcopy(EXPECTED_CILIUM_CONFIG)
+    node_config = copy.deepcopy(EXPECTED_CILIUM_NODE_CONFIG)
+    mutate(config, node_config)
+    try:
+        validate_cilium_prerequisites(config, node_config, label)
+    except AssertionError:
+        print(f"PASS: {label} rejected")
+        return
+    fail(f"{label}: mutation escaped validation")
+
+
+def replace_peer(
+    objects: list[dict[str, Any]], rule_index: int, old: str, new: str, value: Any
+) -> None:
+    rule = objects[0]["spec"]["egress"][rule_index]
+    del rule[old]
+    rule[new] = value
+
+
 def add_forbidden_kind(objects: list[dict[str, Any]], kind: str) -> None:
     resource: dict[str, Any] = {
         "apiVersion": "apps/v1" if kind == "Deployment" else "v1",
@@ -305,6 +391,21 @@ def run_mutations() -> None:
         ("private CIDR exception removal", lambda docs: docs[0]["spec"]["egress"][1]["toCIDRSet"][0]["except"].remove("10.0.0.0/8")),
         ("extra egress port", lambda docs: docs[0]["spec"]["egress"][1]["toPorts"][0]["ports"].append({"port": "22", "protocol": "TCP"})),
         ("extra egress entity", lambda docs: docs[0]["spec"]["egress"].append({"toEntities": ["world"]})),
+        ("missing remote GitLab rule", lambda docs: docs[0]["spec"]["egress"].pop(2)),
+        ("wrong remote GitLab node", lambda docs: docs[0]["spec"]["egress"][2]["toNodes"][0]["matchLabels"].update({"kubernetes.io/hostname": "heracles"})),
+        ("broad remote GitLab node", lambda docs: docs[0]["spec"]["egress"][2].update({"toNodes": [{}]})),
+        ("wrong remote GitLab port", lambda docs: docs[0]["spec"]["egress"][2]["toPorts"][0]["ports"][0].update({"port": "80"})),
+        ("wrong remote GitLab protocol", lambda docs: docs[0]["spec"]["egress"][2]["toPorts"][0]["ports"][0].update({"protocol": "UDP"})),
+        ("remote GitLab FQDN substitution", lambda docs: replace_peer(docs, 2, "toNodes", "toFQDNs", [{"matchName": "git.brmartin.co.uk"}])),
+        ("remote GitLab CIDR substitution", lambda docs: replace_peer(docs, 2, "toNodes", "toCIDR", ["192.168.1.5/32"])),
+        ("missing local GitLab rule", lambda docs: docs[0]["spec"]["egress"].pop(3)),
+        ("wrong local GitLab entity", lambda docs: docs[0]["spec"]["egress"][3].update({"toEntities": ["world"]})),
+        ("broad local GitLab entity", lambda docs: docs[0]["spec"]["egress"][3].update({"toEntities": ["host", "cluster"]})),
+        ("missing local GitLab SNI", lambda docs: docs[0]["spec"]["egress"][3]["toPorts"][0].pop("serverNames")),
+        ("wildcard local GitLab SNI", lambda docs: docs[0]["spec"]["egress"][3]["toPorts"][0].update({"serverNames": ["*.brmartin.co.uk"]})),
+        ("wrong local GitLab SNI", lambda docs: docs[0]["spec"]["egress"][3]["toPorts"][0].update({"serverNames": ["grafana.brmartin.co.uk"]})),
+        ("wrong local GitLab port", lambda docs: docs[0]["spec"]["egress"][3]["toPorts"][0]["ports"][0].update({"port": "80"})),
+        ("wrong local GitLab protocol", lambda docs: docs[0]["spec"]["egress"][3]["toPorts"][0]["ports"][0].update({"protocol": "UDP"})),
     ]
     for kind in ("Deployment", "PersistentVolumeClaim", "Secret"):
         cases.append(
@@ -312,6 +413,16 @@ def run_mutations() -> None:
         )
     for label, mutate in cases:
         rejected(label, mutate)
+    prerequisite_cases: list[
+        tuple[str, Callable[[dict[str, Any], dict[str, Any]], None]]
+    ] = [
+        ("global Cilium L7 proxy disabled", lambda config, _node: config["data"].update({"enable-l7-proxy": "false"})),
+        ("global Cilium L7 proxy missing", lambda config, _node: config["data"].pop("enable-l7-proxy")),
+        ("all-node Cilium L7 proxy disabled", lambda _config, node: node["spec"]["defaults"].update({"enable-l7-proxy": "false"})),
+        ("all-node Cilium L7 proxy missing", lambda _config, node: node["spec"]["defaults"].pop("enable-l7-proxy")),
+    ]
+    for label, mutate in prerequisite_cases:
+        rejected_prerequisite(label, mutate)
 
 
 def main() -> None:

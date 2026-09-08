@@ -63,6 +63,7 @@ metadata:
 spec:
   nodeSelector: {}
   defaults:
+    enable-l7-proxy: \"true\"
     enable-node-selector-labels: \"true\"
     node-labels: kubernetes.io/hostname
 """
@@ -149,7 +150,23 @@ def main() -> int:
             "infrastructure/platform/cilium-config.yaml",
             'enable-node-selector-labels: "true"',
             'enable-node-selector-labels: "false"',
-            "Cilium global node-selector-label prerequisite must be enabled",
+            "Cilium global L7 proxy and node-selector-label prerequisites must be enabled",
+        )
+        mutation(
+            parent,
+            "cilium-global-l7-proxy-disabled",
+            "infrastructure/platform/cilium-config.yaml",
+            'enable-l7-proxy: "true"',
+            'enable-l7-proxy: "false"',
+            "Cilium global L7 proxy and node-selector-label prerequisites must be enabled",
+        )
+        mutation(
+            parent,
+            "cilium-global-l7-proxy-missing",
+            "infrastructure/platform/cilium-config.yaml",
+            '  enable-l7-proxy: "true"\n',
+            "",
+            "Cilium global L7 proxy and node-selector-label prerequisites must be enabled",
         )
         mutation(
             parent,
@@ -181,7 +198,23 @@ def main() -> int:
             "infrastructure/platform/cilium-node-selector-labels.yaml",
             'enable-node-selector-labels: "true"',
             'enable-node-selector-labels: "false"',
-            "Cilium node-selector-label prerequisite must be enabled",
+            "Cilium all-node L7 proxy and node-selector-label prerequisites must be enabled",
+        )
+        cilium_prerequisite_mutation(
+            parent,
+            "cilium-all-node-l7-proxy-disabled",
+            "infrastructure/platform/cilium-node-selector-labels.yaml",
+            'enable-l7-proxy: "true"',
+            'enable-l7-proxy: "false"',
+            "Cilium all-node L7 proxy and node-selector-label prerequisites must be enabled",
+        )
+        cilium_prerequisite_mutation(
+            parent,
+            "cilium-all-node-l7-proxy-missing",
+            "infrastructure/platform/cilium-node-selector-labels.yaml",
+            '    enable-l7-proxy: "true"\n',
+            "",
+            "Cilium all-node L7 proxy and node-selector-label prerequisites must be enabled",
         )
         cilium_prerequisite_mutation(
             parent,

@@ -46,3 +46,18 @@ spec:
         protocol: TCP
       - port: "443"
         protocol: TCP
+  - toNodes:
+    - matchLabels:
+        kubernetes.io/hostname: hestia
+    toPorts:
+    - ports:
+      - port: "443"
+        protocol: TCP
+  - toEntities:
+    - host
+    toPorts:
+    - ports:
+      - port: "443"
+        protocol: TCP
+      serverNames:
+      - git.brmartin.co.uk

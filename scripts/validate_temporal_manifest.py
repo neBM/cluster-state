@@ -361,6 +361,7 @@ def validate(root: Path) -> list[str]:
     else:
         cilium_config = cilium_configs[0]
         expected_cilium_data = {
+            "enable-l7-proxy": "true",
             "enable-node-selector-labels": "true",
             "node-labels": "kubernetes.io/hostname",
         }
@@ -373,7 +374,7 @@ def validate(root: Path) -> list[str]:
             errors.append("Cilium global configuration must use non-pruning Flux SSA merge ownership")
         if cilium_config.get("data") != expected_cilium_data:
             errors.append(
-                "Cilium global node-selector-label prerequisite must be enabled with hostname-only identities"
+                "Cilium global L7 proxy and node-selector-label prerequisites must be enabled with hostname-only identities"
             )
         if set(cilium_config) != {"apiVersion", "kind", "metadata", "data"}:
             errors.append("Cilium global configuration contains unexpected fields")
@@ -387,13 +388,16 @@ def validate(root: Path) -> list[str]:
     else:
         node_config_spec = node_configs[0].get("spec", {})
         expected_defaults = {
+            "enable-l7-proxy": "true",
             "enable-node-selector-labels": "true",
             "node-labels": "kubernetes.io/hostname",
         }
         if node_config_spec.get("nodeSelector") != {}:
             errors.append("Cilium node-selector-label prerequisite must select every cluster node")
         if node_config_spec.get("defaults") != expected_defaults:
-            errors.append("Cilium node-selector-label prerequisite must be enabled with hostname-only identities")
+            errors.append(
+                "Cilium all-node L7 proxy and node-selector-label prerequisites must be enabled with hostname-only identities"
+            )
         if set(node_config_spec) != {"nodeSelector", "defaults"}:
             errors.append("Cilium node-selector-label prerequisite contains unexpected configuration")
 
