@@ -594,7 +594,7 @@ def validate_verify_helper(text: str) -> None:
         "{{len .Docker.Config.Entrypoint}}",
         "{{index .Docker.Config.Entrypoint 0}}",
         "{{len .Docker.Config.ExposedPorts}}",
-        '{{index .Docker.Config.ExposedPorts "2222/tcp"}}',
+        "{{range $port, $_ := .Docker.Config.ExposedPorts}}{{$port}}{{end}}",
         "{{len .Docker.Config.Healthcheck.Test}}",
         "{{index .Docker.Config.Healthcheck.Test 0}}",
         "{{index .Docker.Config.Healthcheck.Test 1}}",
@@ -602,6 +602,11 @@ def validate_verify_helper(text: str) -> None:
         "/usr/local/bin/hermes-workspace-healthcheck",
     ):
         require(text, needle, "workspace image verification helper")
+    forbid(
+        text,
+        re.escape('{{index .Docker.Config.ExposedPorts "2222/tcp"}}'),
+        "typed string-index ExposedPorts lookup",
+    )
     forbid(text, r"\bbuildah\s+rmi\b", "verification-helper image removal")
     forbid(text, r"\b(?:login|push)\b", "verification-helper registry access")
     ordered(

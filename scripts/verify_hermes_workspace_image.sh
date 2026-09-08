@@ -42,7 +42,8 @@ test "$(buildah inspect --type image --format '{{.Docker.Config.WorkingDir}}' "$
 test "$(buildah inspect --type image --format '{{len .Docker.Config.Entrypoint}}' "${image}")" -eq 1
 test "$(buildah inspect --type image --format '{{index .Docker.Config.Entrypoint 0}}' "${image}")" = /usr/local/sbin/hermes-workspace-entrypoint
 test "$(buildah inspect --type image --format '{{len .Docker.Config.ExposedPorts}}' "${image}")" -eq 1
-test "$(buildah inspect --type image --format '{{index .Docker.Config.ExposedPorts "2222/tcp"}}' "${image}")" = '{}'
+# shellcheck disable=SC2016  # Go-template variables are intentionally literal.
+test "$(buildah inspect --type image --format '{{range $port, $_ := .Docker.Config.ExposedPorts}}{{$port}}{{end}}' "${image}")" = 2222/tcp
 test "$(buildah inspect --type image --format '{{len .Docker.Config.Healthcheck.Test}}' "${image}")" -eq 2
 test "$(buildah inspect --type image --format '{{index .Docker.Config.Healthcheck.Test 0}}' "${image}")" = CMD
 test "$(buildah inspect --type image --format '{{index .Docker.Config.Healthcheck.Test 1}}' "${image}")" = /usr/local/bin/hermes-workspace-healthcheck
