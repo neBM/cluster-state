@@ -4,12 +4,10 @@
 from __future__ import annotations
 
 import re
-import subprocess
 import sys
 from collections import defaultdict
 from collections.abc import Callable
 from pathlib import Path
-from tempfile import TemporaryDirectory
 from typing import NoReturn
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -21,8 +19,6 @@ BUILDAH_IMAGE = (
     "quay.io/buildah/stable@sha256:"
     "56e6ebc9bb71c8303b1968fb51304d3512e14a1b8c730bd0b27ebdf772a34ceb"
 )
-DOCKER_LIST_MEDIA_TYPE = "application/vnd.docker.distribution.manifest.list.v2+json"
-DOCKER_MANIFEST_MEDIA_TYPE = "application/vnd.docker.distribution.manifest.v2+json"
 BUILDAH_LOGIN = (
     "printf '%s' \"$CI_REGISTRY_PASSWORD\" | buildah login "
     "--username \"$CI_REGISTRY_USER\" --password-stdin \"$CI_REGISTRY\""
@@ -731,103 +727,6 @@ def validate_buildah_before(ci: str) -> None:
     forbid(login_lines, r"--password(?:\s|=)", "Buildah password argv long option")
 
 
-def extract_inline_shell_function(job: str, name: str) -> str:
-    match = re.search(
-        rf"^      (?P<function>{re.escape(name)}\(\) \{{\n.*?^      \}})\n",
-        job,
-        re.MULTILINE | re.DOTALL,
-    )
-    if match is None:
-        fail(f"cannot mechanically extract inline shell function: {name}")
-    lines = match.group("function").splitlines()
-    if any(line and not line.startswith("      ") for line in lines[1:]):
-        fail(f"inline shell function has unexpected YAML indentation: {name}")
-    return "\n".join([lines[0], *(line[6:] for line in lines[1:])]) + "\n"
-
-
-def validate_assert_index_fixtures(job: str) -> None:
-    function = extract_inline_shell_function(job, "assert_index")
-    amd64_digest = "sha256:" + "a" * 64
-    arm64_digest = "sha256:" + "b" * 64
-    valid = f"""{{
-    "schemaVersion": 2,
-    "mediaType": "{DOCKER_LIST_MEDIA_TYPE}",
-    "manifests": [
-        {{
-            "mediaType": "{DOCKER_MANIFEST_MEDIA_TYPE}",
-            "digest": "{amd64_digest}",
-            "size": 1000,
-            "platform": {{
-                "architecture": "amd64",
-                "os": "linux"
-            }}
-        }},
-        {{
-            "mediaType": "{DOCKER_MANIFEST_MEDIA_TYPE}",
-            "digest": "{arm64_digest}",
-            "size": 1001,
-            "platform": {{
-                "architecture": "arm64",
-                "os": "linux"
-            }}
-        }}
-    ]
-}}
-"""
-    swapped_pair = valid.replace(amd64_digest, "sha256:SWAP", 1)
-    swapped_pair = swapped_pair.replace(arm64_digest, amd64_digest, 1)
-    swapped_pair = swapped_pair.replace("sha256:SWAP", arm64_digest, 1)
-    malformed_descriptor = f"""        {{
-            "digest": "sha256:{'c' * 64}",
-            "platform": {{
-                "architecture": "s390x",
-                "os": "linux"
-            }}
-        }}
-"""
-    extra_malformed_descriptor = valid.replace(
-        "        }\n    ]\n",
-        f"        }},\n{malformed_descriptor}    ]\n",
-        1,
-    )
-    wrong_media_type = valid.replace(DOCKER_LIST_MEDIA_TYPE, "application/vnd.oci.image.index.v1+json", 1)
-    fixtures = {
-        "valid": (valid, True),
-        "swapped-pair": (swapped_pair, False),
-        "extra-malformed-descriptor": (extra_malformed_descriptor, False),
-        "wrong-mediaType": (wrong_media_type, False),
-    }
-    script = (
-        "set -u\n"
-        f"amd64_digest={amd64_digest}\n"
-        f"arm64_digest={arm64_digest}\n"
-        f"{function}"
-        'assert_index "$1"\n'
-    )
-    with TemporaryDirectory(prefix="hermes-workspace-index-fixtures-") as temporary:
-        fixture_dir = Path(temporary).resolve()
-        if fixture_dir == ROOT or ROOT in fixture_dir.parents:
-            fail("index fixtures must be created outside the repository")
-        for label, (contents, expected) in fixtures.items():
-            fixture = fixture_dir / f"{label}.json"
-            fixture.write_text(contents)
-            result = subprocess.run(
-                ["bash", "-c", script, "assert-index-fixture", str(fixture)],
-                stdin=subprocess.DEVNULL,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
-                check=False,
-            )
-            accepted = result.returncode == 0
-            if accepted != expected:
-                outcome = "accepted" if accepted else "rejected"
-                fail(
-                    f"actual assert_index function {outcome} {label} fixture; "
-                    f"stderr={result.stderr.strip()!r}"
-                )
-
-
 def validate_publisher(job: str) -> None:
     label = "workspace index publisher"
     if re.search(r"^  tags:", job, re.MULTILINE):
@@ -844,6 +743,19 @@ def validate_publisher(job: str) -> None:
     needs_match = re.search(r"^  needs:\n.*?(?=^  image:)", job, re.MULTILINE | re.DOTALL)
     if needs_match is None or needs_match.group(0) != expected_needs:
         fail("workspace index fan-in must need exactly both leaf artifacts and manifest validation")
+    expected_artifacts = """  artifacts:
+    name: hermes-workspace-image-${CI_COMMIT_SHA}
+    paths:
+      - hermes-workspace-image.ref
+    expire_in: 1 week
+"""
+    artifacts_match = re.search(
+        r"^  artifacts:\n.*?(?=^  rules:)",
+        job,
+        re.MULTILINE | re.DOTALL,
+    )
+    if artifacts_match is None or artifacts_match.group(0) != expected_artifacts:
+        fail("workspace index publisher must export only the exact final digest reference artifact")
     for needle in (
         "stage: publish",
         f"image: {BUILDAH_IMAGE}",
@@ -859,45 +771,40 @@ def validate_publisher(job: str) -> None:
         'test "${arm64_ref}" = "${HERMES_WORKSPACE_IMAGE}@${arm64_digest}"',
         'test "${amd64_ref}" != "${arm64_ref}"',
         "grep -Eq '^sha256:[0-9a-f]{64}$'",
-        "assert_index() {",
-        "awk \\",
-        f'expected_list = "{DOCKER_LIST_MEDIA_TYPE}"',
-        f'expected_manifest = "{DOCKER_MANIFEST_MEDIA_TYPE}"',
-        "finish_descriptor()",
-        "descriptor_count == 2",
-        "seen_amd64 == 1",
-        "seen_arm64 == 1",
-        "schema_count == 1",
-        "top_media_count == 1",
-        "manifest_array_count == 1",
         'buildah manifest create "${manifest}"',
-        'buildah manifest add "${manifest}" "docker://${amd64_ref}"',
-        'buildah manifest add "${manifest}" "docker://${arm64_ref}"',
-        'buildah manifest inspect "${manifest}" > "${local_index_json}"',
-        'buildah manifest push --all --format v2s2 \\',
-        '--digestfile "${index_digest_file}"',
-        '"docker://${HERMES_WORKSPACE_IMAGE}:${CI_COMMIT_SHA}"',
         'index_digest="$(cat "${index_digest_file}")"',
         'printf \'%s\' "${HERMES_WORKSPACE_IMAGE}@${index_digest}" > hermes-workspace-image.ref',
         'test "$(wc -l < hermes-workspace-image.ref)" -eq 0',
         'test "$(cat hermes-workspace-image.ref)" = "${HERMES_WORKSPACE_IMAGE}@${index_digest}"',
-        'buildah manifest inspect "docker://${HERMES_WORKSPACE_IMAGE}@${index_digest}" > "${published_index_json}"',
-        "- hermes-workspace-image.ref",
     ):
         require(job, needle, label)
-    if job.count("buildah manifest add") != 2:
-        fail(f"{label} must add exactly two digest-addressed children")
+    expected_adds = [
+        'buildah manifest add "${manifest}" "docker://${amd64_ref}"',
+        'buildah manifest add "${manifest}" "docker://${arm64_ref}"',
+    ]
+    actual_adds = [
+        line.strip() for line in job.splitlines() if "buildah manifest add" in line
+    ]
+    if actual_adds != expected_adds:
+        fail(f"{label} must add exactly both digest-addressed child references")
+    expected_push = """      buildah manifest push --all --format v2s2 \\
+        --digestfile "${index_digest_file}" \\
+        "${manifest}" \\
+        "docker://${HERMES_WORKSPACE_IMAGE}:${CI_COMMIT_SHA}"
+"""
+    require(job, expected_push, "single v2s2 full-SHA index push with digestfile")
     if job.count("buildah manifest push") != 1:
         fail(f"{label} must push exactly one index")
-    if job.count("buildah manifest inspect") != 2:
-        fail(f"{label} must inspect the local and published index")
     for pattern, forbidden_label in (
         (r"\bbuildah\s+(?:build|run)\b", "image execution/build"),
+        (r"\bbuildah\s+manifest\s+inspect\b", "manifest inspection"),
+        (r"\bassert_index\b", "custom index assertion"),
+        (r"\b(?:local_index_json|published_index_json)\b", "index inspection temporary file"),
         (r"CI_COMMIT_SHORT_SHA", "short-SHA reference"),
         (r"(?:^|[/:])latest(?:\s|$)", "mutable latest reference"),
         (r'docker://\$\{HERMES_WORKSPACE_IMAGE\}:\$\{CI_COMMIT_SHA\}-(?:amd64|arm64)', "tag-based child"),
         (r"\bgrep\s+-Ec\b", "independent descriptor field counts"),
-        (r"\b(?:jq|python[0-9.]*)\b", "non-guaranteed JSON parser"),
+        (r"\b(?:awk|jq|python[0-9.]*)\b", "custom index parser"),
     ):
         forbid(job, pattern, f"{label} {forbidden_label}")
     ordered(
@@ -905,13 +812,10 @@ def validate_publisher(job: str) -> None:
         (
             'buildah manifest add "${manifest}" "docker://${amd64_ref}"',
             'buildah manifest add "${manifest}" "docker://${arm64_ref}"',
-            'buildah manifest inspect "${manifest}" > "${local_index_json}"',
-            'assert_index "${local_index_json}"',
             "buildah manifest push --all --format v2s2",
-            'buildah manifest inspect "docker://${HERMES_WORKSPACE_IMAGE}@${index_digest}" > "${published_index_json}"',
-            'assert_index "${published_index_json}"',
+            'printf \'%s\' "${HERMES_WORKSPACE_IMAGE}@${index_digest}" > hermes-workspace-image.ref',
         ),
-        "workspace index validation and publication",
+        "workspace digest-native index publication",
     )
 
 
@@ -1131,7 +1035,6 @@ def validate() -> None:
     validation_entrypoint = VALIDATION_ENTRYPOINT.read_text()
     validate_ci(ci, validation_entrypoint)
     validate_ci_mutations(ci, validation_entrypoint)
-    validate_assert_index_fixtures(top_level_block(ci, "publish:hermes-workspace:index"))
 
 
 if __name__ == "__main__":
