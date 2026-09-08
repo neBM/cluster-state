@@ -5,10 +5,13 @@ ARG TARGETARCH
 ARG OCI_REVISION=unknown
 ARG UV_VERSION=0.12.10
 ARG UV_AMD64_SHA256=173d95a0c32d18c896c46ba6fafbf3cf9c14ab74b033f81b76c883ef492a976b
+ARG UV_ARM64_SHA256=9ff6b9d4665edcdd3a88dcc73cd1eb641754deb927f14e8c62ebfde6bf4f5f5e
 ARG GLAB_VERSION=1.116.0
 ARG GLAB_AMD64_SHA256=173cc61ea94c562f2ccd831f320d25b73982192e82810064552282482e3713ea
+ARG GLAB_ARM64_SHA256=3e59a0c5db5b281c552543cc1018873ecdd551b07737cfdb932c6543aa39d88c
 ARG KUBECTL_VERSION=v1.34.11
 ARG KUBECTL_AMD64_SHA256=8efbb9435132a190920eb65a47a8c1ecf755ad85ab57a600c9bedbab460bb7a8
+ARG KUBECTL_ARM64_SHA256=5b045a4712674c88a56fd98eef4285689738b7fbe8735e1b9ee3509521af5cb4
 
 LABEL org.opencontainers.image.title="Hermes SSH workspace" \
       org.opencontainers.image.description="Dedicated least-privilege SSH development workspace for Hermes" \
@@ -22,6 +25,24 @@ ENV HOME=/workspace \
     UV_CACHE_DIR=/workspace/.cache/uv
 
 RUN set -eux; \
+    case "${TARGETARCH}" in \
+      amd64) \
+        UV_TARGET=x86_64-unknown-linux-gnu; \
+        UV_SHA256="${UV_AMD64_SHA256}"; \
+        GLAB_SHA256="${GLAB_AMD64_SHA256}"; \
+        KUBECTL_SHA256="${KUBECTL_AMD64_SHA256}"; \
+        ;; \
+      arm64) \
+        UV_TARGET=aarch64-unknown-linux-gnu; \
+        UV_SHA256="${UV_ARM64_SHA256}"; \
+        GLAB_SHA256="${GLAB_ARM64_SHA256}"; \
+        KUBECTL_SHA256="${KUBECTL_ARM64_SHA256}"; \
+        ;; \
+      *) \
+        echo "unsupported TARGETARCH: ${TARGETARCH}" >&2; \
+        exit 1; \
+        ;; \
+    esac; \
     export DEBIAN_FRONTEND=noninteractive; \
     cleanup_ssh_keygen_diversion() { \
       diversion="$(dpkg-divert --list /usr/bin/ssh-keygen)"; \
@@ -79,11 +100,6 @@ RUN set -eux; \
     usermod --password '*' workspace; \
     install -d -o 10000 -g 10000 -m 0700 /workspace; \
     install -d -o 0 -g 0 -m 0755 /run/sshd; \
-    test "${TARGETARCH}" = amd64; \
-    UV_TARGET=x86_64-unknown-linux-gnu; \
-    UV_SHA256="${UV_AMD64_SHA256}"; \
-    GLAB_SHA256="${GLAB_AMD64_SHA256}"; \
-    KUBECTL_SHA256="${KUBECTL_AMD64_SHA256}"; \
     curl --fail --location --proto '=https' --tlsv1.2 \
       "https://github.com/astral-sh/uv/releases/download/${UV_VERSION}/uv-${UV_TARGET}.tar.gz" \
       --output /tmp/uv.tar.gz; \
