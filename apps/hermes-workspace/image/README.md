@@ -1,6 +1,6 @@
 # Hermes SSH workspace image
 
-This directory is the complete build context for a minimal SSH development workspace. It does **not** contain Hermes. The image has no Kubernetes API dependency or host integration, and `/workspace` is its only persistent project-data contract. The image is currently a producer artifact only: no Deployment, PVC, or Service references it in desired state, so it is not deployed by this repository.
+This directory is the complete build context for a minimal SSH development workspace. It does **not** contain Hermes. The image has no Kubernetes API dependency or host integration, and `/workspace` is its only persistent project-data contract. Desired state now contains the isolated GitOps runtime candidate described below.
 
 ## Runtime contract
 
@@ -13,6 +13,12 @@ This directory is the complete build context for a minimal SSH development works
 - The OCI health check opens localhost port `2222` and requires an SSH-2.0 banner without presenting credentials.
 
 The bundled tools are the immediate repository workflow set: Bash/POSIX utilities, Git, curl, jq, Python 3, uv/uvx, glab, kubectl (including `kubectl kustomize`), make/build-essential, tar/gzip/unzip, patch/diff, proc tools, and shellcheck. Node/npm are intentionally omitted because this repository has no Node package manifest or Node-based project workflow in the workspace slice.
+
+## GitOps runtime candidate
+
+The init and main containers are pinned to the independently registry-qualified multi-architecture index `registry.brmartin.co.uk:443/ben/cluster-state/hermes-workspace@sha256:1e0a06ff8f3b75a0a0bfc2b3fd5858750a9e30d03e6d44afb7d360e445393bd1`. The Pod selects only `kubernetes.io/arch: arm64`, leaving both Heracles and Nyx eligible while excluding Hestia, and persists only `/workspace` on the new dynamically provisioned `hermes-workspace-windsor` RWX claim using `windsor-nfs-rwx`. Image publication alone is non-authorizing: the candidate is not deployed or activated merely because its index was published.
+
+Runtime qualification remains pending. Do not activate this workspace as an agent backend until Flux applies the exact revision, dynamic NFS provisioning and the fail-closed init ownership gate succeed, the live container `imageID` proves the qualified arm64 child, SSH/SFTP and persistence checks pass, and the Cilium policy is verified.
 
 ## Supply-chain and publication contract
 
