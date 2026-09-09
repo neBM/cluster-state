@@ -7,5 +7,6 @@ metadata:
     kustomize.toolkit.fluxcd.io/prune: Disabled
     kustomize.toolkit.fluxcd.io/ssa: Merge
 data:
+  enable-l7-proxy: "true"
   enable-node-selector-labels: "true"
   node-labels: kubernetes.io/hostname
