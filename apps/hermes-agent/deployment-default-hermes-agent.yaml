@@ -31,6 +31,73 @@ spec:
         fsGroupChangePolicy: OnRootMismatch
         seccompProfile:
           type: RuntimeDefault
+      initContainers:
+      - name: prepare-workspace-ssh-client
+        image: nousresearch/hermes-agent:v2026.8.16.2@sha256:a39fc11620213e3669a327aff5c6cb1eb2b8a238c6044e33e7ef8885833d89a7
+        imagePullPolicy: IfNotPresent
+        command:
+        - /bin/sh
+        - -ceu
+        - --
+        - |-
+          test -d /opt/data
+          test ! -L /opt/data
+          test -d /run
+          test ! -L /run
+          test -d /var/run/hermes-workspace-ssh-client
+          test ! -L /var/run/hermes-workspace-ssh-client
+          test -f /var/run/hermes-workspace-ssh-client/id_ed25519
+          test -r /var/run/hermes-workspace-ssh-client/id_ed25519
+          test ! -L /opt/data/.ssh
+          mkdir -p -- /opt/data/.ssh
+          test -d /opt/data/.ssh
+          chown 0:0 /opt/data/.ssh
+          chmod 0700 /opt/data/.ssh
+          chown 10000:10000 /opt/data/.ssh
+          test ! -L /run/secrets
+          mkdir -p -- /run/secrets
+          test -d /run/secrets
+          chown 0:0 /run/secrets
+          chmod 0755 /run/secrets
+          test ! -L /run/secrets/hermes-workspace-client
+          mkdir -p -- /run/secrets/hermes-workspace-client
+          test -d /run/secrets/hermes-workspace-client
+          chown 0:0 /run/secrets/hermes-workspace-client
+          chmod 0755 /run/secrets/hermes-workspace-client
+          test ! -L /run/secrets/hermes-workspace-client/.id_ed25519.tmp
+          test ! -L /run/secrets/hermes-workspace-client/id_ed25519
+          rm -f -- /run/secrets/hermes-workspace-client/.id_ed25519.tmp
+          rm -f -- /run/secrets/hermes-workspace-client/id_ed25519
+          cp -- /var/run/hermes-workspace-ssh-client/id_ed25519 /run/secrets/hermes-workspace-client/.id_ed25519.tmp
+          test -f /run/secrets/hermes-workspace-client/.id_ed25519.tmp
+          test ! -L /run/secrets/hermes-workspace-client/.id_ed25519.tmp
+          chmod 0400 /run/secrets/hermes-workspace-client/.id_ed25519.tmp
+          chown 10000:10000 /run/secrets/hermes-workspace-client/.id_ed25519.tmp
+          mv -- /run/secrets/hermes-workspace-client/.id_ed25519.tmp /run/secrets/hermes-workspace-client/id_ed25519
+          test -f /run/secrets/hermes-workspace-client/id_ed25519
+          test ! -L /run/secrets/hermes-workspace-client/id_ed25519
+        securityContext:
+          runAsUser: 0
+          runAsGroup: 0
+          privileged: false
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          seccompProfile:
+            type: RuntimeDefault
+          capabilities:
+            drop:
+            - ALL
+            add:
+            - CHOWN
+            - DAC_OVERRIDE
+        volumeMounts:
+        - name: state
+          mountPath: /opt/data
+        - name: run
+          mountPath: /run
+        - name: workspace-ssh-client-source
+          mountPath: /var/run/hermes-workspace-ssh-client
+          readOnly: true
       containers:
       - name: hermes-agent
         image: nousresearch/hermes-agent:v2026.8.16.2@sha256:a39fc11620213e3669a327aff5c6cb1eb2b8a238c6044e33e7ef8885833d89a7
@@ -96,6 +163,10 @@ spec:
           mountPath: /run
         - name: dshm
           mountPath: /dev/shm
+        - name: workspace-ssh-client-source
+          mountPath: /opt/data/.ssh/known_hosts
+          subPath: known_hosts
+          readOnly: true
       volumes:
       - name: state
         persistentVolumeClaim:
@@ -112,3 +183,15 @@ spec:
         emptyDir:
           medium: Memory
           sizeLimit: 1Gi
+      - name: workspace-ssh-client-source
+        secret:
+          secretName: hermes-workspace-ssh-client
+          optional: false
+          defaultMode: 0400
+          items:
+          - key: id_ed25519
+            path: id_ed25519
+            mode: 0400
+          - key: known_hosts
+            path: known_hosts
+            mode: 0444

@@ -13,9 +13,14 @@ from typing import NoReturn
 
 ROOT = Path(__file__).resolve().parent.parent
 APP = ROOT / "apps/hermes-agent"
+DEPLOYMENT = APP / "deployment-default-hermes-agent.yaml"
 OBSERVABILITY = ROOT / "infrastructure/observability-ui/grafana"
 CUTOVER = ROOT / "scripts/hermes-agent-cutover.sh"
 MIGRATION = ROOT / "scripts/hermes-agent-migration.sh"
+OFFICIAL_IMAGE = (
+    "nousresearch/hermes-agent:v2026.8.16.2"
+    "@sha256:a39fc11620213e3669a327aff5c6cb1eb2b8a238c6044e33e7ef8885833d89a7"
+)
 
 
 def fail(message: str) -> NoReturn:
@@ -85,6 +90,140 @@ def validate() -> None:
         "mountPath: /opt/data",
     ):
         require(deployment, baseline, "baseline deployment setting")
+
+    deployment_source = DEPLOYMENT.read_text()
+    init_match = re.search(
+        r"^      initContainers:\n(?P<body>.*?)^      containers:\n",
+        deployment_source,
+        re.MULTILINE | re.DOTALL,
+    )
+    if init_match is None:
+        fail("workspace SSH client init container is missing")
+    init = init_match.group("body")
+    main_match = re.search(
+        r"^      containers:\n(?P<body>.*?)^      volumes:\n",
+        deployment_source,
+        re.MULTILINE | re.DOTALL,
+    )
+    if main_match is None:
+        fail("Hermes main container block is missing")
+    main = main_match.group("body")
+
+    if deployment_source.count(f"image: {OFFICIAL_IMAGE}") != 2:
+        fail("init and main must use the same exact official Hermes image")
+    if len(re.findall(r"^      - name:", init, re.MULTILINE)) != 1:
+        fail("workspace SSH client must be the only init container")
+    require(init, "      - name: prepare-workspace-ssh-client", "workspace SSH client init name")
+    require(init, f"        image: {OFFICIAL_IMAGE}", "workspace SSH client init image")
+    require(init, "        imagePullPolicy: IfNotPresent", "workspace SSH client init pull policy")
+    require(
+        init,
+        "        command:\n        - /bin/sh\n        - -ceu\n        - --\n        - |-\n",
+        "fail-closed workspace SSH client command",
+    )
+    expected_script = "\n".join(
+        f"          {line}"
+        for line in (
+            "test -d /opt/data",
+            "test ! -L /opt/data",
+            "test -d /run",
+            "test ! -L /run",
+            "test -d /var/run/hermes-workspace-ssh-client",
+            "test ! -L /var/run/hermes-workspace-ssh-client",
+            "test -f /var/run/hermes-workspace-ssh-client/id_ed25519",
+            "test -r /var/run/hermes-workspace-ssh-client/id_ed25519",
+            "test ! -L /opt/data/.ssh",
+            "mkdir -p -- /opt/data/.ssh",
+            "test -d /opt/data/.ssh",
+            "chown 0:0 /opt/data/.ssh",
+            "chmod 0700 /opt/data/.ssh",
+            "chown 10000:10000 /opt/data/.ssh",
+            "test ! -L /run/secrets",
+            "mkdir -p -- /run/secrets",
+            "test -d /run/secrets",
+            "chown 0:0 /run/secrets",
+            "chmod 0755 /run/secrets",
+            "test ! -L /run/secrets/hermes-workspace-client",
+            "mkdir -p -- /run/secrets/hermes-workspace-client",
+            "test -d /run/secrets/hermes-workspace-client",
+            "chown 0:0 /run/secrets/hermes-workspace-client",
+            "chmod 0755 /run/secrets/hermes-workspace-client",
+            "test ! -L /run/secrets/hermes-workspace-client/.id_ed25519.tmp",
+            "test ! -L /run/secrets/hermes-workspace-client/id_ed25519",
+            "rm -f -- /run/secrets/hermes-workspace-client/.id_ed25519.tmp",
+            "rm -f -- /run/secrets/hermes-workspace-client/id_ed25519",
+            "cp -- /var/run/hermes-workspace-ssh-client/id_ed25519 /run/secrets/hermes-workspace-client/.id_ed25519.tmp",
+            "test -f /run/secrets/hermes-workspace-client/.id_ed25519.tmp",
+            "test ! -L /run/secrets/hermes-workspace-client/.id_ed25519.tmp",
+            "chmod 0400 /run/secrets/hermes-workspace-client/.id_ed25519.tmp",
+            "chown 10000:10000 /run/secrets/hermes-workspace-client/.id_ed25519.tmp",
+            "mv -- /run/secrets/hermes-workspace-client/.id_ed25519.tmp /run/secrets/hermes-workspace-client/id_ed25519",
+            "test -f /run/secrets/hermes-workspace-client/id_ed25519",
+            "test ! -L /run/secrets/hermes-workspace-client/id_ed25519",
+        )
+    )
+    require(init, f"        - |-\n{expected_script}\n", "fixed workspace SSH client init script")
+    expected_init_security = """        securityContext:
+          runAsUser: 0
+          runAsGroup: 0
+          privileged: false
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          seccompProfile:
+            type: RuntimeDefault
+          capabilities:
+            drop:
+            - ALL
+            add:
+            - CHOWN
+            - DAC_OVERRIDE
+"""
+    require(init, expected_init_security, "minimal workspace SSH client init privileges")
+    expected_init_mounts = """        volumeMounts:
+        - name: state
+          mountPath: /opt/data
+        - name: run
+          mountPath: /run
+        - name: workspace-ssh-client-source
+          mountPath: /var/run/hermes-workspace-ssh-client
+          readOnly: true
+"""
+    require(init, expected_init_mounts, "workspace SSH client init mounts")
+
+    known_hosts_mount = """        - name: workspace-ssh-client-source
+          mountPath: /opt/data/.ssh/known_hosts
+          subPath: known_hosts
+          readOnly: true
+"""
+    require(main, known_hosts_mount, "pinned known_hosts main mount")
+    if "mountPath: /var/run/hermes-workspace-ssh-client" in main or "subPath: id_ed25519" in main:
+        fail("main container can access the private-key Secret source")
+    expected_secret_volume = """      - name: workspace-ssh-client-source
+        secret:
+          secretName: hermes-workspace-ssh-client
+          optional: false
+          defaultMode: 0400
+          items:
+          - key: id_ed25519
+            path: id_ed25519
+            mode: 0400
+          - key: known_hosts
+            path: known_hosts
+            mode: 0444
+"""
+    require(deployment_source, expected_secret_volume, "workspace SSH client Secret projection")
+    if deployment_source.count("name: workspace-ssh-client-source") != 3:
+        fail("workspace SSH client Secret must have two mounts and one volume")
+    if re.search(r"^kind: Secret$|^(?:stringData|data):$", sources, re.MULTILINE):
+        fail("Hermes app must not add Secret objects or inline Secret data")
+    if "TERMINAL_" in deployment_source:
+        fail("terminal SSH backend must remain inactive")
+    if "/opt/data/.ssh/id_ed25519" in deployment_source:
+        fail("private SSH key must not be written to retained state")
+    if "known_hosts" in expected_script or "$" in expected_script or "*" in expected_script:
+        fail("init script must be fixed, non-interpolated, and must not copy known_hosts")
+    if "chown -R" in expected_script or "chmod -R" in expected_script or "|| true" in expected_script:
+        fail("init script must not recurse or ignore failures")
 
     require(pvc, "storageClassName: local-path-retain", "retained storage class")
     require(pvc, "- ReadWriteOnce", "RWO PVC")
