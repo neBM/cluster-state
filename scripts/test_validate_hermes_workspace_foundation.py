@@ -65,6 +65,14 @@ EXPECTED_POLICY = {
                     {"ports": [{"port": "2222", "protocol": "TCP"}]},
                 ],
             },
+            {
+                "fromNodes": [
+                    {"matchLabels": {"kubernetes.io/hostname": "hestia"}},
+                ],
+                "toPorts": [
+                    {"ports": [{"port": "2222", "protocol": "TCP"}]},
+                ],
+            },
         ],
         "egress": [
             {
@@ -349,9 +357,14 @@ def rejected_prerequisite(
 
 
 def replace_peer(
-    objects: list[dict[str, Any]], rule_index: int, old: str, new: str, value: Any
+    objects: list[dict[str, Any]],
+    rule_index: int,
+    old: str,
+    new: str,
+    value: Any,
+    direction: str = "egress",
 ) -> None:
-    rule = objects[0]["spec"]["egress"][rule_index]
+    rule = objects[0]["spec"][direction][rule_index]
     del rule[old]
     rule[new] = value
 
@@ -384,8 +397,18 @@ def add_forbidden_kind(objects: list[dict[str, Any]], kind: str) -> None:
 def run_mutations() -> None:
     cases: list[tuple[str, Callable[[list[dict[str, Any]]], None]]] = [
         ("gateway selector drift", lambda docs: docs[0]["spec"]["endpointSelector"]["matchLabels"].update({APP_LABEL: "hermes-agent"})),
-        ("broad ingress", lambda docs: docs[0]["spec"]["ingress"][0]["fromEndpoints"].append({})),
-        ("wrong SSH port", lambda docs: docs[0]["spec"]["ingress"][0]["toPorts"][0]["ports"][0].update({"port": "22"})),
+        ("missing hermes-agent ingress", lambda docs: docs[0]["spec"]["ingress"].pop(0)),
+        ("broad hermes-agent ingress", lambda docs: docs[0]["spec"]["ingress"][0]["fromEndpoints"].append({})),
+        ("hermes-agent selector drift", lambda docs: docs[0]["spec"]["ingress"][0]["fromEndpoints"][0]["matchLabels"].update({APP_LABEL: "other-agent"})),
+        ("hermes-agent SSH port drift", lambda docs: docs[0]["spec"]["ingress"][0]["toPorts"][0]["ports"][0].update({"port": "22"})),
+        ("missing Hestia node ingress", lambda docs: docs[0]["spec"]["ingress"].pop(1)),
+        ("wrong Hestia ingress node", lambda docs: docs[0]["spec"]["ingress"][1]["fromNodes"][0]["matchLabels"].update({"kubernetes.io/hostname": "heracles"})),
+        ("broad Hestia ingress node", lambda docs: docs[0]["spec"]["ingress"][1].update({"fromNodes": [{}]})),
+        ("Hestia ingress fromEntities substitution", lambda docs: replace_peer(docs, 1, "fromNodes", "fromEntities", ["host"], "ingress")),
+        ("wrong Hestia ingress port", lambda docs: docs[0]["spec"]["ingress"][1]["toPorts"][0]["ports"][0].update({"port": "22"})),
+        ("extra Hestia ingress port", lambda docs: docs[0]["spec"]["ingress"][1]["toPorts"][0]["ports"].append({"port": "443", "protocol": "TCP"})),
+        ("wrong Hestia ingress protocol", lambda docs: docs[0]["spec"]["ingress"][1]["toPorts"][0]["ports"][0].update({"protocol": "UDP"})),
+        ("extra Hestia ingress protocol", lambda docs: docs[0]["spec"]["ingress"][1]["toPorts"][0]["ports"].append({"port": "2222", "protocol": "UDP"})),
         ("missing DNS UDP", lambda docs: docs[0]["spec"]["egress"][0]["toPorts"][0]["ports"].pop(0)),
         ("missing DNS TCP", lambda docs: docs[0]["spec"]["egress"][0]["toPorts"][0]["ports"].pop()),
         ("private CIDR exception removal", lambda docs: docs[0]["spec"]["egress"][1]["toCIDRSet"][0]["except"].remove("10.0.0.0/8")),
