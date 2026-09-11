@@ -15,6 +15,13 @@ spec:
     - ports:
       - port: "2222"
         protocol: TCP
+  - fromNodes:
+    - matchLabels:
+        kubernetes.io/hostname: hestia
+    toPorts:
+    - ports:
+      - port: "2222"
+        protocol: TCP
   egress:
   - toEndpoints:
     - matchLabels:
