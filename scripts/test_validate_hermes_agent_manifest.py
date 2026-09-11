@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate the minimal Hermes Agent activation desired state."""
+"""Validate the minimal Hermes Agent authority desired state."""
 
 from __future__ import annotations
 
@@ -64,6 +64,36 @@ def document(rendered: str, kind: str, name: str) -> str:
     return matches[0]
 
 
+def top_level_sequence(resource: str, field: str) -> str:
+    lines = resource.splitlines()
+    try:
+        start = lines.index(f"{field}:")
+    except ValueError:
+        fail(f"missing {field} sequence")
+    end = start + 1
+    while end < len(lines) and lines[end].startswith((" ", "-")):
+        end += 1
+    return "\n".join(lines[start:end])
+
+
+def validate_hestia_authority(deployment: str, webhook: str, static_slice: str) -> None:
+    replicas = re.findall(r"^  replicas: (\S+)$", deployment, re.MULTILINE)
+    if replicas != ["0"]:
+        fail(f"Hestia authority requires exactly zero Kubernetes replicas: {replicas!r}")
+    if re.search(r"^  selector:", webhook, re.MULTILINE):
+        fail("Hestia authority requires a selectorless webhook Service")
+    require(static_slice, "addressType: IPv4", "static EndpointSlice address type")
+    require(static_slice, "kubernetes.io/service-name: hermes-webhook", "static EndpointSlice service identity")
+    require(static_slice, "app.kubernetes.io/name: hermes-webhook", "static EndpointSlice app identity")
+    require(static_slice, "app.kubernetes.io/component: automation", "static EndpointSlice component identity")
+    expected_ports = "ports:\n- name: http\n  port: 8644\n  protocol: TCP"
+    if top_level_sequence(static_slice, "ports") != expected_ports:
+        fail("static EndpointSlice must retain the exact webhook port")
+    expected_endpoint = "endpoints:\n- addresses:\n  - 192.168.1.5\n  conditions:\n    ready: true"
+    if top_level_sequence(static_slice, "endpoints") != expected_endpoint:
+        fail("static EndpointSlice must route solely and ready to Hestia 192.168.1.5")
+
+
 def validate() -> None:
     rendered = render(APP)
     observability = render(OBSERVABILITY)
@@ -74,7 +104,7 @@ def validate() -> None:
     static_slice = document(observability, "EndpointSlice", "hermes-webhook-hestia")
     sources = "\n".join(path.read_text() for path in sorted(APP.glob("*.yaml")))
 
-    require(deployment, "replicas: 1", "active replica count")
+    validate_hestia_authority(deployment, webhook, static_slice)
     require(deployment, "type: Recreate", "Recreate strategy")
     require(deployment, "kubernetes.io/hostname: hestia", "Hestia node selection")
     direct = "command:\n        - /opt/hermes/docker/entrypoint-dispatch.sh\n        - gateway\n        - run"
@@ -240,13 +270,11 @@ def validate() -> None:
         fail("Hermes Service has external exposure")
 
     require(webhook, "type: ClusterIP", "webhook ClusterIP service")
-    require(webhook, "selector:\n    app.kubernetes.io/name: hermes-agent", "native webhook selector")
-    require(static_slice, "endpoints: []", "inert static EndpointSlice")
     slice_source = (OBSERVABILITY / "endpointslice-default-hermes-webhook.yaml").read_text()
-    if "192.168.1.5" in static_slice or "kustomize.toolkit.fluxcd.io/prune: disabled" in slice_source:
-        fail("static EndpointSlice retains the Hestia route or prune-disabled annotation")
+    if "kustomize.toolkit.fluxcd.io/prune: disabled" in slice_source:
+        fail("static EndpointSlice retains the prune-disabled annotation")
     kustomization = (OBSERVABILITY / "kustomization.yaml").read_text()
-    require(kustomization, "- endpointslice-default-hermes-webhook.yaml", "inert EndpointSlice reference")
+    require(kustomization, "- endpointslice-default-hermes-webhook.yaml", "static EndpointSlice reference")
 
     kinds = re.findall(r"^kind: (\S+)$", rendered, re.MULTILINE)
     if set(kinds) != {"Deployment", "PersistentVolumeClaim", "Service"} or len(kinds) != 3:
