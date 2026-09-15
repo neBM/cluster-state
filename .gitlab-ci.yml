@@ -258,7 +258,7 @@ package:hermes-workspace:amd64:
   needs: []
   tags:
     - amd64
-  image: quay.io/buildah/stable@sha256:56e6ebc9bb71c8303b1968fb51304d3512e14a1b8c730bd0b27ebdf772a34ceb
+  image: quay.io/buildah/stable@sha256:2d2992785d226ffb6ef07f10bb3894d4b9997b86065a662245ca0a7a6028e79d
   variables:
     GIT_STRATEGY: fetch
     GIT_DEPTH: "1"
@@ -313,7 +313,7 @@ package:hermes-workspace:arm64:
   needs: []
   tags:
     - arm64
-  image: quay.io/buildah/stable@sha256:56e6ebc9bb71c8303b1968fb51304d3512e14a1b8c730bd0b27ebdf772a34ceb
+  image: quay.io/buildah/stable@sha256:2d2992785d226ffb6ef07f10bb3894d4b9997b86065a662245ca0a7a6028e79d
   variables:
     GIT_STRATEGY: fetch
     GIT_DEPTH: "1"
@@ -368,7 +368,7 @@ verify:hermes-workspace:amd64:
   needs: []
   tags:
     - amd64
-  image: quay.io/buildah/stable@sha256:56e6ebc9bb71c8303b1968fb51304d3512e14a1b8c730bd0b27ebdf772a34ceb
+  image: quay.io/buildah/stable@sha256:2d2992785d226ffb6ef07f10bb3894d4b9997b86065a662245ca0a7a6028e79d
   variables:
     GIT_STRATEGY: fetch
     GIT_DEPTH: "1"
@@ -408,7 +408,7 @@ verify:hermes-workspace:arm64:
   needs: []
   tags:
     - arm64
-  image: quay.io/buildah/stable@sha256:56e6ebc9bb71c8303b1968fb51304d3512e14a1b8c730bd0b27ebdf772a34ceb
+  image: quay.io/buildah/stable@sha256:2d2992785d226ffb6ef07f10bb3894d4b9997b86065a662245ca0a7a6028e79d
   variables:
     GIT_STRATEGY: fetch
     GIT_DEPTH: "1"
@@ -452,7 +452,7 @@ publish:hermes-workspace:index:
       artifacts: true
     - job: validate:manifests
       artifacts: false
-  image: quay.io/buildah/stable@sha256:56e6ebc9bb71c8303b1968fb51304d3512e14a1b8c730bd0b27ebdf772a34ceb
+  image: quay.io/buildah/stable@sha256:2d2992785d226ffb6ef07f10bb3894d4b9997b86065a662245ca0a7a6028e79d
   variables:
     GIT_STRATEGY: fetch
     GIT_DEPTH: "1"
@@ -514,7 +514,6 @@ publish:hermes-workspace:index:
       - infrastructure/**/*
       - renovate.json
       - scripts/hestia-firewalld-setup.sh
-      - scripts/hermes-agent-cutover.sh
       - scripts/test_factorio_startup.sh
       - scripts/test_hestia_firewalld_setup.sh
       - scripts/test_restic_backup.sh
@@ -523,7 +522,6 @@ publish:hermes-workspace:index:
       - scripts/test_matrix_synapse_config.py
       - scripts/test_matrix_synapse_config.py.lock
       - scripts/test_validate_factorio_manifest.py
-      - scripts/test_validate_hermes_agent_manifest.py
       - scripts/test_validate_hermes_workspace_image.py
       - scripts/verify_hermes_workspace_image.sh
       - scripts/test_validate_hestia_ci_store_gc_alert.py
@@ -551,7 +549,6 @@ publish:hermes-workspace:index:
       - infrastructure/**/*
       - renovate.json
       - scripts/hestia-firewalld-setup.sh
-      - scripts/hermes-agent-cutover.sh
       - scripts/test_factorio_startup.sh
       - scripts/test_hestia_firewalld_setup.sh
       - scripts/test_restic_backup.sh
@@ -560,7 +557,6 @@ publish:hermes-workspace:index:
       - scripts/test_matrix_synapse_config.py
       - scripts/test_matrix_synapse_config.py.lock
       - scripts/test_validate_factorio_manifest.py
-      - scripts/test_validate_hermes_agent_manifest.py
       - scripts/test_validate_hermes_workspace_image.py
       - scripts/verify_hermes_workspace_image.sh
       - scripts/test_validate_hestia_ci_store_gc_alert.py

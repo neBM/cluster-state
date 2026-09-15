@@ -8,13 +8,6 @@ spec:
     matchLabels:
       app.kubernetes.io/name: hermes-workspace
   ingress:
-  - fromEndpoints:
-    - matchLabels:
-        app.kubernetes.io/name: hermes-agent
-    toPorts:
-    - ports:
-      - port: "2222"
-        protocol: TCP
   - fromNodes:
     - matchLabels:
         kubernetes.io/hostname: hestia
