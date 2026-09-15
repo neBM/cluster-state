@@ -29,8 +29,6 @@ resources:
 - mutatingwebhookconfiguration-vpa-webhook-config.yaml
 - deployment-kube-system-vpa-admission-controller.yaml
 - deployment-kube-system-vpa-recommender.yaml
-- deployment-kube-system-vpa-recommender-frugal.yaml
-- deployment-kube-system-vpa-recommender-performance.yaml
 - deployment-kube-system-vpa-updater.yaml
 
 images:
