@@ -32,7 +32,7 @@ Standalone downloads are version- and SHA-256-pinned for both native architectur
 | glab | 1.116.0 | `173cc61ea94c562f2ccd831f320d25b73982192e82810064552282482e3713ea` | `3e59a0c5db5b281c552543cc1018873ecdd551b07737cfdb932c6543aa39d88c` |
 | kubectl | v1.34.11 | `8efbb9435132a190920eb65a47a8c1ecf755ad85ab57a600c9bedbab460bb7a8` | `5b045a4712674c88a56fd98eef4285689738b7fbe8735e1b9ee3509521af5cb4` |
 
-All five image jobs use Buildah from the authenticated multi-architecture index `quay.io/buildah/stable@sha256:56e6ebc9bb71c8303b1968fb51304d3512e14a1b8c730bd0b27ebdf772a34ceb`. Merge-request verification runs once on each of the native `amd64` and `arm64` runners, verifies the locally built image with no registry login or publication, and then removes local Buildah state.
+All five image jobs use Buildah from the authenticated multi-architecture index `quay.io/buildah/stable@sha256:2d2992785d226ffb6ef07f10bb3894d4b9997b86065a662245ca0a7a6028e79d`. Merge-request verification runs once on each of the native `amd64` and `arm64` runners, verifies the locally built image with no registry login or publication, and then removes local Buildah state.
 
 On protected default-branch pipelines, the native package jobs build and verify once before pushing the architecture-separated transport tags `${CI_COMMIT_SHA}-amd64` and `${CI_COMMIT_SHA}-arm64`. Each leaf exports an exact repository-by-digest reference without a trailing newline. After both leaves and manifest validation succeed, an untagged metadata-only publisher lets Buildah add those two digest references to one Docker v2s2 multi-architecture manifest list/index and push it once under the full commit-SHA tag `${CI_COMMIT_SHA}`. Nothing in this pipeline publishes `latest` or a short-SHA tag.
 

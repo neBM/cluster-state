@@ -258,7 +258,7 @@ package:hermes-workspace:amd64:
   needs: []
   tags:
     - amd64
-  image: quay.io/buildah/stable@sha256:56e6ebc9bb71c8303b1968fb51304d3512e14a1b8c730bd0b27ebdf772a34ceb
+  image: quay.io/buildah/stable@sha256:2d2992785d226ffb6ef07f10bb3894d4b9997b86065a662245ca0a7a6028e79d
   variables:
     GIT_STRATEGY: fetch
     GIT_DEPTH: "1"
@@ -313,7 +313,7 @@ package:hermes-workspace:arm64:
   needs: []
   tags:
     - arm64
-  image: quay.io/buildah/stable@sha256:56e6ebc9bb71c8303b1968fb51304d3512e14a1b8c730bd0b27ebdf772a34ceb
+  image: quay.io/buildah/stable@sha256:2d2992785d226ffb6ef07f10bb3894d4b9997b86065a662245ca0a7a6028e79d
   variables:
     GIT_STRATEGY: fetch
     GIT_DEPTH: "1"
@@ -368,7 +368,7 @@ verify:hermes-workspace:amd64:
   needs: []
   tags:
     - amd64
-  image: quay.io/buildah/stable@sha256:56e6ebc9bb71c8303b1968fb51304d3512e14a1b8c730bd0b27ebdf772a34ceb
+  image: quay.io/buildah/stable@sha256:2d2992785d226ffb6ef07f10bb3894d4b9997b86065a662245ca0a7a6028e79d
   variables:
     GIT_STRATEGY: fetch
     GIT_DEPTH: "1"
@@ -408,7 +408,7 @@ verify:hermes-workspace:arm64:
   needs: []
   tags:
     - arm64
-  image: quay.io/buildah/stable@sha256:56e6ebc9bb71c8303b1968fb51304d3512e14a1b8c730bd0b27ebdf772a34ceb
+  image: quay.io/buildah/stable@sha256:2d2992785d226ffb6ef07f10bb3894d4b9997b86065a662245ca0a7a6028e79d
   variables:
     GIT_STRATEGY: fetch
     GIT_DEPTH: "1"
@@ -452,7 +452,7 @@ publish:hermes-workspace:index:
       artifacts: true
     - job: validate:manifests
       artifacts: false
-  image: quay.io/buildah/stable@sha256:56e6ebc9bb71c8303b1968fb51304d3512e14a1b8c730bd0b27ebdf772a34ceb
+  image: quay.io/buildah/stable@sha256:2d2992785d226ffb6ef07f10bb3894d4b9997b86065a662245ca0a7a6028e79d
   variables:
     GIT_STRATEGY: fetch
     GIT_DEPTH: "1"
