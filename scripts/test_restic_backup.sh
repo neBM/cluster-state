@@ -170,3 +170,117 @@ assert_contains forget "${maintenance_forget_dir}/restic.log"
 assert_not_contains check "${maintenance_forget_dir}/restic.log"
 
 printf 'restic backup script tests passed\n'
+
+# Reuse the repository's pinned PyYAML/uv toolchain for offline rendered checks.
+uv --no-config run --no-project --with PyYAML==6.0.3 python - "${repo_root}" <<'PY'
+import os
+from pathlib import Path
+import shutil
+import subprocess
+import sys
+import unittest
+
+import yaml
+
+root = Path(sys.argv[1])
+
+
+def render(path):
+    command = ["kustomize", "build"] if shutil.which("kustomize") else ["kubectl", "kustomize"]
+    output = subprocess.check_output(command + [str(root / path)], text=True,
+                                     env={**os.environ, "KUBECONFIG": "/dev/null"})
+    return {(doc["kind"], doc["metadata"]["name"]): doc for doc in yaml.safe_load_all(output)}
+
+
+restic = render("infrastructure/storage/restic-backup")
+grafana = render("infrastructure/observability-ui/grafana")
+policy = yaml.safe_load(restic["ConfigMap", "restic-backup-scripts"]["data"]["backup-policy.yaml"])
+sources = """dovecot-mailboxes-sw factorio-data-sw gitlab-repositories-sw gitlab-shared-sw
+    gitlab-uploads-sw glitchtip-uploads matrix-config-sw matrix-media-store-sw
+    matrix-synapse-data-sw matrix-whatsapp-data-sw nextcloud-config nextcloud-custom-apps
+    nextcloud-data vaultwarden-data-sw""".split()
+
+
+class ResticManifests(unittest.TestCase):
+    def test_existing_repository_is_statically_prebound_and_retained(self):
+        self.assertIn(("PersistentVolume", "restic-repository"), list(restic))
+        self.assertIn(("PersistentVolumeClaim", "restic-repository"), list(restic))
+        pv = restic["PersistentVolume", "restic-repository"]["spec"]
+        pvc = restic["PersistentVolumeClaim", "restic-repository"]
+        self.assertEqual(pv["nfs"], {"server": "192.168.1.10", "path": "/volume1/csi/backups/restic", "readOnly": False})
+        self.assertEqual(pv["mountOptions"], ["nfsvers=4.1", "hard", "timeo=600", "retrans=2"])
+        self.assertEqual(pv["persistentVolumeReclaimPolicy"], "Retain")
+        self.assertEqual(pv["claimRef"], {"name": "restic-repository", "namespace": "default"})
+        self.assertEqual(pvc["metadata"]["namespace"], "default")
+        self.assertEqual(pvc["spec"]["volumeName"], "restic-repository")
+        self.assertNotIn("nodeAffinity", pv)
+        for spec in (pv, pvc["spec"]):
+            self.assertEqual(spec["storageClassName"], "")
+            self.assertEqual(spec["accessModes"], ["ReadWriteMany"])
+            self.assertEqual(spec["volumeMode"], "Filesystem")
+        self.assertEqual(pv["capacity"], {"storage": "1Ti"})
+        self.assertEqual(pvc["spec"]["resources"]["requests"], {"storage": "1Ti"})
+
+    def test_jobs_share_writable_repository_without_hostname_pinning(self):
+        for suffix, memory, limit, schedule, script in (
+            ("critical-pvc-backup", "512Mi", "2Gi", "0 3 * * *", "backup-critical-pvc.sh"),
+            ("repo-maintenance", "256Mi", "1Gi", "0 7 * * 0", "maintenance.sh"),
+        ):
+            with self.subTest(job=suffix):
+                cronjob = restic["CronJob", "restic-" + suffix]["spec"]
+                job = cronjob["jobTemplate"]["spec"]
+                pod = job["template"]["spec"]
+                container, = pod["containers"]
+                volumes = {v["name"]: v for v in pod["volumes"]}
+                self.assertEqual(volumes["repo"], {"name": "repo", "persistentVolumeClaim": {"claimName": "restic-repository", "readOnly": False}})
+                self.assertFalse(any("hostPath" in v for v in pod["volumes"]))
+                self.assertFalse(pod.get("nodeSelector"))
+                self.assertNotIn("nodeName", pod)
+                self.assertNotIn("nodeAffinity", pod.get("affinity", {}))
+                self.assertEqual([m for m in container["volumeMounts"] if m["name"] == "repo"], [{"name": "repo", "mountPath": "/repo"}])
+                self.assertEqual(container["resources"], {"requests": {"cpu": "100m", "memory": memory}, "limits": {"cpu": "500m", "memory": limit}})
+                self.assertEqual(container["image"], "restic/restic:0.19.1")
+                self.assertEqual(container["command"], ["/bin/sh", "/config/" + script])
+                self.assertEqual(volumes["secrets"]["secret"]["secretName"], "restic-backup-secrets")
+                self.assertEqual(volumes["secrets"]["secret"]["items"], [{"key": "RESTIC_PASSWORD", "path": "password"}])
+                self.assertEqual((cronjob["schedule"], cronjob["timeZone"], cronjob["suspend"], cronjob["concurrencyPolicy"]), (schedule, "Europe/London", False, "Forbid"))
+                self.assertEqual((job["activeDeadlineSeconds"], job["backoffLimit"]), (14400, 0))
+
+    def test_source_scope_stays_readonly_and_out_of_maintenance(self):
+        for suffix, expected in (("critical-pvc-backup", sources), ("repo-maintenance", [])):
+            with self.subTest(job=suffix):
+                pod = restic["CronJob", "restic-" + suffix]["spec"]["jobTemplate"]["spec"]["template"]["spec"]
+                mounts = pod["containers"][0]["volumeMounts"]
+                self.assertEqual([m for m in mounts if m["name"] not in {"repo", "scripts", "secrets"}],
+                                 [{"name": s, "mountPath": "/data/" + s, "readOnly": True} for s in expected])
+                self.assertEqual([v for v in pod["volumes"] if v["name"] not in {"repo", "scripts", "secrets"}],
+                                 [{"name": s, "persistentVolumeClaim": {"claimName": s, "readOnly": True}} for s in expected])
+        self.assertEqual([i["pvc"] for i in policy["jobs"][0]["includes"]], sources)
+
+    def test_packaged_policy_describes_the_shared_repository(self):
+        self.assertNotIn("hostPath", policy["repository"])
+        self.assertEqual(policy["repository"]["persistentVolumeClaim"], "restic-repository")
+        self.assertEqual(policy["repository"]["mountPath"], "/repo")
+        self.assertEqual(policy["repository"]["nfs"], {"server": "192.168.1.10", "path": "/volume1/csi/backups/restic"})
+        self.assertEqual(policy["repository"]["secretName"], "restic-backup-secrets")
+        self.assertEqual(policy["repository"]["passwordFile"], "/secrets/password")
+
+    def test_provisioning_deletes_only_the_obsolete_alert_uid(self):
+        alerting, = [doc for (kind, name), doc in grafana.items() if kind == "ConfigMap" and name.startswith("grafana-alerting-")]
+        rules = yaml.safe_load(alerting["data"]["rules.yaml"])
+        self.assertEqual(rules["apiVersion"], 1)
+        self.assertEqual(rules.get("deleteRules"), [{"orgId": 1, "uid": "restic-critical-pvc-backup-stale-api"}])
+        uids = [rule["uid"] for group in rules["groups"] for rule in group["rules"]]
+        self.assertEqual(uids.count("restic-backup-stale-api"), 1)
+        self.assertNotIn("restic-critical-pvc-backup-stale-api", uids)
+        volumes = grafana["Deployment", "grafana"]["spec"]["template"]["spec"]["volumes"]
+        self.assertEqual(next(v for v in volumes if v["name"] == "alerting")["configMap"]["name"], alerting["metadata"]["name"])
+
+    def test_grafana_rollout_does_not_require_a_surge_pod(self):
+        deployment = grafana["Deployment", "grafana"]["spec"]
+        self.assertEqual(deployment["replicas"], 1)
+        self.assertEqual(deployment["strategy"], {"type": "Recreate"})
+
+
+unittest.main(argv=[sys.argv[0]], verbosity=2)
+PY

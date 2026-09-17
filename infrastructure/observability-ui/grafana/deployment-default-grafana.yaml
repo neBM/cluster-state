@@ -16,10 +16,8 @@ spec:
       app.kubernetes.io/instance: grafana
       app.kubernetes.io/name: grafana
   strategy:
-    rollingUpdate:
-      maxSurge: 25%
-      maxUnavailable: 25%
-    type: RollingUpdate
+    # Singleton SQLite/RWO storage: release the old Pod before provisioning rolls out.
+    type: Recreate
   template:
     metadata:
       annotations:

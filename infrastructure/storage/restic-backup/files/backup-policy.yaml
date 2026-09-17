@@ -5,7 +5,12 @@
 # restic-backup CronJob/PV/PVC has been removed.
 version: 1
 repository:
-  hostPath: /mnt/csi/backups/restic
+  # Retained static claim for the existing NAS repository; no data migration.
+  persistentVolumeClaim: restic-repository
+  mountPath: /repo
+  nfs:
+    server: 192.168.1.10
+    path: /volume1/csi/backups/restic
   secretName: restic-backup-secrets
   passwordFile: /secrets/password
 jobs:

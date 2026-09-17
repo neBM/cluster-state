@@ -10,7 +10,14 @@ This runbook covers the current storage stack. GlusterFS and NFS-Ganesha were re
 | SeaweedFS S3/COSI | Object buckets for backups, cache, and attachments | `infrastructure/storage/seaweedfs/cosi/` |
 | `local-path` / `local-path-retain` | Node-local RWO data, especially database-heavy services | `infrastructure/storage/storage-classes/` |
 | `synology-nfs-static` | Static read-only media shares | `apps/iris/`, `apps/media-centre/` |
-| `/mnt/csi/backups/restic` on Hestia | Restic repository host path for scoped SeaweedFS PVC backups and repository maintenance | `infrastructure/storage/restic-backup/` |
+| `restic-repository` static NFS PV/PVC | Existing `192.168.1.10:/volume1/csi/backups/restic` repository, mounted at `/repo` by both Restic CronJobs | `infrastructure/storage/restic-backup/` |
+
+The Restic claim is prebound, RWX, and `Retain`, with no dynamic provisioning.
+It exposes the same NAS directory previously mounted through Hestia's
+`/mnt/csi/backups/restic`; no data migration or new repository is needed. Both
+jobs can schedule without a hostname pin. The nominal `1Ti` PV/PVC size is
+Kubernetes bookkeeping, not reserved NAS space or a quota. `storage-backups`
+uses `prune: false`, so reverting the manifests does not remove this PV/PVC.
 
 ## First Checks
 
