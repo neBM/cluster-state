@@ -103,17 +103,15 @@ spec:
               readOnly: true
           dnsPolicy: ClusterFirst
           enableServiceLinks: true
-          nodeSelector:
-            kubernetes.io/hostname: hestia
           restartPolicy: Never
           schedulerName: default-scheduler
           securityContext: {}
           terminationGracePeriodSeconds: 30
           volumes:
-          - hostPath:
-              path: /mnt/csi/backups/restic
-              type: Directory
-            name: repo
+          - name: repo
+            persistentVolumeClaim:
+              claimName: restic-repository
+              readOnly: false
           - configMap:
               defaultMode: 493
               name: restic-backup-scripts

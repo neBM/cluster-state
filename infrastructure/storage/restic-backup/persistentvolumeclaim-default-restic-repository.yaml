@@ -1,0 +1,17 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  labels:
+    app: restic-backup
+  name: restic-repository
+  namespace: default
+spec:
+  accessModes:
+  - ReadWriteMany
+  resources:
+    requests:
+      # Matches the existing export's nominal PV capacity; not a NAS quota.
+      storage: 1Ti
+  storageClassName: ""
+  volumeMode: Filesystem
+  volumeName: restic-repository

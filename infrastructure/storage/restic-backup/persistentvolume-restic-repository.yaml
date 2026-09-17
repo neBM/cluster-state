@@ -1,0 +1,25 @@
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: restic-repository
+spec:
+  accessModes:
+  - ReadWriteMany
+  capacity:
+    # Nominal binding capacity only; this does not reserve NAS space or set a quota.
+    storage: 1Ti
+  claimRef:
+    name: restic-repository
+    namespace: default
+  mountOptions:
+  - nfsvers=4.1
+  - hard
+  - timeo=600
+  - retrans=2
+  nfs:
+    path: /volume1/csi/backups/restic
+    readOnly: false
+    server: 192.168.1.10
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: ""
+  volumeMode: Filesystem
