@@ -65,7 +65,8 @@ spec:
           terminationMessagePolicy: File
           volumeMounts:
             - mountPath: /config
-              mountPropagation: HostToContainer
+              # Host FUSE remounts must not hide the nested local database mount.
+              mountPropagation: None
               name: plex-config
             - mountPath: /config/Library/Application Support/Plex Media Server/Plug-in Support/Databases
               name: plex-data
