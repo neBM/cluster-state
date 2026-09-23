@@ -113,6 +113,7 @@ for path in "${paths[@]}"; do
 done
 
 "${repo_root}/scripts/validate_gitlab_runner_templates.py"
+uv --no-config run --script "${repo_root}/scripts/test_gitlab_runner_config.py"
 "${repo_root}/scripts/validate_shared_postgres_budget.py"
 uv --no-config run --locked --script "${repo_root}/scripts/validate_versioned_migration_jobs.py"
 uv --no-config run --locked --script "${repo_root}/scripts/test_validate_versioned_migration_jobs.py"

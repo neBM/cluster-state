@@ -12,7 +12,6 @@ configMapGenerator:
       app: gitlab-runner
       arch: any
   files:
-  - fragments/05-concurrent.toml
   - fragments/35-env-extra.toml
   - fragments/55-kubernetes-resources.toml
   - fragments/60-pull-policy.toml
@@ -27,5 +26,12 @@ configMapGenerator:
   - system-id.env
 resources:
 - ../../runner-base
+- deployment-default-gitlab-runner.yaml
 patches:
 - path: patch-deployment.yaml
+
+images:
+- name: "gitlab/gitlab-runner"
+  newTag: "v19.4.0"
+- name: "busybox"
+  newTag: "1.38"

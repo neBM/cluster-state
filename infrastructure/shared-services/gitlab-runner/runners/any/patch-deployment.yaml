@@ -12,15 +12,3 @@ spec:
     metadata:
       labels:
         arch: any
-    spec:
-      initContainers:
-      - env:
-        - name: RUNNER_NAME
-          value: k8s-any
-        - name: RUNNER_TOKEN
-          valueFrom:
-            secretKeyRef:
-              key: runner_token_any
-              name: gitlab-runner-secrets
-              optional: false
-        name: config-generator

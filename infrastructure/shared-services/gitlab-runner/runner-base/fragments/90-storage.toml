@@ -1,21 +1,19 @@
-# Fresh nodatacow-backed workspace so package installs and build outputs do not
-# hit btrfs copy-on-write on the control-plane root filesystem.
+# Node-local workspace; host preparation enables nodatacow where supported.
+# These paths do not imply storage isolation on every eligible node.
 [[runners.kubernetes.volumes.host_path]]
   name = "repo"
   mount_path = "/builds"
   host_path = "/var/lib/ci-builds-nocow"
   read_only = false
 
-# Fresh nodatacow-backed cache for build tool dependencies (Maven, Gradle,
-# pip, uv, npm, Bun).
+# Node-local cache for build tool dependencies (Maven, Gradle, pip, uv, npm, Bun).
 [[runners.kubernetes.volumes.host_path]]
   name = "ci-cache"
   mount_path = "/ci-cache"
   host_path = "/var/lib/ci-cache-nocow"
   read_only = false
 
-# Fresh nodatacow-backed container storage for buildah/podman base images and
-# writable layers.
+# Node-local container storage for buildah/podman base images and writable layers.
 [[runners.kubernetes.volumes.host_path]]
   name = "containers-storage"
   mount_path = "/var/lib/containers"

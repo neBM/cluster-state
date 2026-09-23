@@ -51,10 +51,7 @@ spec:
       - args:
         - |
           set -eu
-          for file in /template/[0-9][0-9]-*.toml; do
-            cat "$file"
-          done > /config/config.toml.template
-
+          umask 077
           bucket_info=/cosi/gitlab-runner-cache/BucketInfo
           parse_cosi_field() {
             sed -n "s/.*\"$1\"[[:space:]]*:[[:space:]]*\"\([^\"]*\)\".*/\1/p" "$bucket_info"
@@ -72,26 +69,69 @@ spec:
 
           cache_endpoint=${cache_endpoint#http://}
           cache_endpoint=${cache_endpoint#https://}
+          # Escape TOML basic strings first, then sed replacement metacharacters.
+          # Credentials remain in this init container; never enable shell tracing.
+          escape_replacement() {
+            printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g' | sed 's/[\\&|]/\\&/g'
+          }
+          cache_endpoint=$(escape_replacement "$cache_endpoint")
+          cache_bucket=$(escape_replacement "$cache_bucket")
+          cache_access_key=$(escape_replacement "$cache_access_key")
+          cache_secret_key=$(escape_replacement "$cache_secret_key")
 
-          sed \
-            -e "s|RUNNER_NAME_PLACEHOLDER|$RUNNER_NAME|g" \
-            -e "s|RUNNER_TOKEN_PLACEHOLDER|$RUNNER_TOKEN|g" \
-            -e "s|S3_SERVER_ADDRESS_PLACEHOLDER|$cache_endpoint|g" \
-            -e "s|S3_BUCKET_NAME_PLACEHOLDER|$cache_bucket|g" \
-            -e "s|MINIO_ACCESS_KEY_PLACEHOLDER|$cache_access_key|g" \
-            -e "s|MINIO_SECRET_KEY_PLACEHOLDER|$cache_secret_key|g" \
-            /config/config.toml.template > /config/config.toml
+          # Global options occur once; each lane contributes only its runner block.
+          cat /template/any/05-concurrent.toml /template/any/10-global.toml > /config/config.toml
+          for lane in amd64 any arm64 services; do
+            case "$lane" in
+              amd64) token=$RUNNER_TOKEN_AMD64 ;;
+              any) token=$RUNNER_TOKEN_ANY ;;
+              arm64) token=$RUNNER_TOKEN_ARM64 ;;
+              services) token=$RUNNER_TOKEN_SERVICES ;;
+            esac
+            if [ -z "$token" ]; then
+              echo "ERROR: missing runner token for $lane"
+              exit 1
+            fi
+            token=$(escape_replacement "$token")
+            cat /template/"$lane"/[2-9][0-9]-*.toml > /config/runner.template
+            sed \
+              -e "s|RUNNER_NAME_PLACEHOLDER|k8s-$lane|g" \
+              -e "s|RUNNER_TOKEN_PLACEHOLDER|$token|g" \
+              -e "s|S3_SERVER_ADDRESS_PLACEHOLDER|$cache_endpoint|g" \
+              -e "s|S3_BUCKET_NAME_PLACEHOLDER|$cache_bucket|g" \
+              -e "s|MINIO_ACCESS_KEY_PLACEHOLDER|$cache_access_key|g" \
+              -e "s|MINIO_SECRET_KEY_PLACEHOLDER|$cache_secret_key|g" \
+              /config/runner.template >> /config/config.toml
+          done
+          rm /config/runner.template
           cp /system-id/system_id /config/.runner_system_id
+          chmod 600 /config/config.toml /config/.runner_system_id
         command:
         - /bin/sh
         - -c
         env:
-        - name: RUNNER_NAME
-          value: CHANGEME
-        - name: RUNNER_TOKEN
+        - name: RUNNER_TOKEN_AMD64
           valueFrom:
             secretKeyRef:
-              key: runner_token_placeholder
+              key: runner_token_amd64
+              name: gitlab-runner-secrets
+              optional: false
+        - name: RUNNER_TOKEN_ANY
+          valueFrom:
+            secretKeyRef:
+              key: runner_token_any
+              name: gitlab-runner-secrets
+              optional: false
+        - name: RUNNER_TOKEN_ARM64
+          valueFrom:
+            secretKeyRef:
+              key: runner_token_arm64
+              name: gitlab-runner-secrets
+              optional: false
+        - name: RUNNER_TOKEN_SERVICES
+          valueFrom:
+            secretKeyRef:
+              key: runner_token_services
               name: gitlab-runner-secrets
               optional: false
         image: busybox
@@ -101,15 +141,26 @@ spec:
         terminationMessagePath: /dev/termination-log
         terminationMessagePolicy: File
         volumeMounts:
-        - mountPath: /template
+        - mountPath: /template/any
           mountPropagation: None
           name: config-template
+          readOnly: true
+        - mountPath: /template/amd64
+          name: config-template-amd64
+          readOnly: true
+        - mountPath: /template/arm64
+          name: config-template-arm64
+          readOnly: true
+        - mountPath: /template/services
+          name: config-template-services
+          readOnly: true
         - mountPath: /config
           mountPropagation: None
           name: config
         - mountPath: /system-id
           mountPropagation: None
           name: system-id
+          readOnly: true
         - mountPath: /cosi/gitlab-runner-cache
           name: gitlab-runner-cache-cosi
           readOnly: true
@@ -126,6 +177,18 @@ spec:
           name: gitlab-runner-config-template
           optional: false
         name: config-template
+      - name: config-template-amd64
+        configMap:
+          name: gitlab-runner-config-template-amd64
+          optional: false
+      - name: config-template-arm64
+        configMap:
+          name: gitlab-runner-config-template-arm64
+          optional: false
+      - name: config-template-services
+        configMap:
+          name: gitlab-runner-config-template-services
+          optional: false
       - configMap:
           defaultMode: 420
           name: gitlab-runner-system-id
