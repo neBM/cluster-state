@@ -127,7 +127,7 @@ EXPECTED_DEPLOYMENT = {
                         "readinessProbe": probe(5, 3),
                         "livenessProbe": probe(10, 3),
                         "resources": {
-                            "requests": {"cpu": "250m", "memory": "512Mi",
+                            "requests": {"cpu": "75m", "memory": "512Mi",
                                          "ephemeral-storage": "512Mi"},
                             "limits": {"cpu": "2", "memory": "4Gi",
                                        "ephemeral-storage": "4Gi"},
@@ -340,6 +340,7 @@ def run_mutations() -> None:
         ("network capability", lambda docs: main(docs)["securityContext"]["capabilities"]["add"].append("NET_RAW")),
         ("writable root", lambda docs: main(docs)["securityContext"].update(readOnlyRootFilesystem=False)),
         ("missing resource limits", lambda docs: main(docs)["resources"].pop("limits")),
+        ("old CPU request", lambda docs: main(docs)["resources"]["requests"].update(cpu="250m")),
         ("missing startup probe", lambda docs: main(docs).pop("startupProbe")),
         ("NodePort exposure", lambda docs: service(docs).update(type="NodePort")),
         ("wrong Service selector", lambda docs: service(docs).update(selector={APP_LABEL: "other"})),
