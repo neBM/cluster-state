@@ -3,5 +3,6 @@
   url = "https://git.brmartin.co.uk"
   token = "RUNNER_TOKEN_PLACEHOLDER"
   executor = "kubernetes"
+  limit = 1
   request_concurrency = 4
   builds_dir = "/builds"

@@ -9,6 +9,7 @@ configMapGenerator:
     labels:
       app: gitlab-runner
   files:
+  - fragments/05-concurrent.toml
   - fragments/10-global.toml
   - fragments/20-runner-header.toml
   - fragments/30-env-common.toml
@@ -17,11 +18,3 @@ configMapGenerator:
   - fragments/70-pod-labels-affinity.toml
   - fragments/90-storage.toml
   - fragments/95-cache.toml
-resources:
-- deployment-default-gitlab-runner.yaml
-
-images:
-- name: "gitlab/gitlab-runner"
-  newTag: "v19.4.0"
-- name: "busybox"
-  newTag: "1.38"
