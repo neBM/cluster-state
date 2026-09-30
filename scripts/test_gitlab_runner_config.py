@@ -116,6 +116,11 @@ class RunnerConfigTests(unittest.TestCase):
                     self.assertEqual(runner, expected, f"{lane} configuration changed during generation")
                     self.assertEqual(runner["limit"], 2 if lane == "any" else 1)
                     self.assertEqual(runner["request_concurrency"], 4)
+                    kubernetes = runner["kubernetes"]
+                    self.assertEqual(kubernetes["cpu_limit"], "2000m" if lane == "any" else "1000m")
+                    self.assertEqual(kubernetes["cpu_request"], {
+                        "amd64": "250m", "any": "500m", "arm64": "1000m", "services": "1000m"
+                    }[lane])
                 self.assertEqual(stat.S_IMODE(config_path.stat().st_mode), 0o600)
                 system_id = paths["/config"] / ".runner_system_id"
                 self.assertEqual(stat.S_IMODE(system_id.stat().st_mode), 0o600)
