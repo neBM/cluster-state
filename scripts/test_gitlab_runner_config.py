@@ -104,7 +104,7 @@ class RunnerConfigTests(unittest.TestCase):
                 self.assertEqual(result.stdout + result.stderr, b"", "generator must not log credentials")
                 config_path = paths["/config"] / "config.toml"
                 actual = tomllib.loads(config_path.read_text())
-                self.assertEqual(actual["concurrent"], 1)
+                self.assertEqual(actual["concurrent"], 2)
                 self.assertEqual(actual["check_interval"], 1)
                 self.assertEqual(actual["shutdown_timeout"], 0)
                 self.assertEqual(actual["session_server"], {"session_timeout": 1800})
