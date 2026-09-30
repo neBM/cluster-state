@@ -11,6 +11,17 @@ configMapGenerator:
     labels:
       app: gitlab-runner
       arch: any
+  # Override the shared header only for the generic registration.
+  literals:
+  - |
+    20-runner-header.toml=[[runners]]
+      name = "RUNNER_NAME_PLACEHOLDER"
+      url = "https://git.brmartin.co.uk"
+      token = "RUNNER_TOKEN_PLACEHOLDER"
+      executor = "kubernetes"
+      limit = 2
+      request_concurrency = 4
+      builds_dir = "/builds"
   files:
   - fragments/35-env-extra.toml
   - fragments/55-kubernetes-resources.toml

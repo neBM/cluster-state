@@ -111,10 +111,10 @@ class RunnerConfigTests(unittest.TestCase):
                 self.assertEqual(len(actual["runners"]), 4)
                 for lane, runner in zip(LANES, actual["runners"], strict=True):
                     expected = tomllib.loads(load_template(RUNNERS / "runner-base", RUNNERS / "runners" / lane))["runners"][0]
-                    expected.update(name=f"k8s-{lane}", token=tokens[f"RUNNER_TOKEN_{lane.upper()}"])
+                    expected.update(name=f"k8s-{lane}", token=tokens[f"RUNNER_TOKEN_{lane.upper()}"], limit=2 if lane == "any" else 1)
                     expected["cache"]["s3"].update(ServerAddress="s3.example:8333", BucketName=bucket["bucketName"], AccessKey=access, SecretKey=secret)
                     self.assertEqual(runner, expected, f"{lane} configuration changed during generation")
-                    self.assertEqual(runner["limit"], 1)
+                    self.assertEqual(runner["limit"], 2 if lane == "any" else 1)
                     self.assertEqual(runner["request_concurrency"], 4)
                 self.assertEqual(stat.S_IMODE(config_path.stat().st_mode), 0o600)
                 system_id = paths["/config"] / ".runner_system_id"
