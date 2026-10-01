@@ -62,8 +62,8 @@ spec:
           limits:
             memory: 512Mi
           requests:
-            cpu: 200m
-            memory: 256Mi
+            cpu: 100m
+            memory: 192Mi
         terminationMessagePath: /dev/termination-log
         terminationMessagePolicy: File
         volumeMounts:

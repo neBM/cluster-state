@@ -22,6 +22,18 @@ resources:
 - kustomization-temporal-schema-upgrade.yaml
 - kustomization-temporal.yaml
 
+patches:
+- target:
+    group: apps
+    version: v1
+    kind: Deployment
+    name: notification-controller
+    namespace: flux-system
+  patch: |-
+    - op: replace
+      path: /spec/template/spec/containers/0/resources/requests/cpu
+      value: 50m
+
 images:
 - name: "ghcr.io/fluxcd/source-controller"
   newTag: "v1.9.6"
