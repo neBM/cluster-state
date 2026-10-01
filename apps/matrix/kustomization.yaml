@@ -41,7 +41,7 @@ images:
 - name: "docker.io/vectorim/element-web"
   newTag: "v1.12.29"
 - name: "oci.element.io/element-admin"
-  newTag: "latest"
+  digest: "sha256:b5d2b3165b1039248dc99ffe3d2c1788ea03be0ea2149b94c281a37052f9816d"
 - name: "ghcr.io/element-hq/matrix-authentication-service"
   newTag: "1.25.1"
 - name: "busybox"
