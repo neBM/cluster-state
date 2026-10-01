@@ -24,8 +24,8 @@ resources:
 
 images:
 - name: "ghcr.io/fluxcd/source-controller"
-  newTag: "v1.9.5"
+  newTag: "v1.9.6"
 - name: "ghcr.io/fluxcd/kustomize-controller"
-  newTag: "v1.9.5"
+  newTag: "v1.9.6"
 - name: "ghcr.io/fluxcd/notification-controller"
   newTag: "v1.9.4"
