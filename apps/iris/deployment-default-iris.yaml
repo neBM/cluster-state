@@ -56,8 +56,14 @@ spec:
           value: Movies:/media/downloads/media/Movies,TV:/media/downloads/media/TV
         - name: IMAGE_CACHE_DIR
           value: /data/iris/images
-        - name: HLS_TMP_BASE_DIR
-          value: /data/iris/hls-sessions
+        - name: STREAM_WORKER_CONTROL_ADDR
+          value: iris-stream-worker.default.svc.cluster.local:9090
+        - name: STREAM_WORKER_MEDIA_URL
+          value: http://iris-stream-worker.default.svc.cluster.local:9091
+        - name: STREAM_WORKER_HARDWARE_POLICY
+          value: preferred
+        - name: STREAM_WORKER_SOFTWARE_FALLBACK_ALLOWED
+          value: 'true'
         - name: DB_MAX_CONNS
           value: '6'
         - name: MAX_CONCURRENT_SESSIONS
@@ -152,8 +158,6 @@ spec:
           successThreshold: 1
           timeoutSeconds: 1
         resources:
-          claims:
-          - name: transcode
           limits:
             memory: 1Gi
           requests:
@@ -174,9 +178,6 @@ spec:
         - mountPath: /data/iris/images
           mountPropagation: HostToContainer
           name: image-cache
-        - mountPath: /data/iris/hls-sessions
-          mountPropagation: None
-          name: hls-tmp
         - mountPath: /media
           mountPropagation: None
           name: media
@@ -189,9 +190,6 @@ spec:
       enableServiceLinks: true
       imagePullSecrets:
       - name: gitlab-registry
-      resourceClaims:
-      - name: transcode
-        resourceClaimName: iris-transcode
       restartPolicy: Always
       schedulerName: default-scheduler
       securityContext: {}
@@ -201,8 +199,6 @@ spec:
       - name: image-cache
         persistentVolumeClaim:
           claimName: iris-image-cache-windsor
-      - emptyDir: {}
-        name: hls-tmp
       - name: media
         persistentVolumeClaim:
           claimName: iris-synology-media

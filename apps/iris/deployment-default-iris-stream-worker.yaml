@@ -1,0 +1,120 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: iris-stream-worker
+  namespace: default
+  labels:
+    app: iris
+    component: stream-worker
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: iris
+      component: stream-worker
+      managed-by: terraform
+  template:
+    metadata:
+      labels:
+        app: iris
+        component: stream-worker
+        managed-by: terraform
+    spec:
+      automountServiceAccountToken: false
+      nodeSelector:
+        kubernetes.io/hostname: hestia
+      schedulerName: default-scheduler
+      imagePullSecrets:
+      - name: gitlab-registry
+      resourceClaims:
+      - name: gpu
+        resourceClaimName: hestia-gpu
+      terminationGracePeriodSeconds: 30
+      containers:
+      - name: iris-stream-worker
+        image: registry.brmartin.co.uk/ben/iris
+        imagePullPolicy: Always
+        command:
+        - /usr/local/bin/iris-stream-worker
+        args:
+        - -worker-id=iris-stream-worker
+        - -roots=/media/downloads/media/Movies,/media/downloads/media/TV
+        - -output=/data/iris/hls-sessions
+        - -control-listen=0.0.0.0:9090
+        - -health-listen=0.0.0.0:9091
+        - -capacity=1
+        - -startup-timeout=1m
+        - -probe-timeout=5s
+        - -shutdown-timeout=15s
+        ports:
+        - name: grpc
+          containerPort: 9090
+          protocol: TCP
+        - name: http
+          containerPort: 9091
+          protocol: TCP
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop: [ALL]
+        resources:
+          claims:
+          - name: gpu
+          requests:
+            cpu: 250m
+            memory: 256Mi
+            ephemeral-storage: 256Mi
+          limits:
+            memory: 1Gi
+            ephemeral-storage: 3Gi
+        startupProbe:
+          httpGet:
+            path: /livez
+            port: http
+            scheme: HTTP
+          failureThreshold: 30
+          periodSeconds: 5
+          timeoutSeconds: 2
+        livenessProbe:
+          httpGet:
+            path: /livez
+            port: http
+            scheme: HTTP
+          failureThreshold: 3
+          periodSeconds: 10
+          timeoutSeconds: 2
+        readinessProbe:
+          httpGet:
+            path: /readyz
+            port: http
+            scheme: HTTP
+          failureThreshold: 3
+          periodSeconds: 5
+          timeoutSeconds: 2
+        volumeMounts:
+        - name: media
+          mountPath: /media
+          mountPropagation: None
+          readOnly: true
+        - name: media-tv
+          mountPath: /media/downloads/media/TV
+          mountPropagation: None
+          readOnly: true
+        # Mounting the volume at the exact root creates the startup directory.
+        - name: hls-tmp
+          mountPath: /data/iris/hls-sessions
+          mountPropagation: None
+      volumes:
+      - name: media
+        persistentVolumeClaim:
+          claimName: iris-synology-media
+          readOnly: true
+      - name: media-tv
+        persistentVolumeClaim:
+          claimName: media-windsor-tv
+          readOnly: true
+      - name: hls-tmp
+        emptyDir:
+          sizeLimit: 2Gi

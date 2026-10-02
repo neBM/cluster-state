@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -222,6 +223,117 @@ def verify_strict_equal_alias_rejection() -> None:
             )
 
 
+def verify_remote_worker(resources: list[dict[str, Any]]) -> None:
+    # Structural checks only: image syntax/equality is not release admission.
+    worker = one(resources, "Deployment", "iris-stream-worker", "default")
+    api = one(resources, "Deployment", "iris", "default")
+    pod = worker["spec"]["template"]["spec"]
+    container = named(pod["containers"], "worker containers")["iris-stream-worker"]
+    api_pod = api["spec"]["template"]["spec"]
+    api_container = named(api_pod["containers"], "API containers")["iris"]
+    worker_labels = {"app": "iris", "component": "stream-worker", "managed-by": "terraform"}
+    for deployment, labels in (
+        (worker, worker_labels),
+        (api, {"app": "iris", "component": "server", "managed-by": "terraform"}),
+    ):
+        strict_equal(deployment["spec"]["replicas"], 1, "singleton")
+        strict_equal(deployment["spec"]["strategy"], {"type": "Recreate"}, "strategy")
+        strict_equal(deployment["spec"]["selector"], {"matchLabels": labels}, "selector")
+        strict_equal(deployment["spec"]["template"]["metadata"]["labels"], labels, "pod labels")
+    strict_equal(len(pod["containers"]), 1, "worker container count")
+    strict_equal(pod["nodeSelector"], {"kubernetes.io/hostname": "hestia"}, "worker placement")
+    strict_equal(pod["schedulerName"], "default-scheduler", "worker scheduler")
+    strict_equal(pod["resourceClaims"], [{"name": "gpu", "resourceClaimName": "hestia-gpu"}], "shared DRA")
+    strict_equal(pod["automountServiceAccountToken"], False, "worker API token")
+    strict_equal(pod["imagePullSecrets"], [{"name": "gitlab-registry"}], "worker registry auth")
+    strict_equal(pod["terminationGracePeriodSeconds"], 30, "worker drain grace")
+    for field in ("nodeName", "runtimeClassName", "hostNetwork", "hostPID", "hostIPC", "initContainers", "shareProcessNamespace"):
+        if pod.get(field):
+            raise AssertionError(f"worker must not enable {field}")
+    for field in ("env", "envFrom", "lifecycle"):
+        if container.get(field):
+            raise AssertionError(f"worker must not inherit {field}")
+    strict_equal(container["securityContext"], {"allowPrivilegeEscalation": False, "capabilities": {"drop": ["ALL"]}}, "worker security")
+    strict_equal(container["command"], ["/usr/local/bin/iris-stream-worker"], "worker entrypoint")
+    strict_equal(container["args"], [
+        "-worker-id=iris-stream-worker",
+        "-roots=/media/downloads/media/Movies,/media/downloads/media/TV",
+        "-output=/data/iris/hls-sessions",
+        "-control-listen=0.0.0.0:9090", "-health-listen=0.0.0.0:9091",
+        "-capacity=1", "-startup-timeout=1m", "-probe-timeout=5s", "-shutdown-timeout=15s",
+    ], "worker CLI")
+    strict_equal(container["ports"], [
+        {"containerPort": 9090, "name": "grpc", "protocol": "TCP"},
+        {"containerPort": 9091, "name": "http", "protocol": "TCP"},
+    ], "worker private ports")
+    strict_equal(container["resources"], {
+        "claims": [{"name": "gpu"}],
+        "requests": {"cpu": "250m", "memory": "256Mi", "ephemeral-storage": "256Mi"},
+        "limits": {"memory": "1Gi", "ephemeral-storage": "3Gi"},
+    }, "worker initial resource envelope (not measured sizing)")
+    for probe, path in (("startupProbe", "/livez"), ("livenessProbe", "/livez"), ("readinessProbe", "/readyz")):
+        strict_equal(container[probe]["httpGet"], {"path": path, "port": "http", "scheme": "HTTP"}, f"worker {probe}")
+    mounts = named(container["volumeMounts"], "worker mounts")
+    volumes = named(pod["volumes"], "worker volumes")
+    strict_equal(sorted(mounts), ["hls-tmp", "media", "media-tv"], "worker mount allowlist")
+    strict_equal(sorted(volumes), sorted(mounts), "worker volume allowlist")
+    api_mounts = named(api_container["volumeMounts"], "API mounts")
+    api_volumes = named(api_pod["volumes"], "API volumes")
+    for name in ("media", "media-tv"):
+        strict_equal(mounts[name], api_mounts[name], f"worker {name} read-only canonical mount")
+        strict_equal(volumes[name], api_volumes[name], f"worker {name} read-only canonical PVC")
+    strict_equal(mounts["hls-tmp"], {"name": "hls-tmp", "mountPath": "/data/iris/hls-sessions", "mountPropagation": "None"}, "worker output directory mount")
+    strict_equal(volumes["hls-tmp"], {"name": "hls-tmp", "emptyDir": {"sizeLimit": "2Gi"}}, "worker disk output")
+    strict_equal(sorted(api_mounts), ["image-cache", "media", "media-tv"], "API retained mounts")
+    strict_equal(sorted(api_volumes), sorted(api_mounts), "API retained volumes")
+    strict_equal(api_volumes["image-cache"], {"name": "image-cache", "persistentVolumeClaim": {"claimName": "iris-image-cache-windsor"}}, "API image cache")
+    strict_equal(api_container["resources"], {"requests": {"cpu": "100m", "memory": "256Mi"}, "limits": {"memory": "1Gi"}}, "API unchanged resources and no DRA")
+    for field in ("resourceClaims", "nodeSelector", "affinity", "nodeName", "runtimeClassName"):
+        if api_pod.get(field):
+            raise AssertionError(f"API must remain hardware-placement-independent: {field}")
+    env = named(api_container["env"], "API env")
+    for name, value in {
+        "STREAM_WORKER_CONTROL_ADDR": "iris-stream-worker.default.svc.cluster.local:9090",
+        "STREAM_WORKER_MEDIA_URL": "http://iris-stream-worker.default.svc.cluster.local:9091",
+        "STREAM_WORKER_HARDWARE_POLICY": "preferred",
+        "STREAM_WORKER_SOFTWARE_FALLBACK_ALLOWED": "true",
+        "TRANSCODE_WORKERS": "1",  # Retained batch queue, not live stream ownership.
+    }.items():
+        strict_equal(env.get(name), {"name": name, "value": value}, f"API {name}")
+    if "HLS_TMP_BASE_DIR" in env:
+        raise AssertionError("API must not configure worker-local HLS output")
+    image = api_container["image"]
+    if re.fullmatch(r"registry\.brmartin\.co\.uk/ben/iris@sha256:[0-9a-f]{64}", image) is None:
+        raise AssertionError("API image must use an immutable Iris digest")
+    strict_equal(container["image"], image, "API/worker atomic image binding")
+    service = one(resources, "Service", "iris-stream-worker", "default")
+    strict_equal(service["spec"], {
+        "type": "ClusterIP", "selector": worker_labels,
+        "ports": [{"name": "grpc", "port": 9090, "targetPort": "grpc", "protocol": "TCP"},
+                  {"name": "http", "port": 9091, "targetPort": "http", "protocol": "TCP"}],
+    }, "private worker Service")
+    policy = one(resources, "CiliumNetworkPolicy", "iris-stream-worker", "default")
+    strict_equal(policy["spec"], {
+        "endpointSelector": {"matchLabels": worker_labels},
+        "ingress": [
+            {"fromEndpoints": [{"matchLabels": {
+                "app": "iris", "component": "server", "managed-by": "terraform",
+                "k8s:io.kubernetes.pod.namespace": "default",
+            }}], "toPorts": [{"ports": [{"port": "9090", "protocol": "TCP"}, {"port": "9091", "protocol": "TCP"}]}]},
+            {"fromEntities": ["host"], "toPorts": [{"ports": [{"port": "9091", "protocol": "TCP"}]}]},
+        ],
+    }, "API-only ingress plus node health port (no host control)")
+    for resource in resources:
+        if resource["kind"] == "ResourceClaimTemplate" and resource["metadata"]["name"].startswith("iris"):
+            raise AssertionError("Iris must reuse static sharing, not allocate a new claim template")
+        if resource["kind"] == "Ingress":
+            for rule in resource.get("spec", {}).get("rules", []):
+                for path in rule.get("http", {}).get("paths", []):
+                    if path.get("backend", {}).get("service", {}).get("name") == "iris-stream-worker":
+                        raise AssertionError("worker must not have a public Ingress")
+    one(resources, "ResourceClaim", "iris-transcode", "default")  # Retained rollback allocation.
+
+
 def main() -> int:
     verify_strict_equal_alias_rejection()
     resources = render_apps()
@@ -402,7 +514,8 @@ def main() -> int:
         "PersistentVolume/media-windsor-tv Windsor source",
     )
 
-    print("Iris MEDIA_DIRS and nested read-only Windsor TV mount validation passed")
+    verify_remote_worker(resources)
+    print("Iris media mounts and remote-worker manifest structure validation passed (not image/runtime admission)")
     return 0
 
 

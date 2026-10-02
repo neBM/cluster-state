@@ -1,0 +1,32 @@
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: iris-stream-worker
+  namespace: default
+spec:
+  endpointSelector:
+    matchLabels:
+      app: iris
+      component: stream-worker
+      managed-by: terraform
+  ingress:
+  - fromEndpoints:
+    - matchLabels:
+        app: iris
+        component: server
+        managed-by: terraform
+        k8s:io.kubernetes.pod.namespace: default
+    toPorts:
+    - ports:
+      - port: '9090'
+        protocol: TCP
+      - port: '9091'
+        protocol: TCP
+  # Explicit node/kubelet health access; never grant host gRPC control.
+  # Cilium allow-localhost settings may additionally bypass local-host policy.
+  - fromEntities:
+    - host
+    toPorts:
+    - ports:
+      - port: '9091'
+        protocol: TCP

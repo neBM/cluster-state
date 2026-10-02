@@ -1,6 +1,9 @@
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 resources:
+- ciliumnetworkpolicy-default-iris-stream-worker.yaml
+- service-default-iris-stream-worker.yaml
+- deployment-default-iris-stream-worker.yaml
 - deployment-default-iris.yaml
 - deployment-default-iris-valkey.yaml
 - ingress-default-iris.yaml
@@ -12,7 +15,10 @@ resources:
 - service-default-iris-valkey.yaml
 
 images:
+# Admitted protected-main Iris build e3bf21bb06a6537ae0f3ff8f42b8c1aecc0d26ff (pipeline 8108).
+# This single image transform binds BOTH API and worker to the admitted index.
+# Stage live activation separately; image binding is not runtime qualification.
 - name: "registry.brmartin.co.uk/ben/iris"
-  digest: "sha256:42f138b3650cee80e5f9970f730fac5e20bd04ff64e215a5ca533aea86a9021e"
+  digest: "sha256:6760826e7cc07fc77159719af2a2dfc0912cb9d008a3f1541d26d9f5bfa666cf"
 - name: "valkey/valkey"
   newTag: "9-alpine"
