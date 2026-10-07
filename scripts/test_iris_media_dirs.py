@@ -295,11 +295,14 @@ def verify_remote_worker(resources: list[dict[str, Any]]) -> None:
     for name, value in {
         "STREAM_WORKER_CONTROL_ADDR": "iris-stream-worker.default.svc.cluster.local:9090",
         "STREAM_WORKER_MEDIA_URL": "http://iris-stream-worker.default.svc.cluster.local:9091",
-        "STREAM_WORKER_HARDWARE_POLICY": "preferred",
-        "STREAM_WORKER_SOFTWARE_FALLBACK_ALLOWED": "true",
+        "STREAM_WORKER_DECODE_POLICY": "preferred",
+        "STREAM_WORKER_ENCODE_POLICY": "preferred",
         "TRANSCODE_WORKERS": "1",  # Retained batch queue, not live stream ownership.
     }.items():
         strict_equal(env.get(name), {"name": name, "value": value}, f"API {name}")
+    for retired in ("STREAM_WORKER_HARDWARE_POLICY", "STREAM_WORKER_SOFTWARE_FALLBACK_ALLOWED"):
+        if retired in env:
+            raise AssertionError(f"API must not retain retired policy {retired}")
     if "HLS_TMP_BASE_DIR" in env:
         raise AssertionError("API must not configure worker-local HLS output")
     image = api_container["image"]

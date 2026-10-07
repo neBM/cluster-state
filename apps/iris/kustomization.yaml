@@ -15,10 +15,9 @@ resources:
 - service-default-iris-valkey.yaml
 
 images:
-# Protected-main Iris build eb306d6e2c933e65231e71f60d345dd823f7c610 (pipeline 8274); staged image binding.
-# This single image transform binds BOTH API and worker to the admitted index.
-# Stage live activation separately; image binding is not runtime qualification.
+# Qualified protected-main build a42c2e163927e688e155746a59ef103ab7ce8952 (pipeline 8307).
+# Bind API and worker to the same admitted index for the protocol-major-2 rollout.
 - name: "registry.brmartin.co.uk/ben/iris"
-  digest: "sha256:0751ffa3c93f415e626b0880914763bf2e2701b4120e67bdd739691a06439a00"
+  digest: "sha256:ce477c5c05fbfc6551ff40fa68e96d5c3101cccf2310ad44c0d271ec5c352b7f"
 - name: "valkey/valkey"
   newTag: "9-alpine"

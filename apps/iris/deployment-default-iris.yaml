@@ -60,10 +60,10 @@ spec:
           value: iris-stream-worker.default.svc.cluster.local:9090
         - name: STREAM_WORKER_MEDIA_URL
           value: http://iris-stream-worker.default.svc.cluster.local:9091
-        - name: STREAM_WORKER_HARDWARE_POLICY
+        - name: STREAM_WORKER_DECODE_POLICY
           value: preferred
-        - name: STREAM_WORKER_SOFTWARE_FALLBACK_ALLOWED
-          value: 'true'
+        - name: STREAM_WORKER_ENCODE_POLICY
+          value: preferred
         - name: DB_MAX_CONNS
           value: '6'
         - name: MAX_CONCURRENT_SESSIONS
