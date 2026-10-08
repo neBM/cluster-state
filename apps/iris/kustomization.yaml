@@ -15,9 +15,9 @@ resources:
 - service-default-iris-valkey.yaml
 
 images:
-# Qualified protected-main build a42c2e163927e688e155746a59ef103ab7ce8952 (pipeline 8307).
-# Bind API and worker to the same admitted index for the protocol-major-2 rollout.
+# Qualified protected-main build 9b71a5ee46369827da97b1bfeae1ded9c0f54597 (pipeline 8322).
+# Bind API and worker to the same admitted index for the fractional-resume fix.
 - name: "registry.brmartin.co.uk/ben/iris"
-  digest: "sha256:ce477c5c05fbfc6551ff40fa68e96d5c3101cccf2310ad44c0d271ec5c352b7f"
+  digest: "sha256:771706405d16164acb6d615ff44767974c8812634678383f0b9ecb4d94d91cdc"
 - name: "valkey/valkey"
   newTag: "9-alpine"
