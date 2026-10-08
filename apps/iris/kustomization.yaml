@@ -15,9 +15,9 @@ resources:
 - service-default-iris-valkey.yaml
 
 images:
-# Qualified protected-main build a056caf14e15705aabcb90187170981fe6145f99 (pipeline 8336).
-# Bind API and worker to the same admitted index for signed-in reload recovery.
+# Qualified protected-main build 1bbacf70e87935b32331462679985900e2b13de0 (pipeline 8344).
+# Bind API and worker to the same admitted index for playback continuity and guest reload recovery.
 - name: "registry.brmartin.co.uk/ben/iris"
-  digest: "sha256:d41d9780905cea8aafa6207b44f0f23907d02ed25b64df91f9fd95ba40482f66"
+  digest: "sha256:2f1ad58042002662ae9c41e00f57c190067e4b62ab7c3f6da4e22e85b706c5d0"
 - name: "valkey/valkey"
   newTag: "9-alpine"
