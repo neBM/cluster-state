@@ -128,9 +128,11 @@ Common causes:
 
 SeaweedFS CSI uses FUSE mounts. An unexpected `seaweedfs-mount` crash, a
 forced old-pod deletion during takeover, or a previously broken mount can leave
-existing pods with `Transport endpoint is not connected`. Routine
-`seaweedfs-mount` upgrades should now use a surge rollout and stall safely on
-busy mounts rather than dropping live sessions.
+existing pods with `Transport endpoint is not connected`. The current
+`seaweedfs-mount` DaemonSet replaces one node at a time (`maxSurge: 0`,
+`maxUnavailable: 1`) because the process owns a node-local Unix socket and live
+FUSE state. A replacement may require the consumer recycler to recreate stale
+consumer pods; check application readiness after the storage rollout.
 
 ```bash
 kubectl get pods -A -o wide | grep <node>
@@ -148,16 +150,10 @@ kubectl describe pod -n default <new-mount-pod>
 kubectl logs -n default <new-mount-pod>
 ```
 
-Healthy takeover behavior is: old pod still `Ready`, new pod `Running` but not
-`Ready` until `/readyz` flips green, then the DaemonSet removes the old pod. A
-rollout that stalls on busy mounts is a safe block, not permission to force a
-disruptive restart.
-
-If the new pod never schedules and `kubectl describe pod` shows
-`FailedScheduling` with `Insufficient memory` or `Insufficient cpu` on the
-target node, the rollout budget is wrong: the mount pod request must leave room
-for one extra pod on the smallest node during `maxSurge` handoff. Fix the
-request in desired state rather than force-deleting the old mount pod.
+Do not force-delete a healthy mount pod to clear a stalled rollout. Inspect the
+DaemonSet's current update strategy and replacement readiness first. With the
+current non-surge strategy, resource troubleshooting concerns the replacement
+pod's normal requests, not capacity for an extra mount pod on each node.
 
 Apps that both mount SeaweedFS PVCs and pull from the internal GitLab registry
 can now declare a recycler rollout smoke with pod-template annotations under
