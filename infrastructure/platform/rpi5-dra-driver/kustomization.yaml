@@ -8,4 +8,4 @@ resources:
 
 images:
 - name: "registry.brmartin.co.uk/ben/cluster-state/rpi5-dra-driver"
-  newTag: "latest"
+  digest: "sha256:921f6ad9af16203c7dd779a3d53dab58b673f223cde56088e5737bce775669f2"

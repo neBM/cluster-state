@@ -28,7 +28,9 @@ spec:
               apiVersion: v1
               fieldPath: spec.nodeName
         image: registry.brmartin.co.uk/ben/cluster-state/rpi5-dra-driver
-        imagePullPolicy: Always
+        # Reuse the admitted immutable image during cold node recovery; a cached
+        # driver must not wait for GitLab's registry JWT endpoint to restart.
+        imagePullPolicy: IfNotPresent
         name: driver
         resources: {}
         securityContext:
