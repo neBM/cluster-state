@@ -4,6 +4,10 @@ This directory contains documentation for the K8s (K3s) cluster infrastructure.
 
 ## Documents
 
+### Node boot and kernel policy
+
+- **[raspberry-pi-kernel-policy.md](raspberry-pi-kernel-policy.md)** - Accepted official kernel exception, package/staging ownership, independent watchdog recovery and boot-critical image authentication.
+
 ### Observability
 
 - **[elasticsearch-pipelines.md](elasticsearch-pipelines.md)** - Historical Elasticsearch ingest pipeline notes.
