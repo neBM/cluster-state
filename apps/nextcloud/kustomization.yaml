@@ -8,10 +8,13 @@ resources:
 - middleware-default-nextcloud-webdav-redirect.yaml
 - service-default-nextcloud.yaml
 
+# Digest pins prevent configuration-only rollouts from changing software.
 images:
 - name: "redis"
   newTag: "8-alpine"
+  digest: sha256:9d317178eceac8454a2284a9e6df2466b93c745529947f0cd42a0fa9609d7005
 - name: "nextcloud"
   newTag: "33.0.9"
+  digest: sha256:63e74e341d302e94d52a4ee1cf5bdc7ee94c04c3c661823c5e5a5270741310e8
 - name: "busybox"
   newTag: "1"
