@@ -7,7 +7,7 @@ data:
     \ => 'https://cloud.brmartin.co.uk',\n  'trusted_domains' => array (\n    0 =>\
     \ 'cloud.brmartin.co.uk',\n    1 => '192.168.1.*',\n  ),\n  'trusted_proxies'\
     \ => array (\n    0 => '172.26.0.0/16',\n    1 => '10.0.0.0/8',\n    2 => 'fd00::/24',\n\
-    \  ),\n  'upgrade.disable-web' => true,\n  'maintenance_window_start' => 1,\n\
+    \  ),\n  'upgrade.disable-web' => true,\n  'maintenance_window_start' => 1,\n  'log_type' => 'errorlog',\n\
     \  'oidc_login_client_id' => 'nextcloud',\n  'oidc_login_provider_url' => 'https://sso.brmartin.co.uk/realms/prod',\n\
     \  'oidc_login_end_session_redirect' => 'true',\n  'oidc_login_logout_url' =>\
     \ 'https://cloud.brmartin.co.uk/apps/oidc_login/oidc',\n  'oidc_login_auto_redirect'\
