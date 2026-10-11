@@ -19,6 +19,7 @@ spec:
   template:
     metadata:
       annotations:
+        checksum/config-override: 2413d7efe71ae911d182eebeffa6a2e15b34fde2ccd52c14e8ffc1c9a106a077
         elastic.co/dataset: kubernetes.container_logs.nextcloud
       labels:
         app: nextcloud
