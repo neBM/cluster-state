@@ -43,6 +43,6 @@ patches:
 
 images:
 - name: "gitlab/gitlab-runner"
-  newTag: "v19.4.0"
+  newTag: "v19.4.1"
 - name: "busybox"
   newTag: "1.38"
