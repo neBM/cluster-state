@@ -49,8 +49,16 @@ class RunnerConfigTests(unittest.TestCase):
         self.assertEqual(len(self.managers), 1)
         pod = self.managers[0]["spec"]["template"]["spec"]
         init, = pod["initContainers"]
-        self.assertEqual(init["image"], "busybox:1.38")
-        self.assertEqual(pod["containers"][0]["image"], "gitlab/gitlab-runner:v19.4.0")
+        # Check the rendered selection against its source-owned pin, not a
+        # duplicated release number that makes ordinary Renovate updates fail.
+        source = yaml.safe_load((RUNNERS / "runners/any/kustomization.yaml").read_text())
+        pins = {image["name"]: image for image in source["images"]}
+        for name, container in (("busybox", init), ("gitlab/gitlab-runner", pod["containers"][0])):
+            pin = pins[name]
+            repository = pin.get("newName", name)
+            expected_image = (f'{repository}@{pin["digest"]}' if "digest" in pin
+                              else f'{repository}:{pin["newTag"]}')
+            self.assertEqual(container["image"], expected_image)
         refs = {entry["name"]: entry["valueFrom"]["secretKeyRef"] for entry in init["env"]}
         self.assertEqual(refs, {
             f"RUNNER_TOKEN_{lane.upper()}": {
