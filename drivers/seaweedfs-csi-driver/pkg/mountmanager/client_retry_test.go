@@ -58,7 +58,7 @@ func TestShouldRetryDial(t *testing.T) {
 // the server and remove the socket.
 func newUnixHTTPServer(t *testing.T, handler http.Handler) (sockPath string, closeFn func()) {
 	t.Helper()
-	dir := t.TempDir()
+	dir := socketTempDir(t)
 	sockPath = filepath.Join(dir, "mount.sock")
 	ln, err := net.Listen("unix", sockPath)
 	if err != nil {
@@ -104,7 +104,7 @@ func TestDoPost_HappyPath(t *testing.T) {
 
 func TestDoPost_RecoversAfterDelay(t *testing.T) {
 	resetCounters(t)
-	dir := t.TempDir()
+	dir := socketTempDir(t)
 	sockPath := filepath.Join(dir, "mount.sock")
 
 	// Start a goroutine that creates the listener after 30ms.
@@ -156,7 +156,7 @@ func TestDoPost_RecoversAfterDelay(t *testing.T) {
 
 func TestDoPost_BudgetExhausted(t *testing.T) {
 	resetCounters(t)
-	dir := t.TempDir()
+	dir := socketTempDir(t)
 	sockPath := filepath.Join(dir, "missing.sock")
 
 	c := newClientForTest(t, sockPath)
@@ -200,7 +200,7 @@ func TestDoPost_NonRetryable500(t *testing.T) {
 
 func TestDoPost_ContextCancelled(t *testing.T) {
 	resetCounters(t)
-	dir := t.TempDir()
+	dir := socketTempDir(t)
 	sockPath := filepath.Join(dir, "missing.sock")
 
 	c := newClientForTest(t, sockPath)

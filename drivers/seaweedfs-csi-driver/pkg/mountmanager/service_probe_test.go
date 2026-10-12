@@ -28,7 +28,7 @@ func TestHasLiveServiceReturnsTrueForHealthyServer(t *testing.T) {
 }
 
 func TestHasLiveServiceReturnsFalseForMissingSocket(t *testing.T) {
-	sockPath := filepath.Join(t.TempDir(), "missing.sock")
+	sockPath := filepath.Join(socketTempDir(t), "missing.sock")
 
 	live, err := HasLiveService(context.Background(), "unix://"+sockPath)
 	if err != nil {

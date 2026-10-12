@@ -7,7 +7,7 @@ import (
 )
 
 func TestListenOwnedUnixSocketCloseLeavesPathForStartupCleanup(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "socket")
+	path := filepath.Join(socketTempDir(t), "socket")
 	listener, err := listenOwnedUnixSocket(path)
 	if err != nil {
 		t.Fatalf("listen socket: %v", err)
@@ -24,7 +24,7 @@ func TestListenOwnedUnixSocketCloseLeavesPathForStartupCleanup(t *testing.T) {
 }
 
 func TestListenOwnedUnixSocketPredecessorClosePreservesReplacementPath(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "socket")
+	path := filepath.Join(socketTempDir(t), "socket")
 
 	oldListener, err := listenOwnedUnixSocket(path)
 	if err != nil {
