@@ -37,7 +37,7 @@ resources:
 
 images:
 - name: "ghcr.io/cinnyapp/cinny"
-  newTag: "v4.12.7"
+  newTag: "v4.12.7@sha256:83de4bd62b0684c536afd1af22f8eb11216f0ae52209e170b56cdae02498a97f"
 - name: "docker.io/vectorim/element-web"
   digest: "sha256:3e7dbd4424de9e11c812bc740acf2725b2abe66ea0d0802023b56fd85d3fa09a"
 - name: "oci.element.io/element-admin"

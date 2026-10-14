@@ -435,7 +435,7 @@ spec:
           periodSeconds: 30
           timeoutSeconds: 3
         resources:
-          requests: {cpu: 50m, memory: 128Mi}
+          requests: {cpu: 35m, memory: 128Mi}
           limits: {cpu: 300m, memory: 384Mi}
         securityContext: &container-security
           allowPrivilegeEscalation: false
