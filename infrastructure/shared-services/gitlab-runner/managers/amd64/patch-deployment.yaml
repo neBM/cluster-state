@@ -1,0 +1,28 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gitlab-runner
+  labels:
+    pool: amd64
+spec:
+  selector:
+    matchLabels:
+      pool: amd64
+  template:
+    metadata:
+      labels:
+        pool: amd64
+    spec:
+      initContainers:
+      - name: config-generator
+        env:
+        - name: RUNNER_POOL
+          value: amd64
+        - name: RUNNER_CONCURRENT
+          value: "1"
+        - name: RUNNER_LANES
+          value: "amd64 any services"
+      volumes:
+      - name: config-template
+        configMap:
+          name: gitlab-runner-config-template-any-amd64

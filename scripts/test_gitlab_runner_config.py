@@ -3,8 +3,9 @@
 # requires-python = ">=3.11"
 # dependencies = ["PyYAML==6.0.3"]
 # ///
-"""Exercise rendered Runner admission and the production config generator."""
+"""Exercise rendered architecture admission and the production config generator."""
 
+import copy
 import json
 import os
 import re
@@ -19,7 +20,7 @@ from pathlib import Path
 
 import yaml
 
-from validate_gitlab_runner_templates import load_template
+from validate_gitlab_runner_templates import cpu_millicores, validate_pool_contract
 
 ROOT = Path(__file__).resolve().parent.parent
 RUNNERS = ROOT / "infrastructure/shared-services/gitlab-runner"
@@ -30,125 +31,142 @@ class RunnerConfigTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         renderer = ["kustomize", "build"] if shutil.which("kustomize") else ["kubectl", "kustomize"]
-        rendered = subprocess.check_output([*renderer, str(RUNNERS)], text=True)
-        cls.objects = list(yaml.safe_load_all(rendered))
+        cls.objects = list(yaml.safe_load_all(subprocess.check_output([*renderer, str(RUNNERS)], text=True)))
         cls.managers = [obj for obj in cls.objects if obj["kind"] == "Deployment"]
+        cls.fixture = json.loads((ROOT / "scripts/fixtures/gitlab-runner-architecture-pools.json").read_text())
+        cls.configs = {}
+        cls.requests = {}
 
-    def test_single_admission_manager(self):
-        self.assertEqual(len(self.managers), 1, "all registrations must share one admission process")
-        manager = self.managers[0]
-        self.assertEqual(manager["metadata"]["name"], "gitlab-runner-any")
-        self.assertEqual(manager["spec"]["replicas"], 1)
-        self.assertEqual(manager["spec"]["strategy"], {"type": "Recreate"})
-        pod = manager["spec"]["template"]["spec"]
-        self.assertNotIn("nodeSelector", pod)
-        self.assertEqual(len(pod["containers"]), 1)
-        self.assertEqual(pod["containers"][0]["args"], ["run", "--config", "/config/config.toml"])
-
-    def test_generated_global_bound_and_preserved_lanes(self):
-        self.assertEqual(len(self.managers), 1)
-        pod = self.managers[0]["spec"]["template"]["spec"]
-        init, = pod["initContainers"]
-        # Check the rendered selection against its source-owned pin, not a
-        # duplicated release number that makes ordinary Renovate updates fail.
-        source = yaml.safe_load((RUNNERS / "runners/any/kustomization.yaml").read_text())
-        pins = {image["name"]: image for image in source["images"]}
-        for name, container in (("busybox", init), ("gitlab/gitlab-runner", pod["containers"][0])):
-            pin = pins[name]
-            repository = pin.get("newName", name)
-            expected_image = (f'{repository}@{pin["digest"]}' if "digest" in pin
-                              else f'{repository}:{pin["newTag"]}')
-            self.assertEqual(container["image"], expected_image)
-        refs = {entry["name"]: entry["valueFrom"]["secretKeyRef"] for entry in init["env"]}
-        self.assertEqual(refs, {
-            f"RUNNER_TOKEN_{lane.upper()}": {
-                "name": "gitlab-runner-secrets", "key": f"runner_token_{lane}", "optional": False
-            } for lane in LANES
-        })
-        # Synthetic credentials include both shell/sed and TOML metacharacters.
-        tokens = {f"RUNNER_TOKEN_{lane.upper()}": f'synthetic-{lane}-&|\\"$`' for lane in LANES}
-        access, secret = "synthetic-access-&|$", "synthetic-secret-&|$"
-        bucket = {"bucketName": "gitlab-runner-cache", "endpoint": "http://s3.example:8333",
-                  "accessKeyID": access, "accessSecretKey": secret}
+    def test_architecture_admission_and_generator(self):
+        self.assertEqual(sorted(m["metadata"]["name"] for m in self.managers),
+                         ["gitlab-runner-amd64", "gitlab-runner-arm64"])
         maps = {obj["metadata"]["name"]: obj["data"] for obj in self.objects if obj["kind"] == "ConfigMap"}
-        system_ids = [name for name in maps if name.startswith("gitlab-runner-system-id")]
-        self.assertEqual(system_ids, ["gitlab-runner-system-id-any"])
-        volumes = {volume["name"]: volume for volume in pod["volumes"]}
-        with tempfile.TemporaryDirectory(prefix="runner-config-") as temporary:
-            root = Path(temporary)
-            paths = {}
-            for mount in init["volumeMounts"]:
-                volume = volumes[mount["name"]]
-                directory = root / mount["mountPath"].lstrip("/")
-                directory.mkdir(parents=True)
-                paths[mount["mountPath"]] = directory
-                if "configMap" in volume:
-                    for key, value in maps[volume["configMap"]["name"]].items():
-                        (directory / key).write_text(value)
-                if "secret" in volume:
-                    self.assertEqual(volume["secret"]["secretName"], "gitlab-runner-cache-cosi-s3")
-                    (directory / "BucketInfo").write_text(json.dumps(bucket, indent=2))
-            command = [*init["command"], *init["args"]]
-            container = os.environ.get("RUNNER_CONFIG_CONTAINER") == "1"
-            name = f"runner-config-{uuid.uuid4().hex}"
-            if container:
-                launch = ["podman", "run", "--rm", "--name", name, "--network=none", "--read-only",
-                          "--cap-drop=all", "--security-opt=no-new-privileges", "--userns=keep-id",
-                          "--user", f"{os.getuid()}:{os.getgid()}"]
+        pins = {image["name"]: image for image in yaml.safe_load((RUNNERS / "kustomization.yaml").read_text())["images"]}
+        system_ids = []
+        for manager in self.managers:
+            arch = manager["spec"]["template"]["metadata"]["labels"]["pool"]
+            self.assertEqual(manager["spec"]["replicas"], 1)
+            self.assertEqual(manager["spec"]["strategy"], {"type": "Recreate"})
+            pod = manager["spec"]["template"]["spec"]
+            self.assertNotIn("nodeSelector", pod)
+            self.assertEqual(pod["serviceAccountName"], "gitlab-runner")
+            self.assertEqual(len(pod["containers"]), 1)
+            self.assertEqual(pod["containers"][0]["args"], ["run", "--config", "/config/config.toml"])
+            self.requests[arch] = pod["containers"][0]["resources"]["requests"]
+            init, = pod["initContainers"]
+            for name, container in (("busybox", init), ("gitlab/gitlab-runner", pod["containers"][0])):
+                pin = pins[name]
+                self.assertRegex(pin["digest"], r"^sha256:[0-9a-f]{64}$")
+                self.assertEqual(container["image"], f'{pin.get("newName", name)}:{pin["newTag"]}@{pin["digest"]}')
+            refs = {e["name"]: e["valueFrom"]["secretKeyRef"] for e in init["env"] if "valueFrom" in e}
+            self.assertEqual(refs, {f"RUNNER_TOKEN_{lane.upper()}": {
+                "name": "gitlab-runner-secrets", "key": f"runner_token_{lane}", "optional": False
+            } for lane in LANES})
+            tokens = {f"RUNNER_TOKEN_{lane.upper()}": f'synthetic-{lane}-&|\\"$`' for lane in LANES}
+            environment = {**os.environ, **tokens, **{e["name"]: e["value"] for e in init["env"] if "value" in e}}
+            access, secret = "synthetic-access-&|$", "synthetic-secret-&|$"
+            bucket = {"bucketName": "gitlab-runner-cache", "endpoint": "http://s3.example:8333",
+                      "accessKeyID": access, "accessSecretKey": secret}
+            volumes = {v["name"]: v for v in pod["volumes"]}
+            with tempfile.TemporaryDirectory(prefix="runner-config-") as temporary:
+                root = Path(temporary)
+                paths = {}
                 for mount in init["volumeMounts"]:
-                    mode = "ro,Z" if mount.get("readOnly") else "rw,Z"
-                    launch += ["-v", f'{paths[mount["mountPath"]]}:{mount["mountPath"]}:{mode}']
-                for key in tokens:
-                    launch += ["-e", key]
-                command = [*launch, "docker.io/library/" + init["image"], *command]
-            else:
-                # Default native gate needs no container daemon; only fixture paths change.
-                paths["/template"] = root / "template"
-                pattern = "(?:" + "|".join(re.escape(path) for path in sorted(paths, key=len, reverse=True)) + r")(?![\w.-])"
-                command[-1] = re.sub(pattern, lambda match: str(paths[match[0]]), command[-1])
-            try:
-                result = subprocess.run(command, env={**os.environ, **tokens}, capture_output=True, timeout=60)
-                self.assertEqual(result.returncode, 0, "config generator failed (output withheld)")
-                self.assertEqual(result.stdout + result.stderr, b"", "generator must not log credentials")
-                config_path = paths["/config"] / "config.toml"
-                actual = tomllib.loads(config_path.read_text())
-                self.assertEqual(actual["concurrent"], 2)
-                self.assertEqual(actual["check_interval"], 1)
-                self.assertEqual(actual["shutdown_timeout"], 0)
-                self.assertEqual(actual["session_server"], {"session_timeout": 1800})
-                self.assertEqual(len(actual["runners"]), 4)
-                for lane, runner in zip(LANES, actual["runners"], strict=True):
-                    expected = tomllib.loads(load_template(RUNNERS / "runner-base", RUNNERS / "runners" / lane))["runners"][0]
-                    expected.update(name=f"k8s-{lane}", token=tokens[f"RUNNER_TOKEN_{lane.upper()}"], limit=2 if lane == "any" else 1)
-                    expected["cache"]["s3"].update(ServerAddress="s3.example:8333", BucketName=bucket["bucketName"], AccessKey=access, SecretKey=secret)
-                    self.assertEqual(runner, expected, f"{lane} configuration changed during generation")
-                    self.assertEqual(runner["limit"], 2 if lane == "any" else 1)
-                    self.assertEqual(runner["request_concurrency"], 4)
-                    kubernetes = runner["kubernetes"]
-                    self.assertEqual(kubernetes["cpu_limit"], "2000m" if lane == "any" else "1000m")
-                    self.assertEqual(kubernetes["cpu_request"], {
-                        "amd64": "250m", "any": "500m", "arm64": "1000m", "services": "1000m"
-                    }[lane])
-                self.assertEqual(stat.S_IMODE(config_path.stat().st_mode), 0o600)
-                system_id = paths["/config"] / ".runner_system_id"
-                self.assertEqual(stat.S_IMODE(system_id.stat().st_mode), 0o600)
-                self.assertEqual(system_id.read_text(), maps[system_ids[0]]["system_id"])
-                self.assertEqual(sorted(p.name for p in paths["/config"].iterdir()), [".runner_system_id", "config.toml"])
-                # Missing credentials must fail without disclosing any synthetic values.
-                for invalid in ("token", "cosi"):
-                    environment = {**os.environ, **tokens}
-                    if invalid == "token":
-                        environment["RUNNER_TOKEN_AMD64"] = ""
-                    else:
-                        (paths["/cosi/gitlab-runner-cache"] / "BucketInfo").write_text("{}")
-                    result = subprocess.run(command, env=environment, capture_output=True, timeout=60)
-                    self.assertNotEqual(result.returncode, 0)
-                    output = result.stdout + result.stderr
-                    for value in [*tokens.values(), access, secret]:
-                        self.assertNotIn(value.encode(), output)
-            finally:
+                    volume = volumes[mount["name"]]
+                    directory = root / mount["mountPath"].lstrip("/")
+                    directory.mkdir(parents=True)
+                    paths[mount["mountPath"]] = directory
+                    if "configMap" in volume:
+                        for key, value in maps[volume["configMap"]["name"]].items():
+                            (directory / key).write_text(value)
+                    if "secret" in volume:
+                        self.assertEqual(volume["secret"]["secretName"], "gitlab-runner-cache-cosi-s3")
+                        (directory / "BucketInfo").write_text(json.dumps(bucket, indent=2))
+                command = [*init["command"], *init["args"]]
+                container = os.environ.get("RUNNER_CONFIG_CONTAINER") == "1"
+                name = f"runner-config-{uuid.uuid4().hex}"
                 if container:
-                    subprocess.run(["podman", "rm", "--force", "--ignore", name], check=True, capture_output=True)
+                    launch = ["podman", "run", "--rm", "--name", name, "--network=none", "--read-only",
+                              "--cap-drop=all", "--security-opt=no-new-privileges", "--userns=keep-id",
+                              "--user", f"{os.getuid()}:{os.getgid()}"]
+                    for mount in init["volumeMounts"]:
+                        mode = "ro,Z" if mount.get("readOnly") else "rw,Z"
+                        launch += ["-v", f'{paths[mount["mountPath"]]}:{mount["mountPath"]}:{mode}']
+                    for e in init["env"]:
+                        launch += ["-e", e["name"]]
+                    command = [*launch, "docker.io/library/" + init["image"], *command]
+                else:
+                    paths["/template"] = root / "template"
+                    pattern = "(?:" + "|".join(re.escape(p) for p in sorted(paths, key=len, reverse=True)) + r")(?![\w.-])"
+                    command[-1] = re.sub(pattern, lambda m: str(paths[m[0]]), command[-1])
+                try:
+                    result = subprocess.run(command, env=environment, capture_output=True, timeout=60)
+                    self.assertEqual(result.returncode, 0, "config generator failed (output withheld)")
+                    self.assertEqual(result.stdout + result.stderr, b"", "generator must not log credentials")
+                    config_path = paths["/config"] / "config.toml"
+                    actual = tomllib.loads(config_path.read_text())
+                    self.configs[arch] = actual
+                    self.assertEqual(actual["check_interval"], 1)
+                    self.assertEqual(actual["shutdown_timeout"], 0)  # admitted idle cutover, not an active-job drain claim
+                    self.assertEqual(actual["session_server"], {"session_timeout": 1800})
+                    for lane, runner in zip(environment["RUNNER_LANES"].split(), actual["runners"], strict=True):
+                        template_dir = paths[f"/template/{lane}"]
+                        # Exact rendered fragment map consumed by this production manager.
+                        expected = tomllib.loads("".join(p.read_text() for p in sorted(template_dir.glob("[2-9][0-9]-*.toml"))))["runners"][0]
+                        expected.update(name=f"k8s-{lane}", token=tokens[f"RUNNER_TOKEN_{lane.upper()}"])
+                        expected["cache"]["s3"].update(ServerAddress="s3.example:8333", BucketName=bucket["bucketName"], AccessKey=access, SecretKey=secret)
+                        self.assertEqual(runner, expected, f"{arch}/{lane}: generation changed lane semantics")
+                        self.assertEqual(runner["request_concurrency"], 4)
+                        services = runner["kubernetes"].get("services", [])
+                        self.assertEqual(services, [] if lane == "any" else [{
+                            "name": "joyrex2001/kubedock:0.20.3", "alias": "kubedock",
+                            "command": ["server", "--port-forward"]
+                        }])
+                    self.assertEqual(stat.S_IMODE(config_path.stat().st_mode), 0o600)
+                    system_id = paths["/config"] / ".runner_system_id"
+                    self.assertEqual(stat.S_IMODE(system_id.stat().st_mode), 0o600)
+                    self.assertEqual(system_id.read_text(), (paths["/system-id"] / "system_id").read_text())
+                    system_ids.append(system_id.read_text())
+                    self.assertEqual(sorted(p.name for p in paths["/config"].iterdir()), [".runner_system_id", "config.toml"])
+                    for invalid in ("token", "cosi", "pool"):
+                        invalid_env = environment.copy()
+                        if invalid == "token":
+                            invalid_env[f"RUNNER_TOKEN_{environment['RUNNER_LANES'].split()[0].upper()}"] = ""
+                        elif invalid == "cosi":
+                            (paths["/cosi/gitlab-runner-cache"] / "BucketInfo").write_text("{}")
+                        else:
+                            (paths["/cosi/gitlab-runner-cache"] / "BucketInfo").write_text(json.dumps(bucket))
+                            invalid_env["RUNNER_CONCURRENT"] = "3"
+                        result = subprocess.run(command, env=invalid_env, capture_output=True, timeout=60)
+                        self.assertNotEqual(result.returncode, 0)
+                        for value in [*tokens.values(), access, secret]:
+                            self.assertNotIn(value.encode(), result.stdout + result.stderr)
+                finally:
+                    if container:
+                        subprocess.run(["podman", "rm", "--force", "--ignore", name], check=True, capture_output=True)
+        self.assertEqual(len(set(system_ids)), 2)
+        self.assertEqual(validate_pool_contract(self.configs, self.requests, self.fixture), [])
+        self.assertEqual(sum(c["concurrent"] for c in self.configs.values()), 3)
+        # Focused counterexamples: over-acquisition, architecture escape, and the
+        # actual native + helper + Kubedock + two database sidecars CPU envelope.
+        for case in ("third-arm-slot", "second-amd-slot", "old-all-lane-manager", "generic-architecture", "unaccounted-services", "oversized-sidecars", "oversized-amd-service"):
+            with self.subTest(case=case):
+                bad = copy.deepcopy(self.configs)
+                if case == "third-arm-slot":
+                    bad["arm64"]["concurrent"] = 3
+                elif case == "second-amd-slot":
+                    bad["amd64"]["concurrent"] = 2
+                elif case == "old-all-lane-manager":
+                    bad["any"] = copy.deepcopy(bad["arm64"])
+                elif case == "generic-architecture":
+                    del bad["amd64"]["runners"][1]["kubernetes"]["node_selector"]
+                elif case == "unaccounted-services":
+                    bad["amd64"]["runners"][0]["kubernetes"]["service_cpu_request"] = "0"
+                elif case == "oversized-sidecars":
+                    bad["amd64"]["runners"][0]["kubernetes"]["service_cpu_request"] = "100m"
+                else:
+                    bad["amd64"]["runners"][2]["kubernetes"]["cpu_request"] = "1000m"
+                self.assertTrue(validate_pool_contract(bad, self.requests, self.fixture))
 
 
 if __name__ == "__main__":

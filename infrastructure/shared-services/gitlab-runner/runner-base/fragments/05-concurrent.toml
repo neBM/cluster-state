@@ -1,3 +1,3 @@
-# One admission process shares this bound across all four registrations.
-# Pod anti-affinity alone only limits placement after GitLab job acquisition.
+# Template default only; production managers mount their pool-specific bound.
+# Each architecture shares acquisition across all its registrations.
 concurrent = 2

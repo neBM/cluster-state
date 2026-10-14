@@ -1,4 +1,2 @@
-  # The 300m build+helper scheduler request fits incident 5566's 340m headroom
-  # without increasing runner concurrency or the one-core execution limit.
+  # CPU requests govern sharing; no quota prevents use of otherwise idle cores.
   cpu_request = "250m"
-  cpu_limit = "1000m"

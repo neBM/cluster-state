@@ -79,9 +79,15 @@ spec:
           cache_access_key=$(escape_replacement "$cache_access_key")
           cache_secret_key=$(escape_replacement "$cache_secret_key")
 
-          # Global options occur once; each lane contributes only its runner block.
-          cat /template/any/05-concurrent.toml /template/any/10-global.toml > /config/config.toml
-          for lane in amd64 any arm64 services; do
+          # The pool bound applies before acquisition, across every selected lane.
+          # Cut over only at admitted idle: Recreate cannot serialize distinct Deployments.
+          case "$RUNNER_POOL:$RUNNER_CONCURRENT:$RUNNER_LANES" in
+            'amd64:1:amd64 any services'|'arm64:2:arm64 any') ;;
+            *) echo "ERROR: invalid runner acquisition pool"; exit 1 ;;
+          esac
+          printf 'concurrent = %s\n' "$RUNNER_CONCURRENT" > /config/config.toml
+          cat /template/any/10-global.toml >> /config/config.toml
+          for lane in $RUNNER_LANES; do
             case "$lane" in
               amd64) token=$RUNNER_TOKEN_AMD64 ;;
               any) token=$RUNNER_TOKEN_ANY ;;
@@ -165,6 +171,17 @@ spec:
           name: gitlab-runner-cache-cosi
           readOnly: true
       restartPolicy: Always
+      # Managers may run anywhere; prefer the larger arm64 reservation pool.
+      # Capacity validation reserves both 50m managers on any one node.
+      affinity:
+        nodeAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            preference:
+              matchExpressions:
+              - key: kubernetes.io/arch
+                operator: In
+                values: [arm64]
       schedulerName: default-scheduler
       securityContext: {}
       serviceAccount: gitlab-runner

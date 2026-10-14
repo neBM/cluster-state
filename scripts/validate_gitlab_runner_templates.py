@@ -38,7 +38,7 @@ def validate_capacity_contract(
     headroom_m = node["allocatable_cpu_m"] - node["steady_non_ci_cpu_request_m"]
     scheduler_request_m = cpu_millicores(amd64["cpu_request"]) + cpu_millicores(
         amd64["helper_cpu_request"]
-    )
+    ) + len(amd64.get("services", [])) * cpu_millicores(amd64["service_cpu_request"])
     if scheduler_request_m > headroom_m:
         errors.append(
             "amd64 scheduler CPU request "
@@ -82,6 +82,69 @@ def validate_capacity_contract(
     return errors
 
 
+def memory_mebibytes(value):
+    for suffix, multiplier in (("Gi", 1024), ("Mi", 1), ("Ki", 1 / 1024)):
+        if value.endswith(suffix):
+            return int(value[:-len(suffix)]) * multiplier
+    return int(value) / (1024 * 1024)
+
+
+def validate_pool_contract(configs, manager_requests, fixture):
+    """Validate actual generated production maps, not an independent lane model.
+
+    Requests are sharing weights, not useful-CPU targets. The recorded envelope
+    includes every injected and declared service and conservatively reserves both
+    movable managers on each candidate node. Helper/init uses max, not two helpers.
+    Kubedock child Pods are outside Runner's Pod envelope and remain a live gate.
+    """
+    errors = []
+    expected_lanes = {"amd64": ["k8s-amd64", "k8s-any", "k8s-services"],
+                      "arm64": ["k8s-arm64", "k8s-any"]}
+    if set(configs) != set(expected_lanes):
+        return ["exactly two architecture acquisition groups are required"]
+    overhead = sum(cpu_millicores(r["cpu"]) for r in manager_requests.values())
+    memory_overhead = sum(memory_mebibytes(r["memory"]) for r in manager_requests.values())
+    for arch, config in configs.items():
+        slots = len(fixture["pools"][arch]["headroom_cpu_m"])
+        if config["concurrent"] != slots:
+            errors.append(f"{arch}: acquisition bound must equal {slots} usable slots")
+        if [r["name"] for r in config["runners"]] != expected_lanes[arch]:
+            errors.append(f"{arch}: tagged/untagged registration continuity changed")
+        for runner in config["runners"]:
+            lane = runner["name"].removeprefix("k8s-")
+            k = runner["kubernetes"]
+            if k.get("node_selector") != {"kubernetes.io/arch": arch}:
+                errors.append(f"{arch}/{lane}: execution architecture escapes its acquisition group")
+            if runner["limit"] != (slots if lane == "any" else 1):
+                errors.append(f"{arch}/{lane}: incorrect per-registration limit")
+            if any(k.get(key) for key in ("cpu_limit", "helper_cpu_limit", "service_cpu_limit")):
+                errors.append(f"{arch}/{lane}: CPU quota prevents idle-core sharing")
+            terms = k.get("affinity", {}).get("pod_anti_affinity", {}).get(
+                "required_during_scheduling_ignored_during_execution", [])
+            if k.get("pod_labels", {}).get("ci.brmartin.co.uk/job") != "true" or not any(
+                t.get("topology_key") == "kubernetes.io/hostname" and
+                t.get("label_selector", {}).get("match_labels") == {"ci.brmartin.co.uk/job": "true"}
+                for t in terms
+            ):
+                errors.append(f"{arch}/{lane}: hard one-job-per-node isolation changed")
+            if {key: k.get(key) for key in ("memory_request", "memory_limit", "helper_memory_request", "helper_memory_limit")} != {
+                "memory_request": "512Mi", "memory_limit": "6Gi", "helper_memory_request": "128Mi", "helper_memory_limit": "256Mi"
+            }:
+                errors.append(f"{arch}/{lane}: build/helper memory envelope changed")
+            if k.get("service_memory_request") != "64Mi" or cpu_millicores(k.get("service_cpu_request", "0")) <= 0:
+                errors.append(f"{arch}/{lane}: injected/declared services are unaccounted")
+            services = len(k.get("services", [])) + fixture["max_declared_services"][lane]
+            request = cpu_millicores(k["cpu_request"]) + cpu_millicores(k["helper_cpu_request"]) + services * cpu_millicores(k.get("service_cpu_request", "0"))
+            memory_request = memory_mebibytes(k["memory_request"]) + memory_mebibytes(k["helper_memory_request"]) + services * memory_mebibytes(k["service_memory_request"])
+            for headroom in fixture["pools"][arch]["headroom_cpu_m"]:
+                if request + overhead + fixture["margin_cpu_m"] > headroom:
+                    errors.append(f"{arch}/{lane}: {request}m job + {overhead}m managers + margin exceeds {headroom}m headroom")
+            for headroom in fixture["pools"][arch]["headroom_memory_mi"]:
+                if memory_request + memory_overhead + fixture["margin_memory_mi"] > headroom:
+                    errors.append(f"{arch}/{lane}: job + managers + margin exceeds memory headroom")
+    return errors
+
+
 def main() -> int:
     repo_root = Path(__file__).resolve().parent.parent
     runner_root = repo_root / "infrastructure" / "shared-services" / "gitlab-runner"
@@ -95,7 +158,7 @@ def main() -> int:
 
     print("Validating GitLab runner templates")
     templates: dict[str, dict[str, Any]] = {}
-    for variant_dir in sorted(path for path in variant_root.iterdir() if path.is_dir()):
+    for variant_dir in sorted(path for path in variant_root.iterdir() if (path / "fragments").is_dir()):
         template = load_template(base_dir, variant_dir)
         try:
             templates[variant_dir.name] = tomllib.loads(template)

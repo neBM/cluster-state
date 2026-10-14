@@ -4,6 +4,18 @@ resources:
 - ci
 - shared
 - runners/amd64
-- runners/any
+- runners/any-amd64
+- runners/any-arm64
 - runners/arm64
 - runners/services
+- managers/amd64
+- managers/arm64
+
+# Preserve the authenticated running software during the manager replacement.
+images:
+- name: gitlab/gitlab-runner
+  newTag: v19.4.1
+  digest: sha256:77d03a5c881ff8f97381de4f96a66c080733eeab9c9cf502bd19916a18969113
+- name: busybox
+  newTag: 1.38.0
+  digest: sha256:fd7dc98638c8e305f4dc34e979f1c0fdfdcaeb0fbf8fcff77ae834b6da3d7e6e

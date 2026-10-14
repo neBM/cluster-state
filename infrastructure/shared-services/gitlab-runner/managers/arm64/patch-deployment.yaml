@@ -1,0 +1,28 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gitlab-runner
+  labels:
+    pool: arm64
+spec:
+  selector:
+    matchLabels:
+      pool: arm64
+  template:
+    metadata:
+      labels:
+        pool: arm64
+    spec:
+      initContainers:
+      - name: config-generator
+        env:
+        - name: RUNNER_POOL
+          value: arm64
+        - name: RUNNER_CONCURRENT
+          value: "2"
+        - name: RUNNER_LANES
+          value: "arm64 any"
+      volumes:
+      - name: config-template
+        configMap:
+          name: gitlab-runner-config-template-any-arm64

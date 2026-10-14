@@ -1,0 +1,14 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+nameSuffix: -arm64
+generatorOptions:
+  disableNameSuffixHash: true
+resources:
+- ../any
+configMapGenerator:
+- name: gitlab-runner-config-template-any
+  behavior: merge
+  literals:
+  - |
+    80-node-selector.toml=[runners.kubernetes.node_selector]
+      "kubernetes.io/arch" = "arm64"

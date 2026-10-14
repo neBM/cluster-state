@@ -11,7 +11,7 @@ configMapGenerator:
     labels:
       app: gitlab-runner
       arch: any
-  # Override the shared header only for the generic registration.
+  # Generic jobs can occupy both arm64 slots; the amd64 copy overrides to one.
   literals:
   - |
     20-runner-header.toml=[[runners]]
@@ -28,21 +28,5 @@ configMapGenerator:
   - fragments/60-pull-policy.toml
   - fragments/65-helper-image.toml
   - fragments/75-kubernetes-services.toml
-- name: gitlab-runner-system-id
-  options:
-    labels:
-      app: gitlab-runner
-      arch: any
-  envs:
-  - system-id.env
 resources:
 - ../../runner-base
-- deployment-default-gitlab-runner.yaml
-patches:
-- path: patch-deployment.yaml
-
-images:
-- name: "gitlab/gitlab-runner"
-  newTag: "v19.4.1"
-- name: "busybox"
-  newTag: "1.38"
