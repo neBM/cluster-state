@@ -6,7 +6,7 @@
     enable_service_links = false
 
     # Shared resource defaults for build containers.
-    # Runner-specific CPU requests and limits live in each runner variant.
+    # Runner-specific CPU shares live in each runner variant; no CPU quotas.
     memory_request = "512Mi"
     memory_limit = "6Gi"
 
@@ -14,6 +14,11 @@
     helper_cpu_request = "50m"
     helper_memory_request = "128Mi"
     helper_memory_limit = "256Mi"
+
+    # Applied to every injected and job-declared service (including Kubedock).
+    # Existing service memory limits remain unchanged; do not silently cap DinD.
+    service_cpu_request = "25m"
+    service_memory_request = "64Mi"
 
     # Allow a queued job to wait through one bounded competing-job slot.
     poll_interval = 1

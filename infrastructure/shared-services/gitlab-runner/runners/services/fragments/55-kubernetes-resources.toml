@@ -1,4 +1,3 @@
-  # Bound dedicated service jobs to one core so they keep the same control-plane
-  # safety envelope as the other build runners.
-  cpu_request = "1000m"
-  cpu_limit = "1000m"
+  # Share the amd64 slot with native and generic jobs, including service requests.
+  # Useful execution may use all otherwise idle cores; memory limits stay intact.
+  cpu_request = "250m"

@@ -1,4 +1,2 @@
-  # Bound build-heavy arm64 jobs to one core so CI cannot starve embedded etcd on
-  # the 4-core control-plane nodes.
+  # Native builds retain their CPU share, without an artificial idle-core quota.
   cpu_request = "1000m"
-  cpu_limit = "1000m"
