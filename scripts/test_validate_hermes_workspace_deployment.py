@@ -66,7 +66,7 @@ EXPECTED_DEPLOYMENT = {
     "kind": "Deployment",
     "metadata": {"name": WORKSPACE, "namespace": NAMESPACE, "labels": LABELS},
     "spec": {
-        "replicas": 1,
+        "replicas": 0,
         "revisionHistoryLimit": 2,
         "progressDeadlineSeconds": 600,
         "strategy": {"type": "Recreate"},

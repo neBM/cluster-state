@@ -320,7 +320,7 @@ def validate_factorio(root: Path) -> list[str]:
 
     if deployment:
         spec = deployment.get("spec", {})
-        checks.equal(spec.get("replicas"), 1, "Deployment/factorio.spec.replicas")
+        checks.equal(spec.get("replicas"), 0, "Deployment/factorio.spec.replicas")
         checks.equal(spec.get("strategy"), {"type": "Recreate"}, "Deployment/factorio.spec.strategy")
         pod = spec.get("template", {}).get("spec", {})
         checks.equal(pod.get("automountServiceAccountToken"), False, "Factorio service-account token")
