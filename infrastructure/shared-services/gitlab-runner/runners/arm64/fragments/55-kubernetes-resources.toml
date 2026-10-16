@@ -1,2 +1,2 @@
-  # Native builds retain their CPU share, without an artificial idle-core quota.
-  cpu_request = "1000m"
+  # Native batch work shares the generic arm CPU floor and may burst without a CPU quota.
+  cpu_request = "500m"

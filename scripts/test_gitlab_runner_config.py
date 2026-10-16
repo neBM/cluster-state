@@ -163,7 +163,8 @@ class RunnerConfigTests(unittest.TestCase):
                 elif case == "unaccounted-services":
                     bad["amd64"]["runners"][0]["kubernetes"]["service_cpu_request"] = "0"
                 elif case == "oversized-sidecars":
-                    bad["amd64"]["runners"][0]["kubernetes"]["service_cpu_request"] = "100m"
+                    # Exceed the target budget, including its larger raw headroom.
+                    bad["amd64"]["runners"][0]["kubernetes"]["service_cpu_request"] = "200m"
                 else:
                     bad["amd64"]["runners"][2]["kubernetes"]["cpu_request"] = "1000m"
                 self.assertTrue(validate_pool_contract(bad, self.requests, self.fixture))
