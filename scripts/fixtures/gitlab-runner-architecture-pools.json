@@ -1,9 +1,9 @@
 {
   "pools": {
-    "amd64": {"headroom_cpu_m": [500], "headroom_memory_mi": [3301]},
-    "arm64": {"headroom_cpu_m": [1315, 2260], "headroom_memory_mi": [4834, 1941]}
+    "amd64": {"headroom_cpu_m": [1005], "headroom_memory_mi": [3301]},
+    "arm64": {"headroom_cpu_m": [1170, 3225], "headroom_memory_mi": [4834, 1941]}
   },
-  "margin_cpu_m": 25,
+  "margin_cpu_m": 125,
   "margin_memory_mi": 128,
   "max_declared_services": {"amd64": 2, "arm64": 2, "any": 2, "services": 2}
 }
