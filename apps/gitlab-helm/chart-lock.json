@@ -1,0 +1,12 @@
+{
+  "repository": "https://charts.gitlab.io",
+  "chart": "gitlab",
+  "version": "10.5.0",
+  "appVersion": "v19.5.0",
+  "url": "https://gitlab-charts.s3.amazonaws.com/gitlab-10.5.0.tgz",
+  "sha256": "9b0461fdb5b10b6a1ba108eaf54abc45391d5884473cd0d58f8579412f0d447d",
+  "fluxDistribution": "v2.9.6",
+  "helmController": "v1.6.5",
+  "helmSDK": "v4.2.4",
+  "helmSDKSource": "https://github.com/fluxcd/helm-controller/blob/v1.6.5/go.mod"
+}

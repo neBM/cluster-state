@@ -102,6 +102,7 @@ else
     "infrastructure/observability-core"
     "infrastructure/observability-ui"
     "apps"
+    "apps/gitlab-helm"
     "apps/temporal/schema-setup"
     "apps/temporal/schema-upgrade"
     "apps/temporal/server"
@@ -112,6 +113,7 @@ for path in "${paths[@]}"; do
   render "${path}"
 done
 
+"${repo_root}/scripts/validate_gitlab_helm.sh"
 "${repo_root}/scripts/validate_gitlab_runner_templates.py"
 uv --no-config run --script "${repo_root}/scripts/test_gitlab_runner_config.py"
 "${repo_root}/scripts/validate_shared_postgres_budget.py"

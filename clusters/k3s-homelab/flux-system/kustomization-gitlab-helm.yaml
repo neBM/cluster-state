@@ -1,0 +1,21 @@
+# INACTIVE: deliberately absent from this directory's resource list.
+# Attach only after foundation, identity normalization and cutover admission.
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: gitlab-helm
+  namespace: flux-system
+spec:
+  suspend: true
+  interval: 10m
+  path: ./apps/gitlab-helm
+  prune: false
+  sourceRef:
+    kind: GitRepository
+    name: flux-system
+  targetNamespace: default
+  timeout: 30m
+  wait: true
+  dependsOn:
+    - name: storage-classes
+    - name: shared-services

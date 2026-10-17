@@ -1,0 +1,284 @@
+# INACTIVE PREPARATION: not production-ready; see README.md before activation.
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: gitlab-helm
+  namespace: default
+spec:
+  suspend: true
+  interval: 30m
+  releaseName: gitlab-helm
+  targetNamespace: default
+  timeout: 30m
+  chart:
+    spec:
+      chart: gitlab
+      version: 10.5.0
+      sourceRef:
+        kind: HelmRepository
+        name: gitlab
+        namespace: default
+      interval: 1h
+  install:
+    disableWait: false
+    disableWaitForJobs: false
+    disableHooks: false
+    remediation:
+      retries: 0
+      remediateLastFailure: false
+  upgrade:
+    disableWait: false
+    disableWaitForJobs: false
+    disableHooks: false
+    cleanupOnFail: false
+    remediation:
+      retries: 0
+      remediateLastFailure: false
+      strategy: rollback
+  values:
+    global:
+      edition: ce
+      hosts:
+        domain: brmartin.co.uk
+        gitlab:
+          name: git.brmartin.co.uk
+        registry:
+          name: registry.brmartin.co.uk
+        ssh: git.brmartin.co.uk
+        https: true
+        kas:
+          name: git.brmartin.co.uk
+      gatewayApi:
+        enabled: false
+        installEnvoy: false
+        configureCertmanager: false
+      ingress:
+        enabled: false
+        configureCertmanager: false
+        tls:
+          secretName: wildcard-brmartin-tls
+      psql:
+        host: 192.168.1.10
+        port: 5433
+        username: gitlab
+        database: gitlabhq_production
+        preparedStatements: false
+        password:
+          secret: gitlab-secrets
+          key: db_password
+        ci:
+          database: gitlabhq_production
+          databaseTasks: false
+      redis:
+        host: gitlab-redis
+        port: 6379
+        auth:
+          enabled: false
+        database: 0
+        # Native redis.yml override preserves logical DBs; chart 10.5's
+        # selectedMergedConfig applies the global database to generated fragments.
+        redisYmlOverride:
+          cache:
+            url: redis://gitlab-redis:6379/1
+          queues:
+            url: redis://gitlab-redis:6379/2
+          shared_state:
+            url: redis://gitlab-redis:6379/3
+          trace_chunks:
+            url: redis://gitlab-redis:6379/4
+          rate_limiting:
+            url: redis://gitlab-redis:6379/5
+          sessions:
+            url: redis://gitlab-redis:6379/6
+      railsSecrets:
+        secret: gitlab-rails-secret
+      gitaly:
+        authToken:
+          secret: gitlab-gitaly
+          key: token
+      shell:
+        authToken:
+          secret: gitlab-shell
+          key: .gitlab_shell_secret
+        port: 2222
+      appConfig:
+        object_store:
+          enabled: true
+          connection:
+            secret: gitlab-helm-objectstore
+            key: connection
+        artifacts:
+          bucket: gitlab-artifacts
+        lfs:
+          bucket: gitlab-lfs
+        uploads:
+          bucket: gitlab-uploads
+        packages:
+          bucket: gitlab-packages
+        gitlab_kas:
+          secret: gitlab-kas-secret
+          key: kas_shared_secret
+          externalUrl: wss://git.brmartin.co.uk/-/kubernetes-agent/
+      smtp:
+        enabled: true
+        address: mail.brmartin.co.uk
+        port: 587
+        domain: brmartin.co.uk
+        user_name_secret:
+          secret: gitlab-smtp-secret
+          key: SMTP_USERNAME
+        password:
+          secret: gitlab-smtp-secret
+          key: SMTP_PASSWORD
+        authentication: login
+        starttls_auto: true
+      email:
+        from: gitlab@brmartin.co.uk
+        display_name: GitLab
+        reply_to: noreply@brmartin.co.uk
+      time_zone: Europe/London
+      workhorse:
+        secret: gitlab-workhorse
+        key: secret
+      registry:
+        certificate:
+          secret: gitlab-helm-registry-auth
+        httpSecret:
+          secret: gitlab-helm-registry-httpsecret
+          key: secret
+        tokenIssuer: gitlab-issuer
+      initialRootPassword:
+        secret: gitlab-helm-initial-root-password
+        key: password
+    installCertmanager: false
+    prometheus:
+      install: false
+    gitlab-runner:
+      install: false
+    nginx-ingress:
+      enabled: false
+    nginx-ingress-geo:
+      enabled: false
+    traefik:
+      install: false
+    haproxy:
+      install: false
+    openbao:
+      install: false
+    gitlab-zoekt:
+      install: false
+    ai-gateway:
+      install: false
+    gitlab:
+      gitaly:
+        persistence:
+          storageClass: local-path-retain
+          size: 50Gi
+        resources:
+          requests:
+            cpu: 50m
+            memory: 300Mi
+          limits:
+            memory: 512Mi
+      toolbox:
+        backups:
+          objectStorage:
+            backend: s3
+            config:
+              secret: gitlab-helm-backup-config
+              key: config
+        resources:
+          requests:
+            cpu: 50m
+            memory: 350M
+      webservice:
+        minReplicas: 1
+        maxReplicas: 1
+        workerProcesses: 1
+        puma:
+          threads:
+            min: 1
+            max: 4
+        resources:
+          requests:
+            cpu: 75m
+            memory: 2100Mi
+          limits:
+            memory: 3Gi
+        workhorse:
+          resources:
+            requests:
+              cpu: 100m
+              memory: 32Mi
+            limits:
+              memory: 256Mi
+        deployment:
+          strategy:
+            type: Recreate
+      sidekiq:
+        minReplicas: 1
+        maxReplicas: 1
+        concurrency: 5
+        resources:
+          requests:
+            cpu: 150m
+            memory: 1600Mi
+          limits:
+            memory: 2Gi
+        deployment:
+          strategy:
+            type: Recreate
+      kas:
+        minReplicas: 1
+        maxReplicas: 1
+        resources:
+          requests:
+            cpu: 50m
+            memory: 128Mi
+          limits:
+            memory: 512Mi
+        customConfig:
+          redis:
+            database_index: 3
+        ingress:
+          path: /-/kubernetes-agent/
+          k8sApiPath: /-/kubernetes-agent/k8s-proxy/
+        privateApi:
+          secret: gitlab-helm-kas-private-api
+          key: kas_private_api_secret
+        websocketToken:
+          secret: gitlab-helm-kas-websocket-token
+          key: kas_websocket_token_secret
+      gitlab-shell:
+        enabled: false
+      gitlab-exporter:
+        enabled: false
+      migrations:
+        enabled: true
+        resources:
+          requests:
+            cpu: 75m
+            memory: 2100Mi
+          limits:
+            memory: 3Gi
+    registry:
+      storage:
+        secret: gitlab-helm-registry-storage
+        key: config
+      hpa:
+        minReplicas: 1
+        maxReplicas: 1
+      resources:
+        requests:
+          cpu: 100m
+          memory: 64Mi
+        limits:
+          memory: 256Mi
+      deployment:
+        strategy:
+          type: Recreate
+      tokenIssuer: gitlab-issuer
+      database:
+        enabled: false
+    shared-secrets:
+      enabled: false
