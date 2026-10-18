@@ -317,8 +317,62 @@ def kustomize(root, path):
     return [d for d in yaml.safe_load_all(result.stdout) if d]
 
 
+def validate_backup_alerts(document):
+    """Pin two bounded native queries; not a PromQL parser or runtime evaluator."""
+    active = '(max by(namespace) (kube_cronjob_spec_suspend{namespace="default",cronjob="gitlab-helm-toolbox-backup"}) == 0)'
+    owner = '(kube_job_owner{namespace="default",owner_kind="CronJob",owner_name="gitlab-helm-toolbox-backup",owner_is_controller="true"} == 1)'
+
+    def attempt_start(state):
+        return ('max by(namespace) (kube_job_status_start_time{namespace="default"} '
+                f'and on(namespace, job_name) (kube_job_{state}{{namespace="default",condition="true"}} == 1) '
+                f'and on(namespace, job_name) {owner})')
+
+    # Epoch-zero fallback creates a firing age for an active CronJob with no
+    # qualified success. The final AND uses presence, not the suspend value (0).
+    success = f'({attempt_start("complete")} or on(namespace) (0 * {active}))'
+    expected = {
+        'gitlab-native-backup-failed-api': (
+            f'({attempt_start("failed")} > on(namespace) {success}) and on(namespace) {active}',
+            0, '5m', 'warning'),
+        'gitlab-native-backup-stale-api': (
+            f'(time() - {success}) and on(namespace) {active}', 93600, '0s', 'critical'),
+    }
+    errors = []
+    for uid, (expression, threshold, duration, severity) in expected.items():
+        matches = [(g, r) for g in document.get('groups', []) for r in g.get('rules', []) if r.get('uid') == uid]
+        if len(matches) != 1:
+            errors.append(f'{uid}: expected exactly one provisioned rule')
+            continue
+        group, rule = matches[0]
+        expect(errors, group, 'name', 'backup-health')
+        expect(errors, group, 'interval', '1m')
+        for path, value in {'condition': 'C', 'noDataState': 'OK', 'execErrState': 'OK',
+                            'for': duration, 'labels.severity': severity, 'isPaused': False}.items():
+            expect(errors, rule, path, value)
+        data = rule.get('data', [])
+        if [q.get('refId') for q in data] != ['A', 'C']:
+            errors.append(f'{uid}: expected A query and C threshold')
+            continue
+        query, condition = data
+        expect(errors, query, 'datasourceUid', 'prometheus')
+        expect(errors, query, 'model.datasource', {'type': 'prometheus', 'uid': 'prometheus'})
+        expect(errors, query, 'model.instant', True)
+        if re.sub(r'\s+', '', get(query, 'model.expr') or '') != re.sub(r'\s+', '', expression):
+            errors.append(f'{uid}: native backup predicate changed')
+        expect(errors, condition, 'datasourceUid', '-100')
+        expect(errors, condition, 'model.expression', 'A')
+        expect(errors, condition, 'model.type', 'threshold')
+        expect(errors, condition, 'model.conditions', [{'evaluator': {'params': [threshold], 'type': 'gt'}}])
+    return errors
+
+
 def validate_source(root):
     errors = []
+    try:
+        alerts = yaml.safe_load((root / 'infrastructure/observability-ui/grafana/_grafana_alert_rules.yaml').read_text())
+        errors.extend(validate_backup_alerts(alerts))
+    except (OSError, yaml.YAMLError) as error:
+        errors.append(f'cannot read native backup alerts: {error}')
     candidate = root / "apps/gitlab-helm"
     release = yaml.safe_load((candidate / "helmrelease.yaml").read_text())
     errors.extend(validate_release(release))
