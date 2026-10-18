@@ -290,15 +290,20 @@ second credential identity, signing-key copy, sidecar or API/RBAC access is adde
   It captures complete combined producer output/status in a local private0600
   `/srv/gitlab/tmp/.native-backup.*.log`, never echoed to Job logs. These diagnostics
   survive failure/cleanup; budget and manage their private custody on the local volume.
-- **Exact native-output dependency, source-bound to CNG19.5.0:**
+- **Exact native-output dependency, checked against CNG19.5.0 source:**
   [object_storage_backup.rb](https://gitlab.com/gitlab-org/build/CNG/-/blob/v19.5.0/gitlab-toolbox/scripts/lib/object_storage_backup.rb)
   prints `Unable to check existence of bucket ...` but returns success on failed
   bucket checks. The helper rejects that output even on process exit0. For every
   enabled type it requires the native adjacent `Dumping <type> ...` / `empty` or
   `done` lines (ANSI colors removed); native sync/archive errors already exit nonzero.
   This is evidence from the **same producer invocation**, never a later bucket check.
-  Requalify these source/output semantics and the helper's exact version fence on
-  **every native application update**; an unknown version/output shape fails closed.
+  Requalify these source/output semantics on **every native application update**;
+  the 19.5.0 contract and command-double fixtures do not qualify future releases.
+  The chart remains the sole release input: the helper reads the chart-selected
+  native image's `/srv/gitlab/VERSION`, requires stable numeric `major.minor.patch`
+  (no prefix, leading zeros, prerelease or build metadata), and binds the reported
+  archive version to that runtime value, with no separately edited application pin.
+  Invalid/mismatched versions and changed/incomplete producer output fail closed.
 - Select only the local archive named in that invocation's native S3-success line,
   with its version/epoch inside the invocation and a fresh regular local file.
   Read the native tar without extraction, validate headers/end blocks, consume all

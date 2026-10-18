@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run native CNG19.5 backup, then publish that invocation's archive off-backend.
+"""Run native CNG backup, then publish that invocation's archive off-backend.
 
 Depends on backup-utility/object_storage_backup.rb v19.5 producer output, NOT
 remote metadata completeness. Requalify that output contract on native updates.
@@ -223,7 +223,8 @@ def main():
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         work = Path(os.environ.get('BACKUP_WORK_DIR', '/srv/gitlab/tmp'))
         version = Path(os.environ.get('VERSION_FILE', '/srv/gitlab/VERSION')).read_text().strip()
-        require(version == '19.5.0', 'native producer output requires update qualification')
+        require(re.fullmatch(r'(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)', version)
+                is not None, 'native image requires a stable numeric version')
         # Local diagnostics survive failure/native cleanup; private, never a remote receipt.
         log = cleanup.enter_context(tempfile.NamedTemporaryFile(
             prefix='.native-backup.', suffix='.log', dir=work, delete=False))

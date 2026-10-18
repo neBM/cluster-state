@@ -45,7 +45,8 @@ if '--cleanup' in sys.argv:
 assert sys.argv[1:] == ['--skip', os.environ['FIXTURE_DISABLED'], '--skip-cleanup']
 if os.environ.get('FIXTURE_NATIVE_FAILURE'): sys.exit(7)
 t = int(time.time())
-name = time.strftime(str(t) + '_%Y_%m_%d_19.5.0_gitlab_backup.tar')
+version = os.environ.get('FIXTURE_REPORTED_VERSION', pathlib.Path(os.environ['VERSION_FILE']).read_text().strip())
+name = time.strftime(str(t) + '_%Y_%m_%d_') + version + '_gitlab_backup.tar'
 dest = root / 'backup_tars'
 if dest.exists(): shutil.rmtree(dest)
 dest.mkdir()
@@ -73,10 +74,11 @@ print('[DONE] Backup can be found at s3://gitlab-backups/' + name)
         while int(time.time()) <= self.last_run:
             time.sleep(0.02)
         timestamp = int(time.time())
-        backup_id = time.strftime(str(timestamp) + '_%Y_%m_%d_19.5.0')
+        version = self.version.read_text().strip()
+        backup_id = time.strftime(str(timestamp) + '_%Y_%m_%d_') + version
         created = time.strftime('%Y-%m-%d %H:%M:%S %z')
         self.metadata = (f':backup_id: {backup_id}\n:db_version: 20261001000000\n'
-                         f':backup_created_at: {created}\n:gitlab_version: 19.5.0\n'
+                         f':backup_created_at: {created}\n:gitlab_version: {version}\n'
                          ':tar_version: tar (GNU tar) 1.35\n:installation_type: gitlab-helm-chart\n'
                          ':skipped: builds,pages' + (',lfs' if empty == 'lfs' else '')
                          + ',external_diffs,terraform_state,pages,ci_secure_files,agent_plan_content,ci_catalog_bundles'
@@ -172,6 +174,35 @@ print('[DONE] Backup can be found at s3://gitlab-backups/' + name)
         self.assertEqual(self.run_export().returncode, 0)
         self.assertTrue(unknown.exists())
         self.assertTrue(partial.exists())
+
+    def test_archive_version_follows_native_runtime(self):
+        self.version.write_text('19.5.1\n')
+        self.add_archive(empty='lfs')
+        result = self.run_export()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        original = self.completed()
+        self.assertEqual(len(original), 1)
+        archive = next(original[0].glob('*.tar'))
+        self.assertTrue(archive.name.endswith('_19.5.1_gitlab_backup.tar'))
+        self.assertEqual(archive.read_bytes(), self.fixture.read_bytes())
+        self.assertEqual((original[0] / 'backup_information.yml').read_bytes(), self.metadata)
+        self.assertEqual(self.calls.read_text().splitlines(),
+                         [f'--skip {DISABLED} --skip-cleanup', '--cleanup --maximum-backups 7'])
+
+        # A valid but different reported archive version is not this image's backup.
+        self.env['FIXTURE_REPORTED_VERSION'] = '19.5.0'
+        result = self.run_export()
+        self.assertNotEqual(result.returncode, 0, result.stdout)
+        self.assertEqual(self.completed(), original)
+        self.assertEqual(self.calls.read_text().count('--cleanup'), 1)
+        calls = self.calls.read_text()
+        for version in ('', '19.5', '019.5.1', 'v19.5.1', '19.5.1-rc1', '19.5.1+meta', '19.5.1\njunk'):
+            with self.subTest(version=version):
+                self.version.write_text(version + '\n')
+                result = self.run_export()
+                self.assertNotEqual(result.returncode, 0, result.stdout)
+                self.assertEqual(self.completed(), original)
+                self.assertEqual(self.calls.read_text(), calls)  # Reject before producer/cleanup.
 
     def test_producer_and_payload_failures_preserve_previous(self):
         self.add_archive()
