@@ -45,8 +45,9 @@ def get(value, path):
 
 
 def expect(errors, value, path, wanted):
-    if get(value, path) != wanted:
-        errors.append(f"{path}: expected {wanted!r}, got {get(value, path)!r}")
+    actual = get(value, path)
+    if type(actual) is not type(wanted) or actual != wanted:
+        errors.append(f"{path}: expected {wanted!r}, got {actual!r}")
 
 
 def validate_release(release):
