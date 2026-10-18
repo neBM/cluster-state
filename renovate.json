@@ -49,13 +49,14 @@
       ]
     },
     {
-      "description": "Group GitLab CNG replacement-managed release values",
+      "description": "Temporarily hold GitLab release updates during fixed-version Helm adoption; Task6 replaces legacy ownership and removes this hold after verified adoption",
       "matchManagers": [
         "custom.regex"
       ],
       "matchFileNames": [
         "apps/gitlab/kustomization.yaml"
       ],
+      "enabled": false,
       "groupName": "gitlab-cng",
       "labels": [
         "gitlab",
