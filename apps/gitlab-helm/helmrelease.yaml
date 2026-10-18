@@ -224,17 +224,37 @@ spec:
       appConfig:
         object_store:
           enabled: true
+          proxy_download: true
           connection:
             secret: gitlab-helm-objectstore
             key: connection
         artifacts:
+          enabled: true
           bucket: gitlab-artifacts
         lfs:
+          enabled: true
           bucket: gitlab-lfs
         uploads:
+          enabled: true
           bucket: gitlab-uploads
         packages:
+          enabled: true
           bucket: gitlab-packages
+        externalDiffs:
+          enabled: false
+        terraformState:
+          enabled: false
+        dependencyProxy:
+          enabled: false
+        ciSecureFiles:
+          enabled: false
+        agentPlanContent:
+          enabled: false
+        ciCatalogBundles:
+          enabled: false
+        backups:
+          bucket: gitlab-backups
+          tmpBucket: gitlab-restore-scratch
         gitlab_kas:
           secret: gitlab-kas-secret
           key: kas_shared_secret
@@ -261,6 +281,7 @@ spec:
         secret: gitlab-workhorse
         key: secret
       registry:
+        bucket: gitlab-registry
         certificate:
           secret: gitlab-helm-registry-auth
         httpSecret:
@@ -270,6 +291,10 @@ spec:
       initialRootPassword:
         secret: gitlab-helm-initial-root-password
         key: password
+      pages:
+        enabled: false
+        objectStore:
+          enabled: false
     installCertmanager: false
     prometheus:
       install: false
@@ -302,6 +327,30 @@ spec:
             memory: 512Mi
       toolbox:
         backups:
+          cron:
+            enabled: true
+            suspend: true
+            schedule: '0 1 * * *'
+            timeZone: Europe/London
+            concurrencyPolicy: Forbid
+            startingDeadlineSeconds: 1800
+            activeDeadlineSeconds: 10800
+            backoffLimit: 0
+            restartPolicy: Never
+            successfulJobsHistoryLimit: 2
+            failedJobsHistoryLimit: 2
+            extraArgs: --maximum-backups 7
+            # Transient budget; application/Toolbox Deployment sizing is unchanged.
+            resources:
+              requests:
+                cpu: 100m
+                memory: 512Mi
+              limits:
+                memory: 2Gi
+            persistence:
+              enabled: true
+              storageClass: local-path-retain
+              size: 100Gi
           objectStorage:
             backend: s3
             config:
@@ -385,6 +434,8 @@ spec:
       storage:
         secret: gitlab-helm-registry-storage
         key: config
+        redirect:
+          disable: true
       hpa:
         minReplicas: 1
         maxReplicas: 1

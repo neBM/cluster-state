@@ -28,6 +28,11 @@ RESOURCES = {
     "migrations": ("75m", "2100Mi", "3Gi"),
 }
 WORKLOADS = {"gitaly", "kas", "registry", "sidekiq", "webservice", "toolbox"}
+BACKUP_SCHEDULE = {"suspend": True, "schedule": "0 1 * * *", "timeZone": "Europe/London",
+                   "concurrencyPolicy": "Forbid", "startingDeadlineSeconds": 1800,
+                   "successfulJobsHistoryLimit": 2, "failedJobsHistoryLimit": 2}
+BACKUP_RESOURCES = {"requests": {"cpu": "100m", "memory": "512Mi"}, "limits": {"memory": "2Gi"}}
+EXPORT_IMAGE = "registry.gitlab.com/gitlab-org/build/cng/gitlab-toolbox-ce@sha256:6038bfd42aa8bae1f63c25eb366c0d5bf79395db348ded1f43bf76ca1323bf35"
 
 
 HOOK_NAME = "gitlab-helm-gitlab-upgrade-check"
@@ -219,10 +224,24 @@ def validate_release(release):
         "global.psql.ci.database": "gitlabhq_production", "global.psql.ci.databaseTasks": False,
         "global.redis.host": "gitlab-redis", "global.redis.auth.enabled": False,
         "global.appConfig.object_store.connection": {"secret": "gitlab-helm-objectstore", "key": "connection"},
-        "registry.storage": {"secret": "gitlab-helm-registry-storage", "key": "config"},
+        "registry.storage": {"secret": "gitlab-helm-registry-storage", "key": "config", "redirect": {"disable": True}},
         "gitlab.toolbox.backups.objectStorage.config": {"secret": "gitlab-helm-backup-config", "key": "config"},
+        "global.appConfig.object_store.enabled": True, "global.appConfig.object_store.proxy_download": True,
+        "global.registry.bucket": "gitlab-registry", "global.pages.enabled": False,
+        "global.pages.objectStore.enabled": False,
+        "global.appConfig.backups": {"bucket": "gitlab-backups", "tmpBucket": "gitlab-restore-scratch"},
     }.items():
         expect(errors, values, path, wanted)
+    for name in ("artifacts", "lfs", "uploads", "packages"):
+        expect(errors, values, f"global.appConfig.{name}.enabled", True)
+        expect(errors, values, f"global.appConfig.{name}.bucket", f"gitlab-{name}")
+    for name in ("externalDiffs", "terraformState", "dependencyProxy", "ciSecureFiles", "agentPlanContent", "ciCatalogBundles"):
+        expect(errors, values, f"global.appConfig.{name}.enabled", False)
+    for key, wanted in {**BACKUP_SCHEDULE, "enabled": True, "activeDeadlineSeconds": 10800,
+                        "backoffLimit": 0, "restartPolicy": "Never", "extraArgs": "--maximum-backups 7",
+                        "resources": BACKUP_RESOURCES,
+                        "persistence": {"enabled": True, "storageClass": "local-path-retain", "size": "100Gi"}}.items():
+        expect(errors, values, f"gitlab.toolbox.backups.cron.{key}", wanted)
     for name, db in {"cache": 1, "queues": 2, "shared_state": 3, "trace_chunks": 4, "rate_limiting": 5, "sessions": 6}.items():
         expect(errors, values, f"global.redis.redisYmlOverride.{name}.url", f"redis://gitlab-redis:6379/{db}")
     expect(errors, values, "gitlab.kas.customConfig.redis.database_index", 3)
@@ -282,6 +301,13 @@ def validate_source(root):
         errors.append("independent recovery PVC must be retained/prune-disabled")
     script = next((d for d in prepared if d.get("kind") == "ConfigMap" and d["metadata"]["name"] == "gitlab-helm-upgrade-admission"), {})
     expect(errors, script, "data", {"upgrade-admission.sh": (candidate / "files/upgrade-admission.sh").read_text()})
+    exporter = next((d for d in prepared if d.get("kind") == "ConfigMap" and d["metadata"]["name"] == "gitlab-helm-nas-export"), {})
+    expect(errors, exporter, "data", {"nas-export.py": (candidate / "files/nas-export.py").read_text()})
+    exports = [d for d in prepared if d.get("kind") == "CronJob"]
+    if len(exports) != 1:
+        errors.append("exactly one ordinary independent export CronJob required")
+    else:
+        errors.extend(validate_export(exports[0]))
     repository = yaml.safe_load((candidate / "helmrepository.yaml").read_text())
     expect(errors, repository, "spec.url", "https://charts.gitlab.io")
     flux_dir = root / "clusters/k3s-homelab/flux-system"
@@ -309,9 +335,84 @@ def validate_source(root):
     return errors
 
 
+def validate_export(cron):
+    errors = []
+    for key, wanted in {**BACKUP_SCHEDULE, "schedule": "0 2 * * *"}.items():
+        expect(errors, cron, f"spec.{key}", wanted)
+    expect(errors, cron, "metadata.name", "gitlab-helm-nas-export")
+    job = get(cron, "spec.jobTemplate.spec") or {}
+    expect(errors, job, "backoffLimit", 0)
+    expect(errors, job, "activeDeadlineSeconds", 7200)
+    spec = get(job, "template.spec") or {}
+    expect(errors, spec, "automountServiceAccountToken", False)
+    expect(errors, spec, "restartPolicy", "Never")
+    expect(errors, spec, "securityContext", {"runAsNonRoot": True, "runAsUser": 1000, "runAsGroup": 1000,
+                                           "seccompProfile": {"type": "RuntimeDefault"}})
+    expect(errors, spec, "volumes", [
+        {"name": "recovery", "persistentVolumeClaim": {"claimName": "gitlab-helm-recovery-windsor"}},
+        {"name": "backup-config", "secret": {"secretName": "gitlab-helm-backup-config", "defaultMode": 292,
+         "items": [{"key": "config", "path": "config"}]}},
+        {"name": "export-script", "configMap": {"name": "gitlab-helm-nas-export", "defaultMode": 292}}])
+    expect(errors, spec, "initContainers", None)
+    containers = spec.get("containers", [])
+    if len(containers) != 1:
+        return errors + ["one transfer-only container required"]
+    c = containers[0]
+    for key, wanted in {
+        "image": EXPORT_IMAGE, "command": ["python3", "/export-script/nas-export.py"],
+        "env": [{"name": "PYTHONDONTWRITEBYTECODE", "value": "1"}],
+        "envFrom": None,
+        "securityContext": {"allowPrivilegeEscalation": False, "readOnlyRootFilesystem": True, "capabilities": {"drop": ["ALL"]}},
+        "resources": {"requests": {"cpu": "50m", "memory": "128Mi"}, "limits": {"memory": "512Mi"}},
+        "volumeMounts": [{"name": "recovery", "mountPath": "/recovery"},
+                         {"name": "backup-config", "mountPath": "/backup-config", "readOnly": True},
+                         {"name": "export-script", "mountPath": "/export-script", "readOnly": True}],
+    }.items():
+        expect(errors, c, key, wanted)
+    return errors
+
+
+def validate_backup_render(docs):
+    errors = []
+    crons = [d for d in docs if d.get("kind") == "CronJob"]
+    if len(crons) != 1:
+        return ["exactly one native Toolbox backup CronJob required"]
+    cron = crons[0]
+    expect(errors, cron, "metadata.name", "gitlab-helm-toolbox-backup")
+    for key, wanted in BACKUP_SCHEDULE.items():
+        expect(errors, cron, f"spec.{key}", wanted)
+    job = get(cron, "spec.jobTemplate.spec") or {}
+    expect(errors, job, "activeDeadlineSeconds", 10800)
+    expect(errors, job, "backoffLimit", 0)
+    spec = get(job, "template.spec") or {}
+    expect(errors, spec, "restartPolicy", "Never")
+    containers = spec.get("containers", [])
+    if len(containers) != 1:
+        return errors + ["native backup container shape changed"]
+    c = containers[0]
+    expect(errors, c, "name", "toolbox-backup")
+    expect(errors, c, "image", "registry.gitlab.com/gitlab-org/build/cng/gitlab-toolbox-ce:v19.5.0")
+    expect(errors, c, "resources", BACKUP_RESOURCES)
+    expect(errors, c, "args", ["/bin/bash", "-c", "test -f /etc/gitlab/.s3cfg && cp /etc/gitlab/.s3cfg $HOME/.s3cfg; backup-utility --maximum-backups 7"])
+    env = {e["name"]: e.get("value") for e in c.get("env", [])}
+    for name, bucket in {"ARTIFACTS": "gitlab-artifacts", "REGISTRY": "gitlab-registry", "LFS": "gitlab-lfs",
+                         "UPLOADS": "gitlab-uploads", "PACKAGES": "gitlab-packages", "BACKUP": "gitlab-backups",
+                         "TMP": "gitlab-restore-scratch"}.items():
+        expect(errors, env, name + "_BUCKET_NAME", bucket)
+    if not any(i["name"] == "configure" for i in spec.get("initContainers", [])):
+        errors.append("native Toolbox configure init missing")
+    tmp = next((v for v in spec.get("volumes", []) if v["name"] == "toolbox-tmp"), {})
+    expect(errors, tmp, "persistentVolumeClaim.claimName", "gitlab-helm-toolbox-backup-tmp")
+    pvc = next((d for d in docs if d.get("kind") == "PersistentVolumeClaim" and d["metadata"]["name"] == "gitlab-helm-toolbox-backup-tmp"), {})
+    expect(errors, pvc, "spec.storageClassName", "local-path-retain")
+    expect(errors, pvc, "spec.resources.requests.storage", "100Gi")
+    return errors
+
+
 def validate_render(docs):
     errors = []
     docs = [d for d in docs if d]
+    errors.extend(validate_backup_render(docs))
     seen = set()
     for d in docs:
         kind = d.get("kind")

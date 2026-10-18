@@ -1,0 +1,74 @@
+# INACTIVE: transfer-only utility, not a GitLab application version input.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: gitlab-helm-nas-export
+  namespace: default
+spec:
+  suspend: true
+  schedule: '0 2 * * *'
+  timeZone: Europe/London
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 1800
+  successfulJobsHistoryLimit: 2
+  failedJobsHistoryLimit: 2
+  jobTemplate:
+    spec:
+      backoffLimit: 0
+      activeDeadlineSeconds: 7200
+      template:
+        metadata:
+          labels:
+            app: gitlab-helm-nas-export
+        spec:
+          automountServiceAccountToken: false
+          restartPolicy: Never
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            # No fsGroup: never recursively repair NAS ownership/modes.
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: export
+              image: registry.gitlab.com/gitlab-org/build/cng/gitlab-toolbox-ce@sha256:6038bfd42aa8bae1f63c25eb366c0d5bf79395db348ded1f43bf76ca1323bf35
+              command: [python3, /export-script/nas-export.py]
+              env:
+                - name: PYTHONDONTWRITEBYTECODE
+                  value: '1'
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop: [ALL]
+              resources:
+                requests:
+                  cpu: 50m
+                  memory: 128Mi
+                limits:
+                  memory: 512Mi
+              volumeMounts:
+                - name: recovery
+                  mountPath: /recovery
+                - name: backup-config
+                  mountPath: /backup-config
+                  readOnly: true
+                - name: export-script
+                  mountPath: /export-script
+                  readOnly: true
+          volumes:
+            - name: recovery
+              persistentVolumeClaim:
+                claimName: gitlab-helm-recovery-windsor
+            - name: backup-config
+              secret:
+                secretName: gitlab-helm-backup-config
+                defaultMode: 292
+                items:
+                  - key: config
+                    path: config
+            - name: export-script
+              configMap:
+                name: gitlab-helm-nas-export
+                defaultMode: 292

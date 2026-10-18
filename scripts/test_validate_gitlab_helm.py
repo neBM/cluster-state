@@ -48,6 +48,11 @@ class CandidateTests(unittest.TestCase):
             ("hook selector", lambda r: r["spec"]["postRenderers"][0]["kustomize"]["patches"][0]["target"].update(name="wrong")),
             ("no patch", lambda r: r["spec"].update(postRenderers=[])),
             ("fsGroup NAS mutation", lambda r: r["spec"]["values"]["upgradeCheck"]["securityContext"].update(fsGroup=1000)),
+            ("backup active", lambda r: r["spec"]["values"]["gitlab"]["toolbox"]["backups"]["cron"].update(suspend=False)),
+            ("backup unbounded", lambda r: r["spec"]["values"]["gitlab"]["toolbox"]["backups"]["cron"].update(backoffLimit=6)),
+            ("wrong registry bucket", lambda r: r["spec"]["values"]["global"]["registry"].update(bucket="registry")),
+            ("optional blobs", lambda r: r["spec"]["values"]["global"]["appConfig"]["terraformState"].update(enabled=True)),
+            ("internal S3 redirect", lambda r: r["spec"]["values"]["registry"]["storage"]["redirect"].update(disable=False)),
         ]
         for name, mutate in changes:
             with self.subTest(name=name):
@@ -117,6 +122,34 @@ class CandidateTests(unittest.TestCase):
         changed.append(workload)
         self.assertTrue(self.v.validate_render(changed))
 
+
+    def test_backup_and_export_contract_mutations(self):
+        path = os.environ.get("GITLAB_HELM_RENDERED")
+        self.assertIsNotNone(path, "real native Helm render required")
+        assert path is not None
+        docs = [d for d in yaml.safe_load_all(Path(path).read_text()) if d]
+        self.assertEqual(self.v.validate_backup_render(docs), [])
+        for key, value in (("suspend", False), ("schedule", "0 0 * * *"), ("timeZone", "UTC")):
+            changed = copy.deepcopy(docs)
+            next(d for d in changed if d["kind"] == "CronJob")["spec"][key] = value
+            self.assertTrue(self.v.validate_backup_render(changed))
+        changed = copy.deepcopy(docs)
+        cron = next(d for d in changed if d["kind"] == "CronJob")
+        cron["spec"]["jobTemplate"]["spec"]["template"]["spec"]["containers"][0]["args"] = ["replacement"]
+        self.assertTrue(self.v.validate_backup_render(changed))
+        cron = next(d for d in self.v.kustomize(ROOT, "apps/gitlab-helm") if d["kind"] == "CronJob")
+        self.assertEqual(self.v.validate_export(cron), [])
+        for name, mutate in (
+            ("activated", lambda c: c["spec"].update(suspend=False)),
+            ("retry", lambda c: c["spec"]["jobTemplate"]["spec"].update(backoffLimit=2)),
+            ("API token", lambda c: c["spec"]["jobTemplate"]["spec"]["template"]["spec"].update(automountServiceAccountToken=True)),
+            ("extra mount", lambda c: c["spec"]["jobTemplate"]["spec"]["template"]["spec"]["volumes"].append({"name": "db", "secret": {"secretName": "gitlab-secrets"}})),
+            ("root", lambda c: c["spec"]["jobTemplate"]["spec"]["template"]["spec"]["securityContext"].update(runAsUser=0)),
+        ):
+            with self.subTest(name=name):
+                changed = copy.deepcopy(cron)
+                mutate(changed)
+                self.assertTrue(self.v.validate_export(changed))
 
     def test_native_postrender_shape_denials(self):
         path = os.environ.get("GITLAB_HELM_RENDERED")
