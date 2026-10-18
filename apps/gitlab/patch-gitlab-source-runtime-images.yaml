@@ -1,0 +1,64 @@
+# Temporary old-runtime preservation for controlled source capture/resumption.
+# Apply from the outer apps layer, after the legacy tag replacements; never pin
+# the shared webservice repository globally (the completed Job must not change).
+# Pins change Pod templates: hold/ACK the root/apps owners before merge/apply.
+# Remove with legacy retirement in Task6; do not pin the native chart's updater.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gitlab-kas
+  namespace: default
+spec:
+  template:
+    spec:
+      containers:
+      - name: kas
+        image: registry.gitlab.com/gitlab-org/build/cng/gitlab-kas:v19.5.0@sha256:dd8e02add8cf5c1385b8840ace93b5f7c55e5e23f417b0fcdf64306d2cc71601
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gitlab-registry
+  namespace: default
+spec:
+  template:
+    spec:
+      containers:
+      - name: registry
+        image: registry.gitlab.com/gitlab-org/build/cng/gitlab-container-registry:v19.5.0@sha256:e5a1fddd2f6b5db0f27b60848558ec562f4845e9873c115337cef11a386d4191
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gitlab-sidekiq
+  namespace: default
+spec:
+  template:
+    spec:
+      containers:
+      - name: sidekiq
+        image: registry.gitlab.com/gitlab-org/build/cng/gitlab-sidekiq-ce:v19.5.0@sha256:673fab0dd56bbcc653984ad63c5977d3846da3fe7ced48ec38bb82b6158e3386
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gitlab-webservice
+  namespace: default
+spec:
+  template:
+    spec:
+      containers:
+      - name: webservice
+        image: registry.gitlab.com/gitlab-org/build/cng/gitlab-webservice-ce:v19.5.0@sha256:517def09396d5e6a736a26b474758695a1a0bc557544af0a3e8c29684c969fc8
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gitlab-workhorse
+  namespace: default
+spec:
+  template:
+    spec:
+      containers:
+      - name: workhorse
+        image: registry.gitlab.com/gitlab-org/build/cng/gitlab-workhorse-ce:v19.5.0@sha256:aab34f7dfe65bb6d5571035b52ed051b9d9eb7c5a6dd4f947810abfff5a2f0d1
