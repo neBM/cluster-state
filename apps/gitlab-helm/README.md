@@ -134,7 +134,7 @@ provisioned by a source render. NFS requests are **not quotas**: before use the
 operator must inventory the retained export and verify real free space, expected
 ownership, NAS ACL/squash behavior and capacity for the required retention.
 
-The HelmRelease uses native **`postRenderStrategy: combined`** and exactly one
+The HelmRelease uses native **`postRenderStrategy: combined`** with one admission
 JSON6902 patch targeting `Job/default/gitlab-helm-gitlab-upgrade-check`. It adds
 `site-upgrade-admission` before the unchanged upstream `run-check`. The upstream
 hook weights (-11 ConfigMap / -10 Job), scripts, previous chart-info, native
@@ -193,7 +193,7 @@ private0600, removed on exit, and the password is never passed in argv/logs/env.
   rechecks both DB identities/schema/status observations, and atomically publishes
   the directory without replacing another archive. A final checksum readback is
   required. Errors block the hook; private unpublished staging is cleaned up.
-  Admission itself never prunes; the independent exporter below retains fourteen
+  Admission itself never prunes; the native producer publication below retains fourteen
   validated completed DB archives only after a new qualified NAS publication.
 
 **`pg_restore --list` and checksum readback prove archive readability/integrity,
@@ -223,7 +223,7 @@ Before activation, parent-owned remaining gates include:
    real disposable PostgreSQL17 dump **and restore**, including this native schema
    query and timeouts. Fixture clients are not that evidence.
 3. Parent reports native Rails/registry/Toolbox disposable S3 client checks passed;
-   full native backup/restore, empty-bucket policy, actual recurring NAS export,
+   full native backup/restore, actual recurring producer-owned NAS publication,
    retention/capacity and freshness/failure monitoring remain qualification gates.
    Without those gates this foundation is not production recovery.
 
@@ -265,92 +265,92 @@ No administrator/shared unrelated-bucket key, COSI-only multi-bucket fiction or
 formatter controller is introduced. Rotate privately as a synchronized identity +
 three-native-Secret change, transition/reload actual consumers, requalify allowed
 operations/multipart and unrelated-bucket denial, then verify old-key rejection.
-Do not assume zero-downtime dual-key support. The export mounts this existing backup
-Secret only; although its **code** only lists/gets `gitlab-backups`, the shared native
-Toolbox credential is broader than read-only. No DB/Redis/signing/API token is mounted.
+Do not assume zero-downtime dual-key support. The producer uses the chart's existing
+native Toolbox configuration/Secret mounts, including DB/repository access; no
+second credential identity, signing-key copy, sidecar or API/RBAC access is added.
 
-### Schedules, transient resources and publication
+### One native producer invocation and publication
 
-- The chart's **native** Toolbox backup CronJob is configured for **01:00
-  Europe/London**, Forbid, **suspended**, start deadline1800s, active deadline10800s,
-  backoff0, restartNever, two successful/two failed Job histories and native
-  `--maximum-backups 7`. Its native image derivation, command/config/init/mounts
-  are unchanged. A retained local RWO **100Gi** backup staging claim and transient
-  request100m/512Mi, memory ceiling2Gi are separate from steady application sizing.
-  Staging must hold native unpacked data plus tar/compression workspace;100Gi is a
-  preparation request, **not observed capacity acceptance**, especially for registry.
-- The independent ordinary NAS export CronJob is **02:00 Europe/London**, Forbid,
-  **suspended**, start deadline1800s, active deadline7200s, backoff0/restartNever,
-  histories2/2 and transient request50m/128Mi, memory ceiling512Mi. Schedule ordering
-  is not a dependency: backup filename and native metadata must independently be
-  no older than **26h** (at most5min clock skew into the future).
-- The exact parent-qualified Toolbox digest
-  `registry.gitlab.com/gitlab-org/build/cng/gitlab-toolbox-ce@sha256:6038bfd42aa8bae1f63c25eb366c0d5bf79395db348ded1f43bf76ca1323bf35`
-  is a **file-transfer-only utility dependency**. It does not run Rails/backup creation,
-  change any application image or become a second desired GitLab version input.
-  The parser supports the CNG19.5 metadata model and requires the backup version to
-  match the utility's own `/srv/gitlab/VERSION`; future release changes need explicit
-  compatible transfer/parser qualification rather than silently accepting a new format.
-- The Python standard-library script invokes native s3cmd with the existing INI,
-  selects the newest completed native filename, reads the tar without filesystem
-  extraction, checks header/payload readability, gzip CRCs, native scalar metadata,
-  version, creation time, main DB presence and the required component/skipped contract.
-  It rejects unsafe/duplicate members, links, malformed metadata, missing/partial/
-  stale inputs, server-side repository backups, required skips and unsafe destinations.
-  No repository bundle count is invented: metadata must not skip repositories,
-  but a legitimately empty repository population need not have a bundle per project.
-- UID/GID1000, umask077, owned dirs0700/files0600; no fsGroup or chmod/chown repair
-  over unrelated NAS paths. Only `gitlab-helm-recovery-windsor`, read-only native
-  backup config and script are mounted. There is no service-account token/RBAC.
-  Under an owned-directory lock, download goes to a unique private `.partial`
-  directory, then checksum/private readback/fsync, atomic directory rename and final
-  checksum readback. Failure preserves prior completed points; only this invocation's
-  unpublished temporary directory is cleaned. NFS rename/fsync/locking/ACL/squash,
-  disk-full and process-interruption behavior still require actual NAS qualification.
-- After a new qualified publication, retain **seven NAS completed exports** and
-  **fourteen completed admission DB archives**, ordered by native backup epoch and
-  admission `observed_at`, respectively. Validate exact owned completed file sets,
-  permissions and checksum readback before pruning. Unknown names and others'
-  `.partial`/`.admission` staging are never pruned; the only good point is not removed.
-  S3's native `--maximum-backups 7` is **separate** and counts native tars, not
-  exporter-qualified restore sets. Failed/ambiguous exports do not trigger NAS/DB
-  pruning: alert and budget space rather than deleting recovery history to hide failure.
+- The chart's native Toolbox backup CronJob alone runs at **01:00 Europe/London**,
+  Forbid, **suspended**, start deadline1800s, active deadline10800s, backoff0,
+  restartNever and histories2/2. There is **no separate export CronJob**, independently
+  pinned transfer image, remote archive selection or receipt/attestation protocol.
+  Independence means that the recovery **copy is off the S3 backend**, on the NAS.
+- The existing combined postrenderer has a second, exact-name JSON6902 target for
+  `CronJob/default/gitlab-helm-toolbox-backup`. It tests the native container/args,
+  retains the native S3 config copy and CNG entrypoint, then invokes the helper in
+  the **chart-selected native Toolbox image**. Config init/env/native Secrets,
+  resources and local staging remain native. Only this backup pod gains the script
+  and NAS mounts, loses API-token automount and `fsGroup` (no recursive NAS ownership
+  repair). The Toolbox Deployment and upgrade hook patch are not repurposed.
+- The helper invokes actual `backup-utility --skip
+  external_diffs,terraform_state,pages,ci_secure_files,agent_plan_content,ci_catalog_bundles
+  --skip-cleanup`. The single comma-list skips only disabled native optional types;
+  DB, repositories and all five enabled object-storage types remain unskipped.
+  It captures complete combined producer output/status in a local private0600
+  `/srv/gitlab/tmp/.native-backup.*.log`, never echoed to Job logs. These diagnostics
+  survive failure/cleanup; budget and manage their private custody on the local volume.
+- **Exact native-output dependency, source-bound to CNG19.5.0:**
+  [object_storage_backup.rb](https://gitlab.com/gitlab-org/build/CNG/-/blob/v19.5.0/gitlab-toolbox/scripts/lib/object_storage_backup.rb)
+  prints `Unable to check existence of bucket ...` but returns success on failed
+  bucket checks. The helper rejects that output even on process exit0. For every
+  enabled type it requires the native adjacent `Dumping <type> ...` / `empty` or
+  `done` lines (ANSI colors removed); native sync/archive errors already exit nonzero.
+  This is evidence from the **same producer invocation**, never a later bucket check.
+  Requalify these source/output semantics and the helper's exact version fence on
+  **every native application update**; an unknown version/output shape fails closed.
+- Select only the local archive named in that invocation's native S3-success line,
+  with its version/epoch inside the invocation and a fresh regular local file.
+  Read the native tar without extraction, validate headers/end blocks, consume all
+  payloads, validate present blob tar/gzip payloads and SQL gzip CRCs, and require
+  a nonempty regular main DB payload. Every nonempty enabled blob requires its
+  actual regular payload; names supplied as directories are rejected. Legitimate
+  empty enabled types may have no payload. Native `backup_information.yml` remains
+  **opaque, byte-preserved**, including the actual duplicate `pages` skipped value.
+  It is not a second completeness authority. Trusted fixed producer flags preserve
+  DB/repository backup; no per-project repository bundle count is invented.
+- UID/GID1000, umask077, owned dirs0700/files0600, no chmod/chown repair. Under the
+  owned NAS directory lock, copy **that exact local archive** to unique private
+  `.partial` staging, write checksum and unchanged native metadata, verify copy hash,
+  file/directory fsync, atomically rename the directory, then verify final readback.
+  Preserve prior-good/unknown/others' partial paths on failure; clean only this
+  invocation's unpublished NAS stage. NAS absence/failure fails the whole Job.
+- Only **after qualified NAS publication**, retain **seven** owned complete exports
+  and **fourteen** owned completed admission DB archives (native epoch/admission
+  `observed_at` order). Validate owned file sets/privacy/checksums before pruning;
+  unknown paths/partial staging are untouched. Then run native
+  `backup-utility --cleanup --maximum-backups 7` for supported local/S3 cleanup.
+  No custom S3 delete/list retention implementation exists. Native producer or NAS
+  failure never invokes cleanup/pruning; cleanup failure fails the Job but keeps
+  the newly published NAS recovery point. A later native run clears its own native
+  working directories as upstream does, not independent NAS history.
+- Retained local RWO staging is **100Gi**, transient request100m/512Mi, memory
+  ceiling2Gi, separate from steady application sizing. It must hold native unpacked
+  data plus tar/compression workspace and retained diagnostics. These requests are
+  **not observed capacity acceptance**, especially for registry or an unbounded NFS
+  export; inventory and verify capacity rather than deleting history to hide failure.
 
-### Explicit source residual and live qualification gates
+### Remaining activation and live qualification gates
 
-**This checkpoint cannot yet accept every legitimate empty enabled bucket.** Exact
-[CNG19.5 object-storage source](https://gitlab.com/gitlab-org/build/CNG/-/blob/v19.5.0/gitlab-toolbox/scripts/lib/object_storage_backup.rb)
-returns without an archive both on bucket-existence failure (including AccessDenied)
-and on an empty synchronized directory. Native
-[`get_skipped`](https://gitlab.com/gitlab-org/build/CNG/-/blob/v19.5.0/gitlab-toolbox/scripts/bin/backup-utility)
-labels **both** as skipped. The tar alone contains no authoritative distinction.
-The exporter therefore denies either case for enabled components; it does **not**
-infer successful empty backup from current bucket contents or invent an archive
-member/manifest to claim that gap solved. This intentionally narrower fail-closed
-checkpoint is **not full Task2b acceptance or an activation approval**. Parent must
-resolve a source-backed backup-time empty-versus-failure witness/policy before the
-endpoint can support ordinary empty data; seeded qualification alone is not that fix.
+Monitoring is a separate bounded follow-up and an **activation blocker**. Extend
+`infrastructure/observability-ui/grafana/_grafana_alert_rules.yaml` using established
+failure/last-success conventions: combined native-backup/NAS-publication Job failure
+and >26h stale/missing successful publication, including no first success, gated
+against intentionally suspended preparation. A native S3 upload alone is not success
+of the combined Job or proof of NAS publication. No new monitoring service is needed.
 
-Monitoring is also an explicit coherent follow-up: extend the established Grafana
-provisioned alert rules at
-`infrastructure/observability-ui/grafana/_grafana_alert_rules.yaml`, following its
-Restic failure/last-success conventions. Before unsuspension, alert on native backup
-and independent export failures and >26h stale/missing successful publication,
-including no first success, gated against intentionally suspended preparation.
-No new monitoring service is needed; a successful native Job alone is not full-data
-backup proof. Neither schedule is automatically activated by the other.
-
-Parent owns exact-source review/canonical CI, actual image/script execution,
-NAS retained-export inventory/free space/private custody, seeded **all enabled
-types** in real full backup and native restore, client regressions, final write fence
-and activation/unsuspension. Restore from a **NAS-resident** tar with matching CE
+Parent owns exact-source review/canonical CI, actual native image/helper execution,
+NAS privacy/free space/retained inventory, NFS rename/fsync/locking/ACL/squash,
+disk-full/interruption behavior, real full native backup and restore with **all
+enabled types** (including normal empty-data operation), client regressions, final
+write fence and activation. Restore from a **NAS-resident** tar with matching CE
 version using native `backup-utility --restore -f file:///...` in an isolated
 DB/Gitaly/object-storage target; native restore can delete/replace bucket contents.
 Retain Rails encryption/signing/KAS and other restore secrets separately and privately:
 they are not supplied by this tar. Tar/CRC/hash/listing checks are integrity/readability,
 **not restore proof or an online cross-component point-in-time guarantee**.
 
-`scripts/test_gitlab_nas_export.py` runs the real script with **fixture s3cmd** and
-real local tar/gzip/permissions/hash/fsync/publication/retention. It is not S3, NAS,
-actual native backup or restore evidence; the existing locked Helm4 real-render tests
-check the native backup and independent exporter resources and inactive fences.
+`scripts/test_gitlab_nas_export.py` executes the real helper with a **fixture
+backup-utility**, not real native backup or S3. Local tar/gzip/privacy/hash/fsync/
+publication/retention checks and locked Helm4 renders qualify source behavior only.
+They do not prove native image execution, NAS durability or successful recovery.

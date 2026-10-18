@@ -137,19 +137,39 @@ class CandidateTests(unittest.TestCase):
         cron = next(d for d in changed if d["kind"] == "CronJob")
         cron["spec"]["jobTemplate"]["spec"]["template"]["spec"]["containers"][0]["args"] = ["replacement"]
         self.assertTrue(self.v.validate_backup_render(changed))
-        cron = next(d for d in self.v.kustomize(ROOT, "apps/gitlab-helm") if d["kind"] == "CronJob")
-        self.assertEqual(self.v.validate_export(cron), [])
+        self.assertFalse(any(d['kind'] == 'CronJob' for d in self.v.kustomize(ROOT, 'apps/gitlab-helm')))
+        self.assertEqual(self.v.validate_backup_input(docs), [])
+        native = self.v.backup_crons(docs)[0]
         for name, mutate in (
-            ("activated", lambda c: c["spec"].update(suspend=False)),
-            ("retry", lambda c: c["spec"]["jobTemplate"]["spec"].update(backoffLimit=2)),
-            ("API token", lambda c: c["spec"]["jobTemplate"]["spec"]["template"]["spec"].update(automountServiceAccountToken=True)),
-            ("extra mount", lambda c: c["spec"]["jobTemplate"]["spec"]["template"]["spec"]["volumes"].append({"name": "db", "secret": {"secretName": "gitlab-secrets"}})),
-            ("root", lambda c: c["spec"]["jobTemplate"]["spec"]["template"]["spec"]["securityContext"].update(runAsUser=0)),
+            ('unmatched', lambda ds: ds.remove(next(d for d in ds if d == native))),
+            ('duplicate', lambda ds: ds.append(copy.deepcopy(native))),
+            ('command shape', lambda ds: self.v.backup_crons(ds)[0]['spec']['jobTemplate']['spec']['template']['spec']['containers'][0].update(args=['wrong'])),
         ):
             with self.subTest(name=name):
-                changed = copy.deepcopy(cron)
+                changed = copy.deepcopy(docs)
                 mutate(changed)
-                self.assertTrue(self.v.validate_export(changed))
+                with self.assertRaises(ValueError):
+                    self.v.apply_postrender(changed, self.release)
+        with self.assertRaises(subprocess.CalledProcessError):
+            self.v.apply_postrender(changed, self.release, check_input=False)
+        patched = self.v.apply_postrender(docs, self.release)
+        self.assertEqual(self.v.validate_backup_postrender(docs, patched), [])
+        subprocess.run(['bash', '-n', '-c', self.v.SITE_BACKUP_ARGS[2]], check=True)
+        for name, mutate in (
+            ('NAS ownership repair', lambda s: s['securityContext'].update(fsGroup=1000)),
+            ('API token', lambda s: s.update(automountServiceAccountToken=True)),
+            ('configure changed', lambda s: s['initContainers'][0].update(name='wrong')),
+            ('native env changed', lambda s: s['containers'][0]['env'].pop()),
+            ('native image changed', lambda s: s['containers'][0].update(image='wrong')),
+            ('missing NAS mount', lambda s: s['containers'][0]['volumeMounts'].pop()),
+        ):
+            with self.subTest(name=name):
+                changed = copy.deepcopy(patched)
+                mutate(self.v.backup_crons(changed)[0]['spec']['jobTemplate']['spec']['template']['spec'])
+                self.assertTrue(self.v.validate_postrender(docs, changed, self.release))
+        unmatched = copy.deepcopy(self.release)
+        unmatched['spec']['postRenderers'][0]['kustomize']['patches'][1]['target']['name'] = '^unmatched$'
+        self.assertTrue(self.v.validate_postrender(docs, self.v.apply_postrender(docs, unmatched), unmatched))
 
     def test_native_postrender_shape_denials(self):
         path = os.environ.get("GITLAB_HELM_RENDERED")

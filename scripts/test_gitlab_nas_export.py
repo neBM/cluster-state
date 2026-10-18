@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""Local real-script/archive/permissions fixtures; s3cmd is a command double, NOT S3 proof."""
+"""Real helper/local archives; backup-utility is a double, NOT native backup proof."""
+import gzip
 import hashlib
 import io
 import os
 from pathlib import Path
-import shutil
 import subprocess
 import tarfile
 import tempfile
@@ -13,6 +13,7 @@ import unittest
 
 ROOT = Path(__file__).resolve().parent.parent
 SCRIPT = ROOT / 'apps/gitlab-helm/files/nas-export.py'
+DISABLED = 'external_diffs,terraform_state,pages,ci_secure_files,agent_plan_content,ci_catalog_bundles'
 
 
 class ExportFixtures(unittest.TestCase):
@@ -24,64 +25,95 @@ class ExportFixtures(unittest.TestCase):
             os.chown(self.root, 1000, 1000)
         self.recovery = self.root / 'recovery'
         self.recovery.mkdir()
-        self.remote = self.root / 'remote'
-        self.remote.mkdir()
+        self.work = self.root / 'work'
+        self.work.mkdir()
         self.bin = self.root / 'bin'
         self.bin.mkdir()
         self.version = self.root / 'VERSION'
         self.version.write_text('19.5.0\n')
-        self.config = self.root / 'config'
-        self.config.write_text('fixture config; not credentials\n')
-        fake = self.bin / 's3cmd'
+        self.fixture = self.root / 'fixture.tar'
+        self.calls = self.root / 'calls'
+        fake = self.bin / 'backup-utility'
         fake.write_text('''#!/usr/bin/env python3
-import os, pathlib, shutil, sys
-r = pathlib.Path(os.environ['FIXTURE_REMOTE'])
-if os.environ.get('FIXTURE_S3_FAILURE'): sys.exit(1)
-if 'ls' in sys.argv:
-    for p in sorted(r.iterdir()):
-        print('2026-01-01 01:00 %d s3://gitlab-backups/%s' % (p.stat().st_size, p.name))
-elif 'get' in sys.argv:
-    shutil.copyfile(r / sys.argv[-2].rsplit('/', 1)[-1], sys.argv[-1])
-else: sys.exit(2)
+import os, pathlib, shutil, sys, time
+root = pathlib.Path(os.environ['BACKUP_WORK_DIR'])
+with open(os.environ['FIXTURE_CALLS'], 'a') as f: f.write(' '.join(sys.argv[1:]) + '\\n')
+if '--cleanup' in sys.argv:
+    assert sys.argv[1:] == ['--cleanup', '--maximum-backups', '7']
+    assert any((pathlib.Path(os.environ['RECOVERY_DIR']) / 'gitlab-exports').glob('*/archive.sha256'))
+    sys.exit(int(os.environ.get('FIXTURE_CLEANUP_FAILURE', '0')))
+assert sys.argv[1:] == ['--skip', os.environ['FIXTURE_DISABLED'], '--skip-cleanup']
+if os.environ.get('FIXTURE_NATIVE_FAILURE'): sys.exit(7)
+t = int(time.time())
+name = time.strftime(str(t) + '_%Y_%m_%d_19.5.0_gitlab_backup.tar')
+dest = root / 'backup_tars'
+if dest.exists(): shutil.rmtree(dest)
+dest.mkdir()
+shutil.copyfile(os.environ['FIXTURE_ARCHIVE'], dest / name)
+if os.environ.get('FIXTURE_STALE'): os.utime(dest / name, (1, 1))
+if os.environ.get('FIXTURE_NAS_WRITE_FAILURE'): (pathlib.Path(os.environ['RECOVERY_DIR']) / 'gitlab-exports').chmod(0o500)
+for component in ('registry', 'uploads', 'artifacts', 'lfs', 'packages'):
+    if component == 'lfs' and os.environ.get('FIXTURE_SILENT_FAILURE'):
+        print('\\x1b[31mUnable to check existence of bucket gitlab-lfs. Skipping backup of lfs ...\\x1b[0m')
+        print('Bucket check command failed with exit code 1. Output: private diagnostic')
+    else:
+        print('\\x1b[34mDumping %s ...\\x1b[0m' % component)
+        print('\\x1b[32m%s\\x1b[0m' % ('empty' if component == os.environ.get('FIXTURE_EMPTY') else 'done'))
+print('[DONE] Backup can be found at s3://gitlab-backups/' + name)
 ''')
         fake.chmod(0o755)
         self.env = {**os.environ, 'PATH': str(self.bin) + ':' + os.environ['PATH'],
                     'RECOVERY_DIR': str(self.recovery), 'VERSION_FILE': str(self.version),
-                    'S3_CONFIG': str(self.config), 'FIXTURE_REMOTE': str(self.remote)}
-        self.timestamp = int(time.time()) - 60
+                    'BACKUP_WORK_DIR': str(self.work), 'FIXTURE_ARCHIVE': str(self.fixture),
+                    'FIXTURE_CALLS': str(self.calls), 'FIXTURE_DISABLED': DISABLED}
+        self.last_run = 0
 
-    def add_archive(self, timestamp=None, skipped='builds,pages,external_diffs,terraform_state,ci_secure_files,agent_plan_content,ci_catalog_bundles', missing=None, metadata=None, unsafe=False):
-        timestamp = timestamp or self.timestamp
-        date = time.strftime('%Y_%m_%d', time.localtime(timestamp))
-        backup_id = f'{timestamp}_{date}_19.5.0'
-        name = backup_id + '_gitlab_backup.tar'
-        info = (f':backup_id: {backup_id}\n:db_version: 20261001000000\n'
-                f':backup_created_at: {time.strftime("%Y-%m-%d %H:%M:%S %z", time.localtime(timestamp))}\n'
-                ':gitlab_version: 19.5.0\n:tar_version: tar (GNU tar) 1.35\n'
-                f':installation_type: gitlab-helm-chart\n:skipped: {skipped}\n:repositories_server_side: false\n')
-        with tarfile.open(self.remote / name, 'w') as archive:
-            def add(n, data):
-                member = tarfile.TarInfo('./' + n)
-                member.size = len(data)
-                archive.addfile(member, io.BytesIO(data))
-            add('backup_information.yml', (metadata if metadata is not None else info).encode())
-            add('db/database.sql.gz', self.gzip_tar(sql=True))
-            # Native repositories may be empty: no invented bundle-per-project requirement.
-            member = tarfile.TarInfo('./repositories')
-            member.type = tarfile.DIRTYPE
-            archive.addfile(member)
+    def add_archive(self, missing=None, directory=None, bad=None, empty=None):
+        # Mirrors native get_skipped: pages occurs twice, enabled empty LFS is skipped.
+        while int(time.time()) <= self.last_run:
+            time.sleep(0.02)
+        timestamp = int(time.time())
+        backup_id = time.strftime(str(timestamp) + '_%Y_%m_%d_19.5.0')
+        created = time.strftime('%Y-%m-%d %H:%M:%S %z')
+        self.metadata = (f':backup_id: {backup_id}\n:db_version: 20261001000000\n'
+                         f':backup_created_at: {created}\n:gitlab_version: 19.5.0\n'
+                         ':tar_version: tar (GNU tar) 1.35\n:installation_type: gitlab-helm-chart\n'
+                         ':skipped: builds,pages' + (',lfs' if empty == 'lfs' else '')
+                         + ',external_diffs,terraform_state,pages,ci_secure_files,agent_plan_content,ci_catalog_bundles'
+                         + '\n:repositories_server_side: false\n').encode()
+        self.env.pop('FIXTURE_EMPTY', None)
+        if empty:
+            self.env['FIXTURE_EMPTY'] = empty
+        with tarfile.open(self.fixture, 'w') as archive:
+            def add(name, data):
+                if name == missing:
+                    return
+                member = tarfile.TarInfo('./' + name)
+                if name == directory:
+                    member.type = tarfile.DIRTYPE
+                    archive.addfile(member)
+                else:
+                    member.size = len(data)
+                    archive.addfile(member, io.BytesIO(data))
+            add('backup_information.yml', self.metadata)
+            add('db/database.sql.gz', b'bad gzip' if bad == 'db' else gzip.compress(b'-- fixture SQL\n'))
+            item = tarfile.TarInfo('./repositories')
+            item.type = tarfile.DIRTYPE
+            archive.addfile(item)  # Legitimately empty repositories; no bundle-count fiction.
             for component in ('registry', 'uploads', 'artifacts', 'lfs', 'packages'):
-                if component != missing:
-                    add(component + '.tar.gz', self.gzip_tar())
-            if unsafe:
+                if component == empty:
+                    continue
+                payload = self.gzip_tar()
+                if bad == component:
+                    payload = gzip.compress(b'not a tar')
+                if bad == 'crc' and component == 'uploads':
+                    payload = payload[:-8] + b'\0' * 8
+                add(component + '.tar.gz', payload)
+            if bad == 'unsafe':
                 add('../escape', b'unsafe')
-        return name
 
     @staticmethod
-    def gzip_tar(sql=False):
-        import gzip
-        if sql:
-            return gzip.compress(b'-- fixture database SQL\n')
+    def gzip_tar():
         buf = io.BytesIO()
         with tarfile.open(fileobj=buf, mode='w:gz') as inner:
             item = tarfile.TarInfo('./fixture')
@@ -90,10 +122,13 @@ else: sys.exit(2)
         return buf.getvalue()
 
     def run_export(self):
-        self.assertTrue(SCRIPT.is_file(), 'NAS exporter script is missing')
+        # Native filenames have one-second resolution; avoid deliberate collisions.
+        while int(time.time()) <= self.last_run:
+            time.sleep(0.02)
+        self.last_run = int(time.time())
         if os.getuid() == 0:
             for p in self.root.rglob('*'):
-                os.chown(p, 1000, 1000)
+                os.chown(p, 1000, 1000, follow_symlinks=False)
         def drop():
             os.setgroups([])
             os.setgid(1000)
@@ -105,14 +140,11 @@ else: sys.exit(2)
         dest = self.recovery / 'gitlab-exports'
         return sorted(p for p in dest.iterdir() if not p.name.startswith('.')) if dest.exists() else []
 
-    def test_private_publication_and_retention(self):
-        for n in range(9):
-            self.add_archive(self.timestamp - (9 - n) * 10)
+    def test_empty_duplicate_native_metadata_and_private_retention(self):
+        for _ in range(9):
+            self.add_archive(empty='lfs')
             result = self.run_export()
             self.assertEqual(result.returncode, 0, result.stderr)
-            # The fixture has only the last completed remote object, not a simulated native backup.
-            for p in self.remote.iterdir():
-                p.unlink()
         self.assertEqual(len(self.completed()), 7)
         for directory in self.completed():
             self.assertEqual(directory.stat().st_mode & 0o777, 0o700)
@@ -122,49 +154,55 @@ else: sys.exit(2)
                 self.assertEqual(p.stat().st_mode & 0o777, 0o600)
             archive = next(p for p in files if p.name.endswith('.tar'))
             self.assertEqual((directory / 'archive.sha256').read_text(), hashlib.sha256(archive.read_bytes()).hexdigest() + '  ' + archive.name + '\n')
+            with tarfile.open(archive) as native:
+                metadata = native.extractfile('./backup_information.yml')
+                assert metadata is not None
+                self.assertEqual((directory / 'backup_information.yml').read_bytes(), metadata.read())
+        latest = self.completed()[-1]
+        self.assertEqual(next(latest.glob('*.tar')).read_bytes(), self.fixture.read_bytes())
+        for path in self.work.glob('.native-backup.*.log'):
+            self.assertEqual(path.stat().st_mode & 0o777, 0o600)
+            self.assertIn('Producer exit status: 0', path.read_text())
+        calls = self.calls.read_text().splitlines()
+        self.assertEqual(calls, [f'--skip {DISABLED} --skip-cleanup', '--cleanup --maximum-backups 7'] * 9)
         unknown = self.recovery / 'gitlab-exports/unknown'
         unknown.mkdir()
         partial = self.recovery / 'gitlab-exports/.other.partial'
         partial.mkdir()
-        self.add_archive(self.timestamp + 1)
         self.assertEqual(self.run_export().returncode, 0)
         self.assertTrue(unknown.exists())
         self.assertTrue(partial.exists())
 
-    def test_fail_closed_fixtures_preserve_previous(self):
-        self.add_archive(self.timestamp - 1)
+    def test_producer_and_payload_failures_preserve_previous(self):
+        self.add_archive()
         self.assertEqual(self.run_export().returncode, 0)
         original = self.completed()
-        for p in self.remote.iterdir():
-            p.unlink()
-        cases = ('missing', 'stale', 'partial', 'unreadable', 'skipped', 'missing_component', 'unsafe', 'malformed', 's3_failure')
+        cases = ('silent', 'nonzero', 'stale', 'invalid', 'nas_write', 'missing_db', 'missing_blob',
+                 'directory_db', 'directory_blob', 'db_gzip', 'blob_tar', 'crc', 'unsafe')
         for case in cases:
             with self.subTest(case=case):
-                for p in self.remote.iterdir():
-                    p.unlink()
-                self.env.pop('FIXTURE_S3_FAILURE', None)
-                if case == 'stale':
-                    self.add_archive(int(time.time()) - 26 * 3600 - 1)
-                elif case == 'partial':
-                    (self.remote / 'backup.tar.partial').write_bytes(b'partial')
-                elif case == 'unreadable':
-                    name = self.add_archive()
-                    (self.remote / name).write_bytes(b'not a tar')
-                elif case == 'skipped':
-                    self.add_archive(skipped='builds,uploads')
-                elif case == 'missing_component':
-                    self.add_archive(missing='uploads')
-                elif case == 'unsafe':
-                    self.add_archive(unsafe=True)
-                elif case == 'malformed':
-                    self.add_archive(metadata=':skipped: []\n')
-                elif case == 's3_failure':
-                    self.env['FIXTURE_S3_FAILURE'] = '1'
+                for key in ('FIXTURE_SILENT_FAILURE', 'FIXTURE_NATIVE_FAILURE', 'FIXTURE_STALE', 'FIXTURE_NAS_WRITE_FAILURE'):
+                    self.env.pop(key, None)
+                self.add_archive(
+                    missing={'missing_db': 'db/database.sql.gz', 'missing_blob': 'uploads.tar.gz'}.get(case),
+                    directory={'directory_db': 'db/database.sql.gz', 'directory_blob': 'uploads.tar.gz'}.get(case),
+                    bad={'db_gzip': 'db', 'blob_tar': 'uploads', 'crc': 'crc', 'unsafe': 'unsafe'}.get(case))
+                if case == 'invalid':
+                    self.fixture.write_bytes(b'not a tar')
+                if case == 'nas_write':
+                    self.env['FIXTURE_NAS_WRITE_FAILURE'] = '1'
+                if case in ('silent', 'nonzero', 'stale'):
+                    self.env[{'silent': 'FIXTURE_SILENT_FAILURE', 'nonzero': 'FIXTURE_NATIVE_FAILURE', 'stale': 'FIXTURE_STALE'}[case]] = '1'
+                before = self.calls.read_text().count('--cleanup')
                 result = self.run_export()
+                if case == 'nas_write':
+                    (self.recovery / 'gitlab-exports').chmod(0o700)
                 self.assertNotEqual(result.returncode, 0, result.stdout)
+                self.assertNotIn('private diagnostic', result.stdout + result.stderr)
                 self.assertEqual(self.completed(), original)
+                self.assertEqual(self.calls.read_text().count('--cleanup'), before)
 
-    def test_db_retention_only_after_qualified_export(self):
+    def test_db_retention_only_after_qualified_publication(self):
         archives = self.recovery / 'db-archives'
         archives.mkdir(mode=0o700)
         for n in range(16):
@@ -183,9 +221,18 @@ else: sys.exit(2)
         unknown.mkdir()
         partial = archives / '.admission.XXXXXXXXXXXX'
         partial.mkdir()
+        self.add_archive(empty='lfs')
+        self.env['FIXTURE_SILENT_FAILURE'] = '1'
         self.assertNotEqual(self.run_export().returncode, 0)
         self.assertEqual(len(list(archives.glob('admission.*'))), 16)
-        self.add_archive()
+        self.env.pop('FIXTURE_SILENT_FAILURE')
+        # NAS failure likewise cannot prune DB/native history.
+        self.env['FIXTURE_NAS_WRITE_FAILURE'] = '1'
+        self.assertNotEqual(self.run_export().returncode, 0)
+        self.assertEqual(len(list(archives.glob('admission.*'))), 16)
+        self.assertNotIn('--cleanup', self.calls.read_text())
+        self.env.pop('FIXTURE_NAS_WRITE_FAILURE')
+        (self.recovery / 'gitlab-exports').chmod(0o700)
         result = self.run_export()
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(len(list(archives.glob('admission.*'))), 14)
@@ -194,22 +241,24 @@ else: sys.exit(2)
         self.assertFalse((archives / 'admission.000000000000').exists())
         self.assertTrue((archives / 'admission.000000000015').exists())
 
-    def test_nas_fixtures(self):
+    def test_nas_and_cleanup_failures(self):
         self.add_archive()
-        self.recovery.rmdir()
-        self.assertNotEqual(self.run_export().returncode, 0)
-        self.recovery.mkdir()
+        self.assertEqual(self.run_export().returncode, 0)
+        original = self.completed()
         dest = self.recovery / 'gitlab-exports'
-        dest.symlink_to(self.remote, target_is_directory=True)
+        dest.rename(self.recovery / 'previous')
+        dest.symlink_to(self.work, target_is_directory=True)
         self.assertNotEqual(self.run_export().returncode, 0)
         dest.unlink()
-        dest.mkdir(mode=0o755)
+        (self.recovery / 'previous').rename(dest)
+        dest.chmod(0o755)
         self.assertNotEqual(self.run_export().returncode, 0)
-        self.assertEqual(dest.stat().st_mode & 0o777, 0o755)
-        dest.rmdir()
-        self.recovery.chmod(0o500)
+        self.assertEqual(dest.stat().st_mode & 0o777, 0o755)  # No permission repair.
+        dest.chmod(0o700)
+        self.assertEqual(self.completed(), original)
+        self.env['FIXTURE_CLEANUP_FAILURE'] = '1'
         self.assertNotEqual(self.run_export().returncode, 0)
-        self.recovery.chmod(0o700)
+        self.assertEqual(len(self.completed()), 2)  # Native cleanup failure keeps new NAS point.
 
 
 if __name__ == '__main__':

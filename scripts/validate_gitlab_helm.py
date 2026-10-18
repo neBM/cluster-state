@@ -32,7 +32,16 @@ BACKUP_SCHEDULE = {"suspend": True, "schedule": "0 1 * * *", "timeZone": "Europe
                    "concurrencyPolicy": "Forbid", "startingDeadlineSeconds": 1800,
                    "successfulJobsHistoryLimit": 2, "failedJobsHistoryLimit": 2}
 BACKUP_RESOURCES = {"requests": {"cpu": "100m", "memory": "512Mi"}, "limits": {"memory": "2Gi"}}
-EXPORT_IMAGE = "registry.gitlab.com/gitlab-org/build/cng/gitlab-toolbox-ce@sha256:6038bfd42aa8bae1f63c25eb366c0d5bf79395db348ded1f43bf76ca1323bf35"
+DISABLED_BACKUP_TYPES = 'external_diffs,terraform_state,pages,ci_secure_files,agent_plan_content,ci_catalog_bundles'
+NATIVE_BACKUP_ARGS = ['/bin/bash', '-c', 'test -f /etc/gitlab/.s3cfg && cp /etc/gitlab/.s3cfg $HOME/.s3cfg; backup-utility --skip ' + DISABLED_BACKUP_TYPES + ' --skip-cleanup']
+SITE_BACKUP_ARGS = ['/bin/bash', '-c', 'test -f /etc/gitlab/.s3cfg && cp /etc/gitlab/.s3cfg $HOME/.s3cfg; exec python3 /backup-script/nas-export.py']
+BACKUP_TARGET = {'group': 'batch', 'version': 'v1', 'kind': 'CronJob', 'name': '^gitlab-helm-toolbox-backup$', 'namespace': 'default'}
+BACKUP_VOLUMES = [
+    {'name': 'backup-recovery', 'persistentVolumeClaim': {'claimName': 'gitlab-helm-recovery-windsor'}},
+    {'name': 'backup-script', 'configMap': {'name': 'gitlab-helm-native-backup', 'defaultMode': 292}},
+]
+BACKUP_MOUNTS = [{'name': 'backup-recovery', 'mountPath': '/recovery'},
+                 {'name': 'backup-script', 'mountPath': '/backup-script', 'readOnly': True}]
 
 
 HOOK_NAME = "gitlab-helm-gitlab-upgrade-check"
@@ -66,13 +75,32 @@ def validate_hook_input(docs):
     return errors
 
 
+def backup_crons(docs):
+    return [d for d in docs if d and d.get('apiVersion') == 'batch/v1' and d.get('kind') == 'CronJob'
+            and d.get('metadata', {}).get('name') == 'gitlab-helm-toolbox-backup'
+            and d['metadata'].get('namespace') == 'default']
+
+
+def validate_backup_input(docs):
+    crons = backup_crons(docs)
+    if len(crons) != 1:
+        return ['native backup target: expected exactly one']
+    spec = crons[0]['spec']['jobTemplate']['spec']['template']['spec']
+    containers = spec.get('containers', [])
+    if (len(containers) != 1 or containers[0].get('name') != 'toolbox-backup'
+            or containers[0].get('args') != NATIVE_BACKUP_ARGS
+            or spec.get('securityContext', {}).get('fsGroup') != 1000):
+        return ['native backup container/command/security shape changed']
+    return []
+
+
 def apply_postrender(docs, release, check_input=True):
     """Offline native Kustomize on the real Helm4 combined manifest/hook stream.
 
     This is CI's exact-match oracle, NOT a replacement runtime sequencer.
     Kustomize itself silently ignores unmatched targets; never accept that as a pass.
     """
-    errors = validate_hook_input(docs) if check_input else []
+    errors = validate_hook_input(docs) + validate_backup_input(docs) if check_input else []
     if errors:
         raise ValueError("; ".join(errors))
     with tempfile.TemporaryDirectory() as tmp:
@@ -132,11 +160,12 @@ def validate_postrender(before, after, release):
     restored_spec["volumes"] = restored_spec["volumes"][:2]
     if restored != old:
         errors.append("postrender changed upstream hook beyond admission extension")
+    errors.extend(validate_backup_postrender(before, after))
     # All upstream scripts, chart-info, ordinary migrations/app resources and
     # weights/waits remain exactly as Helm rendered them (order is immaterial).
     def other_docs(ds):
         result = set()
-        hooks = hook_jobs(ds)
+        hooks = hook_jobs(ds) + backup_crons(ds)
         for doc in ds:
             if not doc or doc in hooks:
                 continue
@@ -148,7 +177,7 @@ def validate_postrender(before, after, release):
             result.add(json.dumps(doc, sort_keys=True))
         return result
     if len(before) != len(after) or other_docs(before) != other_docs(after):
-        errors.append("postrender changed resources outside the native upgrade Job")
+        errors.append("postrender changed resources outside the native upgrade/backup targets")
     return errors
 
 
@@ -198,8 +227,8 @@ def validate_release(release):
         errors.append("exactly one native Kustomize postrenderer required")
     else:
         patches = renderers[0]["kustomize"].get("patches", [])
-        if len(patches) != 1 or patches[0].get("target") != HOOK_TARGET:
-            errors.append("exactly one targeted native upgrade patch required")
+        if len(patches) != 2 or patches[0].get("target") != HOOK_TARGET or patches[1].get("target") != BACKUP_TARGET:
+            errors.append("exactly one targeted native upgrade and one native backup patch required")
         else:
             operations = yaml.safe_load(patches[0].get("patch", "")) or []
             if {"op": "copy", "from": "/spec/template/spec/containers/0/env", "path": "/spec/template/spec/initContainers/0/env"} not in operations:
@@ -238,7 +267,7 @@ def validate_release(release):
     for name in ("externalDiffs", "terraformState", "dependencyProxy", "ciSecureFiles", "agentPlanContent", "ciCatalogBundles"):
         expect(errors, values, f"global.appConfig.{name}.enabled", False)
     for key, wanted in {**BACKUP_SCHEDULE, "enabled": True, "activeDeadlineSeconds": 10800,
-                        "backoffLimit": 0, "restartPolicy": "Never", "extraArgs": "--maximum-backups 7",
+                        "backoffLimit": 0, "restartPolicy": "Never", "extraArgs": '--skip ' + DISABLED_BACKUP_TYPES + ' --skip-cleanup',
                         "resources": BACKUP_RESOURCES,
                         "persistence": {"enabled": True, "storageClass": "local-path-retain", "size": "100Gi"}}.items():
         expect(errors, values, f"gitlab.toolbox.backups.cron.{key}", wanted)
@@ -301,13 +330,11 @@ def validate_source(root):
         errors.append("independent recovery PVC must be retained/prune-disabled")
     script = next((d for d in prepared if d.get("kind") == "ConfigMap" and d["metadata"]["name"] == "gitlab-helm-upgrade-admission"), {})
     expect(errors, script, "data", {"upgrade-admission.sh": (candidate / "files/upgrade-admission.sh").read_text()})
-    exporter = next((d for d in prepared if d.get("kind") == "ConfigMap" and d["metadata"]["name"] == "gitlab-helm-nas-export"), {})
+    exporter = next((d for d in prepared if d.get("kind") == "ConfigMap" and d["metadata"]["name"] == "gitlab-helm-native-backup"), {})
     expect(errors, exporter, "data", {"nas-export.py": (candidate / "files/nas-export.py").read_text()})
     exports = [d for d in prepared if d.get("kind") == "CronJob"]
-    if len(exports) != 1:
-        errors.append("exactly one ordinary independent export CronJob required")
-    else:
-        errors.extend(validate_export(exports[0]))
+    if exports:
+        errors.append("no standalone export CronJob: publication belongs to native producer")
     repository = yaml.safe_load((candidate / "helmrepository.yaml").read_text())
     expect(errors, repository, "spec.url", "https://charts.gitlab.io")
     flux_dir = root / "clusters/k3s-homelab/flux-system"
@@ -335,44 +362,33 @@ def validate_source(root):
     return errors
 
 
-def validate_export(cron):
-    errors = []
-    for key, wanted in {**BACKUP_SCHEDULE, "schedule": "0 2 * * *"}.items():
-        expect(errors, cron, f"spec.{key}", wanted)
-    expect(errors, cron, "metadata.name", "gitlab-helm-nas-export")
-    job = get(cron, "spec.jobTemplate.spec") or {}
-    expect(errors, job, "backoffLimit", 0)
-    expect(errors, job, "activeDeadlineSeconds", 7200)
-    spec = get(job, "template.spec") or {}
-    expect(errors, spec, "automountServiceAccountToken", False)
-    expect(errors, spec, "restartPolicy", "Never")
-    expect(errors, spec, "securityContext", {"runAsNonRoot": True, "runAsUser": 1000, "runAsGroup": 1000,
-                                           "seccompProfile": {"type": "RuntimeDefault"}})
-    expect(errors, spec, "volumes", [
-        {"name": "recovery", "persistentVolumeClaim": {"claimName": "gitlab-helm-recovery-windsor"}},
-        {"name": "backup-config", "secret": {"secretName": "gitlab-helm-backup-config", "defaultMode": 292,
-         "items": [{"key": "config", "path": "config"}]}},
-        {"name": "export-script", "configMap": {"name": "gitlab-helm-nas-export", "defaultMode": 292}}])
-    expect(errors, spec, "initContainers", None)
-    containers = spec.get("containers", [])
-    if len(containers) != 1:
-        return errors + ["one transfer-only container required"]
-    c = containers[0]
-    for key, wanted in {
-        "image": EXPORT_IMAGE, "command": ["python3", "/export-script/nas-export.py"],
-        "env": [{"name": "PYTHONDONTWRITEBYTECODE", "value": "1"}],
-        "envFrom": None,
-        "securityContext": {"allowPrivilegeEscalation": False, "readOnlyRootFilesystem": True, "capabilities": {"drop": ["ALL"]}},
-        "resources": {"requests": {"cpu": "50m", "memory": "128Mi"}, "limits": {"memory": "512Mi"}},
-        "volumeMounts": [{"name": "recovery", "mountPath": "/recovery"},
-                         {"name": "backup-config", "mountPath": "/backup-config", "readOnly": True},
-                         {"name": "export-script", "mountPath": "/export-script", "readOnly": True}],
-    }.items():
-        expect(errors, c, key, wanted)
+def validate_backup_postrender(before, after):
+    errors = validate_backup_input(before)
+    if errors or len(backup_crons(after)) != 1:
+        return errors + ['postrender must retain exactly one native backup CronJob']
+    old, new = backup_crons(before)[0], backup_crons(after)[0]
+    spec = new['spec']['jobTemplate']['spec']['template']['spec']
+    c = spec.get('containers', [{}])[0]
+    original = old['spec']['jobTemplate']['spec']['template']['spec']
+    expect(errors, c, 'args', SITE_BACKUP_ARGS)
+    expect(errors, c, 'volumeMounts', original['containers'][0]['volumeMounts'] + BACKUP_MOUNTS)
+    expect(errors, spec, 'volumes', original['volumes'] + BACKUP_VOLUMES)
+    expect(errors, spec, 'automountServiceAccountToken', False)
+    if 'fsGroup' in spec.get('securityContext', {}):
+        errors.append('native backup must not repair NAS ownership via fsGroup')
+    restored = copy.deepcopy(new)
+    restored_spec = restored['spec']['jobTemplate']['spec']['template']['spec']
+    restored_spec.pop('automountServiceAccountToken', None)
+    restored_spec['securityContext']['fsGroup'] = 1000
+    restored_spec['containers'][0]['args'] = NATIVE_BACKUP_ARGS
+    restored_spec['containers'][0]['volumeMounts'] = restored_spec['containers'][0]['volumeMounts'][:-2]
+    restored_spec['volumes'] = restored_spec['volumes'][:-2]
+    if restored != old:
+        errors.append('postrender changed native backup beyond producer publication extension')
     return errors
 
 
-def validate_backup_render(docs):
+def validate_backup_render(docs, patched=False):
     errors = []
     crons = [d for d in docs if d.get("kind") == "CronJob"]
     if len(crons) != 1:
@@ -393,7 +409,7 @@ def validate_backup_render(docs):
     expect(errors, c, "name", "toolbox-backup")
     expect(errors, c, "image", "registry.gitlab.com/gitlab-org/build/cng/gitlab-toolbox-ce:v19.5.0")
     expect(errors, c, "resources", BACKUP_RESOURCES)
-    expect(errors, c, "args", ["/bin/bash", "-c", "test -f /etc/gitlab/.s3cfg && cp /etc/gitlab/.s3cfg $HOME/.s3cfg; backup-utility --maximum-backups 7"])
+    expect(errors, c, "args", SITE_BACKUP_ARGS if patched else NATIVE_BACKUP_ARGS)
     env = {e["name"]: e.get("value") for e in c.get("env", [])}
     for name, bucket in {"ARTIFACTS": "gitlab-artifacts", "REGISTRY": "gitlab-registry", "LFS": "gitlab-lfs",
                          "UPLOADS": "gitlab-uploads", "PACKAGES": "gitlab-packages", "BACKUP": "gitlab-backups",
@@ -409,10 +425,10 @@ def validate_backup_render(docs):
     return errors
 
 
-def validate_render(docs):
+def validate_render(docs, patched=False):
     errors = []
     docs = [d for d in docs if d]
-    errors.extend(validate_backup_render(docs))
+    errors.extend(validate_backup_render(docs, patched))
     seen = set()
     for d in docs:
         kind = d.get("kind")
@@ -492,7 +508,7 @@ def main():
         try:
             patched = apply_postrender(docs, release)
             errors.extend(validate_postrender(docs, patched, release))
-            errors.extend(validate_render(patched))
+            errors.extend(validate_render(patched, patched=True))
             if args.write_postrender and not errors:
                 args.write_postrender.write_text(yaml.safe_dump_all(patched))
         except (ValueError, subprocess.CalledProcessError) as error:

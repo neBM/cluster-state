@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Transfer-only CNG19.5 native backup admission. No restore, API or DB access.
+"""Run native CNG19.5 backup, then publish that invocation's archive off-backend.
 
-CNG v19.5.0 scripts/bin/backup-utility write_backup_info/get_skipped and
-scripts/lib/object_storage_backup.rb are the metadata authority. Empty and
-inaccessible buckets BOTH become skipped: fail closed on that ambiguity.
+Depends on backup-utility/object_storage_backup.rb v19.5 producer output, NOT
+remote metadata completeness. Requalify that output contract on native updates.
+Native metadata stays opaque, including legitimate duplicate skipped entries.
 """
 import contextlib
 import datetime as dt
@@ -22,9 +22,8 @@ import time
 
 NAME = re.compile(r'(\d{10})_\d{4}_\d{2}_\d{2}_(\d+\.\d+\.\d+)_gitlab_backup\.tar')
 BLOBS = {'registry', 'uploads', 'artifacts', 'lfs', 'packages'}
-REQUIRED = BLOBS | {'db', 'repositories'}
-KNOWN = REQUIRED | {'builds', 'pages', 'external_diffs', 'terraform_state',
-                    'ci_secure_files', 'agent_plan_content', 'ci_catalog_bundles'}
+DISABLED = 'external_diffs,terraform_state,pages,ci_secure_files,agent_plan_content,ci_catalog_bundles'
+ANSI = re.compile(r'\x1b\[[0-9;]*m')
 BLOCK = 1024 * 1024
 
 
@@ -61,18 +60,47 @@ def sync(path):
         os.close(fd)
 
 
-def command(config, *args):
-    # Never echo client diagnostics/config (may contain credentials or private keys).
-    result = subprocess.run(['s3cmd', '--config', str(config), *args],
-                            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
-                            timeout=1800, check=False)
-    require(result.returncode == 0, 'native s3cmd transfer/list failed')
-    return result.stdout.decode('utf-8')
+def native(args, log):
+    # Private complete diagnostics, never forwarded to Job logs (may hold secrets).
+    result = subprocess.run(['backup-utility', *args], stdout=log,
+                            stderr=subprocess.STDOUT, timeout=9000, check=False)
+    log.write(f'\nProducer exit status: {result.returncode}\n'.encode())
+    log.flush()
+    os.fsync(log.fileno())
+    require(result.returncode == 0, 'native backup/cleanup failed')
+
+
+def produce(work, version, log):
+    started = time.time_ns()
+    native(['--skip', DISABLED, '--skip-cleanup'], log)
+    log.seek(0)
+    output = ANSI.sub('', log.read().decode('utf-8'))
+    require('Unable to check existence of bucket ' not in output,
+            'native silent bucket-check failure')
+    # The native helper prints these adjacent lines only after a successful sync.
+    # Empty enabled buckets are supported without consulting mutable remote state.
+    outcomes = re.findall(r'^Dumping (\w+) \.\.\.\n(empty|done)$', output, re.M)
+    require(len(outcomes) == len(BLOBS) and {n for n, _ in outcomes} == BLOBS,
+            'native enabled component output changed/incomplete')
+    empty = {name for name, result in outcomes if result == 'empty'}
+    published = re.findall(r'^\[DONE\] Backup can be found at s3://gitlab-backups/(\S+)$', output, re.M)
+    require(len(published) == 1, 'native publication output changed/incomplete')
+    name = published[0]
+    match = NAME.fullmatch(name)
+    require(match is not None and match[2] == version
+            and started // 10**9 <= int(match[1]) <= time.time_ns() // 10**9,
+            'archive does not belong to this native invocation')
+    path = work / 'backup_tars' / name
+    require(path.is_file() and not path.is_symlink() and path.stat().st_mtime_ns >= started,
+            'missing/fresh native local archive required')
+    return path, empty
 
 
 def consume(stream):
-    while stream.read(BLOCK):
-        pass
+    size = 0
+    while data := stream.read(BLOCK):
+        size += len(data)
+    return size
 
 
 def safe_member(member):
@@ -83,61 +111,52 @@ def safe_member(member):
     return name.removeprefix('./').rstrip('/')
 
 
-def inspect_archive(path, name, version):
-    # GNU tar header checks + complete payload reads; gzip CRCs for enabled blobs/DB.
+def inspect_archive(path, empty):
+    # Read only, never extract. Native metadata is preserved, not reinterpreted.
     require(path.stat().st_size >= 1024 and path.stat().st_size % 512 == 0, 'truncated tar')
     with path.open('rb') as stream:
         stream.seek(-1024, os.SEEK_END)
         require(stream.read() == b'\0' * 1024, 'missing native tar end blocks')
-    seen = set()
+    seen, files = set(), set()
     metadata = None
-    text = ''
+
     with tarfile.open(path, 'r:') as archive:
         for member in archive:
             key = safe_member(member)
             require(key not in seen, 'duplicate tar member')
             seen.add(key)
+            component = '/' not in key and key.endswith('.tar.gz')
+            payload = component or key == 'db/database.sql.gz'
+            if payload or key == 'backup_information.yml':
+                require(member.isfile() and member.size > 0, 'native payload must be a nonempty regular file')
             if not member.isfile():
                 continue
-            stream = archive.extractfile(member)  # Read only; NEVER extract to disk.
+            files.add(key)
+            stream = archive.extractfile(member)
             if stream is None:
                 raise ValueError('unreadable regular member')
             if key == 'backup_information.yml':
                 require(member.size <= 16384, 'oversized metadata')
-                text = stream.read().decode('utf-8')
-                metadata = {}
-                for line in text.splitlines():
-                    match = re.fullmatch(r':([a-z_]+): ?([^\r\n]*)', line)
-                    if match is None or match[1] in metadata:
-                        raise ValueError('malformed metadata')
-                    metadata[match[1]] = match[2]
-            elif key in {x + '.tar.gz' for x in BLOBS} or key.startswith('db/') and key.endswith('.sql.gz'):
+                metadata = stream.read()
+            elif component:
                 with gzip.GzipFile(fileobj=stream) as compressed:
-                    consume(compressed)
+                    with tarfile.open(fileobj=compressed, mode='r|') as inner:
+                        for item in inner:
+                            safe_member(item)
+                            if item.isfile():
+                                consume(inner.extractfile(item))
+                    consume(compressed)  # Includes gzip trailer/CRC, even beyond tar EOF.
+            elif key.startswith('db/') and key.endswith('.sql.gz'):
+                with gzip.GzipFile(fileobj=stream) as compressed:
+                    require(consume(compressed) > 0, 'empty database payload')
             else:
                 consume(stream)
-    if metadata is None:
-        raise ValueError('missing native metadata')
-    require(set(metadata) == {'backup_id', 'db_version', 'backup_created_at', 'gitlab_version',
-                             'tar_version', 'installation_type', 'skipped', 'repositories_server_side'},
-            'unknown native metadata contract')
-    backup_id = name.removesuffix('_gitlab_backup.tar')
-    require(metadata['backup_id'] == backup_id and metadata['gitlab_version'] == version
-            and metadata['installation_type'] == 'gitlab-helm-chart'
-            and metadata['repositories_server_side'] == 'false'
-            and re.fullmatch(r'\d{14}', metadata['db_version'])
-            and metadata['tar_version'].startswith('tar (GNU tar) '), 'native version/component contract mismatch')
-    created = dt.datetime.strptime(metadata['backup_created_at'], '%Y-%m-%d %H:%M:%S %z').timestamp()
-    require(created == int(NAME.fullmatch(name)[1]) and -300 <= time.time() - created <= 26 * 3600,
-            'stale/future or inconsistent native backup time')
-    skipped = metadata['skipped'].split(',') if metadata['skipped'] else []
-    require(len(skipped) == len(set(skipped)) and set(skipped) <= KNOWN, 'malformed skipped contract')
-    require(not set(skipped) & REQUIRED,
-            'required component skipped (native empty/inaccessible ambiguity; publication denied)')
-    require({x + '.tar.gz' for x in BLOBS} <= seen, 'missing enabled blob archive')
-    require('db/database.sql.gz' in seen, 'missing native main DB archive')
-    # No invented repository bundle count: an empty installation may have none.
-    return text
+    if metadata is None or 'db/database.sql.gz' not in files:
+        raise ValueError('missing native metadata/main DB')
+    require({x + '.tar.gz' for x in BLOBS - empty} <= files, 'missing enabled nonempty component')
+    # Native DB/repositories are unskipped by our fixed invocation. No invented
+    # repository bundle counts; an empty installation may contain no bundles.
+    return metadata
 
 
 def completed(directory):
@@ -202,26 +221,19 @@ def main():
         lock = os.open(exports, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
         cleanup.callback(os.close, lock)
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        config = Path(os.environ.get('S3_CONFIG', '/backup-config/config'))
+        work = Path(os.environ.get('BACKUP_WORK_DIR', '/srv/gitlab/tmp'))
         version = Path(os.environ.get('VERSION_FILE', '/srv/gitlab/VERSION')).read_text().strip()
-        require(re.fullmatch(r'19\.5\.\d+', version), 'unsupported transfer metadata model')
-        candidates = []
-        for line in command(config, 'ls', 's3://gitlab-backups/').splitlines():
-            fields = line.split()
-            require(len(fields) == 4 and fields[2].isdigit() and fields[3].startswith('s3://gitlab-backups/'),
-                    'malformed backup object listing')
-            name = fields[3].removeprefix('s3://gitlab-backups/')
-            match = NAME.fullmatch(name)
-            if not match:
-                require(not name.endswith('_gitlab_backup.tar'), 'unsafe/malformed native backup filename')
-                continue  # Includes incomplete multipart/.partial and unrelated objects.
-            candidates.append((int(match[1]), name, int(fields[2])))
-        require(candidates, 'no completed native backup object')
-        timestamp, name, size = max(candidates)
-        require(-300 <= time.time() - timestamp <= 26 * 3600, 'latest backup is stale/future')
-        selected = NAME.fullmatch(name)
-        assert selected is not None  # Admitted above, not an external input assertion.
-        require(selected[2] == version, 'backup/transfer utility version mismatch')
+        require(version == '19.5.0', 'native producer output requires update qualification')
+        # Local diagnostics survive failure/native cleanup; private, never a remote receipt.
+        log = cleanup.enter_context(tempfile.NamedTemporaryFile(
+            prefix='.native-backup.', suffix='.log', dir=work, delete=False))
+        source, empty = produce(work, version, log)
+        name = source.name
+        match = NAME.fullmatch(name)
+        assert match is not None  # Our produce() already admitted this value.
+        timestamp = int(match[1])
+        metadata = inspect_archive(source, empty)
+        checksum = digest(source)
         target = exports / name.removesuffix('_gitlab_backup.tar')
         require(not target.exists() and not target.is_symlink(), 'publication collision')
         # Inspect all retained owned completions before mutation; never prune unknown/partial paths.
@@ -230,12 +242,10 @@ def main():
         stage = Path(tempfile.mkdtemp(prefix='.' + target.name + '.', suffix='.partial', dir=exports))
         try:
             archive = stage / name
-            command(config, 'get', 's3://gitlab-backups/' + name, str(archive))
+            shutil.copyfile(source, archive)
             private(archive)
-            require(archive.stat().st_size == size and size > 0, 'download size/readback mismatch')
-            metadata = inspect_archive(archive, name, version)
-            checksum = digest(archive)
-            (stage / 'backup_information.yml').write_text(metadata)
+            require(digest(archive) == checksum, 'local/NAS archive mismatch')
+            (stage / 'backup_information.yml').write_bytes(metadata)
             (stage / 'archive.sha256').write_text(checksum + '  ' + name + '\n')
             for path in stage.iterdir():
                 private(path)
@@ -251,10 +261,11 @@ def main():
             if db_retained:
                 sync(recovery / 'db-archives')
             sync(exports)
+            native(['--cleanup', '--maximum-backups', '7'], log)
         finally:
             if stage.exists():
                 shutil.rmtree(stage)  # ONLY this invocation's private unpublished stage.
-    print('NAS export published and read back; native restore and empty-bucket qualification remain required.')
+    print('Native backup and NAS publication/readback completed; retention applied.')
 
 
 if __name__ == '__main__':
@@ -262,5 +273,5 @@ if __name__ == '__main__':
         main()
     except (OSError, ValueError, EOFError, tarfile.TarError, subprocess.SubprocessError):
         # Deliberately do not dump native client output or private archive/metadata.
-        print('NAS export denied: transfer, native contract, freshness, permissions or readback failed.', file=__import__('sys').stderr)
+        print('Native backup/NAS publication failed; inspect private local producer diagnostics.', file=__import__('sys').stderr)
         raise SystemExit(1)

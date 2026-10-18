@@ -150,6 +150,49 @@ spec:
                   emptyDir:
                     medium: Memory
                     sizeLimit: 16Mi
+          - target:
+              group: batch
+              version: v1
+              kind: CronJob
+              name: ^gitlab-helm-toolbox-backup$
+              namespace: default
+            patch: |-
+              - op: test
+                path: /spec/jobTemplate/spec/template/spec/containers/0/name
+                value: toolbox-backup
+              - op: test
+                path: /spec/jobTemplate/spec/template/spec/containers/0/args
+                value: [/bin/bash, -c, 'test -f /etc/gitlab/.s3cfg && cp /etc/gitlab/.s3cfg $HOME/.s3cfg; backup-utility --skip external_diffs,terraform_state,pages,ci_secure_files,agent_plan_content,ci_catalog_bundles --skip-cleanup']
+              - op: replace
+                path: /spec/jobTemplate/spec/template/spec/containers/0/args/2
+                value: 'test -f /etc/gitlab/.s3cfg && cp /etc/gitlab/.s3cfg $HOME/.s3cfg; exec python3 /backup-script/nas-export.py'
+              - op: test
+                path: /spec/jobTemplate/spec/template/spec/securityContext/fsGroup
+                value: 1000
+              - op: remove
+                path: /spec/jobTemplate/spec/template/spec/securityContext/fsGroup
+              - op: add
+                path: /spec/jobTemplate/spec/template/spec/automountServiceAccountToken
+                value: false
+              - op: add
+                path: /spec/jobTemplate/spec/template/spec/volumes/-
+                value:
+                  name: backup-recovery
+                  persistentVolumeClaim:
+                    claimName: gitlab-helm-recovery-windsor
+              - op: add
+                path: /spec/jobTemplate/spec/template/spec/volumes/-
+                value:
+                  name: backup-script
+                  configMap:
+                    name: gitlab-helm-native-backup
+                    defaultMode: 292
+              - op: add
+                path: /spec/jobTemplate/spec/template/spec/containers/0/volumeMounts/-
+                value: {name: backup-recovery, mountPath: /recovery}
+              - op: add
+                path: /spec/jobTemplate/spec/template/spec/containers/0/volumeMounts/-
+                value: {name: backup-script, mountPath: /backup-script, readOnly: true}
   values:
     upgradeCheck:
       securityContext:
@@ -339,7 +382,7 @@ spec:
             restartPolicy: Never
             successfulJobsHistoryLimit: 2
             failedJobsHistoryLimit: 2
-            extraArgs: --maximum-backups 7
+            extraArgs: --skip external_diffs,terraform_state,pages,ci_secure_files,agent_plan_content,ci_catalog_bundles --skip-cleanup
             # Transient budget; application/Toolbox Deployment sizing is unchanged.
             resources:
               requests:
