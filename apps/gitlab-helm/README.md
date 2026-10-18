@@ -6,8 +6,16 @@ The `apps` aggregate does not reference this directory. The dedicated Flux leaf
 the Flux root resource list and suspended; the HelmRelease itself is suspended.
 Thus broad `apps` readiness does not wait on this release. Do not attach these
 routes alongside the legacy routes or resume either fence during preparation.
-Legacy GitLab, its image promotion/Renovate ownership, Redis and registry alias
-are unchanged. Task1 introduces only controller source, not a live controller install.
+Legacy GitLab's versions, Redis and registry alias are unchanged. Task1 introduces
+only controller source, not a live controller install.
+
+Renovate temporarily disables release proposals from `custom.regex` in
+`apps/gitlab/kustomization.yaml` during fixed CE19.5.0 / chart10.5.0 capture,
+blob migration and handover; unrelated dependency updates remain enabled as before.
+The legacy extraction rule, group and labels remain for the ownership switch.
+**Task6 release trigger:** after verified native Helm adoption, replace the legacy
+regex ownership with the single native Flux chart manager and remove every temporary
+GitLab update hold. Do not leave updates disabled after handover.
 
 ## Native lifecycle and identity
 
