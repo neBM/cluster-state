@@ -37,7 +37,7 @@ NATIVE_BACKUP_ARGS = ['/bin/bash', '-c', 'test -f /etc/gitlab/.s3cfg && cp /etc/
 SITE_BACKUP_ARGS = ['/bin/bash', '-c', 'test -f /etc/gitlab/.s3cfg && cp /etc/gitlab/.s3cfg $HOME/.s3cfg; exec python3 /backup-script/nas-export.py']
 BACKUP_TARGET = {'group': 'batch', 'version': 'v1', 'kind': 'CronJob', 'name': '^gitlab-helm-toolbox-backup$', 'namespace': 'default'}
 BACKUP_VOLUMES = [
-    {'name': 'backup-recovery', 'persistentVolumeClaim': {'claimName': 'gitlab-helm-recovery-windsor'}},
+    {'name': 'backup-recovery', 'persistentVolumeClaim': {'claimName': 'gitlab-helm-recovery-windsor-sync'}},
     {'name': 'backup-script', 'configMap': {'name': 'gitlab-helm-native-backup', 'defaultMode': 292}},
 ]
 BACKUP_MOUNTS = [{'name': 'backup-recovery', 'mountPath': '/recovery'},
@@ -149,7 +149,7 @@ def validate_postrender(before, after, release):
         {"name": "admission-script", "configMap": {"name": "gitlab-helm-upgrade-admission", "defaultMode": 292}},
         {"name": "admission-db-password", "secret": {"secretName": "gitlab-secrets", "defaultMode": 292,
          "items": [{"key": "db_password", "path": "db_password"}]}},
-        {"name": "admission-recovery", "persistentVolumeClaim": {"claimName": "gitlab-helm-recovery-windsor"}},
+        {"name": "admission-recovery", "persistentVolumeClaim": {"claimName": "gitlab-helm-recovery-windsor-sync"}},
         {"name": "admission-work", "emptyDir": {"medium": "Memory", "sizeLimit": "16Mi"}},
     ]
     expect(errors, spec, "volumes", old["spec"]["template"]["spec"]["volumes"] + expected_volumes)
@@ -366,6 +366,53 @@ def validate_backup_alerts(document):
     return errors
 
 
+def validate_recovery_storage(storage, leaf, prepared):
+    errors = []
+    if len(storage) != 1:
+        return ['recovery storage leaf must render exactly one StorageClass']
+    for path, wanted in {
+        'apiVersion': 'storage.k8s.io/v1', 'kind': 'StorageClass',
+        'metadata.name': 'gitlab-recovery-nfs-sync',
+        'metadata.annotations': {'storageclass.kubernetes.io/is-default-class': 'false'},
+        'provisioner': 'nfs.csi.k8s.io', 'reclaimPolicy': 'Retain',
+        'volumeBindingMode': 'Immediate', 'allowVolumeExpansion': False,
+        'mountOptions': ['nfsvers=3', 'hard', 'timeo=600'],
+        'parameters': {'onDelete': 'retain', 'server': '${GITLAB_RECOVERY_NFS_SERVER}',
+                       'share': '${GITLAB_RECOVERY_NFS_EXPORT}',
+                       'subDir': '$${pvc.metadata.namespace}/$${pvc.metadata.name}-$${pv.metadata.name}'},
+    }.items():
+        expect(errors, storage[0], path, wanted)
+    for path, wanted in {
+        'apiVersion': 'kustomize.toolkit.fluxcd.io/v1', 'kind': 'Kustomization',
+        'metadata.name': 'gitlab-recovery-storage', 'metadata.namespace': 'flux-system',
+        'spec.path': './infrastructure/storage/gitlab-recovery',
+        'spec.sourceRef': {'kind': 'GitRepository', 'name': 'cluster-state'},
+        'spec.dependsOn': [{'name': 'storage-nfs-csi'}],
+        'spec.interval': '10m0s', 'spec.retryInterval': '1m0s', 'spec.timeout': '10m0s',
+        'spec.prune': True, 'spec.wait': True,
+        'spec.postBuild': {'substituteFrom': [{'kind': 'Secret', 'name': 'gitlab-recovery-nfs-config', 'optional': False}]},
+    }.items():
+        expect(errors, leaf, path, wanted)
+    refs = get(leaf, 'spec.postBuild.substituteFrom') or []
+    if len(refs) == 1:
+        expect(errors, refs[0], 'optional', False)
+    for name, storage_class in (
+        ('gitlab-helm-recovery-windsor', 'windsor-nfs-rwx'),
+        ('gitlab-helm-recovery-windsor-sync', 'gitlab-recovery-nfs-sync'),
+    ):
+        claims = [d for d in prepared if d.get('kind') == 'PersistentVolumeClaim'
+                  and d.get('metadata', {}).get('name') == name]
+        if len(claims) != 1:
+            errors.append(f'{name}: exactly one retained recovery PVC required')
+            continue
+        expect(errors, claims[0], 'metadata.namespace', 'default')
+        expect(errors, claims[0], 'spec', {'storageClassName': storage_class, 'accessModes': ['ReadWriteMany'],
+               'resources': {'requests': {'storage': '100Gi'}}})
+        expect(errors, claims[0], 'metadata.annotations',
+               {'kustomize.toolkit.fluxcd.io/prune': 'disabled', 'helm.sh/resource-policy': 'keep'})
+    return errors
+
+
 def validate_source(root):
     errors = []
     try:
@@ -377,11 +424,7 @@ def validate_source(root):
     release = yaml.safe_load((candidate / "helmrelease.yaml").read_text())
     errors.extend(validate_release(release))
     prepared = kustomize(root, "apps/gitlab-helm")
-    pvc = next((d for d in prepared if d.get("kind") == "PersistentVolumeClaim" and d["metadata"]["name"] == "gitlab-helm-recovery-windsor"), {})
-    expect(errors, pvc, "spec", {"storageClassName": "windsor-nfs-rwx", "accessModes": ["ReadWriteMany"],
-           "resources": {"requests": {"storage": "100Gi"}}})
-    if pvc.get("metadata", {}).get("annotations") != {"kustomize.toolkit.fluxcd.io/prune": "disabled", "helm.sh/resource-policy": "keep"}:
-        errors.append("independent recovery PVC must be retained/prune-disabled")
+
     script = next((d for d in prepared if d.get("kind") == "ConfigMap" and d["metadata"]["name"] == "gitlab-helm-upgrade-admission"), {})
     expect(errors, script, "data", {"upgrade-admission.sh": (candidate / "files/upgrade-admission.sh").read_text()})
     exporter = next((d for d in prepared if d.get("kind") == "ConfigMap" and d["metadata"]["name"] == "gitlab-helm-native-backup"), {})
@@ -395,6 +438,19 @@ def validate_source(root):
     leaf = yaml.safe_load((flux_dir / "kustomization-gitlab-helm.yaml").read_text())
     expect(errors, leaf, "spec.path", "./apps/gitlab-helm")
     expect(errors, leaf, "spec.suspend", True)
+    if {'name': 'gitlab-recovery-storage'} not in (get(leaf, 'spec.dependsOn') or []):
+        errors.append('inactive candidate must depend on recovery storage')
+    controllers = kustomize(root, 'clusters/k3s-homelab/flux-system')
+    recovery_leaves = [d for d in controllers if d.get('kind') == 'Kustomization'
+                       and d.get('metadata', {}).get('name') == 'gitlab-recovery-storage']
+    if len(recovery_leaves) != 1:
+        errors.append('active root must contain exactly one gitlab-recovery-storage leaf')
+    errors.extend(validate_recovery_storage(kustomize(root, 'infrastructure/storage/gitlab-recovery'),
+                  recovery_leaves[0] if len(recovery_leaves) == 1 else {}, prepared))
+    for name in ('storage-classes', 'storage-nfs-csi'):
+        existing = yaml.safe_load((flux_dir / f'kustomization-{name}.yaml').read_text())
+        if 'postBuild' in existing['spec']:
+            errors.append(f'{name}: must not substitute existing CSI macros')
     # Prove absence from both actual reachable native renders, not a directory-name grep.
     for entrypoint in ("apps", "clusters/k3s-homelab/flux-system"):
         for doc in kustomize(root, entrypoint):
@@ -405,7 +461,7 @@ def validate_source(root):
     expect(errors, redis, "spec.replicas", 1)
     if redis["spec"]["template"]["spec"]["containers"][0]["resources"] != {"requests": {"cpu": "50m", "memory": "32Mi"}, "limits": {"memory": "256Mi"}}:
         errors.append("retained Redis resources changed")
-    controllers = kustomize(root, "clusters/k3s-homelab/flux-system")
+
     helm = next((d for d in controllers if d.get("kind") == "Deployment" and d["metadata"]["name"] == "helm-controller"), {})
     if not helm:
         errors.append("native helm-controller missing")

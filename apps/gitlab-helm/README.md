@@ -126,13 +126,47 @@ qualification and all live/recovery gates remain required before delivery.
 
 ## Inactive upgrade admission / independent recovery foundation (Task2a)
 
-The isolated candidate now also declares **`gitlab-helm-recovery-windsor`**:
-`windsor-nfs-rwx`, RWX, **100Gi request**, Flux prune disabled and retain intent.
+The isolated candidate retains **`gitlab-helm-recovery-windsor`** unchanged:
+`windsor-nfs-rwx`, RWX, **100Gi request**, Flux prune disabled and Helm keep.
+It holds prior recovery evidence; do not delete, rename or change its storage spec.
+The shared export is asynchronous and is **not qualified for stable-server
+recovery**. Its evidence does not transfer to the new destination.
+
+Admission and native Toolbox publication now reference the separate retained
+**`gitlab-helm-recovery-windsor-sync`** claim (`gitlab-recovery-nfs-sync`, RWX,
+100Gi logical request, the same prune-disabled/Helm-keep guards). Both claims
+remain in this inactive candidate, outside the active roots.
+
+Only the dedicated **`gitlab-recovery-storage`** Flux leaf enters the active root.
+It uses the existing `storage-nfs-csi` driver dependency and `cluster-state`
+GitRepository, rendering one nondefault retained NFSv3/hard StorageClass. Before
+merging this leaf, the operator must privately provision and read back the Opaque
+Secret **`flux-system/gitlab-recovery-nfs-config`**, with both nonempty keys
+**`GITLAB_RECOVERY_NFS_SERVER`** and **`GITLAB_RECOVERY_NFS_EXPORT`**, pointing at
+the distinct, server-side synchronous recovery export. No endpoint/export values
+or Secret manifest belong in Git. Native `postBuild.substituteFrom` is mandatory
+(`optional: false`); missing Secret fails reconciliation, but that setting alone
+**does not validate key presence or nonempty values**. Requalify the values and
+actual provisioned PV after configuration changes; the class name and client
+mount options do not prove server-side sync or hardware durability.
+
+Substitution is confined to this leaf. Its source expression
+`$${pvc.metadata.namespace}/$${pvc.metadata.name}-$${pv.metadata.name}`
+must become the native CSI expression
+`${pvc.metadata.namespace}/${pvc.metadata.name}-${pv.metadata.name}` after exactly
+one Flux postBuild pass. Do not add substitution to the existing storage leaves
+or change their CSI macros/classes. The inactive application leaf depends on this
+storage leaf but remains suspended and unattached; the HelmRelease and native
+backup schedule remain suspended as well.
+
 This is independent NAS recovery storage, **not a directory in a Restic repository**.
-It is not reachable from either active root. No claim, export or backup is claimed
-provisioned by a source render. NFS requests are **not quotas**: before use the
-operator must inventory the retained export and verify real free space, expected
-ownership, NAS ACL/squash behavior and capacity for the required retention.
+No claim, backup or successful dynamic provisioning is established by a source
+render. NFS requests are **not quotas or free-space checks**: before use the
+operator must verify real free space/retention capacity, UID1000 privacy,
+ACL/squash behavior, locking, atomic rename, fsync/readback/persistence, a real
+PostgreSQL dump and restore and the actual native chart Job on the new destination.
+Keep all old evidence and exports unchanged; do not infer these gates passed from
+server-side sync configuration or old asynchronous-target checks.
 
 The HelmRelease uses native **`postRenderStrategy: combined`** with one admission
 JSON6902 patch targeting `Job/default/gitlab-helm-gitlab-upgrade-check`. It adds

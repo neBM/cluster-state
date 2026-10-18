@@ -33,6 +33,46 @@ class CandidateTests(unittest.TestCase):
     def test_actual_source(self):
         self.assertEqual(self.v.validate_source(ROOT), [])
 
+    def test_recovery_destination(self):
+        patches = self.release['spec']['postRenderers'][0]['kustomize']['patches']
+        claims = [op['value']['persistentVolumeClaim']['claimName']
+                  for patch in patches for op in yaml.safe_load(patch['patch'])
+                  if isinstance(op.get('value'), dict) and 'persistentVolumeClaim' in op['value']]
+        self.assertEqual(claims, ['gitlab-helm-recovery-windsor-sync'] * 2)
+
+    def test_recovery_storage_mutations(self):
+        storage = self.v.kustomize(ROOT, 'infrastructure/storage/gitlab-recovery')
+        leaf = yaml.safe_load((ROOT / 'clusters/k3s-homelab/flux-system/kustomization-gitlab-recovery-storage.yaml').read_text())
+        prepared = self.v.kustomize(ROOT, 'apps/gitlab-helm')
+        self.assertEqual(self.v.validate_recovery_storage(storage, leaf, prepared), [])
+        for field, value in (
+            ('server', 'example.invalid'), ('share', '/not-a-private-config-reference'),
+            ('onDelete', 'delete'),
+            ('subDir', '${pvc.metadata.namespace}/${pvc.metadata.name}-${pv.metadata.name}'),
+        ):
+            changed = copy.deepcopy(storage)
+            changed[0]['parameters'][field] = value
+            self.assertTrue(self.v.validate_recovery_storage(changed, leaf, prepared), field)
+        for field, value in (('allowVolumeExpansion', 0), ('reclaimPolicy', 'Delete'), ('volumeBindingMode', 'WaitForFirstConsumer')):
+            changed = copy.deepcopy(storage)
+            changed[0][field] = value
+            self.assertTrue(self.v.validate_recovery_storage(changed, leaf, prepared), field)
+        for field, value in (
+            ('sourceRef', {'kind': 'GitRepository', 'name': 'flux-system'}),
+            ('dependsOn', []), ('postBuild', {}), ('prune', 1), ('wait', 1),
+            ('postBuild', {'substituteFrom': [{'kind': 'Secret', 'name': 'gitlab-recovery-nfs-config', 'optional': 0}]}),
+        ):
+            changed = copy.deepcopy(leaf)
+            changed['spec'][field] = value
+            self.assertTrue(self.v.validate_recovery_storage(storage, changed, prepared), field)
+        for claim in [d for d in prepared if d['kind'] == 'PersistentVolumeClaim']:
+            changed = copy.deepcopy(prepared)
+            changed.remove(claim)
+            self.assertTrue(self.v.validate_recovery_storage(storage, leaf, changed), claim['metadata']['name'])
+            changed = copy.deepcopy(prepared)
+            next(d for d in changed if d == claim)['metadata']['annotations'] = {}
+            self.assertTrue(self.v.validate_recovery_storage(storage, leaf, changed))
+
     def test_backup_monitoring_source(self):
         document = yaml.safe_load((ROOT / "infrastructure/observability-ui/grafana/_grafana_alert_rules.yaml").read_text())
         rules = [r for g in document["groups"] if g["name"] == "backup-health" for r in g["rules"]]
@@ -105,7 +145,7 @@ class CandidateTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             import shutil
             root = Path(tmp)
-            for directory in ("apps", "clusters", "infrastructure/observability-ui/grafana"):
+            for directory in ("apps", "clusters", "infrastructure/observability-ui/grafana", "infrastructure/storage/gitlab-recovery"):
                 shutil.copytree(ROOT / directory, root / directory)
             path = root / "apps/kustomization.yaml"
             data = yaml.safe_load(path.read_text())
@@ -203,6 +243,7 @@ class CandidateTests(unittest.TestCase):
             ('native env changed', lambda s: s['containers'][0]['env'].pop()),
             ('native image changed', lambda s: s['containers'][0].update(image='wrong')),
             ('missing NAS mount', lambda s: s['containers'][0]['volumeMounts'].pop()),
+            ('old async destination', lambda s: next(v for v in s['volumes'] if v['name'] == 'backup-recovery')['persistentVolumeClaim'].update(claimName='gitlab-helm-recovery-windsor')),
         ):
             with self.subTest(name=name):
                 changed = copy.deepcopy(patched)
@@ -245,6 +286,10 @@ class CandidateTests(unittest.TestCase):
         changed = copy.deepcopy(patched)
         admission = next(d for d in changed if d.get("kind") == "Job" and d["metadata"]["name"] == self.v.HOOK_NAME)["spec"]["template"]["spec"]["initContainers"][0]
         admission["env"][0]["value"] = "v19.4.0"
+        self.assertTrue(self.v.validate_postrender(docs, changed, self.release))
+        changed = copy.deepcopy(patched)
+        volumes = self.v.hook_jobs(changed)[0]['spec']['template']['spec']['volumes']
+        next(v for v in volumes if v['name'] == 'admission-recovery')['persistentVolumeClaim']['claimName'] = 'gitlab-helm-recovery-windsor'
         self.assertTrue(self.v.validate_postrender(docs, changed, self.release))
 
 

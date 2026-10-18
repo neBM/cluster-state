@@ -6,6 +6,7 @@ resources:
   - helmrelease.yaml
   - ingressroutes.yaml
   - persistentvolumeclaim-default-gitlab-helm-recovery-windsor.yaml
+  - persistentvolumeclaim-default-gitlab-helm-recovery-windsor-sync.yaml
 
 configMapGenerator:
   - name: gitlab-helm-upgrade-admission
