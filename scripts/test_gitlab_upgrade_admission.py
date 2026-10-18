@@ -35,6 +35,12 @@ if name == "psql":
         print("fixture diagnostic should not escape", file=sys.stderr)
         sys.exit(2)
     fields = ["on", "170010", "gitlabhq_production", "gitlab", "192.0.2.10", "5432", "public", "native", "a"*32, "131", "0"]
+    # PostgreSQL17 inet::text includes mask bits; host(inet) is the plain address.
+    # IPv4 form was observed in the independent actual native TCP qualification.
+    if mode == "tcp-inet":
+        fields[4] = "10.244.0.10" if "host(inet_server_addr())" in sql else "10.244.0.10/32"
+    if mode == "tcp-inet6":
+        fields[4] = "2001:db8::10" if "host(inet_server_addr())" in sql else "2001:db8::10/128"
     if mode == "readwrite": fields[0] = "off"
     if mode == "server": fields[1] = "180001"
     if mode == "schema": fields[7] = "unknown"
@@ -124,6 +130,14 @@ class AdmissionFixtures(unittest.TestCase):
             with self.subTest(version=version):
                 self.env.update(GITLAB_VERSION=version, CHART_VERSION=chart)
                 self.run_script(allowed=True)
+
+    def test_tcp_inet_addresses_use_canonical_host(self):
+        # Fixture evaluates the selected SQL representation, not a live DB query.
+        # Do not admit CIDR by broadening the observation regex.
+        self.assertIn("[0-9a-fA-F:.]+", SCRIPT.read_text())
+        for mode in ("tcp-inet", "tcp-inet6"):
+            with self.subTest(mode=mode):
+                self.run_script(mode, allowed=True)
 
     def test_strict_versions_and_unsupported_paths(self):
         for version in ("", "19.5", "19.5.0-rc1", "19.5.0junk", "019.5.0", "19.4.9", "19.6.0", "19.8.0", "20.0.0", "18.11.9"):

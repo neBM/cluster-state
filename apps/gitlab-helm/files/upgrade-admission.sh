@@ -71,7 +71,7 @@ observe() {
   observation=$(timeout --signal=TERM --kill-after=5s 60s psql -X -A -t -w -v ON_ERROR_STOP=1 2>"$private_work/client-error" <<'SQL'
 SELECT current_setting('transaction_read_only'),
        current_setting('server_version_num'), current_database(), current_user,
-       inet_server_addr()::text, inet_server_port(), current_schema(),
+       host(inet_server_addr()), inet_server_port(), current_schema(),
        CASE WHEN to_regclass('public.application_settings') IS NOT NULL
              AND to_regclass('public.users') IS NOT NULL
              AND to_regclass('public.projects') IS NOT NULL
