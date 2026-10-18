@@ -21,6 +21,9 @@ uv --no-config run --locked --script scripts/validate_gitlab_helm.py \
   --write-values "${work}/values.yaml"
 "${helm}" lint "${work}/gitlab-10.5.0.tgz" -f "${work}/values.yaml"
 "${helm}" template gitlab-helm "${work}/gitlab-10.5.0.tgz" \
-  --namespace default --kube-version 1.36.0 -f "${work}/values.yaml" > "${work}/rendered.yaml"
-uv --no-config run --locked --script scripts/validate_gitlab_helm.py --rendered "${work}/rendered.yaml"
+  --is-upgrade --namespace default --kube-version 1.36.0 -f "${work}/values.yaml" > "${work}/rendered.yaml"
+uv --no-config run --locked --script scripts/validate_gitlab_helm.py \
+  --rendered "${work}/rendered.yaml" --write-postrender "${work}/postrendered.yaml"
 GITLAB_HELM_RENDERED="${work}/rendered.yaml" uv --no-config run --locked --script scripts/test_validate_gitlab_helm.py
+bash -n apps/gitlab-helm/files/upgrade-admission.sh
+python3 scripts/test_gitlab_upgrade_admission.py

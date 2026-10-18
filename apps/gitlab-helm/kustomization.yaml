@@ -5,3 +5,10 @@ resources:
   - helmrepository.yaml
   - helmrelease.yaml
   - ingressroutes.yaml
+  - persistentvolumeclaim-default-gitlab-helm-recovery-windsor.yaml
+configMapGenerator:
+  - name: gitlab-helm-upgrade-admission
+    files:
+      - upgrade-admission.sh=files/upgrade-admission.sh
+generatorOptions:
+  disableNameSuffixHash: true
