@@ -54,6 +54,67 @@ workload. COSI owns the backend SeaweedFS bucket identity, and the GitLab CI
 variables are the compatibility boundary. On rotation, sync values from
 `Secret/default/renovate-cache-s3` `BucketInfo.spec.secretS3` into that project.
 
+## Native GitLab Toolbox private-copy policy
+
+The inactive [GitLab chart candidate](../apps/gitlab-helm/README.md#native-storage-and-credentials)
+uses an operator-owned **GitLab-only multi-bucket identity**, not COSI `BucketInfo`
+or the shared administrator identity. Keep `Read,Write,List,Tagging` scoped to the
+candidate's documented GitLab data, backup and restore-scratch buckets only; Toolbox
+requires all of them. Do not add `Admin`, `ReadAcp`, `WriteAcp` or unrelated buckets.
+The operator creates and maintains these native Secret schemas **outside Git**:
+
+| Secret/key | Native content |
+|---|---|
+| `gitlab-helm-objectstore/connection` | Consolidated Rails Fog connection YAML |
+| `gitlab-helm-registry-storage/config` | Registry block YAML storage fragment |
+| `gitlab-helm-backup-config/config` | Toolbox s3cmd INI |
+
+Include the following in the Toolbox configuration's **existing `[default]`
+section** whenever creating, recreating or rotating the Secret. This is an excerpt;
+retain the credentials, endpoint, signing and all other fields in the full private
+configuration, not in this repository:
+
+```ini
+[default]
+acl_public = False
+```
+
+The GitLab-owned buckets are private; scratch preservation copies data, **not
+arbitrary source ACL grants**. Native s3cmd 2.4 defaults to `acl_public=None`, which
+reads the source ACL before COPY and later writes the destination ACL. These optional
+ACL-preservation APIs need permissions separate from ordinary Read/Write; an ACL
+preflight denial is not evidence that the backend rejected COPY. Explicit `False`
+is the supported native `--acl-private` policy: normal authenticated server-side
+COPY remains, without the extra ACL-preservation operations or any IAM expansion.
+Do not use `--acl-public`. This changes ACL fidelity: public/custom source grants
+are not preserved onto scratch copies. Do not prescribe it for unrelated services
+that require exact ACL preservation, silently weaken their contract, or label an
+unqualified backend globally S3-incompatible.
+
+For creation and synchronized rotation:
+
+1. Keep the GitLab-only native identity, bucket list and action scope unchanged.
+   Rotate credentials privately with all three native Secrets in their existing
+   formats; preserve `acl_public = False` in the Toolbox `[default]` section on
+   every recreation/rotation. Do not assume zero-downtime dual-key support.
+2. Transition/reload the actual native consumers. Before backup or restore, verify
+   the option in the **effective Toolbox `.s3cfg`**, not just the Secret/template;
+   the backup utility's `--s3config` alone does not configure the object-storage
+   library's default s3cmd. Keep credential values and full configuration dumps
+   out of Git and public logs.
+3. Qualify actual Rails/registry/Toolbox operations with the effective configuration,
+   including native nonempty `backup_existing` → cleanup → restore, legitimate
+   empty data, multipart behavior and unrelated-bucket denial. Repeat applicable
+   native-client qualification after rotation and on future native updates; do not
+   substitute an alternate client, formatter/controller or fork, or suppress
+   `backup_existing`. Verify old-key rejection after the transition.
+
+This is the durable configuration contract, **not a claim of production activation
+or full application recovery**. All full native application restore, independent NAS
+durability/capacity/publication/retention, monitoring, recurring-backup activation,
+delivery and write-fenced cutover gates remain open as described in the
+[candidate's remaining gates](../apps/gitlab-helm/README.md#remaining-activation-and-live-qualification-gates).
+
 ## Managing identities via `weed shell`
 
 Open a shell against a master pod:

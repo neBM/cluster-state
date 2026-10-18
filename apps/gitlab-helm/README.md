@@ -262,12 +262,47 @@ the three native Secrets outside Git. Unmodified Toolbox needs access to **all
 GitLab data buckets**, backup tar bucket and restore scratch: the backup utility's
 `--s3config` does not reconfigure the object-storage library's default s3cmd.
 No administrator/shared unrelated-bucket key, COSI-only multi-bucket fiction or
-formatter controller is introduced. Rotate privately as a synchronized identity +
-three-native-Secret change, transition/reload actual consumers, requalify allowed
-operations/multipart and unrelated-bucket denial, then verify old-key rejection.
+formatter controller is introduced. Retain bucket-scoped **Read/Write/List/Tagging**;
+no `Admin`, `ReadAcp` or `WriteAcp` grants are needed for the private-copy policy below.
+Rotate privately as a synchronized identity + three-native-Secret change, preserving
+that policy on recreation/rotation, transition/reload actual consumers, requalify
+allowed operations/multipart and unrelated-bucket denial, then verify old-key rejection.
 Do not assume zero-downtime dual-key support. The producer uses the chart's existing
 native Toolbox configuration/Secret mounts, including DB/repository access; no
 second credential identity, signing-key copy, sidecar or API/RBAC access is added.
+
+### Private Toolbox copy policy
+
+When creating or recreating `gitlab-helm-backup-config/config`, include this option
+in the existing native s3cmd **`[default]`** section (excerpt, not a replacement
+configuration):
+
+```ini
+[default]
+acl_public = False
+```
+
+Preserve all credentials, endpoint, signing and other configuration fields outside
+Git. Verify this setting in the **effective Toolbox `.s3cfg`** used by backup and
+restore before use, including after Secret rotation and consumer reload; checking
+only the Secret template is insufficient. See the synchronized
+[identity/Secret rotation contract](../../docs/seaweedfs-s3-identities.md#native-gitlab-toolbox-private-copy-policy).
+
+These GitLab-owned data, backup and scratch buckets are **private**, not storage
+for preserving arbitrary ACL grants. Native s3cmd 2.4's unset `acl_public=None`
+copy path reads the source ACL and later writes the destination ACL; those optional
+ACL-preservation APIs are **not plain Read/Write**. Explicit `False` (the supported
+`--acl-private` policy) retains normal authenticated server-side COPY without those
+extra ACL operations. It does **not preserve arbitrary public/custom source ACLs**;
+do not apply it to unrelated services requiring ACL fidelity or weaken their access
+contract. Do not use `--acl-public`, broaden IAM or substitute a different client.
+
+Native **`backup_existing` remains enabled and unmodified**, followed by native
+cleanup and restore. Initial and future native-client qualification must cover
+nonempty preservation/restore, legitimate empty data, multipart operations and
+unrelated-bucket denial with this effective configuration. This policy is not full
+application recovery or NAS durability proof and does not waive any activation,
+recurring-backup, delivery or cutover gate below.
 
 ### One native producer invocation and publication
 
