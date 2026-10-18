@@ -97,6 +97,7 @@ else
     "clusters/k3s-homelab/flux-system"
     "clusters/k3s-homelab"
     "infrastructure/storage"
+    "infrastructure/storage/gitlab-recovery"
     "infrastructure/platform"
     "infrastructure/shared-services"
     "infrastructure/observability-core"

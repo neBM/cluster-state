@@ -142,7 +142,7 @@ spec:
                 value:
                   name: admission-recovery
                   persistentVolumeClaim:
-                    claimName: gitlab-helm-recovery-windsor
+                    claimName: gitlab-helm-recovery-windsor-sync
               - op: add
                 path: /spec/template/spec/volumes/-
                 value:
@@ -179,7 +179,7 @@ spec:
                 value:
                   name: backup-recovery
                   persistentVolumeClaim:
-                    claimName: gitlab-helm-recovery-windsor
+                    claimName: gitlab-helm-recovery-windsor-sync
               - op: add
                 path: /spec/jobTemplate/spec/template/spec/volumes/-
                 value:

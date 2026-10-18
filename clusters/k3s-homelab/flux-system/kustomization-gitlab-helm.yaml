@@ -17,5 +17,6 @@ spec:
   timeout: 30m
   wait: true
   dependsOn:
+    - name: gitlab-recovery-storage
     - name: storage-classes
     - name: shared-services
