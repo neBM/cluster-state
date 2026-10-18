@@ -305,8 +305,10 @@ def add_outside_service(root: Path) -> None:
         "    targetPort: 4002\n"
     )
     apps_kustomization = root / "apps" / "kustomization.yaml"
-    apps_kustomization.write_text(
-        f"{apps_kustomization.read_text()}- review-mutation\n"
+    replace_once(
+        apps_kustomization,
+        "resources:\n",
+        "resources:\n- review-mutation\n",
     )
 
 
