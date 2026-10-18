@@ -27,3 +27,4 @@ uv --no-config run --locked --script scripts/validate_gitlab_helm.py \
 GITLAB_HELM_RENDERED="${work}/rendered.yaml" uv --no-config run --locked --script scripts/test_validate_gitlab_helm.py
 bash -n apps/gitlab-helm/files/upgrade-admission.sh
 python3 scripts/test_gitlab_upgrade_admission.py
+python3 scripts/test_gitlab_nas_export.py

@@ -150,6 +150,49 @@ spec:
                   emptyDir:
                     medium: Memory
                     sizeLimit: 16Mi
+          - target:
+              group: batch
+              version: v1
+              kind: CronJob
+              name: ^gitlab-helm-toolbox-backup$
+              namespace: default
+            patch: |-
+              - op: test
+                path: /spec/jobTemplate/spec/template/spec/containers/0/name
+                value: toolbox-backup
+              - op: test
+                path: /spec/jobTemplate/spec/template/spec/containers/0/args
+                value: [/bin/bash, -c, 'test -f /etc/gitlab/.s3cfg && cp /etc/gitlab/.s3cfg $HOME/.s3cfg; backup-utility --skip external_diffs,terraform_state,pages,ci_secure_files,agent_plan_content,ci_catalog_bundles --skip-cleanup']
+              - op: replace
+                path: /spec/jobTemplate/spec/template/spec/containers/0/args/2
+                value: 'test -f /etc/gitlab/.s3cfg && cp /etc/gitlab/.s3cfg $HOME/.s3cfg; exec python3 /backup-script/nas-export.py'
+              - op: test
+                path: /spec/jobTemplate/spec/template/spec/securityContext/fsGroup
+                value: 1000
+              - op: remove
+                path: /spec/jobTemplate/spec/template/spec/securityContext/fsGroup
+              - op: add
+                path: /spec/jobTemplate/spec/template/spec/automountServiceAccountToken
+                value: false
+              - op: add
+                path: /spec/jobTemplate/spec/template/spec/volumes/-
+                value:
+                  name: backup-recovery
+                  persistentVolumeClaim:
+                    claimName: gitlab-helm-recovery-windsor
+              - op: add
+                path: /spec/jobTemplate/spec/template/spec/volumes/-
+                value:
+                  name: backup-script
+                  configMap:
+                    name: gitlab-helm-native-backup
+                    defaultMode: 292
+              - op: add
+                path: /spec/jobTemplate/spec/template/spec/containers/0/volumeMounts/-
+                value: {name: backup-recovery, mountPath: /recovery}
+              - op: add
+                path: /spec/jobTemplate/spec/template/spec/containers/0/volumeMounts/-
+                value: {name: backup-script, mountPath: /backup-script, readOnly: true}
   values:
     upgradeCheck:
       securityContext:
@@ -224,17 +267,37 @@ spec:
       appConfig:
         object_store:
           enabled: true
+          proxy_download: true
           connection:
             secret: gitlab-helm-objectstore
             key: connection
         artifacts:
+          enabled: true
           bucket: gitlab-artifacts
         lfs:
+          enabled: true
           bucket: gitlab-lfs
         uploads:
+          enabled: true
           bucket: gitlab-uploads
         packages:
+          enabled: true
           bucket: gitlab-packages
+        externalDiffs:
+          enabled: false
+        terraformState:
+          enabled: false
+        dependencyProxy:
+          enabled: false
+        ciSecureFiles:
+          enabled: false
+        agentPlanContent:
+          enabled: false
+        ciCatalogBundles:
+          enabled: false
+        backups:
+          bucket: gitlab-backups
+          tmpBucket: gitlab-restore-scratch
         gitlab_kas:
           secret: gitlab-kas-secret
           key: kas_shared_secret
@@ -261,6 +324,7 @@ spec:
         secret: gitlab-workhorse
         key: secret
       registry:
+        bucket: gitlab-registry
         certificate:
           secret: gitlab-helm-registry-auth
         httpSecret:
@@ -270,6 +334,10 @@ spec:
       initialRootPassword:
         secret: gitlab-helm-initial-root-password
         key: password
+      pages:
+        enabled: false
+        objectStore:
+          enabled: false
     installCertmanager: false
     prometheus:
       install: false
@@ -302,6 +370,30 @@ spec:
             memory: 512Mi
       toolbox:
         backups:
+          cron:
+            enabled: true
+            suspend: true
+            schedule: '0 1 * * *'
+            timeZone: Europe/London
+            concurrencyPolicy: Forbid
+            startingDeadlineSeconds: 1800
+            activeDeadlineSeconds: 10800
+            backoffLimit: 0
+            restartPolicy: Never
+            successfulJobsHistoryLimit: 2
+            failedJobsHistoryLimit: 2
+            extraArgs: --skip external_diffs,terraform_state,pages,ci_secure_files,agent_plan_content,ci_catalog_bundles --skip-cleanup
+            # Transient budget; application/Toolbox Deployment sizing is unchanged.
+            resources:
+              requests:
+                cpu: 100m
+                memory: 512Mi
+              limits:
+                memory: 2Gi
+            persistence:
+              enabled: true
+              storageClass: local-path-retain
+              size: 100Gi
           objectStorage:
             backend: s3
             config:
@@ -385,6 +477,8 @@ spec:
       storage:
         secret: gitlab-helm-registry-storage
         key: config
+        redirect:
+          disable: true
       hpa:
         minReplicas: 1
         maxReplicas: 1

@@ -6,9 +6,13 @@ resources:
   - helmrelease.yaml
   - ingressroutes.yaml
   - persistentvolumeclaim-default-gitlab-helm-recovery-windsor.yaml
+
 configMapGenerator:
   - name: gitlab-helm-upgrade-admission
     files:
       - upgrade-admission.sh=files/upgrade-admission.sh
+  - name: gitlab-helm-native-backup
+    files:
+      - nas-export.py=files/nas-export.py
 generatorOptions:
   disableNameSuffixHash: true
