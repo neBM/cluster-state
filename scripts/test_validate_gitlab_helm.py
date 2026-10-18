@@ -7,6 +7,7 @@
 import copy
 import importlib.util
 import os
+import subprocess
 from pathlib import Path
 import tempfile
 import unittest
@@ -43,6 +44,10 @@ class CandidateTests(unittest.TestCase):
             ("workers", lambda r: r["spec"]["values"]["gitlab"]["sidekiq"].update(concurrency=20)),
             ("duplicate controller", lambda r: r["spec"]["values"]["global"]["gatewayApi"].update(enabled=True)),
             ("independent app pin", lambda r: r["spec"]["values"]["global"].update(gitlabVersion="19.4.0")),
+            ("hook strategy", lambda r: r["spec"].update(postRenderStrategy="separate")),
+            ("hook selector", lambda r: r["spec"]["postRenderers"][0]["kustomize"]["patches"][0]["target"].update(name="wrong")),
+            ("no patch", lambda r: r["spec"].update(postRenderers=[])),
+            ("fsGroup NAS mutation", lambda r: r["spec"]["values"]["upgradeCheck"]["securityContext"].update(fsGroup=1000)),
         ]
         for name, mutate in changes:
             with self.subTest(name=name):
@@ -111,6 +116,42 @@ class CandidateTests(unittest.TestCase):
         workload["metadata"]["name"] = "duplicate-ingress"
         changed.append(workload)
         self.assertTrue(self.v.validate_render(changed))
+
+
+    def test_native_postrender_shape_denials(self):
+        path = os.environ.get("GITLAB_HELM_RENDERED")
+        self.assertIsNotNone(path, "real Helm render required")
+        assert path is not None
+        docs = [d for d in yaml.safe_load_all(Path(path).read_text()) if d]
+        self.assertEqual(self.v.validate_hook_input(docs), [])
+        hook = next(d for d in docs if d.get("kind") == "Job" and d["metadata"]["name"] == self.v.HOOK_NAME)
+        for name, mutate in (
+            ("unmatched", lambda ds: ds.remove(next(d for d in ds if d == hook))),
+            ("duplicate", lambda ds: ds.append(copy.deepcopy(hook))),
+            ("reshaped env", lambda ds: next(d for d in ds if d == hook)["spec"]["template"]["spec"]["containers"][0]["env"].reverse()),
+            ("unexpected init", lambda ds: next(d for d in ds if d == hook)["spec"]["template"]["spec"].update(initContainers=[{"name": "other"}])),
+        ):
+            with self.subTest(name=name):
+                changed = copy.deepcopy(docs)
+                mutate(changed)
+                self.assertTrue(self.v.validate_hook_input(changed))
+                with self.assertRaises(ValueError):
+                    self.v.apply_postrender(changed, self.release)
+        # Exercise the REAL Kustomize JSON6902 test, not just our shape oracle.
+        broken = copy.deepcopy(docs)
+        next(d for d in broken if d == hook)["spec"]["template"]["spec"]["containers"][0]["env"].reverse()
+        with self.assertRaises(subprocess.CalledProcessError):
+            self.v.apply_postrender(broken, self.release, check_input=False)
+        unmatched = copy.deepcopy(self.release)
+        unmatched["spec"]["postRenderers"][0]["kustomize"]["patches"][0]["target"]["name"] = "^unmatched$"
+        no_op = self.v.apply_postrender(docs, unmatched)
+        self.assertTrue(self.v.validate_postrender(docs, no_op, unmatched), "silent Kustomize no-op must fail CI")
+        patched = self.v.apply_postrender(docs, self.release)
+        self.assertEqual(self.v.validate_postrender(docs, patched, self.release), [])
+        changed = copy.deepcopy(patched)
+        admission = next(d for d in changed if d.get("kind") == "Job" and d["metadata"]["name"] == self.v.HOOK_NAME)["spec"]["template"]["spec"]["initContainers"][0]
+        admission["env"][0]["value"] = "v19.4.0"
+        self.assertTrue(self.v.validate_postrender(docs, changed, self.release))
 
 
 if __name__ == "__main__":

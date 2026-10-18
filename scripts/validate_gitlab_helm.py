@@ -5,7 +5,9 @@
 # ///
 """Local inactive-preparation contract, not production admission or integration proof."""
 import argparse
+import copy
 import json
+import tempfile
 from pathlib import Path
 import re
 import shutil
@@ -26,6 +28,123 @@ RESOURCES = {
     "migrations": ("75m", "2100Mi", "3Gi"),
 }
 WORKLOADS = {"gitaly", "kas", "registry", "sidekiq", "webservice", "toolbox"}
+
+
+HOOK_NAME = "gitlab-helm-gitlab-upgrade-check"
+ADMISSION_IMAGE = "docker.io/library/postgres@sha256:9b18b78397054fce88a9552e9d5a3ad5bb7fd258c5b3cc1c5028e46373d6ea8f"
+HOOK_TARGET = {"group": "batch", "version": "v1", "kind": "Job", "name": f"^{HOOK_NAME}$", "namespace": "default"}
+
+
+def hook_jobs(docs):
+    return [d for d in docs if d and d.get("apiVersion") == "batch/v1" and d.get("kind") == "Job"
+            and d.get("metadata", {}).get("name") == HOOK_NAME and d["metadata"].get("namespace") == "default"]
+
+
+def validate_hook_input(docs):
+    hooks = hook_jobs(docs)
+    if len(hooks) != 1:
+        return [f"native upgrade target: expected exactly one, got {len(hooks)}"]
+    hook = hooks[0]
+    spec = hook["spec"]["template"]["spec"]
+    containers = spec.get("containers", [])
+    if len(containers) != 1 or containers[0].get("name") != "run-check":
+        return ["native upgrade container shape changed"]
+    if ([e.get("name") for e in containers[0].get("env", [])] != ["GITLAB_VERSION", "CHART_VERSION"]
+            or containers[0].get("command") != ["/bin/sh", "/scripts/runcheck"]
+            or spec.get("initContainers") or [v.get("name") for v in spec.get("volumes", [])] != ["chart-info", "scripts"]):
+        return ["native upgrade env/init/volume/command shape changed"]
+    errors = []
+    if hook["metadata"].get("annotations", {}).get("helm.sh/hook") != "pre-upgrade":
+        errors.append("native pre-upgrade annotation changed")
+    if "fsGroup" in spec.get("securityContext", {}):
+        errors.append("upgrade pod must not change NAS ownership via fsGroup")
+    return errors
+
+
+def apply_postrender(docs, release, check_input=True):
+    """Offline native Kustomize on the real Helm4 combined manifest/hook stream.
+
+    This is CI's exact-match oracle, NOT a replacement runtime sequencer.
+    Kustomize itself silently ignores unmatched targets; never accept that as a pass.
+    """
+    errors = validate_hook_input(docs) if check_input else []
+    if errors:
+        raise ValueError("; ".join(errors))
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        (root / "resources.yaml").write_text(yaml.safe_dump_all(docs))
+        settings = release["spec"]["postRenderers"][0]["kustomize"]
+        (root / "kustomization.yaml").write_text(yaml.safe_dump({
+            "apiVersion": "kustomize.config.k8s.io/v1beta1", "kind": "Kustomization",
+            "resources": ["resources.yaml"], **settings,
+        }))
+        return kustomize(root, ".")
+
+
+def admission_settings(release):
+    db = release["spec"]["values"]["global"]["psql"]
+    ci = db["ci"]
+    return {"PGHOST": str(db["host"]), "PGPORT": str(db["port"]), "PGDATABASE": db["database"], "PGUSER": db["username"],
+            "CI_DB_HOST": str(ci.get("host", db["host"])), "CI_DB_PORT": str(ci.get("port", db["port"])),
+            "CI_DB_NAME": ci["database"], "CI_DATABASE_TASKS": str(ci["databaseTasks"]).lower()}
+
+
+def validate_postrender(before, after, release):
+    errors = validate_hook_input(before)
+    if errors or len(hook_jobs(after)) != 1:
+        return errors + ["postrender must retain exactly one native upgrade Job"]
+    old, new = hook_jobs(before)[0], hook_jobs(after)[0]
+    spec = new["spec"]["template"]["spec"]
+    inits = spec.get("initContainers", [])
+    if len(inits) != 1 or inits[0].get("name") != "site-upgrade-admission":
+        return ["exactly one site admission init required"]
+    admission = inits[0]
+    upstream_env = old["spec"]["template"]["spec"]["containers"][0]["env"]
+    expected_env = upstream_env + [{"name": k, "value": v} for k, v in admission_settings(release).items()]
+    expect(errors, admission, "env", expected_env)
+    expect(errors, admission, "image", ADMISSION_IMAGE)
+    expect(errors, admission, "command", ["/bin/bash", "/admission-script/upgrade-admission.sh"])
+    expect(errors, admission, "securityContext", {"runAsNonRoot": True, "runAsUser": 1000, "runAsGroup": 1000,
+           "allowPrivilegeEscalation": False, "readOnlyRootFilesystem": True, "capabilities": {"drop": ["ALL"]}})
+    expect(errors, spec, "automountServiceAccountToken", False)
+    expected_mounts = [{"name": n, "mountPath": p, **({"readOnly": True} if ro else {})} for n, p, ro in (
+        ("chart-info", "/chart-info", True), ("admission-script", "/admission-script", True),
+        ("admission-db-password", "/db-secret", True), ("admission-recovery", "/recovery", False),
+        ("admission-work", "/admission-work", False))]
+    expect(errors, admission, "volumeMounts", expected_mounts)
+    expected_volumes = [
+        {"name": "admission-script", "configMap": {"name": "gitlab-helm-upgrade-admission", "defaultMode": 292}},
+        {"name": "admission-db-password", "secret": {"secretName": "gitlab-secrets", "defaultMode": 292,
+         "items": [{"key": "db_password", "path": "db_password"}]}},
+        {"name": "admission-recovery", "persistentVolumeClaim": {"claimName": "gitlab-helm-recovery-windsor"}},
+        {"name": "admission-work", "emptyDir": {"medium": "Memory", "sizeLimit": "16Mi"}},
+    ]
+    expect(errors, spec, "volumes", old["spec"]["template"]["spec"]["volumes"] + expected_volumes)
+    restored = copy.deepcopy(new)
+    restored_spec = restored["spec"]["template"]["spec"]
+    restored_spec.pop("initContainers", None)
+    restored_spec.pop("automountServiceAccountToken", None)
+    restored_spec["volumes"] = restored_spec["volumes"][:2]
+    if restored != old:
+        errors.append("postrender changed upstream hook beyond admission extension")
+    # All upstream scripts, chart-info, ordinary migrations/app resources and
+    # weights/waits remain exactly as Helm rendered them (order is immaterial).
+    def other_docs(ds):
+        result = set()
+        hooks = hook_jobs(ds)
+        for doc in ds:
+            if not doc or doc in hooks:
+                continue
+            doc = copy.deepcopy(doc)
+            # Native Kustomize drops null metadata.annotations. Normalize ONLY
+            # this observed non-semantic difference; do not scrub spec fields.
+            if doc.get("metadata", {}).get("annotations", {}) is None:
+                doc["metadata"].pop("annotations")
+            result.add(json.dumps(doc, sort_keys=True))
+        return result
+    if len(before) != len(after) or other_docs(before) != other_docs(after):
+        errors.append("postrender changed resources outside the native upgrade Job")
+    return errors
 
 
 def resources(name):
@@ -68,7 +187,20 @@ def validate_release(release):
         # RetryOnFailure would bypass the intentional no-retry preparation policy.
         if get(release, f"spec.{phase}.strategy") is not None:
             errors.append(f"{phase}: do not override native remediation strategy")
+    expect(errors, release, "spec.postRenderStrategy", "combined")
+    renderers = get(release, "spec.postRenderers") or []
+    if len(renderers) != 1 or set(renderers[0]) != {"kustomize"}:
+        errors.append("exactly one native Kustomize postrenderer required")
+    else:
+        patches = renderers[0]["kustomize"].get("patches", [])
+        if len(patches) != 1 or patches[0].get("target") != HOOK_TARGET:
+            errors.append("exactly one targeted native upgrade patch required")
+        else:
+            operations = yaml.safe_load(patches[0].get("patch", "")) or []
+            if {"op": "copy", "from": "/spec/template/spec/containers/0/env", "path": "/spec/template/spec/initContainers/0/env"} not in operations:
+                errors.append("target env must be copied from native run-check")
     values = get(release, "spec.values") or {}
+    expect(errors, values, "upgradeCheck.securityContext", {"fsGroup": None})
     for path, wanted in {
         "global.edition": "ce", "global.gitlabVersion": None,
         "global.gatewayApi.enabled": False, "global.gatewayApi.installEnvoy": False,
@@ -142,6 +274,14 @@ def validate_source(root):
     candidate = root / "apps/gitlab-helm"
     release = yaml.safe_load((candidate / "helmrelease.yaml").read_text())
     errors.extend(validate_release(release))
+    prepared = kustomize(root, "apps/gitlab-helm")
+    pvc = next((d for d in prepared if d.get("kind") == "PersistentVolumeClaim" and d["metadata"]["name"] == "gitlab-helm-recovery-windsor"), {})
+    expect(errors, pvc, "spec", {"storageClassName": "windsor-nfs-rwx", "accessModes": ["ReadWriteMany"],
+           "resources": {"requests": {"storage": "100Gi"}}})
+    if pvc.get("metadata", {}).get("annotations") != {"kustomize.toolkit.fluxcd.io/prune": "disabled", "helm.sh/resource-policy": "keep"}:
+        errors.append("independent recovery PVC must be retained/prune-disabled")
+    script = next((d for d in prepared if d.get("kind") == "ConfigMap" and d["metadata"]["name"] == "gitlab-helm-upgrade-admission"), {})
+    expect(errors, script, "data", {"upgrade-admission.sh": (candidate / "files/upgrade-admission.sh").read_text()})
     repository = yaml.safe_load((candidate / "helmrepository.yaml").read_text())
     expect(errors, repository, "spec.url", "https://charts.gitlab.io")
     flux_dir = root / "clusters/k3s-homelab/flux-system"
@@ -238,13 +378,24 @@ def validate_render(docs):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--rendered", type=Path)
+    parser.add_argument("--write-postrender", type=Path)
     parser.add_argument("--write-values", type=Path)
     parser.add_argument("--check-archive", type=Path)
     parser.add_argument("--index", type=Path)
     args = parser.parse_args()
     errors = validate_source(ROOT)
     if args.rendered:
-        errors.extend(validate_render(list(yaml.safe_load_all(args.rendered.read_text()))))
+        docs = [d for d in yaml.safe_load_all(args.rendered.read_text()) if d]
+        errors.extend(validate_render(docs))
+        release = yaml.safe_load((ROOT / "apps/gitlab-helm/helmrelease.yaml").read_text())
+        try:
+            patched = apply_postrender(docs, release)
+            errors.extend(validate_postrender(docs, patched, release))
+            errors.extend(validate_render(patched))
+            if args.write_postrender and not errors:
+                args.write_postrender.write_text(yaml.safe_dump_all(patched))
+        except (ValueError, subprocess.CalledProcessError) as error:
+            errors.append(f"native upgrade postrender rejected: {error}")
     if args.check_archive:
         import hashlib
         lock = json.loads((ROOT / "apps/gitlab-helm/chart-lock.json").read_text())

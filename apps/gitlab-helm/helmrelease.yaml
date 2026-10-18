@@ -35,7 +35,127 @@ spec:
       retries: 0
       remediateLastFailure: false
       strategy: rollback
+  postRenderStrategy: combined
+  postRenderers:
+    - kustomize:
+        patches:
+          - target:
+              group: batch
+              version: v1
+              kind: Job
+              name: ^gitlab-helm-gitlab-upgrade-check$
+              namespace: default
+            patch: |-
+              - op: test
+                path: /spec/template/spec/containers/0/name
+                value: run-check
+              - op: test
+                path: /spec/template/spec/containers/0/env/0/name
+                value: GITLAB_VERSION
+              - op: test
+                path: /spec/template/spec/containers/0/env/1/name
+                value: CHART_VERSION
+              - op: add
+                path: /spec/template/spec/automountServiceAccountToken
+                value: false
+              - op: add
+                path: /spec/template/spec/initContainers
+                value:
+                  - name: site-upgrade-admission
+                    image: docker.io/library/postgres@sha256:9b18b78397054fce88a9552e9d5a3ad5bb7fd258c5b3cc1c5028e46373d6ea8f
+                    imagePullPolicy: IfNotPresent
+                    command: [/bin/bash, /admission-script/upgrade-admission.sh]
+                    securityContext:
+                      runAsNonRoot: true
+                      runAsUser: 1000
+                      runAsGroup: 1000
+                      allowPrivilegeEscalation: false
+                      readOnlyRootFilesystem: true
+                      capabilities:
+                        drop: [ALL]
+                    resources:
+                      requests:
+                        cpu: 50m
+                        memory: 128Mi
+                      limits:
+                        memory: 512Mi
+                    volumeMounts:
+                      - name: chart-info
+                        mountPath: /chart-info
+                        readOnly: true
+                      - name: admission-script
+                        mountPath: /admission-script
+                        readOnly: true
+                      - name: admission-db-password
+                        mountPath: /db-secret
+                        readOnly: true
+                      - name: admission-recovery
+                        mountPath: /recovery
+                      - name: admission-work
+                        mountPath: /admission-work
+              - op: copy
+                from: /spec/template/spec/containers/0/env
+                path: /spec/template/spec/initContainers/0/env
+              - op: add
+                path: /spec/template/spec/initContainers/0/env/-
+                value: {name: PGHOST, value: '192.168.1.10'}
+              - op: add
+                path: /spec/template/spec/initContainers/0/env/-
+                value: {name: PGPORT, value: '5433'}
+              - op: add
+                path: /spec/template/spec/initContainers/0/env/-
+                value: {name: PGDATABASE, value: gitlabhq_production}
+              - op: add
+                path: /spec/template/spec/initContainers/0/env/-
+                value: {name: PGUSER, value: gitlab}
+              - op: add
+                path: /spec/template/spec/initContainers/0/env/-
+                value: {name: CI_DB_HOST, value: '192.168.1.10'}
+              - op: add
+                path: /spec/template/spec/initContainers/0/env/-
+                value: {name: CI_DB_PORT, value: '5433'}
+              - op: add
+                path: /spec/template/spec/initContainers/0/env/-
+                value: {name: CI_DB_NAME, value: gitlabhq_production}
+              - op: add
+                path: /spec/template/spec/initContainers/0/env/-
+                value: {name: CI_DATABASE_TASKS, value: 'false'}
+              - op: add
+                path: /spec/template/spec/volumes/-
+                value:
+                  name: admission-script
+                  configMap:
+                    name: gitlab-helm-upgrade-admission
+                    defaultMode: 292
+              - op: add
+                path: /spec/template/spec/volumes/-
+                value:
+                  name: admission-db-password
+                  secret:
+                    secretName: gitlab-secrets
+                    defaultMode: 292
+                    items:
+                      - key: db_password
+                        path: db_password
+              - op: add
+                path: /spec/template/spec/volumes/-
+                value:
+                  name: admission-recovery
+                  persistentVolumeClaim:
+                    claimName: gitlab-helm-recovery-windsor
+              - op: add
+                path: /spec/template/spec/volumes/-
+                value:
+                  name: admission-work
+                  emptyDir:
+                    medium: Memory
+                    sizeLimit: 16Mi
   values:
+    upgradeCheck:
+      securityContext:
+        # Do not recursively chown/chmod the NAS claim via pod fsGroup.
+        # Admission alone has explicit UID/GID1000; upstream run-check stays nobody.
+        fsGroup: null
     global:
       edition: ce
       hosts:
