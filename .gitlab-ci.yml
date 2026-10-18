@@ -258,7 +258,7 @@ package:hermes-workspace:amd64:
   needs: []
   tags:
     - amd64
-  image: quay.io/buildah/stable@sha256:2d2992785d226ffb6ef07f10bb3894d4b9997b86065a662245ca0a7a6028e79d
+  image: quay.io/buildah/stable@sha256:07e637ad7a1df37f44afea8287935b350224ac193d63e5cc96debb50a366853c
   variables:
     GIT_STRATEGY: fetch
     GIT_DEPTH: "1"
@@ -313,7 +313,7 @@ package:hermes-workspace:arm64:
   needs: []
   tags:
     - arm64
-  image: quay.io/buildah/stable@sha256:2d2992785d226ffb6ef07f10bb3894d4b9997b86065a662245ca0a7a6028e79d
+  image: quay.io/buildah/stable@sha256:07e637ad7a1df37f44afea8287935b350224ac193d63e5cc96debb50a366853c
   variables:
     GIT_STRATEGY: fetch
     GIT_DEPTH: "1"
@@ -368,7 +368,7 @@ verify:hermes-workspace:amd64:
   needs: []
   tags:
     - amd64
-  image: quay.io/buildah/stable@sha256:2d2992785d226ffb6ef07f10bb3894d4b9997b86065a662245ca0a7a6028e79d
+  image: quay.io/buildah/stable@sha256:07e637ad7a1df37f44afea8287935b350224ac193d63e5cc96debb50a366853c
   variables:
     GIT_STRATEGY: fetch
     GIT_DEPTH: "1"
@@ -408,7 +408,7 @@ verify:hermes-workspace:arm64:
   needs: []
   tags:
     - arm64
-  image: quay.io/buildah/stable@sha256:2d2992785d226ffb6ef07f10bb3894d4b9997b86065a662245ca0a7a6028e79d
+  image: quay.io/buildah/stable@sha256:07e637ad7a1df37f44afea8287935b350224ac193d63e5cc96debb50a366853c
   variables:
     GIT_STRATEGY: fetch
     GIT_DEPTH: "1"
@@ -452,7 +452,7 @@ publish:hermes-workspace:index:
       artifacts: true
     - job: validate:manifests
       artifacts: false
-  image: quay.io/buildah/stable@sha256:2d2992785d226ffb6ef07f10bb3894d4b9997b86065a662245ca0a7a6028e79d
+  image: quay.io/buildah/stable@sha256:07e637ad7a1df37f44afea8287935b350224ac193d63e5cc96debb50a366853c
   variables:
     GIT_STRATEGY: fetch
     GIT_DEPTH: "1"
@@ -535,6 +535,12 @@ publish:hermes-workspace:index:
       - scripts/validate_hestia_ci_store_gc_alert.py.lock
       - scripts/validate_ibgateway_manifest.py
       - scripts/validate_ibgateway_manifest.py.lock
+      - scripts/validate_gitlab_helm.sh
+      - scripts/validate_shared_postgres_budget.py
+      - scripts/validate_gitlab_helm.py
+      - scripts/validate_gitlab_helm.py.lock
+      - scripts/test_validate_gitlab_helm.py
+      - scripts/test_validate_gitlab_helm.py.lock
       - scripts/validate_kustomize.sh
       - scripts/validate_versioned_migration_jobs.py
       - scripts/validate_versioned_migration_jobs.py.lock
@@ -570,6 +576,12 @@ publish:hermes-workspace:index:
       - scripts/validate_hestia_ci_store_gc_alert.py.lock
       - scripts/validate_ibgateway_manifest.py
       - scripts/validate_ibgateway_manifest.py.lock
+      - scripts/validate_gitlab_helm.sh
+      - scripts/validate_shared_postgres_budget.py
+      - scripts/validate_gitlab_helm.py
+      - scripts/validate_gitlab_helm.py.lock
+      - scripts/test_validate_gitlab_helm.py
+      - scripts/test_validate_gitlab_helm.py.lock
       - scripts/validate_kustomize.sh
       - scripts/validate_versioned_migration_jobs.py
       - scripts/validate_versioned_migration_jobs.py.lock
@@ -592,6 +604,23 @@ validate:manifests:
   image: ${ACT_IMAGE}
   stage: validate
   needs: []
+  before_script:
+    # The runner's ambient Helm may be v3. Use the controller-matching Helm4.
+    - |
+      set -eu
+      case "$(uname -m)" in
+        x86_64) helm_arch=amd64 ;;
+        aarch64|arm64) helm_arch=arm64 ;;
+        *) echo 'Unsupported Helm architecture' >&2; exit 1 ;;
+      esac
+      helm_tools="$(mktemp -d)"
+      trap 'rm -rf "${helm_tools}"' EXIT
+      curl -fLsS --retry 3 "https://get.helm.sh/helm-v4.2.4-linux-${helm_arch}.tar.gz" -o "${helm_tools}/helm.tar.gz"
+      curl -fLsS --retry 3 "https://get.helm.sh/helm-v4.2.4-linux-${helm_arch}.tar.gz.sha256sum" -o "${helm_tools}/helm.sha256sum"
+      (cd "${helm_tools}"; mv helm.tar.gz "helm-v4.2.4-linux-${helm_arch}.tar.gz"; sha256sum -c helm.sha256sum)
+      tar -xzf "${helm_tools}/helm-v4.2.4-linux-${helm_arch}.tar.gz" -C "${helm_tools}"
+      export HELM="${helm_tools}/linux-${helm_arch}/helm"
+      "${HELM}" version --short
   script:
     - ./scripts/test_restic_backup.sh
     - ./scripts/validate_kustomize.sh

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+import subprocess
 import sys
 from pathlib import Path
 
@@ -106,6 +107,20 @@ def main() -> int:
     }
 
     discovered_files = find_shared_postgres_consumers()
+    candidate = "apps/gitlab-helm/helmrelease.yaml"
+    if candidate in discovered_files:
+        # A source-only candidate is not another active connection pool. Never
+        # blanket-exclude its directory: prove the inactive native contract even
+        # when this budget validator is invoked on its own.
+        result = subprocess.run(
+            ["uv", "--no-config", "run", "--locked", "--script",
+             str(REPO_ROOT / "scripts/validate_gitlab_helm.py")],
+            cwd=REPO_ROOT, check=False,
+        )
+        if result.returncode:
+            return result.returncode
+        expected_shared_db_files.add(candidate)
+        print("  gitlab-helm: inactive candidate, no additional active pool")
     unexpected = sorted(discovered_files - expected_shared_db_files)
     missing = sorted(expected_shared_db_files - discovered_files)
 

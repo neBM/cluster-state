@@ -35,6 +35,8 @@ patches:
       value: 50m
 
 images:
+- name: "ghcr.io/fluxcd/helm-controller"
+  newTag: "v1.6.5"
 - name: "ghcr.io/fluxcd/source-controller"
   newTag: "v1.9.6"
 - name: "ghcr.io/fluxcd/kustomize-controller"
