@@ -21,3 +21,5 @@ resources:
 - vaultwarden
 - gitlab
 - iris
+patches:
+- path: gitlab/patch-gitlab-source-runtime-images.yaml
