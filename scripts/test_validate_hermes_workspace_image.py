@@ -17,7 +17,7 @@ VALIDATION_ENTRYPOINT = ROOT / "scripts/validate_kustomize.sh"
 VERIFY_HELPER = ROOT / "scripts/verify_hermes_workspace_image.sh"
 BUILDAH_IMAGE = (
     "quay.io/buildah/stable@sha256:"
-    "2d2992785d226ffb6ef07f10bb3894d4b9997b86065a662245ca0a7a6028e79d"
+    "07e637ad7a1df37f44afea8287935b350224ac193d63e5cc96debb50a366853c"
 )
 BUILDAH_LOGIN = (
     "printf '%s' \"$CI_REGISTRY_PASSWORD\" | buildah login "
