@@ -335,14 +335,48 @@ second credential identity, signing-key copy, sidecar or API/RBAC access is adde
   **not observed capacity acceptance**, especially for registry or an unbounded NFS
   export; inventory and verify capacity rather than deleting history to hide failure.
 
-### Remaining activation and live qualification gates
+### Native backup monitoring (Task2c source; runtime qualification still required)
 
-Monitoring is a separate bounded follow-up and an **activation blocker**. Extend
-`infrastructure/observability-ui/grafana/_grafana_alert_rules.yaml` using established
-failure/last-success conventions: combined native-backup/NAS-publication Job failure
-and >26h stale/missing successful publication, including no first success, gated
-against intentionally suspended preparation. A native S3 upload alone is not success
-of the combined Job or proof of NAS publication. No new monitoring service is needed.
+The existing provisioned Grafana `backup-health` group now includes:
+
+- **GitLab Native Backup Job Failed** (`gitlab-native-backup-failed-api`, warning,
+  5m): latest retained terminal failed Job start is newer than the latest completed
+  successful Job start, including failure before any success. A later successful
+  run suppresses old retained failures; a new running attempt alone does not.
+- **GitLab Native Backup Recovery Stale or Missing**
+  (`gitlab-native-backup-stale-api`, critical, no additional pending delay): no
+  retained completed successful Job, or its start is **>93600 seconds (26h)** old.
+  With the 1m evaluation interval, this is evaluated on the next rule tick, not
+  an exact wall-clock deadline. A missing first success uses epoch zero as the
+  age origin, so it fires while active rather than silently becoming NoData.
+
+Both queries require the exact `default/gitlab-helm-toolbox-backup` CronJob's
+`kube_cronjob_spec_suspend` to exist and equal zero. Absence/suspension intentionally
+produces no alert during preparation. The zero-valued active gate is used as a
+**set filter**, never as the firing value. Jobs must have the exact controlling
+CronJob owner in `default`; other Jobs, namespaces and non-controller owners do not
+count. Existing KSM `kube_job_status_start_time`, `kube_job_owner`, `kube_job_complete`
+and `kube_job_failed` supply the predicates; no collector or new credentials exist.
+Retain the configured two successful Jobs: removing their history conservatively
+becomes missing success, not evidence of fresh recovery coverage.
+
+Only terminal successful completion qualifies: native backup, validated NAS
+publication **and cleanup** must all succeed. The successful Job's **start**, not
+completion/`lastSuccessfulTime`, is an earlier lower bound on publication time.
+This may warn early by the run duration, but long post-publication cleanup cannot
+extend the 26h freshness bound. Running/failed attempts never refresh it; cleanup
+failure does not refresh freshness even if that attempt already published a NAS copy.
+A native S3 upload alone is not combined Job success, NAS durability or restore proof.
+
+Focused source/mutation checks in `validate_gitlab_helm.py` and
+`test_validate_gitlab_helm.py` pin these two queries and thresholds; their synthetic
+rule mutations are **not PromQL execution**. Native parser/query, actual KSM metric
+availability/labels, Grafana evaluation/notification and failure/recovery scenarios
+remain parent-owned **activation blockers**. Confirm active-with-no-first-success,
+26h crossing, cleanup delay/failure, unrelated owners, old failure after newer
+success, and intentional absence/suspension in that runtime qualification.
+
+### Remaining activation and live qualification gates
 
 Parent owns exact-source review/canonical CI, actual native image/helper execution,
 NAS privacy/free space/retained inventory, NFS rename/fsync/locking/ACL/squash,

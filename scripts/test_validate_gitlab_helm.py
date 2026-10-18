@@ -33,6 +33,47 @@ class CandidateTests(unittest.TestCase):
     def test_actual_source(self):
         self.assertEqual(self.v.validate_source(ROOT), [])
 
+    def test_backup_monitoring_source(self):
+        document = yaml.safe_load((ROOT / "infrastructure/observability-ui/grafana/_grafana_alert_rules.yaml").read_text())
+        rules = [r for g in document["groups"] if g["name"] == "backup-health" for r in g["rules"]]
+        native = [r for r in rules if r["uid"].startswith("gitlab-native-backup-")]
+        self.assertEqual(len(native), 2, "native backup failure and stale/missing alerts are required")
+        self.assertEqual(self.v.validate_backup_alerts(document), [])
+
+    def test_backup_monitoring_mutations(self):
+        """Synthetic rule mutations: source-contract checks, NOT PromQL execution."""
+        document = yaml.safe_load((ROOT / "infrastructure/observability-ui/grafana/_grafana_alert_rules.yaml").read_text())
+        rules = [r for g in document["groups"] if g["name"] == "backup-health" for r in g["rules"]]
+        native = [r for r in rules if r["uid"].startswith("gitlab-native-backup-")]
+        self.assertEqual(len(native), 2, "native monitoring rules missing")
+        for rule in native:
+            for name, old, new in (
+                ("suspension gate", "== 0", "== 1"),
+                ("other owner", 'owner_name="gitlab-helm-toolbox-backup"', 'owner_name="unrelated-backup"'),
+                ("other namespace", 'namespace="default"', 'namespace="unrelated"'),
+                ("non-controller owner", 'owner_is_controller="true"', 'owner_is_controller="false"'),
+                ("completion extends bound", "kube_job_status_start_time", "kube_job_status_completion_time"),
+                ("missing first success hidden", "or on(namespace)", "and on(namespace)"),
+                ("not a completed Job", "kube_job_complete", "kube_job_status_active"),
+            ):
+                with self.subTest(uid=rule["uid"], mutation=name):
+                    changed = copy.deepcopy(document)
+                    target = next(r for g in changed["groups"] for r in g["rules"] if r["uid"] == rule["uid"])
+                    expression = target["data"][0]["model"]["expr"]
+                    self.assertIn(old, expression, name)
+                    target["data"][0]["model"]["expr"] = expression.replace(old, new)
+                    self.assertTrue(self.v.validate_backup_alerts(changed), name)
+            changed = copy.deepcopy(document)
+            target = next(r for g in changed["groups"] for r in g["rules"] if r["uid"] == rule["uid"])
+            target["data"][1]["model"]["conditions"][0]["evaluator"]["params"] = [93601]
+            self.assertTrue(self.v.validate_backup_alerts(changed), "wrong firing bound")
+        changed = copy.deepcopy(document)
+        target = next(r for g in changed["groups"] for r in g["rules"] if r["uid"] == "gitlab-native-backup-failed-api")
+        expression = target["data"][0]["model"]["expr"]
+        self.assertIn("> on(namespace)", expression)
+        target["data"][0]["model"]["expr"] = expression.replace("> on(namespace)", "or on(namespace)")
+        self.assertTrue(self.v.validate_backup_alerts(changed), "later-success failure suppression drift")
+
     def test_source_drift(self):
         changes = [
             ("edition", lambda r: r["spec"]["values"]["global"].update(edition="ee")),
@@ -64,7 +105,7 @@ class CandidateTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             import shutil
             root = Path(tmp)
-            for directory in ("apps", "clusters"):
+            for directory in ("apps", "clusters", "infrastructure/observability-ui/grafana"):
                 shutil.copytree(ROOT / directory, root / directory)
             path = root / "apps/kustomization.yaml"
             data = yaml.safe_load(path.read_text())

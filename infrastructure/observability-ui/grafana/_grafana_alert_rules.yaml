@@ -1042,3 +1042,123 @@ groups:
           labels:
             severity: warning
           isPaused: false
+        - uid: gitlab-native-backup-failed-api
+          title: GitLab Native Backup Job Failed
+          condition: C
+          data:
+            - refId: A
+              relativeTimeRange:
+                from: 600
+                to: 0
+              datasourceUid: prometheus
+              model:
+                datasource:
+                    type: prometheus
+                    uid: prometheus
+                # Compare attempt starts, not retained failure counts. Forbid prevents overlap.
+                expr: >-
+                  (
+                    max by(namespace) (
+                      kube_job_status_start_time{namespace="default"}
+                      and on(namespace, job_name) (kube_job_failed{namespace="default",condition="true"} == 1)
+                      and on(namespace, job_name) (kube_job_owner{namespace="default",owner_kind="CronJob",owner_name="gitlab-helm-toolbox-backup",owner_is_controller="true"} == 1)
+                    )
+                    > on(namespace)
+                    (
+                      max by(namespace) (
+                        kube_job_status_start_time{namespace="default"}
+                        and on(namespace, job_name) (kube_job_complete{namespace="default",condition="true"} == 1)
+                        and on(namespace, job_name) (kube_job_owner{namespace="default",owner_kind="CronJob",owner_name="gitlab-helm-toolbox-backup",owner_is_controller="true"} == 1)
+                      )
+                      or on(namespace)
+                      (0 * (max by(namespace) (kube_cronjob_spec_suspend{namespace="default",cronjob="gitlab-helm-toolbox-backup"}) == 0))
+                    )
+                  )
+                  and on(namespace) (max by(namespace) (kube_cronjob_spec_suspend{namespace="default",cronjob="gitlab-helm-toolbox-backup"}) == 0)
+                instant: true
+                intervalMs: 1000
+                maxDataPoints: 43200
+                refId: A
+            - refId: C
+              datasourceUid: "-100"
+              model:
+                conditions:
+                    - evaluator:
+                        params:
+                            - 0
+                        type: gt
+                datasource:
+                    type: __expr__
+                    uid: "-100"
+                expression: A
+                intervalMs: 1000
+                maxDataPoints: 43200
+                refId: C
+                type: threshold
+          noDataState: OK
+          execErrState: OK
+          for: 5m
+          annotations:
+            description: default/gitlab-helm-toolbox-backup has a failed native backup/publication/cleanup Job newer than its latest completed successful Job (or no success). Inspect backup Job logs and private producer diagnostics; this is backup failure, not GitLab application failure. A later successful Job suppresses retained older failures. Intentionally absent or suspended preparation does not alert.
+            summary: GitLab native backup Job failed without a later successful run
+          labels:
+            severity: warning
+          isPaused: false
+        - uid: gitlab-native-backup-stale-api
+          title: GitLab Native Backup Recovery Stale or Missing
+          condition: C
+          data:
+            - refId: A
+              relativeTimeRange:
+                from: 600
+                to: 0
+              datasourceUid: prometheus
+              model:
+                datasource:
+                    type: prometheus
+                    uid: prometheus
+                # Start of a completed successful Job is BEFORE its qualified NAS publication.
+                # Missing success becomes epoch zero, not NoData or the zero-valued suspend metric.
+                expr: >-
+                  (
+                    time() -
+                    (
+                      max by(namespace) (
+                        kube_job_status_start_time{namespace="default"}
+                        and on(namespace, job_name) (kube_job_complete{namespace="default",condition="true"} == 1)
+                        and on(namespace, job_name) (kube_job_owner{namespace="default",owner_kind="CronJob",owner_name="gitlab-helm-toolbox-backup",owner_is_controller="true"} == 1)
+                      )
+                      or on(namespace)
+                      (0 * (max by(namespace) (kube_cronjob_spec_suspend{namespace="default",cronjob="gitlab-helm-toolbox-backup"}) == 0))
+                    )
+                  )
+                  and on(namespace) (max by(namespace) (kube_cronjob_spec_suspend{namespace="default",cronjob="gitlab-helm-toolbox-backup"}) == 0)
+                instant: true
+                intervalMs: 1000
+                maxDataPoints: 43200
+                refId: A
+            - refId: C
+              datasourceUid: "-100"
+              model:
+                conditions:
+                    - evaluator:
+                        params:
+                            - 93600
+                        type: gt
+                datasource:
+                    type: __expr__
+                    uid: "-100"
+                expression: A
+                intervalMs: 1000
+                maxDataPoints: 43200
+                refId: C
+                type: threshold
+          noDataState: OK
+          execErrState: OK
+          for: 0s
+          annotations:
+            description: default/gitlab-helm-toolbox-backup is active with no retained completed successful Job, or its latest successful Job started more than 26 hours ago. Successful completion requires native backup, qualified NAS publication and cleanup; start time conservatively predates publication, unlike completion time. New running/failed attempts cannot refresh this bound. Check retained Job history and actual NAS recovery coverage; this is not restore proof. Intentionally absent or suspended preparation does not alert.
+            summary: GitLab native backup has stale or missing qualified recovery coverage
+          labels:
+            severity: critical
+          isPaused: false
