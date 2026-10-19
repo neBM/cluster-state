@@ -70,6 +70,57 @@ plain HTTP **443 → 5000**, with its production selector untouched. CoreDNS and
 still depend on it. Its eventual selector handover must be atomic with cutover;
 Task1 deliberately does not claim the alias already targets the new release.
 
+## Provisional legacy S3 configuration (Task3g; activation held)
+
+The old CNG source now projects the existing native
+`gitlab-helm-objectstore/connection` YAML read-only at
+`/etc/gitlab/objectstore/connection` into the three active consumers: webservice,
+Sidekiq and Workhorse. No credential producer or new identity is added.
+CNG `/scripts/set-config` renders `gitlab.yml.erb` and
+`workhorse-config.toml.erb` to their ordinary filenames, with no plain siblings to
+clobber them. Rails safely parses the native YAML and emits a JSON mapping;
+Workhorse's native TOML credential tables use JSON-quoted strings from that same
+file. Endpoint, region, path-style and signature semantics stay native Rails /
+request-owned, not separately overridden in Workhorse or secret environment vars.
+
+Only artifacts, LFS, uploads and packages select consolidated S3, with their four
+existing buckets and `proxy_download: true`. The seven other consolidated-type
+`enabled: false` overrides leave their established backends alone; they do not
+disable product features or justify ignoring populated data. All existing local
+mounts and paths, including `/srv/gitlab/public/uploads`, remain unchanged.
+
+The already-completed `gitlab-migrations-v19.5.0-r1` keeps its exact pre-S3 desired
+Pod template, with no objectstore projection or create-only/health-skipping
+exception. Updating the referenced ConfigMap does not change that immutable Pod
+template or execute a completed container. Keep ordinary `apps.wait: true` and
+native Helm Job completion waits. Before and after activation the parent must
+directly verify the historical Job's expected UID and Complete condition;
+missing/replaced/failed/unknown state blocks acceptance, not permission to force,
+delete, recreate, rerun or change the run suffix. Source stays at v19.5.0/r1 until
+Task6 retires this legacy Job/owner, before any genuine future legacy schema
+identity. An unplanned legacy recreation has no new S3 input and must fail closed,
+not be made future-capable opportunistically. Operational tasks use a qualified
+active runtime/Toolbox, never replay this historical schema Job.
+
+This source is not merge/deploy/migration approval. Qualify the private
+credential-free fixture with the actual pinned CNG `/scripts/set-config` and
+native YAML/TOML parsers; structural unit checks are not native renderer execution.
+Current full recovery and isolated SQL restore are required before S3 activation,
+not before that dummy-only parser fixture. Parent owns restarted effective
+consumer configuration, Workhorse signing/multipart/finalization, routed reads,
+fresh data/cohort inventory, native blob tasks and failed-work reconciliation,
+local/NULL/invalid-store zero and full post-S3 recovery rehearsal. Keep the mounts
+until all populated types and historical content are reconciled. After migration
+or new remote writes, rollback is **not configuration-only**: callbacks may remove
+old files and DB backend metadata changes; use qualified recovery or separately
+qualified reverse conversion with intervening-write reconciliation.
+
+Secret rotation must include these active legacy consumers in the existing
+synchronized GitLab identity/three-native-Secret procedure. Projected file refresh
+alone does not rerender CNG startup output: reload/restart actual consumers under
+parent authority, requalify signing and routed reads, then verify old-key denial.
+Do not recreate the completed schema Job to rotate credentials.
+
 ## Required interfaces before activation (not provisioned here)
 
 Existing byte-preserving references: `gitlab-rails-secret/secrets.yml`,

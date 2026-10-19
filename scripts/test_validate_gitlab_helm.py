@@ -293,5 +293,140 @@ class CandidateTests(unittest.TestCase):
         self.assertTrue(self.v.validate_postrender(docs, changed, self.release))
 
 
+class LegacyS3ConfigTests(unittest.TestCase):
+    """Native Kustomize propagation only; real CNG ERB rendering is a runtime gate."""
+
+    @classmethod
+    def setUpClass(cls):
+        spec = importlib.util.spec_from_file_location("validator", ROOT / "scripts/validate_gitlab_helm.py")
+        assert spec is not None and spec.loader is not None
+        validator = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(validator)
+        cls.docs = validator.kustomize(ROOT, "apps")
+
+    def test_required_native_connection_consumers(self):
+        active = {"gitlab-webservice", "gitlab-sidekiq", "gitlab-workhorse"}
+        projected = {d["metadata"]["name"] for d in self.docs if d["kind"] in ("Deployment", "Job")
+                     and any(v["name"] == "objectstore-connection"
+                             for v in d["spec"]["template"]["spec"].get("volumes", []))}
+        self.assertEqual(projected, active)
+        # Keep existing tuning/path checks on the historical Job, without new S3 input.
+        workloads = {
+            "gitlab-webservice": ("75m", "2100Mi", "3Gi"),
+            "gitlab-sidekiq": ("150m", "1600Mi", "2Gi"),
+            "gitlab-workhorse": ("100m", "32Mi", "256Mi"),
+            "gitlab-migrations-v19.5.0-r1": ("75m", "2100Mi", "3Gi"),
+        }
+        for name, (cpu, memory, limit) in workloads.items():
+            with self.subTest(consumer=name):
+                matches = [d for d in self.docs if d["kind"] in ("Deployment", "Job")
+                           and d["metadata"]["name"] == name]
+                self.assertEqual(len(matches), 1)
+                workload = matches[0]
+                pod = workload["spec"]["template"]["spec"]
+                container = pod["containers"][0]
+                volumes = {v["name"]: v for v in pod["volumes"]}
+                mounts = {m["name"]: m for m in container["volumeMounts"]}
+                if name in active:
+                    self.assertEqual(volumes["objectstore-connection"], {
+                        "name": "objectstore-connection", "secret": {
+                            "secretName": "gitlab-helm-objectstore", "optional": False,
+                            "defaultMode": 420, "items": [{"key": "connection", "path": "connection"}],
+                        },
+                    })
+                    self.assertEqual(mounts["objectstore-connection"], {
+                        "name": "objectstore-connection", "mountPath": "/etc/gitlab/objectstore", "readOnly": True,
+                    })
+                else:
+                    self.assertNotIn("objectstore-connection", volumes)
+                    self.assertNotIn("objectstore-connection", mounts)
+                    self.assertFalse(any(v.get("secret", {}).get("secretName") == "gitlab-helm-objectstore"
+                                         for v in volumes.values()))
+                    self.assertFalse(any(m["mountPath"].startswith("/etc/gitlab/objectstore")
+                                         for m in mounts.values()))
+                self.assertEqual(len(mounts), len(container["volumeMounts"]))
+                self.assertEqual(len(volumes), len(pod["volumes"]))
+                for volume, path, claim in (
+                    ("uploads", "/srv/gitlab/public/uploads", "gitlab-uploads-sw"),
+                    ("shared", "/srv/gitlab/shared", "gitlab-shared-sw"),
+                ):
+                    self.assertEqual(mounts[volume]["mountPath"], path)
+                    self.assertEqual(volumes[volume]["persistentVolumeClaim"]["claimName"], claim)
+                env = {e["name"]: e for e in container["env"]}
+                self.assertEqual(env["CONFIG_TEMPLATE_DIRECTORY"]["value"], "/var/opt/gitlab/config/templates")
+                self.assertEqual(env["CONFIG_DIRECTORY"]["value"], "/srv/gitlab/config")
+                self.assertFalse(any(e.startswith(("AWS_", "S3_")) for e in env))
+                tuning = {"gitlab-webservice": {"WORKER_PROCESSES": "1", "PUMA_THREADS_MIN": "1", "PUMA_THREADS_MAX": "4"},
+                          "gitlab-sidekiq": {"SIDEKIQ_CONCURRENCY": "5"}}.get(name, {})
+                for key, value in tuning.items():
+                    self.assertEqual(env[key]["value"], value)
+                self.assertEqual(container["resources"], {
+                    "requests": {"cpu": cpu, "memory": memory}, "limits": {"memory": limit},
+                })
+                self.assertTrue(container["image"].split("@", 1)[0].endswith(":v19.5.0"))
+                if workload["kind"] == "Deployment":
+                    self.assertEqual(workload["spec"]["replicas"], 1)
+
+    def test_erb_templates_and_bounded_types(self):
+        configs = {d["metadata"]["name"]: d["data"] for d in self.docs if d["kind"] == "ConfigMap"}
+        rails = configs["gitlab-config-templates"]
+        workhorse = configs["workhorse-config"]
+        self.assertNotIn("gitlab.yml", rails, "CNG plain-copy loop would clobber rendered YAML")
+        self.assertNotIn("workhorse-config.toml", workhorse, "CNG plain-copy loop would clobber rendered TOML")
+        # Parsing the unrendered YAML scalar checks source shape, NOT ERB execution.
+        production = yaml.safe_load(rails["gitlab.yml.erb"])["production"]
+        store = production["object_store"]
+        self.assertIs(store["enabled"], True)
+        self.assertIs(store["proxy_download"], True)
+        self.assertEqual(store["connection"], "<%= YAML.safe_load(File.read('/etc/gitlab/objectstore/connection')).to_json %>")
+        expected: dict[str, dict[str, object]] = {
+            kind: {"bucket": f"gitlab-{kind}"} for kind in ("artifacts", "lfs", "uploads", "packages")
+        }
+        expected.update({kind: {"enabled": False} for kind in (
+            "external_diffs", "dependency_proxy", "terraform_state", "pages",
+            "ci_secure_files", "agent_plan_content", "ci_catalog_bundles",
+        )})
+        self.assertEqual(store["objects"], expected)
+        self.assertEqual(production["artifacts"]["path"], "/srv/gitlab/shared/artifacts")
+        self.assertEqual(production["lfs"]["storage_path"], "/srv/gitlab/shared/lfs-objects")
+        self.assertEqual(production["uploads"]["storage_path"], "/srv/gitlab/public/uploads")
+        self.assertEqual(rails["database.yml"].count("pool: 10"), 2)
+        template = workhorse["workhorse-config.toml.erb"]
+        self.assertTrue(template.startswith("<% c = YAML.safe_load(File.read('/etc/gitlab/objectstore/connection')) %>"))
+        for text in ('[redis]', 'URL = "redis://gitlab-redis:6379"', '[[listeners]]',
+                     'network = "tcp"', 'addr = "0.0.0.0:8181"', '[object_storage]', '[object_storage.s3]'):
+            self.assertIn(text, template)
+        for key in ("provider", "aws_access_key_id", "aws_secret_access_key"):
+            self.assertIn(f"{key} = <%= c.fetch('{key}').to_json %>", template)
+        # Endpoint/region/path_style/signature stay in native Rails/request config.
+        self.assertNotIn("c.fetch('endpoint')", template)
+        self.assertNotIn("c.fetch('path_style')", template)
+
+    def test_historical_job_keeps_ordinary_lifecycle(self):
+        policy = "kustomize.toolkit.fluxcd.io/ssa"
+        annotated = [d for d in self.docs if policy in d.get("metadata", {}).get("annotations", {})]
+        self.assertEqual(annotated, [], "no create-only/apply-skipping exception")
+        jobs = [d for d in self.docs if d["kind"] == "Job"
+                and d["metadata"].get("labels", {}).get("app") == "gitlab"
+                and d["metadata"].get("labels", {}).get("component") == "migrations"]
+        self.assertEqual([d["metadata"]["name"] for d in jobs], ["gitlab-migrations-v19.5.0-r1"])
+        job = jobs[0]
+        for metadata in (job["metadata"], job["spec"]["template"]["metadata"]):
+            for annotation in (policy, "kustomize.toolkit.fluxcd.io/force",
+                               "kustomize.toolkit.fluxcd.io/healthcheck",
+                               "kustomize.toolkit.fluxcd.io/reconcile"):
+                self.assertNotIn(annotation, metadata.get("annotations", {}))
+        self.assertEqual(job["spec"]["backoffLimit"], 6)
+        self.assertEqual(job["spec"]["template"]["spec"]["restartPolicy"], "OnFailure")
+        self.assertEqual(job["spec"]["template"]["spec"]["containers"][0]["args"], ["/scripts/db-migrate"])
+        self.assertNotIn("ttlSecondsAfterFinished", job["spec"])
+        owner = yaml.safe_load((ROOT / "clusters/k3s-homelab/flux-system/kustomization-apps.yaml").read_text())
+        self.assertIs(owner["spec"]["wait"], True)
+        self.assertNotIn("force", owner["spec"])
+        # Official Helm Jobs also keep their ordinary completion waits.
+        for path in (ROOT / "apps/gitlab-helm").rglob("*.yaml"):
+            self.assertNotIn(f"{policy}: IfNotPresent", path.read_text(), str(path))
+
+
 if __name__ == "__main__":
     unittest.main()

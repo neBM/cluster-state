@@ -110,3 +110,20 @@
       name: gitlab-smtp-config
       optional: false
     name: smtp-config
+- op: add
+  path: /spec/template/spec/containers/0/volumeMounts/-
+  value:
+    mountPath: /etc/gitlab/objectstore
+    name: objectstore-connection
+    readOnly: true
+- op: add
+  path: /spec/template/spec/volumes/-
+  value:
+    name: objectstore-connection
+    secret:
+      defaultMode: 420
+      secretName: gitlab-helm-objectstore
+      optional: false
+      items:
+      - key: connection
+        path: connection
