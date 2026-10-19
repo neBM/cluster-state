@@ -65,7 +65,8 @@ data:
         storage_path: /srv/gitlab/shared/lfs-objects
 
       uploads:
-        storage_path: /srv/gitlab/public/uploads
+        # Native base_dir is uploads/-/system beneath this parent, not the PVC root.
+        storage_path: /srv/gitlab/public
 
       repositories:
         storages:

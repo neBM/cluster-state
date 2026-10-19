@@ -367,6 +367,30 @@ class LegacyS3ConfigTests(unittest.TestCase):
                 if workload["kind"] == "Deployment":
                     self.assertEqual(workload["spec"]["replicas"], 1)
 
+    def test_uploads_native_parent_root_and_consumed_rollout(self):
+        configs = {d["metadata"]["name"]: d["data"] for d in self.docs if d["kind"] == "ConfigMap"}
+        uploads = yaml.safe_load(configs["gitlab-config-templates"]["gitlab.yml.erb"])["production"]["uploads"]
+        self.assertNotIn("base_dir", uploads, "retain the native uploads layout default")
+        # GitLab 19.5 config/initializers/1_settings.rb defaults base_dir to
+        # uploads/-/system; AvatarUploader appends model/mount/id and filename.
+        native_base_dir = Path("uploads/-/system")
+        avatar_suffix = Path("user/avatar/42/avatar.png")
+        resolved = Path(uploads["storage_path"]) / native_base_dir / avatar_suffix
+        marker = "gitlab.brmartin.co.uk/uploads-layout"
+        consumers = {"gitlab-webservice", "gitlab-sidekiq"}
+        marked = {d["metadata"]["name"] for d in self.docs if d["kind"] in ("Deployment", "Job")
+                  and marker in d["spec"]["template"].get("metadata", {}).get("annotations", {})}
+        for name in sorted(consumers):
+            with self.subTest(consumer=name):
+                deployment = next(d for d in self.docs if d["kind"] == "Deployment" and d["metadata"]["name"] == name)
+                template = deployment["spec"]["template"]
+                mount = next(m for m in template["spec"]["containers"][0]["volumeMounts"] if m["name"] == "uploads")
+                physical = Path(mount["mountPath"]) / "-/system" / avatar_suffix
+                self.assertEqual(resolved, physical, "native uploader root must resolve to the existing PVC bytes")
+                self.assertNotIn("/uploads/uploads/", str(resolved))
+                self.assertEqual(template["metadata"]["annotations"].get(marker), "native-parent-root")
+        self.assertEqual(marked, consumers, "roll only active Rails consumers, not Workhorse or the schema Job")
+
     def test_erb_templates_and_bounded_types(self):
         configs = {d["metadata"]["name"]: d["data"] for d in self.docs if d["kind"] == "ConfigMap"}
         rails = configs["gitlab-config-templates"]
@@ -389,7 +413,7 @@ class LegacyS3ConfigTests(unittest.TestCase):
         self.assertEqual(store["objects"], expected)
         self.assertEqual(production["artifacts"]["path"], "/srv/gitlab/shared/artifacts")
         self.assertEqual(production["lfs"]["storage_path"], "/srv/gitlab/shared/lfs-objects")
-        self.assertEqual(production["uploads"]["storage_path"], "/srv/gitlab/public/uploads")
+        self.assertEqual(production["uploads"]["storage_path"], "/srv/gitlab/public")
         self.assertEqual(rails["database.yml"].count("pool: 10"), 2)
         template = workhorse["workhorse-config.toml.erb"]
         self.assertTrue(template.startswith("<% c = YAML.safe_load(File.read('/etc/gitlab/objectstore/connection')) %>"))
