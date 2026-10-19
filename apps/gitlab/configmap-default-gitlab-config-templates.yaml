@@ -8,7 +8,7 @@ data:
     \    encoding: unicode\n    database: gitlabhq_production\n    host: 192.168.1.10\n\
     \    port: 5433\n    username: gitlab\n    password: \"<%= File.read('/etc/gitlab/postgres/password').strip\
     \ %>\"\n    pool: 10\n    prepared_statements: false\n    database_tasks: false\n"
-  gitlab.yml: |
+  gitlab.yml.erb: |
     production:
       gitlab:
         host: git.brmartin.co.uk
@@ -37,6 +37,24 @@ data:
         time_zone: "Europe/London"
         action_cable_allowed_origins:
           - "https://git.brmartin.co.uk"
+
+      object_store:
+        enabled: true
+        proxy_download: true
+        connection: <%= YAML.safe_load(File.read('/etc/gitlab/objectstore/connection')).to_json %>
+        objects:
+          artifacts: { bucket: gitlab-artifacts }
+          lfs: { bucket: gitlab-lfs }
+          uploads: { bucket: gitlab-uploads }
+          packages: { bucket: gitlab-packages }
+          # Leave other types on their established backends, not disabled features.
+          external_diffs: { enabled: false }
+          dependency_proxy: { enabled: false }
+          terraform_state: { enabled: false }
+          pages: { enabled: false }
+          ci_secure_files: { enabled: false }
+          agent_plan_content: { enabled: false }
+          ci_catalog_bundles: { enabled: false }
 
       artifacts:
         enabled: true

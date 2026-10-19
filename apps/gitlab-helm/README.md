@@ -70,6 +70,54 @@ plain HTTP **443 → 5000**, with its production selector untouched. CoreDNS and
 still depend on it. Its eventual selector handover must be atomic with cutover;
 Task1 deliberately does not claim the alias already targets the new release.
 
+## Provisional legacy S3 configuration (Task3g; activation held)
+
+The old CNG source now projects the existing native
+`gitlab-helm-objectstore/connection` YAML read-only at
+`/etc/gitlab/objectstore/connection` into webservice, Sidekiq, Workhorse and the
+future-capable legacy administrative Job template. No credential producer or new
+identity is added. CNG `/scripts/set-config` renders `gitlab.yml.erb` and
+`workhorse-config.toml.erb` to their ordinary filenames, with no plain siblings to
+clobber them. Rails safely parses the native YAML and emits a JSON mapping;
+Workhorse's native TOML credential tables use JSON-quoted strings from that same
+file. Endpoint, region, path-style and signature semantics stay native Rails /
+request-owned, not separately overridden in Workhorse or secret environment vars.
+
+Only artifacts, LFS, uploads and packages select consolidated S3, with their four
+existing buckets and `proxy_download: true`. The seven other consolidated-type
+`enabled: false` overrides leave their established backends alone; they do not
+disable product features or justify ignoring populated data. All existing local
+mounts and paths, including `/srv/gitlab/public/uploads`, remain unchanged.
+
+**Temporary historical exception:** desired top-level
+`kustomize.toolkit.fluxcd.io/ssa: IfNotPresent` applies only to already-completed
+`gitlab-migrations-v19.5.0-r1`. Before activation the parent must freshly verify its
+expected UID and Complete condition; missing/changed/failed is a blocker, not
+permission to recreate it. Its immutable historical Pod template does **not** gain
+the new mount. Flux skips health assessment for a retained Job, so Flux Ready is
+not completion proof. Keep `apps.wait: true`; do not force, delete, rerun or change
+the run suffix for S3. Task6 must retire this legacy Job/owner and policy before
+any genuine future legacy schema identity; official Helm Jobs must never inherit
+this exception and keep ordinary completion waits.
+
+This source is not merge/deploy/migration approval. First qualify current full
+recovery and isolated SQL restore, then the private credential-free fixture with
+the actual pinned CNG `/scripts/set-config` and native YAML/TOML parsers. Structural
+unit checks are not native renderer execution. Parent owns restarted effective
+consumer configuration, Workhorse signing/multipart/finalization, routed reads,
+fresh data/cohort inventory, native blob tasks and failed-work reconciliation,
+local/NULL/invalid-store zero and full post-S3 recovery rehearsal. Keep the mounts
+until all populated types and historical content are reconciled. After migration
+or new remote writes, rollback is **not configuration-only**: callbacks may remove
+old files and DB backend metadata changes; use qualified recovery or separately
+qualified reverse conversion with intervening-write reconciliation.
+
+Secret rotation must include these active legacy consumers in the existing
+synchronized GitLab identity/three-native-Secret procedure. Projected file refresh
+alone does not rerender CNG startup output: reload/restart actual consumers under
+parent authority, requalify signing and routed reads, then verify old-key denial.
+Do not recreate the completed schema Job to rotate credentials.
+
 ## Required interfaces before activation (not provisioned here)
 
 Existing byte-preserving references: `gitlab-rails-secret/secrets.yml`,

@@ -83,6 +83,9 @@ spec:
         - mountPath: /srv/gitlab/shared
           mountPropagation: HostToContainer
           name: shared
+        - mountPath: /etc/gitlab/objectstore
+          name: objectstore-connection
+          readOnly: true
       dnsPolicy: ClusterFirst
       enableServiceLinks: true
       restartPolicy: Always
@@ -111,3 +114,11 @@ spec:
       - name: shared
         persistentVolumeClaim:
           claimName: gitlab-shared-sw
+      - name: objectstore-connection
+        secret:
+          defaultMode: 420
+          secretName: gitlab-helm-objectstore
+          optional: false
+          items:
+          - key: connection
+            path: connection
