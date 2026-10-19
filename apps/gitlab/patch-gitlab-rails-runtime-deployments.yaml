@@ -1,3 +1,7 @@
+# One-time config-layout rollout for Rails consumers of the fixed-name ConfigMap.
+- op: add
+  path: /spec/template/metadata/annotations/gitlab.brmartin.co.uk~1uploads-layout
+  value: native-parent-root
 - op: add
   path: /spec/template/spec/containers/0/volumeMounts/0
   value:
