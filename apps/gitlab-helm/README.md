@@ -74,9 +74,9 @@ Task1 deliberately does not claim the alias already targets the new release.
 
 The old CNG source now projects the existing native
 `gitlab-helm-objectstore/connection` YAML read-only at
-`/etc/gitlab/objectstore/connection` into webservice, Sidekiq, Workhorse and the
-future-capable legacy administrative Job template. No credential producer or new
-identity is added. CNG `/scripts/set-config` renders `gitlab.yml.erb` and
+`/etc/gitlab/objectstore/connection` into the three active consumers: webservice,
+Sidekiq and Workhorse. No credential producer or new identity is added.
+CNG `/scripts/set-config` renders `gitlab.yml.erb` and
 `workhorse-config.toml.erb` to their ordinary filenames, with no plain siblings to
 clobber them. Rails safely parses the native YAML and emits a JSON mapping;
 Workhorse's native TOML credential tables use JSON-quoted strings from that same
@@ -89,21 +89,24 @@ existing buckets and `proxy_download: true`. The seven other consolidated-type
 disable product features or justify ignoring populated data. All existing local
 mounts and paths, including `/srv/gitlab/public/uploads`, remain unchanged.
 
-**Temporary historical exception:** desired top-level
-`kustomize.toolkit.fluxcd.io/ssa: IfNotPresent` applies only to already-completed
-`gitlab-migrations-v19.5.0-r1`. Before activation the parent must freshly verify its
-expected UID and Complete condition; missing/changed/failed is a blocker, not
-permission to recreate it. Its immutable historical Pod template does **not** gain
-the new mount. Flux skips health assessment for a retained Job, so Flux Ready is
-not completion proof. Keep `apps.wait: true`; do not force, delete, rerun or change
-the run suffix for S3. Task6 must retire this legacy Job/owner and policy before
-any genuine future legacy schema identity; official Helm Jobs must never inherit
-this exception and keep ordinary completion waits.
+The already-completed `gitlab-migrations-v19.5.0-r1` keeps its exact pre-S3 desired
+Pod template, with no objectstore projection or create-only/health-skipping
+exception. Updating the referenced ConfigMap does not change that immutable Pod
+template or execute a completed container. Keep ordinary `apps.wait: true` and
+native Helm Job completion waits. Before and after activation the parent must
+directly verify the historical Job's expected UID and Complete condition;
+missing/replaced/failed/unknown state blocks acceptance, not permission to force,
+delete, recreate, rerun or change the run suffix. Source stays at v19.5.0/r1 until
+Task6 retires this legacy Job/owner, before any genuine future legacy schema
+identity. An unplanned legacy recreation has no new S3 input and must fail closed,
+not be made future-capable opportunistically. Operational tasks use a qualified
+active runtime/Toolbox, never replay this historical schema Job.
 
-This source is not merge/deploy/migration approval. First qualify current full
-recovery and isolated SQL restore, then the private credential-free fixture with
-the actual pinned CNG `/scripts/set-config` and native YAML/TOML parsers. Structural
-unit checks are not native renderer execution. Parent owns restarted effective
+This source is not merge/deploy/migration approval. Qualify the private
+credential-free fixture with the actual pinned CNG `/scripts/set-config` and
+native YAML/TOML parsers; structural unit checks are not native renderer execution.
+Current full recovery and isolated SQL restore are required before S3 activation,
+not before that dummy-only parser fixture. Parent owns restarted effective
 consumer configuration, Workhorse signing/multipart/finalization, routed reads,
 fresh data/cohort inventory, native blob tasks and failed-work reconciliation,
 local/NULL/invalid-store zero and full post-S3 recovery rehearsal. Keep the mounts

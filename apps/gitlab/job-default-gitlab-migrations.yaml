@@ -3,13 +3,6 @@ kind: Job
 metadata:
   name: gitlab-migrations-version-run
   namespace: default
-  annotations:
-    # Temporary retention ONLY for completed gitlab-migrations-v19.5.0-r1.
-    # Parent must recheck its exact UID/Complete before S3 activation. The existing
-    # immutable Job gains no new mounts; Flux Ready is NOT completion evidence.
-    # Task6 retires this legacy owner/Job. Remove this policy before selecting ANY
-    # genuine future legacy schema identity; never inherit it in official Helm Jobs.
-    kustomize.toolkit.fluxcd.io/ssa: IfNotPresent
   labels:
     app: gitlab
     component: migrations

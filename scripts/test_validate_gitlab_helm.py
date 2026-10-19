@@ -305,13 +305,19 @@ class LegacyS3ConfigTests(unittest.TestCase):
         cls.docs = validator.kustomize(ROOT, "apps")
 
     def test_required_native_connection_consumers(self):
-        consumers = {
+        active = {"gitlab-webservice", "gitlab-sidekiq", "gitlab-workhorse"}
+        projected = {d["metadata"]["name"] for d in self.docs if d["kind"] in ("Deployment", "Job")
+                     and any(v["name"] == "objectstore-connection"
+                             for v in d["spec"]["template"]["spec"].get("volumes", []))}
+        self.assertEqual(projected, active)
+        # Keep existing tuning/path checks on the historical Job, without new S3 input.
+        workloads = {
             "gitlab-webservice": ("75m", "2100Mi", "3Gi"),
             "gitlab-sidekiq": ("150m", "1600Mi", "2Gi"),
             "gitlab-workhorse": ("100m", "32Mi", "256Mi"),
             "gitlab-migrations-v19.5.0-r1": ("75m", "2100Mi", "3Gi"),
         }
-        for name, (cpu, memory, limit) in consumers.items():
+        for name, (cpu, memory, limit) in workloads.items():
             with self.subTest(consumer=name):
                 matches = [d for d in self.docs if d["kind"] in ("Deployment", "Job")
                            and d["metadata"]["name"] == name]
@@ -321,15 +327,23 @@ class LegacyS3ConfigTests(unittest.TestCase):
                 container = pod["containers"][0]
                 volumes = {v["name"]: v for v in pod["volumes"]}
                 mounts = {m["name"]: m for m in container["volumeMounts"]}
-                self.assertEqual(volumes["objectstore-connection"], {
-                    "name": "objectstore-connection", "secret": {
-                        "secretName": "gitlab-helm-objectstore", "optional": False,
-                        "defaultMode": 420, "items": [{"key": "connection", "path": "connection"}],
-                    },
-                })
-                self.assertEqual(mounts["objectstore-connection"], {
-                    "name": "objectstore-connection", "mountPath": "/etc/gitlab/objectstore", "readOnly": True,
-                })
+                if name in active:
+                    self.assertEqual(volumes["objectstore-connection"], {
+                        "name": "objectstore-connection", "secret": {
+                            "secretName": "gitlab-helm-objectstore", "optional": False,
+                            "defaultMode": 420, "items": [{"key": "connection", "path": "connection"}],
+                        },
+                    })
+                    self.assertEqual(mounts["objectstore-connection"], {
+                        "name": "objectstore-connection", "mountPath": "/etc/gitlab/objectstore", "readOnly": True,
+                    })
+                else:
+                    self.assertNotIn("objectstore-connection", volumes)
+                    self.assertNotIn("objectstore-connection", mounts)
+                    self.assertFalse(any(v.get("secret", {}).get("secretName") == "gitlab-helm-objectstore"
+                                         for v in volumes.values()))
+                    self.assertFalse(any(m["mountPath"].startswith("/etc/gitlab/objectstore")
+                                         for m in mounts.values()))
                 self.assertEqual(len(mounts), len(container["volumeMounts"]))
                 self.assertEqual(len(volumes), len(pod["volumes"]))
                 for volume, path, claim in (
@@ -388,13 +402,20 @@ class LegacyS3ConfigTests(unittest.TestCase):
         self.assertNotIn("c.fetch('endpoint')", template)
         self.assertNotIn("c.fetch('path_style')", template)
 
-    def test_historical_job_retention_is_not_a_general_health_policy(self):
+    def test_historical_job_keeps_ordinary_lifecycle(self):
         policy = "kustomize.toolkit.fluxcd.io/ssa"
         annotated = [d for d in self.docs if policy in d.get("metadata", {}).get("annotations", {})]
-        self.assertEqual([(d["kind"], d["metadata"]["name"], d["metadata"]["annotations"][policy])
-                          for d in annotated], [("Job", "gitlab-migrations-v19.5.0-r1", "IfNotPresent")])
-        job = annotated[0]
-        self.assertNotIn(policy, job["spec"]["template"]["metadata"].get("annotations", {}))
+        self.assertEqual(annotated, [], "no create-only/apply-skipping exception")
+        jobs = [d for d in self.docs if d["kind"] == "Job"
+                and d["metadata"].get("labels", {}).get("app") == "gitlab"
+                and d["metadata"].get("labels", {}).get("component") == "migrations"]
+        self.assertEqual([d["metadata"]["name"] for d in jobs], ["gitlab-migrations-v19.5.0-r1"])
+        job = jobs[0]
+        for metadata in (job["metadata"], job["spec"]["template"]["metadata"]):
+            for annotation in (policy, "kustomize.toolkit.fluxcd.io/force",
+                               "kustomize.toolkit.fluxcd.io/healthcheck",
+                               "kustomize.toolkit.fluxcd.io/reconcile"):
+                self.assertNotIn(annotation, metadata.get("annotations", {}))
         self.assertEqual(job["spec"]["backoffLimit"], 6)
         self.assertEqual(job["spec"]["template"]["spec"]["restartPolicy"], "OnFailure")
         self.assertEqual(job["spec"]["template"]["spec"]["containers"][0]["args"], ["/scripts/db-migrate"])
@@ -402,7 +423,7 @@ class LegacyS3ConfigTests(unittest.TestCase):
         owner = yaml.safe_load((ROOT / "clusters/k3s-homelab/flux-system/kustomization-apps.yaml").read_text())
         self.assertIs(owner["spec"]["wait"], True)
         self.assertNotIn("force", owner["spec"])
-        # The native Helm candidate must not inherit the legacy retention exception.
+        # Official Helm Jobs also keep their ordinary completion waits.
         for path in (ROOT / "apps/gitlab-helm").rglob("*.yaml"):
             self.assertNotIn(f"{policy}: IfNotPresent", path.read_text(), str(path))
 
