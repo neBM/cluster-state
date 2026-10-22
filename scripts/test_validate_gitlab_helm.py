@@ -33,6 +33,103 @@ class CandidateTests(unittest.TestCase):
     def test_actual_source(self):
         self.assertEqual(self.v.validate_source(ROOT), [])
 
+    def _render_preparation(self, path):
+        # Same native fallback as validate_kustomize.sh; no API access.
+        command = ['kustomize', 'build'] if self.v.shutil.which('kustomize') else ['kubectl', 'kustomize']
+        rendered = subprocess.check_output(command + [str(ROOT / path)], text=True)
+        return [doc for doc in yaml.safe_load_all(rendered) if doc]
+
+    def test_native_redis_preparation(self):
+        """Source-only guards: never start Redis to prepare a blank WFFC volume."""
+        docs = self._render_preparation('apps/gitlab-redis')
+        self.assertCountEqual([d['kind'] for d in docs],
+                              ['PersistentVolumeClaim', 'ConfigMap', 'CiliumNetworkPolicy',
+                               'Service', 'StatefulSet', 'Job'])
+        objects = {d['kind']: d for d in docs}
+        claim = objects['PersistentVolumeClaim']
+        self.assertEqual(claim['spec'], {'accessModes': ['ReadWriteOnce'],
+                         'storageClassName': 'local-path-retain',
+                         'resources': {'requests': {'storage': '1Gi'}}})
+        self.assertEqual(claim['metadata']['annotations']['kustomize.toolkit.fluxcd.io/prune'], 'Disabled')
+        config = objects['ConfigMap']
+        self.assertIs(config['immutable'], True)
+        self.assertEqual(set(config['data']), {'redis.conf'})
+        for directive in ('bind 127.0.0.1', 'databases 16', 'maxmemory 0',
+                          'maxmemory-policy noeviction', 'appendonly yes', 'appendfsync always',
+                          'no-appendfsync-on-rewrite no', 'aof-load-truncated no',
+                          'auto-aof-rewrite-min-size 64mb'):
+            self.assertIn(directive, config['data']['redis.conf'].splitlines())
+        stateful = objects['StatefulSet']['spec']
+        self.assertEqual(stateful['replicas'], 0)
+        self.assertEqual(stateful['updateStrategy'], {'type': 'OnDelete'})
+        service = objects['Service']['spec']
+        self.assertEqual(service['clusterIP'], 'None')
+        self.assertIs(service['publishNotReadyAddresses'], False)
+        self.assertEqual(service['selector'], {'app': 'gitlab-redis-durable', 'role': 'durable'})
+        policy = objects['CiliumNetworkPolicy']['spec']
+        self.assertEqual(policy['endpointSelector']['matchLabels'], {'app': 'gitlab-redis-durable'})
+        self.assertEqual(policy['enableDefaultDeny'], {'ingress': True, 'egress': True})
+        self.assertEqual(policy['ingress'], [])
+        self.assertEqual(policy['egress'], [])
+        self.assertEqual(policy['ingressDeny'], [{'fromEntities': ['world', 'host', 'remote-node']}])
+        job = objects['Job']['spec']
+        self.assertEqual((job['parallelism'], job['completions'], job['backoffLimit'], job['activeDeadlineSeconds']),
+                         (1, 1, 0, 300))
+        self.assertNotIn('suspend', job)  # Ordinary finite completion, not a suspended health bypass.
+        prepare = job['template']['spec']
+        self.assertEqual(prepare['restartPolicy'], 'Never')
+        self.assertEqual(prepare['activeDeadlineSeconds'], 300)
+        self.assertEqual(prepare['volumes'], [{'name': 'data', 'persistentVolumeClaim':
+                         {'claimName': claim['metadata']['name']}}])
+        self.assertEqual(prepare['containers'][0]['volumeMounts'], [{'name': 'data', 'mountPath': '/data'}])
+        prod_selector = yaml.safe_load((ROOT / 'apps/gitlab/service-default-gitlab-redis.yaml').read_text())['spec']['selector']
+        for workload in (stateful, job):
+            labels = workload['template']['metadata']['labels']
+            self.assertFalse(all(labels.get(k) == v for k, v in prod_selector.items()))
+            self.assertEqual(labels['app'], 'gitlab-redis-durable')
+            pod = workload['template']['spec']
+            self.assertIs(pod['automountServiceAccountToken'], False)
+            self.assertIs(pod['enableServiceLinks'], False)
+            self.assertEqual(pod['terminationGracePeriodSeconds'], 60)
+            self.assertEqual(pod['securityContext'], {'runAsNonRoot': True, 'runAsUser': 999,
+                             'runAsGroup': 1000, 'fsGroup': 1000, 'fsGroupChangePolicy': 'OnRootMismatch',
+                             'seccompProfile': {'type': 'RuntimeDefault'}})
+            self.assertNotIn('initContainers', pod)
+            self.assertEqual(len(pod['containers']), 1)
+            container = pod['containers'][0]
+            self.assertEqual(container['image'], 'docker.io/library/redis@sha256:9d317178eceac8454a2284a9e6df2466b93c745529947f0cd42a0fa9609d7005')
+            self.assertEqual(container['resources'], {'requests': {'cpu': '50m', 'memory': '32Mi'}, 'limits': {'memory': '256Mi'}})
+            self.assertEqual(container['securityContext'], {'allowPrivilegeEscalation': False,
+                             'readOnlyRootFilesystem': True, 'capabilities': {'drop': ['ALL']}})
+            self.assertNotIn('env', container)
+            self.assertNotIn('envFrom', container)
+        redis = stateful['template']['spec']['containers'][0]
+        self.assertEqual(redis['args'], ['umask 077\ntest -s /data/appendonlydir/appendonly.aof.manifest\n'
+                         'exec /usr/local/bin/docker-entrypoint.sh redis-server /etc/redis/redis.conf\n'])
+        initializer = prepare['containers'][0]
+        self.assertEqual(initializer['command'], ['/bin/sh', '-ec'])
+        self.assertNotIn('ports', initializer)
+        shell = initializer['args'][0]
+        subprocess.run(['/bin/sh', '-n'], input=shell, text=True, check=True)
+        self.assertNotRegex(shell, r'\b(redis-server|redis-cli|curl|wget|chown)\b')
+        self.assertIn('sync "$probe"', shell)
+        self.assertNotRegex(shell, r'(?m)^\s*sync(?:\s+-[^\n]*)?\s*$')
+
+    def test_inactive_preparation_leaves(self):
+        for name in ('gitlab-helm', 'gitlab-redis'):
+            leaf = yaml.safe_load((ROOT / f'clusters/k3s-homelab/flux-system/kustomization-{name}.yaml').read_text())
+            self.assertEqual(leaf['spec']['sourceRef'], {'kind': 'GitRepository', 'name': 'cluster-state'})
+            self.assertIs(leaf['spec']['suspend'], True)
+            self.assertIs(leaf['spec']['wait'], True)
+            self.assertIs(leaf['spec']['prune'], False)
+            self.assertEqual(leaf['spec']['path'], f'./apps/{name}')
+            self.assertIn({'name': 'storage-classes'}, leaf['spec']['dependsOn'])
+            self.assertNotIn('healthCheckExprs', leaf['spec'])
+        for entrypoint in ('apps', 'clusters/k3s-homelab'):
+            for doc in self._render_preparation(entrypoint):
+                self.assertFalse(doc.get('metadata', {}).get('name', '').startswith('gitlab-redis-durable'))
+                self.assertFalse(doc.get('kind') == 'Kustomization' and doc['metadata']['name'] == 'gitlab-redis')
+
     def test_recovery_destination(self):
         patches = self.release['spec']['postRenderers'][0]['kustomize']['patches']
         claims = [op['value']['persistentVolumeClaim']['claimName']

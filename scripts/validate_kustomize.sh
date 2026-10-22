@@ -104,6 +104,7 @@ else
     "infrastructure/observability-ui"
     "apps"
     "apps/gitlab-helm"
+    "apps/gitlab-redis"
     "apps/temporal/schema-setup"
     "apps/temporal/schema-upgrade"
     "apps/temporal/server"

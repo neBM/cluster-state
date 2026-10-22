@@ -1,0 +1,20 @@
+# INACTIVE: deliberately absent from this directory's resource list and apps.
+# Attach and release only after review and native admission. No data import here.
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: gitlab-redis
+  namespace: flux-system
+spec:
+  suspend: true
+  interval: 10m
+  path: ./apps/gitlab-redis
+  prune: false
+  sourceRef:
+    kind: GitRepository
+    name: cluster-state
+  targetNamespace: default
+  timeout: 10m
+  wait: true
+  dependsOn:
+  - name: storage-classes

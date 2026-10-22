@@ -1,0 +1,80 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: gitlab-redis-durable-prepare
+  namespace: default
+  labels:
+    app: gitlab-redis-durable
+    role: prepare
+spec:
+  parallelism: 1
+  completions: 1
+  backoffLimit: 0
+  activeDeadlineSeconds: 300
+  template:
+    metadata:
+      labels:
+        app: gitlab-redis-durable
+        role: prepare
+    spec:
+      restartPolicy: Never
+      activeDeadlineSeconds: 300
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      terminationGracePeriodSeconds: 60
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 999
+        runAsGroup: 1000
+        fsGroup: 1000
+        fsGroupChangePolicy: OnRootMismatch
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+      - name: prepare
+        image: docker.io/library/redis@sha256:9d317178eceac8454a2284a9e6df2466b93c745529947f0cd42a0fa9609d7005
+        imagePullPolicy: IfNotPresent
+        command: [/bin/sh, -ec]
+        args:
+        - |
+          # A data-only WFFC consumer; never initializes or starts Redis.
+          umask 077
+          test "$(id -u)" = 999
+          test "$(id -g)" = 1000
+          test -d /data && test ! -L /data
+          test "$(stat -c %g /data)" = 1000
+          test -w /data && test -x /data
+          # Linux filesystem magic: ext2/3/4, XFS, Btrfs. BusyBox may name Btrfs UNKNOWN.
+          case "$(stat -f -c %t /data)" in
+            ef53|58465342|9123683e) ;;
+            *) echo 'Unsupported data filesystem' >&2; exit 1 ;;
+          esac
+          # Reject populated roots, including dotfiles and dangling symlinks.
+          for entry in /data/* /data/.[!.]* /data/..?*; do
+            if test -e "$entry" || test -L "$entry"; then
+              echo 'Data root is not blank' >&2
+              exit 1
+            fi
+          done
+          probe=$(mktemp /data/.prepare.XXXXXX)
+          trap 'rm -f "$probe"' EXIT
+          trap 'exit 1' HUP INT TERM
+          printf 'volume preparation\n' > "$probe"
+          # This pinned BusyBox supports sync FILE (fsync); no -f or global sync.
+          sync "$probe"
+          rm "$probe"
+          trap - EXIT HUP INT TERM
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop: [ALL]
+        resources:
+          requests: {cpu: 50m, memory: 32Mi}
+          limits: {memory: 256Mi}
+        volumeMounts:
+        - {name: data, mountPath: /data}
+      volumes:
+      - name: data
+        persistentVolumeClaim:
+          claimName: gitlab-redis-durable-data

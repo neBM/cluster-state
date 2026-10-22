@@ -12,6 +12,13 @@
   ],
   "packageRules": [
     {
+      "description": "Hold the inactive durable Redis candidate until Task6 admits ordinary update ownership after handover",
+      "matchDatasources": ["docker"],
+      "matchFileNames": ["apps/gitlab-redis/**"],
+      "matchPackageNames": ["redis", "library/redis", "docker.io/library/redis"],
+      "enabled": false
+    },
+    {
       "description": "Group Flux controller image updates from the bootstrap kustomization",
       "matchManagers": [
         "kustomize"

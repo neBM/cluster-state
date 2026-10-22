@@ -12,7 +12,7 @@ spec:
   prune: false
   sourceRef:
     kind: GitRepository
-    name: flux-system
+    name: cluster-state
   targetNamespace: default
   timeout: 30m
   wait: true
