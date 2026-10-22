@@ -56,7 +56,7 @@ func (s *fakeSeaweedMountServer) CancelHotRestart(context.Context, *mountpb.Canc
 func newUnixMountGRPCServer(t *testing.T) (socketPath string, server *fakeSeaweedMountServer, closeFn func()) {
 	t.Helper()
 
-	dir := t.TempDir()
+	dir := socketTempDir(t)
 	socketPath = filepath.Join(dir, "mount-grpc.sock")
 	ln, err := net.Listen("unix", socketPath)
 	if err != nil {
@@ -108,7 +108,7 @@ func TestRefreshVolumeLocations_ReportsPerMountFailures(t *testing.T) {
 
 	manager := NewManager(Config{})
 	manager.mounts["vol-a"] = &mountEntry{volumeID: "vol-a", localSocket: socketA}
-	manager.mounts["vol-b"] = &mountEntry{volumeID: "vol-b", localSocket: filepath.Join(t.TempDir(), "missing.sock")}
+	manager.mounts["vol-b"] = &mountEntry{volumeID: "vol-b", localSocket: filepath.Join(socketTempDir(t), "missing.sock")}
 
 	resp, err := manager.RefreshVolumeLocations(&RefreshVolumeLocationsRequest{})
 	if err != nil {

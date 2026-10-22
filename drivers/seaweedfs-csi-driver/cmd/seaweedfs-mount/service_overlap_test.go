@@ -13,7 +13,7 @@ import (
 func TestRunMountServicePredecessorShutdownPreservesReplacementService(t *testing.T) {
 	t.Parallel()
 
-	socketPath := filepath.Join(t.TempDir(), "seaweedfs-mount.sock")
+	socketPath := filepath.Join(socketTempDir(t), "seaweedfs-mount.sock")
 
 	oldCtx, oldCancel := context.WithCancel(context.Background())
 	defer oldCancel()

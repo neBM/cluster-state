@@ -52,7 +52,7 @@ func TestExportTakeoverTransfersLiveFD(t *testing.T) {
 		},
 	}
 
-	socketPath := filepath.Join(t.TempDir(), "handoff.sock")
+	socketPath := filepath.Join(socketTempDir(t), "handoff.sock")
 	fdFile, resp, err := receiveExportedFileDescriptor(socketPath, func() (*TakeoverExportResponse, error) {
 		return manager.ExportTakeover(&TakeoverExportRequest{
 			VolumeID:      "vol-a",
@@ -102,7 +102,7 @@ func TestExportTakeoverRejectsBusyWorker(t *testing.T) {
 
 	resp, err := manager.ExportTakeover(&TakeoverExportRequest{
 		VolumeID:      "vol-a",
-		HandoffSocket: filepath.Join(t.TempDir(), "unused.sock"),
+		HandoffSocket: filepath.Join(socketTempDir(t), "unused.sock"),
 	})
 	if err != nil {
 		t.Fatalf("ExportTakeover: %v", err)
@@ -191,11 +191,8 @@ func TestTakeoverFromImportsMount(t *testing.T) {
 		return &weedMountProcess{done: make(chan struct{}), mountFD: -1}, nil
 	}
 
-	socketDir := t.TempDir()
-	serverDir, err := os.MkdirTemp("", "takeover-srv-")
-	if err != nil {
-		t.Fatalf("create server dir: %v", err)
-	}
+	socketDir := socketTempDir(t)
+	serverDir := socketTempDir(t)
 	oldServicePath := filepath.Join(serverDir, "mount.sock")
 	ln, err := net.Listen("unix", oldServicePath)
 	if err != nil {
@@ -254,7 +251,6 @@ func TestTakeoverFromImportsMount(t *testing.T) {
 	defer func() {
 		_ = srv.Close()
 		_ = os.Remove(oldServicePath)
-		_ = os.RemoveAll(serverDir)
 	}()
 
 	manager := NewManager(Config{})
@@ -312,11 +308,8 @@ func TestTakeoverFromCreatesMissingTargetPathForImportedMount(t *testing.T) {
 		return &weedMountProcess{done: make(chan struct{}), mountFD: -1}, nil
 	}
 
-	socketDir := t.TempDir()
-	serverDir, err := os.MkdirTemp("", "takeover-srv-")
-	if err != nil {
-		t.Fatalf("create server dir: %v", err)
-	}
+	socketDir := socketTempDir(t)
+	serverDir := socketTempDir(t)
 	oldServicePath := filepath.Join(serverDir, "mount.sock")
 	ln, err := net.Listen("unix", oldServicePath)
 	if err != nil {
@@ -377,7 +370,6 @@ func TestTakeoverFromCreatesMissingTargetPathForImportedMount(t *testing.T) {
 	defer func() {
 		_ = srv.Close()
 		_ = os.Remove(oldServicePath)
-		_ = os.RemoveAll(serverDir)
 	}()
 
 	manager := NewManager(Config{})
@@ -423,11 +415,8 @@ func TestTakeoverFromUnmountsCorruptedTargetPathBeforeImport(t *testing.T) {
 		return &weedMountProcess{done: make(chan struct{}), mountFD: -1}, nil
 	}
 
-	socketDir := t.TempDir()
-	serverDir, err := os.MkdirTemp("", "takeover-srv-")
-	if err != nil {
-		t.Fatalf("create server dir: %v", err)
-	}
+	socketDir := socketTempDir(t)
+	serverDir := socketTempDir(t)
 	oldServicePath := filepath.Join(serverDir, "mount.sock")
 	ln, err := net.Listen("unix", oldServicePath)
 	if err != nil {
@@ -488,7 +477,6 @@ func TestTakeoverFromUnmountsCorruptedTargetPathBeforeImport(t *testing.T) {
 	defer func() {
 		_ = srv.Close()
 		_ = os.Remove(oldServicePath)
-		_ = os.RemoveAll(serverDir)
 	}()
 
 	manager := NewManager(Config{})
