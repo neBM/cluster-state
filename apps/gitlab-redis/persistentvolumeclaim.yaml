@@ -8,6 +8,7 @@ metadata:
     role: data
   annotations:
     kustomize.toolkit.fluxcd.io/prune: Disabled
+    volumeType: local
 spec:
   accessModes: [ReadWriteOnce]
   storageClassName: local-path-retain

@@ -51,6 +51,7 @@ class CandidateTests(unittest.TestCase):
                          'storageClassName': 'local-path-retain',
                          'resources': {'requests': {'storage': '1Gi'}}})
         self.assertEqual(claim['metadata']['annotations']['kustomize.toolkit.fluxcd.io/prune'], 'Disabled')
+        self.assertEqual(claim['metadata']['annotations'].get('volumeType'), 'local')
         config = objects['ConfigMap']
         self.assertIs(config['immutable'], True)
         self.assertEqual(set(config['data']), {'redis.conf'})
@@ -114,6 +115,23 @@ class CandidateTests(unittest.TestCase):
         self.assertNotRegex(shell, r'\b(redis-server|redis-cli|curl|wget|chown)\b')
         self.assertIn('sync "$probe"', shell)
         self.assertNotRegex(shell, r'(?m)^\s*sync(?:\s+-[^\n]*)?\s*$')
+
+    def test_redis_volume_type_drift(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            for directory in ("apps", "clusters", "infrastructure/observability-ui/grafana", "infrastructure/storage/gitlab-recovery"):
+                self.v.shutil.copytree(ROOT / directory, root / directory)
+            path = root / "apps/gitlab-redis/persistentvolumeclaim.yaml"
+            claim = yaml.safe_load(path.read_text())
+            for volume_type in (None, 'hostPath'):
+                with self.subTest(volume_type=volume_type):
+                    annotations = claim['metadata']['annotations']
+                    annotations.pop('volumeType', None)
+                    if volume_type is not None:
+                        annotations['volumeType'] = volume_type
+                    path.write_text(yaml.safe_dump(claim))
+                    errors = self.v.validate_source(root)
+                    self.assertTrue(any('volumeType' in error for error in errors), errors)
 
     def test_inactive_preparation_leaves(self):
         for name in ('gitlab-helm', 'gitlab-redis'):
