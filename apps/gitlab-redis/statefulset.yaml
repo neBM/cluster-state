@@ -1,0 +1,89 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: gitlab-redis-durable
+  namespace: default
+  labels:
+    app: gitlab-redis-durable
+    role: durable
+spec:
+  replicas: 0
+  serviceName: gitlab-redis-durable-private
+  podManagementPolicy: OrderedReady
+  updateStrategy:
+    type: OnDelete
+  revisionHistoryLimit: 2
+  selector:
+    matchLabels:
+      app: gitlab-redis-durable
+      role: durable
+  template:
+    metadata:
+      labels:
+        app: gitlab-redis-durable
+        role: durable
+    spec:
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      terminationGracePeriodSeconds: 60
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 999
+        runAsGroup: 1000
+        fsGroup: 1000
+        fsGroupChangePolicy: OnRootMismatch
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+      - name: redis
+        image: docker.io/library/redis@sha256:9d317178eceac8454a2284a9e6df2466b93c745529947f0cd42a0fa9609d7005
+        imagePullPolicy: IfNotPresent
+        command: [/bin/sh, -ec]
+        args:
+        - |
+          umask 077
+          test -s /data/appendonlydir/appendonly.aof.manifest
+          exec /usr/local/bin/docker-entrypoint.sh redis-server /etc/redis/redis.conf
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop: [ALL]
+        resources:
+          requests: {cpu: 50m, memory: 32Mi}
+          limits: {memory: 256Mi}
+        ports:
+        - {name: redis, containerPort: 6379, protocol: TCP}
+        startupProbe:
+          exec:
+            command: [/bin/sh, -ec, 'test "$(redis-cli --raw PING)" = PONG']
+          periodSeconds: 5
+          timeoutSeconds: 1
+          failureThreshold: 60
+        readinessProbe:
+          exec:
+            command: [/bin/sh, -ec, 'test "$(redis-cli --raw PING)" = PONG']
+          periodSeconds: 10
+          timeoutSeconds: 1
+        livenessProbe:
+          exec:
+            command: [/bin/sh, -ec, 'test "$(redis-cli --raw PING)" = PONG']
+          periodSeconds: 20
+          timeoutSeconds: 1
+          failureThreshold: 3
+        volumeMounts:
+        - {name: data, mountPath: /data}
+        - {name: config, mountPath: /etc/redis, readOnly: true}
+        - {name: tmp, mountPath: /tmp}
+      volumes:
+      - name: data
+        persistentVolumeClaim:
+          claimName: gitlab-redis-durable-data
+      - name: config
+        configMap:
+          name: gitlab-redis-durable-config
+          defaultMode: 0444
+      - name: tmp
+        emptyDir:
+          medium: Memory
+          sizeLimit: 16Mi

@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: gitlab-redis-durable-data
+  namespace: default
+  labels:
+    app: gitlab-redis-durable
+    role: data
+  annotations:
+    kustomize.toolkit.fluxcd.io/prune: Disabled
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: local-path-retain
+  resources:
+    requests:
+      storage: 1Gi

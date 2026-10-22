@@ -1,0 +1,20 @@
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: gitlab-redis-durable-private
+  namespace: default
+  labels:
+    app: gitlab-redis-durable
+    role: isolation
+spec:
+  endpointSelector:
+    matchLabels:
+      app: gitlab-redis-durable
+  enableDefaultDeny:
+    ingress: true
+    egress: true
+  ingress: []
+  ingressDeny:
+  - fromEntities: [world, host, remote-node]
+  egress: []
+# The Redis listener also remains loopback-only, independent of host exemptions.

@@ -438,6 +438,7 @@ def validate_source(root):
     leaf = yaml.safe_load((flux_dir / "kustomization-gitlab-helm.yaml").read_text())
     expect(errors, leaf, "spec.path", "./apps/gitlab-helm")
     expect(errors, leaf, "spec.suspend", True)
+    expect(errors, leaf, "spec.sourceRef", {"kind": "GitRepository", "name": "cluster-state"})
     if {'name': 'gitlab-recovery-storage'} not in (get(leaf, 'spec.dependsOn') or []):
         errors.append('inactive candidate must depend on recovery storage')
     controllers = kustomize(root, 'clusters/k3s-homelab/flux-system')
