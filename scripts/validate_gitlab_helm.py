@@ -458,6 +458,9 @@ def validate_source(root):
             if doc.get("metadata", {}).get("name", "").startswith("gitlab-helm"):
                 errors.append(f"{entrypoint}: inactive candidate has entered active graph")
     errors.extend(validate_internal_alias(yaml.safe_load((root / "apps/gitlab/service-default-gitlab-registry-internal.yaml").read_text())))
+    # The provisioner's hostPath default ignores fsGroup; select its local plugin.
+    claim = yaml.safe_load((root / "apps/gitlab-redis/persistentvolumeclaim.yaml").read_text())
+    expect(errors, claim, "metadata.annotations.volumeType", "local")
     redis = yaml.safe_load((root / "apps/gitlab/deployment-default-gitlab-redis.yaml").read_text())
     expect(errors, redis, "spec.replicas", 1)
     if redis["spec"]["template"]["spec"]["containers"][0]["resources"] != {"requests": {"cpu": "50m", "memory": "32Mi"}, "limits": {"memory": "256Mi"}}:
