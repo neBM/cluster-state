@@ -409,7 +409,7 @@ class CandidateTests(unittest.TestCase):
 
 
 class LegacyS3ConfigTests(unittest.TestCase):
-    """Native Kustomize propagation only; real CNG ERB rendering is a runtime gate."""
+    """Native Kustomize propagation; actual CNG template execution is a separate gate."""
 
     @classmethod
     def setUpClass(cls):
@@ -417,6 +417,7 @@ class LegacyS3ConfigTests(unittest.TestCase):
         assert spec is not None and spec.loader is not None
         validator = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(validator)
+        cls.validator = validator
         cls.docs = validator.kustomize(ROOT, "apps")
 
     def test_required_native_connection_consumers(self):
@@ -441,7 +442,7 @@ class LegacyS3ConfigTests(unittest.TestCase):
                 pod = workload["spec"]["template"]["spec"]
                 container = pod["containers"][0]
                 volumes = {v["name"]: v for v in pod["volumes"]}
-                mounts = {m["name"]: m for m in container["volumeMounts"]}
+                mounts = {m["mountPath"]: m for m in container["volumeMounts"]}
                 if name in active:
                     self.assertEqual(volumes["objectstore-connection"], {
                         "name": "objectstore-connection", "secret": {
@@ -449,12 +450,12 @@ class LegacyS3ConfigTests(unittest.TestCase):
                             "defaultMode": 420, "items": [{"key": "connection", "path": "connection"}],
                         },
                     })
-                    self.assertEqual(mounts["objectstore-connection"], {
+                    self.assertEqual(mounts["/etc/gitlab/objectstore"], {
                         "name": "objectstore-connection", "mountPath": "/etc/gitlab/objectstore", "readOnly": True,
                     })
                 else:
                     self.assertNotIn("objectstore-connection", volumes)
-                    self.assertNotIn("objectstore-connection", mounts)
+                    self.assertNotIn("/etc/gitlab/objectstore", mounts)
                     self.assertFalse(any(v.get("secret", {}).get("secretName") == "gitlab-helm-objectstore"
                                          for v in volumes.values()))
                     self.assertFalse(any(m["mountPath"].startswith("/etc/gitlab/objectstore")
@@ -465,7 +466,7 @@ class LegacyS3ConfigTests(unittest.TestCase):
                     ("uploads", "/srv/gitlab/public/uploads", "gitlab-uploads-sw"),
                     ("shared", "/srv/gitlab/shared", "gitlab-shared-sw"),
                 ):
-                    self.assertEqual(mounts[volume]["mountPath"], path)
+                    self.assertEqual(mounts[path]["name"], volume)
                     self.assertEqual(volumes[volume]["persistentVolumeClaim"]["claimName"], claim)
                 env = {e["name"]: e for e in container["env"]}
                 self.assertEqual(env["CONFIG_TEMPLATE_DIRECTORY"]["value"], "/var/opt/gitlab/config/templates")
@@ -481,6 +482,41 @@ class LegacyS3ConfigTests(unittest.TestCase):
                 self.assertTrue(container["image"].split("@", 1)[0].endswith(":v19.5.0"))
                 if workload["kind"] == "Deployment":
                     self.assertEqual(workload["spec"]["replicas"], 1)
+
+    def test_artifact_metadata_shared_native_temp(self):
+        self.assertEqual(self.validator.validate_legacy_artifact_tmp(self.docs), [])
+        consumers = {d["metadata"]["name"] for d in self.docs if d["kind"] in ("Deployment", "Job")
+                     and any(m["mountPath"] == "/tmp/gitlab"
+                             for c in d["spec"]["template"]["spec"].get("containers", [])
+                             for m in c.get("volumeMounts", []))}
+        self.assertEqual(consumers, {"gitlab-webservice", "gitlab-workhorse"})
+
+    def test_artifact_metadata_rejects_private_or_mismatched_temp(self):
+        self.assertEqual(self.validator.validate_legacy_artifact_tmp(self.docs), [])
+        for component in ("webservice", "workhorse"):
+            for mutation in ("missing", "private", "wrong-claim", "wrong-subpath", "pvc-root", "read-only"):
+                with self.subTest(component=component, mutation=mutation):
+                    changed = copy.deepcopy(self.docs)
+                    workload = next(d for d in changed if d["kind"] == "Deployment"
+                                    and d["metadata"]["name"] == f"gitlab-{component}")
+                    pod = workload["spec"]["template"]["spec"]
+                    container = next(c for c in pod["containers"] if c["name"] == component)
+                    mount = next(m for m in container["volumeMounts"] if m["mountPath"] == "/tmp/gitlab")
+                    volume = next(v for v in pod["volumes"] if v["name"] == "shared")
+                    if mutation == "missing":
+                        container["volumeMounts"].remove(mount)
+                    elif mutation == "private":
+                        volume.pop("persistentVolumeClaim")
+                        volume["emptyDir"] = {}
+                    elif mutation == "wrong-claim":
+                        volume["persistentVolumeClaim"]["claimName"] = "private-tmp"
+                    elif mutation == "wrong-subpath":
+                        mount["subPath"] = "other-tmp"
+                    elif mutation == "pvc-root":
+                        mount.pop("subPath")
+                    else:
+                        mount["readOnly"] = True
+                    self.assertTrue(self.validator.validate_legacy_artifact_tmp(changed))
 
     def test_uploads_native_parent_root_and_consumed_rollout(self):
         configs = {d["metadata"]["name"]: d["data"] for d in self.docs if d["kind"] == "ConfigMap"}
@@ -530,16 +566,39 @@ class LegacyS3ConfigTests(unittest.TestCase):
         self.assertEqual(production["lfs"]["storage_path"], "/srv/gitlab/shared/lfs-objects")
         self.assertEqual(production["uploads"]["storage_path"], "/srv/gitlab/public")
         self.assertEqual(rails["database.yml"].count("pool: 10"), 2)
-        template = workhorse["workhorse-config.toml.erb"]
-        self.assertTrue(template.startswith("<% c = YAML.safe_load(File.read('/etc/gitlab/objectstore/connection')) %>"))
+
+    def test_workhorse_native_template(self):
+        workhorse = next(d["data"] for d in self.docs if d["kind"] == "ConfigMap"
+                         and d["metadata"]["name"] == "workhorse-config")
+        self.assertEqual(set(workhorse), {"workhorse-config.toml.tpl"},
+                         "Workhorse has gomplate, not ERB; plain TOML would shadow its output")
+        template = workhorse["workhorse-config.toml.tpl"]
+        self.assertIn('file.Read "/etc/gitlab/objectstore/connection" | data.YAML', template)
         for text in ('[redis]', 'URL = "redis://gitlab-redis:6379"', '[[listeners]]',
                      'network = "tcp"', 'addr = "0.0.0.0:8181"', '[object_storage]', '[object_storage.s3]'):
             self.assertIn(text, template)
         for key in ("provider", "aws_access_key_id", "aws_secret_access_key"):
-            self.assertIn(f"{key} = <%= c.fetch('{key}').to_json %>", template)
+            self.assertIn(f'$c.{key}', template)
+            self.assertIn(f'test.IsKind "string" $c.{key}', template)
+        self.assertEqual(template.count("data.ToTOML"), 2)
+        self.assertNotIn("<%", template)
         # Endpoint/region/path_style/signature stay in native Rails/request config.
-        self.assertNotIn("c.fetch('endpoint')", template)
-        self.assertNotIn("c.fetch('path_style')", template)
+        for key in ("endpoint", "region", "path_style", "aws_signature_version"):
+            self.assertNotIn(f"$c.{key}", template)
+        self.assertEqual(self.validator.validate_legacy_workhorse_template(self.docs), [])
+
+    def test_workhorse_rejects_unrenderable_or_shadowing_keys(self):
+        for keys in ({"workhorse-config.toml": "plain"},
+                     {"workhorse-config.toml.erb": "unsupported"},
+                     {"workhorse-config.toml.tpl": "native", "workhorse-config.toml": "stale"},
+                     {"workhorse-config.toml.tpl": "native", "workhorse-config.toml.erb": "stale"},
+                     {}):
+            with self.subTest(keys=keys):
+                changed = copy.deepcopy(self.docs)
+                config = next(d for d in changed if d["kind"] == "ConfigMap"
+                              and d["metadata"]["name"] == "workhorse-config")
+                config["data"] = keys
+                self.assertTrue(self.validator.validate_legacy_workhorse_template(changed))
 
     def test_historical_job_keeps_ordinary_lifecycle(self):
         policy = "kustomize.toolkit.fluxcd.io/ssa"

@@ -413,6 +413,44 @@ def validate_recovery_storage(storage, leaf, prepared):
     return errors
 
 
+def validate_legacy_workhorse_template(docs):
+    """The pinned Workhorse image renders gomplate .tpl, not ERB."""
+    configs = [d for d in docs if d.get("kind") == "ConfigMap"
+               and d.get("metadata", {}).get("name") == "workhorse-config"
+               and d["metadata"].get("namespace") == "default"]
+    if len(configs) != 1:
+        return ["exactly one native Workhorse template ConfigMap required"]
+    if set(configs[0].get("data", {})) != {"workhorse-config.toml.tpl"}:
+        return ["Workhorse requires only workhorse-config.toml.tpl; ERB is unsupported and plain TOML shadows rendering"]
+    return []
+
+
+def validate_legacy_artifact_tmp(docs):
+    """Workhorse's local ZIP metadata pathname must resolve in the Rails Pod."""
+    errors = []
+    for component in ("webservice", "workhorse"):
+        name = f"gitlab-{component}"
+        workloads = [d for d in docs if d.get("kind") == "Deployment"
+                     and d.get("metadata", {}).get("name") == name
+                     and d["metadata"].get("namespace") == "default"]
+        if len(workloads) != 1:
+            errors.append(f"{name}: exactly one artifact metadata consumer required")
+            continue
+        pod = workloads[0]["spec"]["template"]["spec"]
+        containers = [c for c in pod.get("containers", []) if c["name"] == component]
+        if len(containers) != 1:
+            errors.append(f"{name}: artifact metadata serving container missing")
+            continue
+        mounts = [m for m in containers[0].get("volumeMounts", []) if m["mountPath"] == "/tmp/gitlab"]
+        if mounts != [{"name": "shared", "mountPath": "/tmp/gitlab", "subPath": "workhorse-tmp",
+                       "mountPropagation": "HostToContainer"}]:
+            errors.append(f"{name}: /tmp/gitlab must share writable shared/workhorse-tmp")
+        volumes = [v for v in pod.get("volumes", []) if v["name"] == "shared"]
+        if volumes != [{"name": "shared", "persistentVolumeClaim": {"claimName": "gitlab-shared-sw"}}]:
+            errors.append(f"{name}: artifact metadata must use the existing gitlab-shared-sw PVC")
+    return errors
+
+
 def validate_source(root):
     errors = []
     try:
@@ -454,7 +492,11 @@ def validate_source(root):
             errors.append(f'{name}: must not substitute existing CSI macros')
     # Prove absence from both actual reachable native renders, not a directory-name grep.
     for entrypoint in ("apps", "clusters/k3s-homelab/flux-system"):
-        for doc in kustomize(root, entrypoint):
+        rendered = kustomize(root, entrypoint)
+        if entrypoint == "apps":
+            errors.extend(validate_legacy_artifact_tmp(rendered))
+            errors.extend(validate_legacy_workhorse_template(rendered))
+        for doc in rendered:
             if doc.get("metadata", {}).get("name", "").startswith("gitlab-helm"):
                 errors.append(f"{entrypoint}: inactive candidate has entered active graph")
     errors.extend(validate_internal_alias(yaml.safe_load((root / "apps/gitlab/service-default-gitlab-registry-internal.yaml").read_text())))

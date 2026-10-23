@@ -1,31 +1,22 @@
 apiVersion: v1
 data:
-  workhorse-config.toml.erb: '<% c = YAML.safe_load(File.read(''/etc/gitlab/objectstore/connection'')) %>
-
+  workhorse-config.toml.tpl: |
+    {% $c := file.Read "/etc/gitlab/objectstore/connection" | data.YAML -%}
+    {% test.Assert "provider must be a string" (test.IsKind "string" $c.provider) -%}
+    {% test.Assert "aws_access_key_id must be a string" (test.IsKind "string" $c.aws_access_key_id) -%}
+    {% test.Assert "aws_secret_access_key must be a string" (test.IsKind "string" $c.aws_secret_access_key) -%}
     # GitLab Workhorse configuration
-
     [redis]
-
     URL = "redis://gitlab-redis:6379"
 
-
     [[listeners]]
-
     network = "tcp"
-
     addr = "0.0.0.0:8181"
 
     [object_storage]
-
-    provider = <%= c.fetch(''provider'').to_json %>
-
+    {% dict "provider" $c.provider | data.ToTOML %}
     [object_storage.s3]
-
-    aws_access_key_id = <%= c.fetch(''aws_access_key_id'').to_json %>
-
-    aws_secret_access_key = <%= c.fetch(''aws_secret_access_key'').to_json %>
-
-    '
+    {% dict "aws_access_key_id" $c.aws_access_key_id "aws_secret_access_key" $c.aws_secret_access_key | data.ToTOML %}
 immutable: false
 kind: ConfigMap
 metadata:
