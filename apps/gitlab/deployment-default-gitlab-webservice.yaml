@@ -122,6 +122,10 @@ spec:
         - mountPath: /srv/gitlab/shared
           mountPropagation: HostToContainer
           name: shared
+        - mountPath: /tmp/gitlab
+          mountPropagation: HostToContainer
+          name: shared
+          subPath: workhorse-tmp
       dnsPolicy: ClusterFirst
       enableServiceLinks: true
       restartPolicy: Always
