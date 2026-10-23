@@ -413,6 +413,18 @@ def validate_recovery_storage(storage, leaf, prepared):
     return errors
 
 
+def validate_legacy_workhorse_template(docs):
+    """The pinned Workhorse image renders gomplate .tpl, not ERB."""
+    configs = [d for d in docs if d.get("kind") == "ConfigMap"
+               and d.get("metadata", {}).get("name") == "workhorse-config"
+               and d["metadata"].get("namespace") == "default"]
+    if len(configs) != 1:
+        return ["exactly one native Workhorse template ConfigMap required"]
+    if set(configs[0].get("data", {})) != {"workhorse-config.toml.tpl"}:
+        return ["Workhorse requires only workhorse-config.toml.tpl; ERB is unsupported and plain TOML shadows rendering"]
+    return []
+
+
 def validate_legacy_artifact_tmp(docs):
     """Workhorse's local ZIP metadata pathname must resolve in the Rails Pod."""
     errors = []
@@ -483,6 +495,7 @@ def validate_source(root):
         rendered = kustomize(root, entrypoint)
         if entrypoint == "apps":
             errors.extend(validate_legacy_artifact_tmp(rendered))
+            errors.extend(validate_legacy_workhorse_template(rendered))
         for doc in rendered:
             if doc.get("metadata", {}).get("name", "").startswith("gitlab-helm"):
                 errors.append(f"{entrypoint}: inactive candidate has entered active graph")
