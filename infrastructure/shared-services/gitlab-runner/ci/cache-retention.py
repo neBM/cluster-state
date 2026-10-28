@@ -83,34 +83,51 @@ def identity(st):
     return st.st_dev, st.st_ino
 
 
-def fingerprint(entries):
+def check_entry(st, device, busy, mounted):
+    if identity(st) in busy or identity(st) in mounted:
+        raise Refuse('open/mounted entry')
+    if st.st_dev != device or not (stat.S_ISDIR(st.st_mode) or stat.S_ISREG(st.st_mode)):
+        raise Refuse('non-ordinary or cross-device entry')
+
+
+def snapshot(path, device, mounted=frozenset(), busy=frozenset()):
+    """Stream ordered metadata; retain only directory names on the active DFS path."""
     digest = hashlib.sha256()
-    for path, value in entries.items():
-        digest.update(repr((str(path), value)).encode())
-    return digest.digest()
+    latest_file, latest_directory = None, float('-inf')
+    flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+    parent = os.open(path.parent, flags)
+    root_id = None
 
-
-def snapshot(path, device, mounted=frozenset()):
-    """Reject the whole candidate on symlinks, devices or cross-filesystem entries."""
-    entries = {}
-    files, directories = [], []
-
-    def visit(item):
-        st = item.lstat()
-        if identity(st) in mounted:
-            raise Refuse(f'mounted entry: {item}')
-        if st.st_dev != device or not (stat.S_ISDIR(st.st_mode) or stat.S_ISREG(st.st_mode)):
-            raise Refuse(f'non-ordinary or cross-device entry: {item}')
-        entries[item.relative_to(path)] = (identity(st), st.st_mode, st.st_size, st.st_mtime_ns, st.st_ctime_ns)
+    def visit(parent, name, relative):
+        nonlocal latest_file, latest_directory, root_id
+        st = os.stat(name, dir_fd=parent, follow_symlinks=False)
+        check_entry(st, device, busy, mounted)
+        if relative == Path('.'):
+            root_id = identity(st)
+        # unlink() changes surviving hardlinks' ctime (even across candidates).
+        # File identity/mode/size/mtime remain invariant; do not fingerprint ctime
+        # or nlink for regular files, including the final surviving link.
+        value = (identity(st), st.st_mode, st.st_uid, st.st_gid, st.st_size, st.st_mtime_ns,
+                 st.st_ctime_ns if stat.S_ISDIR(st.st_mode) else None)
+        digest.update(repr((str(relative), value)).encode())
         if stat.S_ISDIR(st.st_mode):
-            directories.append(st.st_mtime)
-            for child in sorted(item.iterdir()):
-                visit(child)
+            latest_directory = max(latest_directory, st.st_mtime)
+            fd = os.open(name, flags, dir_fd=parent)
+            try:
+                if identity(os.fstat(fd)) != identity(st):
+                    raise Refuse('directory replaced during snapshot')
+                for child in sorted(os.listdir(fd)):
+                    visit(fd, child, relative / child)
+            finally:
+                os.close(fd)
         else:
-            files.append(st.st_mtime)
-    visit(path)
+            latest_file = st.st_mtime if latest_file is None else max(latest_file, st.st_mtime)
+    try:
+        visit(parent, path.name, Path('.'))
+    finally:
+        os.close(parent)
     # Empty trees still need a conservative age; populated trees use FILE age.
-    return entries, max(files or directories)
+    return (digest.digest(), root_id), latest_directory if latest_file is None else latest_file
 
 
 def mount_ids(proc=Path('/proc')):
@@ -161,29 +178,40 @@ def usage(root):
     return 100 * (fs.f_blocks - fs.f_bavail) / fs.f_blocks
 
 
-def remove_tree(path, expected):
-    """FD-relative, no-follow traversal; preserve every parent and its ownership."""
+def remove_tree(path, device, busy, mounted, expected_root):
+    """FD-relative, no-follow deletion, with only active ancestors retained."""
     flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
     with_fd = os.open(path.parent, flags)
 
-    def remove(parent, name, relative):
+    def remove(parent, name, expected=None):
         st = os.stat(name, dir_fd=parent, follow_symlinks=False)
-        if (identity(st), st.st_mode, st.st_size, st.st_mtime_ns, st.st_ctime_ns) != expected[relative]:
-            raise Refuse(f'candidate changed before deletion: {path / relative}')
+        check_entry(st, device, busy, mounted)
+        if expected is not None and identity(st) != expected:
+            raise Refuse('candidate replaced before deletion')
         if stat.S_ISDIR(st.st_mode):
             fd = os.open(name, flags, dir_fd=parent)
             try:
                 if identity(os.fstat(fd)) != identity(st):
                     raise Refuse('directory replaced during deletion')
-                for child in os.listdir(fd):
-                    remove(fd, child, relative / child)
+                with os.scandir(fd) as children:
+                    for child in children:
+                        remove(fd, child.name)
             finally:
                 os.close(fd)
+            current = os.stat(name, dir_fd=parent, follow_symlinks=False)
+            check_entry(current, device, busy, mounted)
+            if identity(current) != identity(st) or current.st_mode != st.st_mode:
+                raise Refuse('directory replaced during deletion')
             os.rmdir(name, dir_fd=parent)
         else:
+            current = os.stat(name, dir_fd=parent, follow_symlinks=False)
+            if any(getattr(current, key) != getattr(st, key) for key in
+                   ('st_dev', 'st_ino', 'st_mode', 'st_uid', 'st_gid', 'st_size',
+                    'st_mtime_ns', 'st_ctime_ns')):
+                raise Refuse('file changed during deletion')
             os.unlink(name, dir_fd=parent)
     try:
-        remove(with_fd, path.name, Path('.'))
+        remove(with_fd, path.name, expected_root)
     finally:
         os.close(with_fd)
 
@@ -193,7 +221,7 @@ def retain(roots, *, execute=False, now=None, used=usage,
     now = time.time() if now is None else now
     candidates = []
     devices = set()
-    mounted = mounts()
+    mounted, busy = mounts(), opened()
     for root, days in roots:
         st = root.lstat()
         if not stat.S_ISDIR(st.st_mode):
@@ -205,25 +233,14 @@ def retain(roots, *, execute=False, now=None, used=usage,
                     raise Refuse(f'candidate is not an ordinary directory: {path}')
                 if path.name in {'storage', 'docker', 'containerd', 'containers', 'libpod'}:
                     raise Refuse(f'image/runtime store name: {path}')
-                entries, latest = snapshot(path, st.st_dev, mounted)
+                proof, latest = snapshot(path, st.st_dev, mounted, busy)
             except Refuse as error:
                 print(f'PROTECTED {error}', flush=True)
                 continue
-            # Retain only inode identities + digest across namespaces, not every stat.
-            proof = (fingerprint(entries), {entry[0] for entry in entries.values()})
             candidates.append((root, days, path, proof, latest))
-            del entries
     if len(devices) != 1:
         raise Refuse('retention roots must share the same filesystem')
-    busy = opened()
-    safe = []
-    for candidate in candidates:
-        root, days, path, proof, latest = candidate
-        ids = proof[1]
-        if ids & (busy | mounted):
-            print(f'PROTECTED open/mounted: {path}', flush=True)
-        else:
-            safe.append(candidate)
+    safe = candidates
     # Workspaces first, oldest namespace first within each group.
     safe.sort(key=lambda c: (next(i for i, r in enumerate(roots) if r[0] == c[0]), c[4], str(c[2])))
     def delete(candidate, reason):
@@ -231,11 +248,15 @@ def retain(roots, *, execute=False, now=None, used=usage,
         print(f'{"DELETE" if execute else "WOULD DELETE"} {path} reason={reason} latest_file_mtime={latest}', flush=True)
         if execute:
             gate()
-            current, _ = snapshot(path, root.stat().st_dev, mounts())
-            ids = {entry[0] for entry in current.values()}
-            if fingerprint(current) != proof[0] or ids & (opened() | mounts()):
+            mounted, busy = mounts(), opened()
+            device = root.stat().st_dev
+            try:
+                current, _ = snapshot(path, device, mounted, busy)
+            except Refuse as error:
+                raise Refuse(f'candidate changed/open/mounted: {path}: {error}') from error
+            if current != proof:
                 raise Refuse(f'candidate changed/open/mounted: {path}')
-            remove_tree(path, current)
+            remove_tree(path, device, busy, mounted, current[1])
 
     remaining = []
     for candidate in safe:

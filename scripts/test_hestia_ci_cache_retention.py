@@ -7,9 +7,13 @@ import io
 import json
 import os
 from pathlib import Path
+import stat
 import tempfile
 import textwrap
+import tracemalloc
+from types import SimpleNamespace
 import unittest
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parent.parent
 CI = ROOT / 'infrastructure/shared-services/gitlab-runner/ci'
@@ -172,6 +176,117 @@ class RetentionTests(unittest.TestCase):
             self.run_retention(execute=True, gate=gate)
         self.assertEqual(calls, [True])
         self.assertTrue((path / 'nested/data').exists())
+
+    def test_hardlinks_within_and_across_candidates(self):
+        for cross_candidate in (False, True):
+            with self.subTest(cross_candidate=cross_candidate):
+                first = self.candidate(self.builds, 'first', 40)
+                second = self.candidate(self.cache, 'second', 40)
+                target = second / 'nested/link' if cross_candidate else first / 'nested/link'
+                os.link(first / 'nested/data', target)
+                self.run_retention(execute=True)
+                self.assertFalse(first.exists())
+                self.assertFalse(second.exists())
+
+    def test_hardlink_mutations_still_rejected(self):
+        for change in ('content', 'mtime', 'mode', 'inode'):
+            with self.subTest(change=change):
+                path = self.candidate(self.cache, change, 40)
+                file = path / 'nested/data'
+                os.link(file, path / 'nested/link')
+                def gate():
+                    if change == 'content':
+                        file.write_text('changed content')
+                    elif change == 'mtime':
+                        os.utime(file, (self.now, self.now))
+                    elif change == 'mode':
+                        file.chmod(0o400)
+                    else:
+                        file.unlink()
+                        file.write_text(change)
+                with self.assertRaisesRegex(r.Refuse, 'changed/open/mounted'):
+                    self.run_retention(execute=True, gate=gate)
+                self.assertTrue(file.exists())
+                # Do not let earlier subtests become candidates in the next one.
+                for child in (path / 'nested').iterdir():
+                    child.unlink()
+                (path / 'nested').rmdir()
+                path.rmdir()
+
+    def test_proc_evidence_once_per_pass_and_rechecked(self):
+        path = self.candidate(self.cache, 'old', 40)
+        calls = {'open': 0, 'mount': 0}
+        def opened():
+            calls['open'] += 1
+            return {r.identity((path / 'nested/data').stat())} if calls['open'] == 2 else set()
+        def mounted():
+            calls['mount'] += 1
+            return set()
+        with self.assertRaisesRegex(r.Refuse, 'changed/open/mounted'):
+            self.run_retention(execute=True, opened=opened, mounts=mounted)
+        self.assertEqual(calls, {'open': 2, 'mount': 2})
+        self.assertTrue(path.exists())
+
+    def test_streaming_synthetic_metadata_memory_and_order(self):
+        # Fixed directory width, increasing total entries; no real bulk files or
+        # recording mocks (their call history would itself grow with the tree).
+        def measure(branches, reverse=False):
+            visits = 0
+            def metadata(name, *, dir_fd, follow_symlinks=False):
+                nonlocal visits
+                visits += 1
+                parts = (*dir_fd, name)
+                directory = len(parts) < 3
+                inode = 1 if len(parts) == 1 else 2 + int(parts[1][1:]) * 513
+                if not directory:
+                    inode += 1 + int(parts[2][1:])
+                return SimpleNamespace(st_dev=1, st_ino=inode, st_uid=0, st_gid=0,
+                    st_mode=(stat.S_IFDIR if directory else stat.S_IFREG) | 0o700,
+                    st_size=1, st_mtime=1 if directory else 2,
+                    st_mtime_ns=1 if directory else 2, st_ctime_ns=3)
+            def names(fd):
+                result = ([f'd{i:04}' for i in range(branches)] if len(fd) == 1
+                          else [f'f{i:04}' for i in range(512)])
+                return result[::-1] if reverse else result
+            with patch.object(r.os, 'open', lambda name, flags, *, dir_fd=None:
+                              () if dir_fd is None else (*dir_fd, name)), \
+                 patch.object(r.os, 'close', lambda fd: None), \
+                 patch.object(r.os, 'stat', metadata), \
+                 patch.object(r.os, 'fstat', lambda fd: metadata(fd[-1], dir_fd=fd[:-1])), \
+                 patch.object(r.os, 'listdir', names):
+                tracemalloc.start()
+                try:
+                    proof, latest = r.snapshot(Path('/synthetic/tree'), 1)
+                    _, peak = tracemalloc.get_traced_memory()
+                finally:
+                    tracemalloc.stop()
+            self.assertEqual(visits, 2 * (branches + 1) + branches * 512)
+            self.assertEqual(latest, 2)
+            self.assertEqual(len(proof[0]), 32)
+            return proof, peak
+        _, small = measure(8)
+        proof, large = measure(128)
+        reordered, _ = measure(128, reverse=True)
+        self.assertEqual(proof, reordered)
+        self.assertLess(large, small + 512 * 1024)
+        self.assertLess(large, 2 * 1024 * 1024)
+        print(f'streaming metadata peak bytes: 4096 files={small}, 65536 files={large}')
+
+    def test_deletion_refuses_late_symlink_and_root_replacement(self):
+        outside = self.base / 'outside'
+        outside.write_text('preserve')
+        for race in ('symlink', 'root'):
+            path = self.candidate(self.cache, race, 40)
+            proof, _ = r.snapshot(path, path.stat().st_dev)
+            if race == 'symlink':
+                (path / 'nested/data').unlink()
+                (path / 'nested/data').symlink_to(outside)
+            else:
+                path.rename(path.with_name('moved'))
+                path.mkdir()
+            with self.assertRaises(r.Refuse):
+                r.remove_tree(path, path.stat().st_dev, set(), set(), proof[1])
+            self.assertEqual(outside.read_text(), 'preserve')
 
 
 class GateTests(unittest.TestCase):
