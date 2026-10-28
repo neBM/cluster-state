@@ -248,7 +248,9 @@ def test_runtime_gate(module: ModuleType) -> None:
             "  if [ \"$1\" = --output ]; then output=$2; shift 2; else shift; fi\n"
             "done\n"
             "cp \"$PODS_FIXTURE\" \"$output\"\n"
+            "if [ -n \"${PODS_NEXT_FIXTURE:-}\" ]; then cp \"$PODS_NEXT_FIXTURE\" \"$PODS_FIXTURE\"; fi\n"
         )
+        (bin_dir / "sleep").write_text("#!/usr/bin/env bash\nexit 0\n")
         (bin_dir / "podman").write_text(
             "#!/usr/bin/env bash\n"
             "set -euo pipefail\n"
@@ -262,7 +264,7 @@ def test_runtime_gate(module: ModuleType) -> None:
         for executable in bin_dir.iterdir():
             executable.chmod(0o755)
 
-        script = module.GC_SCRIPT.replace(module.SA_TOKEN_PATH, str(token)).replace(module.SA_CA_PATH, str(ca))
+        script = module.GC_SCRIPT.replace(module.SA_TOKEN_PATH, str(token)).replace(module.SA_CA_PATH, str(ca)).replace("/tmp/", str(root) + "/")
         base_env = {
             "PATH": f"{bin_dir}:/usr/bin:/bin",
             "KUBERNETES_SERVICE_HOST": "127.0.0.1",
@@ -272,6 +274,26 @@ def test_runtime_gate(module: ModuleType) -> None:
             "PODMAN_CALLS": str(calls),
         }
         cases = (
+            (
+                "self-pending-then-running",
+                {"metadata": {"continue": ""}, "items": [pod("maintenance-uid", "hestia-ci-store-gc-test", "Pending", "hestia", self_labels)]},
+                [], True, "Kubernetes API gate passed", 2,
+            ),
+            (
+                "self-pending-timeout",
+                {"metadata": {"continue": ""}, "items": [pod("maintenance-uid", "hestia-ci-store-gc-test", "Pending", "hestia", self_labels)]},
+                [], False, "maintenance Pod did not become Running", 0,
+            ),
+            (
+                "self-pending-active-job",
+                {"metadata": {"continue": ""}, "items": [pod("maintenance-uid", "hestia-ci-store-gc-test", "Pending", "hestia", self_labels), pod("job-1", "runner-a", "Running", "hestia", {module.JOB_LABEL: "true"})]},
+                [], False, "active GitLab job pod(s) block cleanup", 0,
+            ),
+            (
+                "self-terminating",
+                {"metadata": {"continue": ""}, "items": [self_pod | {"metadata": {"uid": "maintenance-uid", "name": "hestia-ci-store-gc-test", "labels": self_labels, "deletionTimestamp": "2026-01-01T00:00:00Z"}}]},
+                [], False, "maintenance Pod identity is inconsistent", 0,
+            ),
             (
                 "active-running",
                 {"metadata": {"continue": ""}, "items": [self_pod, pod("job-1", "runner-a-project-1-concurrent-0-x", "Running", "hestia", {module.JOB_LABEL: "true"})]},
@@ -344,6 +366,10 @@ def test_runtime_gate(module: ModuleType) -> None:
             external_fixture.write_text(json.dumps(external))
             calls.unlink(missing_ok=True)
             env = base_env | {"PODS_FIXTURE": str(pods_fixture), "EXTERNAL_FIXTURE": str(external_fixture)}
+            if name == "self-pending-then-running":
+                next_fixture = root / "running-pods.json"
+                next_fixture.write_text(json.dumps({"metadata": {"continue": ""}, "items": [self_pod]}))
+                env["PODS_NEXT_FIXTURE"] = str(next_fixture)
             result = subprocess.run(
                 ["/bin/bash", "-ceu", "--", script],
                 capture_output=True,

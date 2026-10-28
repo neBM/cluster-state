@@ -44,13 +44,17 @@ spec:
               [ "${NODE_NAME:?Pod node identity is unavailable}" = hestia ]
               [ -n "${POD_UID:?Pod UID is unavailable}" ]
 
-              curl --fail --silent --show-error \
+              # Pod execution can precede publication of its Running API phase.
+              # Retry only that observation race; keep every safety gate intact.
+              for attempt in {1..15}; do
+              curl --fail --silent --show-error --connect-timeout 5 --max-time 15 \
                 --cacert "$ca" \
                 --header "Authorization: Bearer $(cat "$token")" \
                 --output /tmp/pods.json \
                 "$api/api/v1/namespaces/ci/pods?limit=500"
 
-              python3 - <<'PY'
+              gate_rc=0
+              python3 - <<'PY' || gate_rc=$?
               import json
               import os
 
@@ -63,6 +67,7 @@ spec:
                   raise SystemExit("Kubernetes API pod list is incomplete; refusing cleanup")
               self_uid = os.environ["POD_UID"]
               self_seen = False
+              self_pending = False
               active = []
               for pod in payload["items"]:
                   if type(pod) is not dict:
@@ -80,9 +85,10 @@ spec:
                   if type(uid) is not str or type(name) is not str or type(labels) is not dict or type(phase) is not str or type(node) is not str:
                       raise SystemExit("Kubernetes API pod list contains invalid identity types; refusing cleanup")
                   if uid == self_uid:
-                      if self_seen or labels.get("ci.brmartin.co.uk/maintenance") != "true" or labels.get("ci.brmartin.co.uk/job") != "true" or phase != "Running" or node != "hestia":
+                      if self_seen or labels.get("ci.brmartin.co.uk/maintenance") != "true" or labels.get("ci.brmartin.co.uk/job") != "true" or phase not in {"Running", "Pending"} or node != "hestia" or pod_metadata.get("deletionTimestamp"):
                           raise SystemExit("maintenance Pod identity is inconsistent; refusing cleanup")
                       self_seen = True
+                      self_pending = phase == "Pending"
                       continue
                   if labels.get("ci.brmartin.co.uk/job") == "true" and phase in {"Running", "Pending"}:
                       active.append(f"ci/{name} ({phase}, node={node or 'unscheduled'})")
@@ -90,8 +96,20 @@ spec:
                   raise SystemExit("maintenance Pod is absent from the Kubernetes API snapshot; refusing cleanup")
               if active:
                   raise SystemExit("active GitLab job pod(s) block cleanup: " + ", ".join(sorted(active)))
+              if self_pending:
+                  print("maintenance Pod is still Pending in the API; waiting for Running", flush=True)
+                  raise SystemExit(75)
               print("Kubernetes API gate passed: scheduler lock is present and no other Running or Pending CI job Pods exist")
               PY
+
+              if (( gate_rc == 0 )); then break; fi
+              if (( gate_rc != 75 )); then exit "$gate_rc"; fi
+              if (( attempt == 15 )); then
+                echo "maintenance Pod did not become Running; refusing cleanup" >&2
+                exit 1
+              fi
+              sleep 2
+              done
 
               podman_store=(
                 podman
