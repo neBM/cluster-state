@@ -4,6 +4,7 @@ resources:
 - configmap-ci-gitlab-runner-docker-daemon.yaml
 - configmap-ci-gitlab-runner-registries-conf.yaml
 - cronjob-ci-hestia-ci-store-gc.yaml
+- cronjob-ci-hestia-ci-cache-retention.yaml
 - daemonset-ci-gitlab-runner-host-storage.yaml
 - namespace-ci.yaml
 - role-ci-gitlab-runner.yaml
@@ -12,3 +13,8 @@ resources:
 - rolebinding-ci-hestia-ci-store-gc.yaml
 - serviceaccount-ci-gitlab-runner.yaml
 - serviceaccount-ci-hestia-ci-store-gc.yaml
+configMapGenerator:
+- name: hestia-ci-cache-retention
+  namespace: ci
+  files:
+  - cache-retention.py
