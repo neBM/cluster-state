@@ -526,6 +526,7 @@ publish:hermes-workspace:index:
       - scripts/verify_hermes_workspace_image.sh
       - scripts/test_validate_hestia_ci_store_gc_alert.py
       - scripts/test_validate_hestia_ci_store_gc_alert.py.lock
+      - scripts/test_hestia_ci_cache_retention.py
       - scripts/test_validate_ibgateway_manifest.py
       - scripts/test_validate_versioned_migration_jobs.py
       - scripts/test_validate_versioned_migration_jobs.py.lock
@@ -567,6 +568,7 @@ publish:hermes-workspace:index:
       - scripts/verify_hermes_workspace_image.sh
       - scripts/test_validate_hestia_ci_store_gc_alert.py
       - scripts/test_validate_hestia_ci_store_gc_alert.py.lock
+      - scripts/test_hestia_ci_cache_retention.py
       - scripts/test_validate_ibgateway_manifest.py
       - scripts/test_validate_versioned_migration_jobs.py
       - scripts/test_validate_versioned_migration_jobs.py.lock

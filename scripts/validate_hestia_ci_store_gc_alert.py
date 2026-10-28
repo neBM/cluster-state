@@ -193,8 +193,9 @@ ALERT_DESCRIPTION = (
     "The canonical node-exporter service-endpoint series reports "
     "{{ $values.A.Value }}% available on {{ $values.A.Labels.node }} "
     "{{ $values.A.Labels.instance }} for /srv/noisy, or the expected series is "
-    "missing and represented as 0%. Investigate the Hestia CI Podman store; "
-    "do not delete CI cache/build data or k3s/containerd state."
+    "missing and represented as 0%. Use ci/hestia-ci-store-gc for Podman images "
+    "and ci/hestia-ci-cache-retention for bounded idle cache/workspace retention; "
+    "never delete k3s/containerd, Docker, or PVC state."
 )
 ALERT_SUMMARY = "Hestia /srv/noisy is below 15% available or its canonical metric is missing"
 

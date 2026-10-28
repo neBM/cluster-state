@@ -133,6 +133,7 @@ uv --no-config run --locked --script "${repo_root}/scripts/validate_factorio_man
 python3 "${repo_root}/scripts/test_validate_factorio_manifest.py"
 uv --no-config run --locked --script "${repo_root}/scripts/validate_hestia_ci_store_gc_alert.py"
 uv --no-config run --locked --script "${repo_root}/scripts/test_validate_hestia_ci_store_gc_alert.py"
+python3 "${repo_root}/scripts/test_hestia_ci_cache_retention.py"
 "${repo_root}/scripts/test_factorio_startup.sh"
 "${repo_root}/scripts/test_hestia_firewalld_setup.sh"
 uv --no-config run --locked --script "${repo_root}/scripts/test_iris_media_dirs.py"

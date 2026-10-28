@@ -74,6 +74,55 @@ sudo findmnt -R /var/lib/ci-cache /var/lib/ci-containers
 
 If `DiskPressure=False` and `df` has recovered, recent events may only be historical. Re-check after the next kubelet image GC interval before taking more action.
 
+## Hestia CI cache and workspace retention
+
+Two separate GitOps CronJobs in `ci` own regenerable CI storage:
+
+- `hestia-ci-store-gc` runs at 04:17 UTC for the existing Podman image store;
+  its scope and 168-hour image/container policy are unchanged.
+- `hestia-ci-cache-retention` runs daily at 04:47 UTC on Hestia. It mounts only
+  `/var/lib/ci-builds-nocow` and `/var/lib/ci-cache-nocow` writable, never the
+  image store, Docker, k3s/containerd, PVCs, or application data.
+
+Retention removes idle direct-child workspace directories after **7 days** and
+regenerable direct-child cache namespaces after **30 days**. Age is the newest
+descendant **regular file mtime**, not the namespace/parent directory mtime;
+empty directory trees use their newest directory mtime conservatively. At
+**75% or more filesystem usage**, the capacity backstop removes idle workspaces
+first, then oldest cache namespaces, until usage is **65% or less**. Usage is
+checked after age cleanup. Both root directories and their ownership remain
+intact. Unexpected non-directory entries and runtime-store names are protected.
+
+The job shares the existing immutable image and list-only service account.
+Hard CI-label anti-affinity blocks new CI scheduling on Hestia, and a complete
+namespace Pod-list fence requires this maintenance Pod's UID/labels/node to
+match, its phase to be Running, and no other Running or Pending CI Pod anywhere
+in `ci`. Only this Pod's initial Pending observation is retried (15 observations,
+2 seconds apart). The API fence is checked again before each deletion.
+
+`hostPID` allows read-only `/proc` FD/cwd inspection by **device/inode**, so
+bind-mount/path aliases do not hide local consumers. Symlinks, special entries,
+cross-filesystem trees, and descendant mounts (including same-device bind
+mounts across visible process mount namespaces) protect the entire candidate.
+Unreadable process/mount metadata fails closed. Deletion rechecks the tree and uses
+no-follow, FD-relative traversal. Do not start ad-hoc host consumers concurrently:
+the scheduler fence covers CI, not arbitrary host processes opening files after
+the final inspection. Protected entries are logged, never force-removed. If the
+capacity target cannot be reached in scope, the job fails rather than widening
+cleanup. Dry runs report candidates but cannot claim a post-deletion capacity.
+
+```bash
+kubectl get cronjobs,jobs -n ci -l app=hestia-ci-cache-retention
+kubectl logs -n ci -l app=hestia-ci-cache-retention --tail=100
+python3 scripts/test_hestia_ci_cache_retention.py
+```
+
+The ConfigMap helper defaults to a dry run; the CronJob explicitly supplies
+`--execute`. A one-off dry-run Pod must retain the same service account,
+downward-API identity, labels, anti-affinity, hostPID and narrow mounts, omitting
+only `--execute`. There are no production path overrides or force/bypass flags.
+Use the approved retention owner rather than raw recursive deletion.
+
 ## SeaweedFS Sideloaded Server Images
 
 The `chrislusf/seaweedfs:<base>-nebm-<commit>` server image is sideload-only:

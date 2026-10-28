@@ -1,0 +1,91 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: hestia-ci-cache-retention
+  namespace: ci
+  labels:
+    app: hestia-ci-cache-retention
+spec:
+  schedule: 47 4 * * *
+  timeZone: Etc/UTC
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 1800
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 3
+  suspend: false
+  jobTemplate:
+    spec:
+      activeDeadlineSeconds: 1800
+      backoffLimit: 0
+      template:
+        metadata:
+          labels:
+            app: hestia-ci-cache-retention
+            ci.brmartin.co.uk/job: "true"
+            ci.brmartin.co.uk/maintenance: "true"
+        spec:
+          hostPID: true
+          automountServiceAccountToken: true
+          serviceAccountName: hestia-ci-store-gc
+          nodeSelector:
+            kubernetes.io/arch: amd64
+            kubernetes.io/hostname: hestia
+          affinity:
+            podAntiAffinity:
+              requiredDuringSchedulingIgnoredDuringExecution:
+              - labelSelector:
+                  matchLabels:
+                    ci.brmartin.co.uk/job: "true"
+                topologyKey: kubernetes.io/hostname
+          restartPolicy: Never
+          containers:
+          - name: retention
+            image: quay.io/podman/stable@sha256:c6c3feef40a5c825a98e62a11c8ed4c36ec603327d56eb629230a671e527c3dd
+            imagePullPolicy: IfNotPresent
+            command: [python3, -B, /policy/cache-retention.py]
+            args: [--execute]
+            env:
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+            - name: POD_UID
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.uid
+            resources:
+              requests:
+                cpu: 10m
+                memory: 64Mi
+              limits:
+                cpu: 500m
+                memory: 512Mi
+            securityContext:
+              # Host PID /proc inspection needs host DAC/ptrace and SELinux access.
+              # No runtime socket, runtime store, device or host root is mounted.
+              privileged: true
+              allowPrivilegeEscalation: true
+              readOnlyRootFilesystem: true
+              runAsUser: 0
+              runAsGroup: 0
+              runAsNonRoot: false
+            volumeMounts:
+            - name: builds
+              mountPath: /var/lib/ci-builds-nocow
+            - name: cache
+              mountPath: /var/lib/ci-cache-nocow
+            - name: policy
+              mountPath: /policy
+              readOnly: true
+          volumes:
+          - name: builds
+            hostPath:
+              path: /var/lib/ci-builds-nocow
+              type: Directory
+          - name: cache
+            hostPath:
+              path: /var/lib/ci-cache-nocow
+              type: Directory
+          - name: policy
+            configMap:
+              name: hestia-ci-cache-retention
