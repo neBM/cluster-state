@@ -74,6 +74,33 @@ sudo findmnt -R /var/lib/ci-cache /var/lib/ci-containers
 
 If `DiskPressure=False` and `df` has recovered, recent events may only be historical. Re-check after the next kubelet image GC interval before taking more action.
 
+## CI runner acquisition and scheduler headroom
+
+Runner managers admit **one amd64 job and one arm64 job** in total across
+all their registrations. Native and generic ARM lanes share the same one-job
+acquisition bound; generic jobs remain available on both architectures. Hard
+cross-pool one-CI-job-per-node anti-affinity and architecture-only selectors
+remain in force; no runner job is pinned to a hostname.
+
+The idle request-headroom snapshot in
+`scripts/fixtures/gitlab-runner-architecture-pools.json` records CPU and memory
+for each node together. Nyx has 2530m CPU but only 7.83203125Mi memory headroom
+with the GitLab webservice/Sidekiq reservations, so it is not a usable ARM slot.
+Heracles fits the known ARM job envelopes. The validator counts nodes fitting
+**both** dimensions for every lane, including helper, injected/declared services,
+conservative manager overhead and placement margins. This is a static capacity
+contract, not a dynamic admission controller or a guarantee for larger service
+sets or Kubedock child Pods. Re-measure before increasing acquisition; do not
+substitute job deadline extensions or reduced resource safeguards.
+
+For a manager configuration rollout, pause the actual existing registrations
+and verify zero active CI jobs before reconciliation. The shared generator
+change affects both managers; `shutdown_timeout = 0` and the 30-second Pod grace
+are not an active-job drain guarantee. After verifying both generated configs,
+restore each registration's prior pause/tag/untagged state. Validate locally with
+`uv --no-config run --script scripts/test_gitlab_runner_config.py` and
+`python3 scripts/validate_gitlab_runner_templates.py`.
+
 ## Hestia CI cache and workspace retention
 
 Two separate GitOps CronJobs in `ci` own regenerable CI storage:

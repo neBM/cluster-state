@@ -19,7 +19,7 @@ spec:
         - name: RUNNER_POOL
           value: arm64
         - name: RUNNER_CONCURRENT
-          value: "2"
+          value: "1"
         - name: RUNNER_LANES
           value: "arm64 any"
       volumes:

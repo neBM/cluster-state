@@ -11,7 +11,7 @@ configMapGenerator:
     labels:
       app: gitlab-runner
       arch: any
-  # Generic jobs can occupy both arm64 slots; the amd64 copy overrides to one.
+  # Generic jobs share the one usable ARM slot with native ARM jobs.
   literals:
   - |
     20-runner-header.toml=[[runners]]
@@ -19,7 +19,7 @@ configMapGenerator:
       url = "https://git.brmartin.co.uk"
       token = "RUNNER_TOKEN_PLACEHOLDER"
       executor = "kubernetes"
-      limit = 2
+      limit = 1
       request_concurrency = 4
       builds_dir = "/builds"
   files:
