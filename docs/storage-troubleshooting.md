@@ -93,6 +93,15 @@ contract, not a dynamic admission controller or a guarantee for larger service
 sets or Kubedock child Pods. Re-measure before increasing acquisition; do not
 substitute job deadline extensions or reduced resource safeguards.
 
+The official Runner image pin in
+`infrastructure/shared-services/gitlab-runner/kustomization.yaml` includes the
+[empty Pod resources QoS fix](https://gitlab.com/gitlab-org/gitlab-runner/-/work_items/39671).
+With Pod-level requests/limits unset, Runner must omit `spec.resources` rather
+than send `{}`. On Kubernetes with PodLevelResources enabled, verify new job
+Pods are `Burstable`, not `BestEffort`, and their parent cgroup CPU weight is
+non-minimal. Keep the existing container requests/limits and admission bounds;
+CPU requests must provide sharing weight without adding CPU quotas.
+
 For a manager configuration rollout, pause the actual existing registrations
 and verify zero active CI jobs before reconciliation. The shared generator
 change affects both managers; `shutdown_timeout = 0` and the 30-second Pod grace

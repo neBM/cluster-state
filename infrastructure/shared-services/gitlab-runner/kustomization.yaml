@@ -11,11 +11,11 @@ resources:
 - managers/amd64
 - managers/arm64
 
-# Preserve the authenticated running software during the manager replacement.
+# Official multi-architecture Runner release with the empty Pod resources QoS fix.
 images:
 - name: gitlab/gitlab-runner
-  newTag: v19.4.1
-  digest: sha256:77d03a5c881ff8f97381de4f96a66c080733eeab9c9cf502bd19916a18969113
+  newTag: v19.5.2
+  digest: sha256:6d4cdfe23443fa5463bffa65cba9074a4517f68784756b69bcc362ca86f3d4c6
 - name: busybox
   newTag: 1.38.0
   digest: sha256:fd7dc98638c8e305f4dc34e979f1c0fdfdcaeb0fbf8fcff77ae834b6da3d7e6e
