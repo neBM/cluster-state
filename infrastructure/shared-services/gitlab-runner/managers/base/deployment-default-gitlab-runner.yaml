@@ -82,7 +82,7 @@ spec:
           # The pool bound applies before acquisition, across every selected lane.
           # Cut over only at admitted idle: Recreate cannot serialize distinct Deployments.
           case "$RUNNER_POOL:$RUNNER_CONCURRENT:$RUNNER_LANES" in
-            'amd64:1:amd64 any services'|'arm64:2:arm64 any') ;;
+            'amd64:1:amd64 any services'|'arm64:1:arm64 any') ;;
             *) echo "ERROR: invalid runner acquisition pool"; exit 1 ;;
           esac
           printf 'concurrent = %s\n' "$RUNNER_CONCURRENT" > /config/config.toml

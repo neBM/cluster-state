@@ -1,7 +1,7 @@
 {
   "pools": {
-    "amd64": {"headroom_cpu_m": [1005], "headroom_memory_mi": [3301]},
-    "arm64": {"headroom_cpu_m": [1170, 3225], "headroom_memory_mi": [4834, 1941]}
+    "amd64": {"nodes": ["hestia"], "headroom_cpu_m": [1430], "headroom_memory_mi": [6275.46875]},
+    "arm64": {"nodes": ["heracles", "nyx"], "headroom_cpu_m": [1240, 2530], "headroom_memory_mi": [4690.796875, 7.83203125]}
   },
   "margin_cpu_m": 125,
   "margin_memory_mi": 128,

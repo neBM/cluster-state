@@ -136,7 +136,8 @@ class RunnerConfigTests(unittest.TestCase):
                             (paths["/cosi/gitlab-runner-cache"] / "BucketInfo").write_text("{}")
                         else:
                             (paths["/cosi/gitlab-runner-cache"] / "BucketInfo").write_text(json.dumps(bucket))
-                            invalid_env["RUNNER_CONCURRENT"] = "3"
+                            # Reject the former two-slot ARM pool, not only three.
+                            invalid_env["RUNNER_CONCURRENT"] = "2"
                         result = subprocess.run(command, env=invalid_env, capture_output=True, timeout=60)
                         self.assertNotEqual(result.returncode, 0)
                         for value in [*tokens.values(), access, secret]:
@@ -146,14 +147,32 @@ class RunnerConfigTests(unittest.TestCase):
                         subprocess.run(["podman", "rm", "--force", "--ignore", name], check=True, capture_output=True)
         self.assertEqual(len(set(system_ids)), 2)
         self.assertEqual(validate_pool_contract(self.configs, self.requests, self.fixture), [])
-        self.assertEqual(sum(c["concurrent"] for c in self.configs.values()), 3)
+        self.assertEqual({arch: c["concurrent"] for arch, c in self.configs.items()},
+                         {"amd64": 1, "arm64": 1})
+        self.assertEqual(sum(c["concurrent"] for c in self.configs.values()), 2)
+        # Nyx has abundant CPU but only 7.8Mi memory after GitLab reservations.
+        # Both dimensions must fit on the same node; it is not a second ARM slot.
+        measured = copy.deepcopy(self.fixture)
+        measured["pools"]["arm64"].update(
+            headroom_cpu_m=[1240, 2530],
+            headroom_memory_mi=[4690.796875, 7.83203125])
+        self.assertEqual(validate_pool_contract(self.configs, self.requests, measured), [])
+        fake_two_slots = copy.deepcopy(self.configs)
+        fake_two_slots["arm64"]["concurrent"] = 2
+        fake_two_slots["arm64"]["runners"][1]["limit"] = 2
+        self.assertIn("arm64: acquisition bound must equal 1 usable slots",
+                      validate_pool_contract(fake_two_slots, self.requests, measured))
+        # CPU on Nyx and memory on Heracles cannot be combined into one slot.
+        measured["pools"]["arm64"]["headroom_cpu_m"][0] = 100
+        self.assertIn("arm64: acquisition bound must equal 0 usable slots",
+                      validate_pool_contract(self.configs, self.requests, measured))
         # Focused counterexamples: over-acquisition, architecture escape, and the
         # actual native + helper + Kubedock + two database sidecars CPU envelope.
-        for case in ("third-arm-slot", "second-amd-slot", "old-all-lane-manager", "generic-architecture", "unaccounted-services", "oversized-sidecars", "oversized-amd-service"):
+        for case in ("second-arm-slot", "second-amd-slot", "old-all-lane-manager", "generic-architecture", "unaccounted-services", "oversized-sidecars", "oversized-amd-service"):
             with self.subTest(case=case):
                 bad = copy.deepcopy(self.configs)
-                if case == "third-arm-slot":
-                    bad["arm64"]["concurrent"] = 3
+                if case == "second-arm-slot":
+                    bad["arm64"]["concurrent"] = 2
                 elif case == "second-amd-slot":
                     bad["amd64"]["concurrent"] = 2
                 elif case == "old-all-lane-manager":
@@ -164,9 +183,9 @@ class RunnerConfigTests(unittest.TestCase):
                     bad["amd64"]["runners"][0]["kubernetes"]["service_cpu_request"] = "0"
                 elif case == "oversized-sidecars":
                     # Exceed the target budget, including its larger raw headroom.
-                    bad["amd64"]["runners"][0]["kubernetes"]["service_cpu_request"] = "200m"
+                    bad["amd64"]["runners"][0]["kubernetes"]["service_cpu_request"] = "400m"
                 else:
-                    bad["amd64"]["runners"][2]["kubernetes"]["cpu_request"] = "1000m"
+                    bad["amd64"]["runners"][2]["kubernetes"]["cpu_request"] = "1500m"
                 self.assertTrue(validate_pool_contract(bad, self.requests, self.fixture))
 
 

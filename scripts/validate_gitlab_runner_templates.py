@@ -95,6 +95,8 @@ def validate_pool_contract(configs, manager_requests, fixture):
     Requests are sharing weights, not useful-CPU targets. The recorded envelope
     includes every injected and declared service and conservatively reserves both
     movable managers on each candidate node. Helper/init uses max, not two helpers.
+    Count only nodes fitting every lane's CPU AND memory envelope on that node;
+    architecture eligibility alone is not usable acquisition capacity.
     Kubedock child Pods are outside Runner's Pod envelope and remain a live gate.
     """
     errors = []
@@ -105,9 +107,8 @@ def validate_pool_contract(configs, manager_requests, fixture):
     overhead = sum(cpu_millicores(r["cpu"]) for r in manager_requests.values())
     memory_overhead = sum(memory_mebibytes(r["memory"]) for r in manager_requests.values())
     for arch, config in configs.items():
-        slots = len(fixture["pools"][arch]["headroom_cpu_m"])
-        if config["concurrent"] != slots:
-            errors.append(f"{arch}: acquisition bound must equal {slots} usable slots")
+        required_cpu = overhead + fixture["margin_cpu_m"]
+        required_memory = memory_overhead + fixture["margin_memory_mi"]
         if [r["name"] for r in config["runners"]] != expected_lanes[arch]:
             errors.append(f"{arch}: tagged/untagged registration continuity changed")
         for runner in config["runners"]:
@@ -115,8 +116,7 @@ def validate_pool_contract(configs, manager_requests, fixture):
             k = runner["kubernetes"]
             if k.get("node_selector") != {"kubernetes.io/arch": arch}:
                 errors.append(f"{arch}/{lane}: execution architecture escapes its acquisition group")
-            if runner["limit"] != (slots if lane == "any" else 1):
-                errors.append(f"{arch}/{lane}: incorrect per-registration limit")
+
             if any(k.get(key) for key in ("cpu_limit", "helper_cpu_limit", "service_cpu_limit")):
                 errors.append(f"{arch}/{lane}: CPU quota prevents idle-core sharing")
             terms = k.get("affinity", {}).get("pod_anti_affinity", {}).get(
@@ -136,12 +136,18 @@ def validate_pool_contract(configs, manager_requests, fixture):
             services = len(k.get("services", [])) + fixture["max_declared_services"][lane]
             request = cpu_millicores(k["cpu_request"]) + cpu_millicores(k["helper_cpu_request"]) + services * cpu_millicores(k.get("service_cpu_request", "0"))
             memory_request = memory_mebibytes(k["memory_request"]) + memory_mebibytes(k["helper_memory_request"]) + services * memory_mebibytes(k["service_memory_request"])
-            for headroom in fixture["pools"][arch]["headroom_cpu_m"]:
-                if request + overhead + fixture["margin_cpu_m"] > headroom:
-                    errors.append(f"{arch}/{lane}: {request}m job + {overhead}m managers + margin exceeds {headroom}m headroom")
-            for headroom in fixture["pools"][arch]["headroom_memory_mi"]:
-                if memory_request + memory_overhead + fixture["margin_memory_mi"] > headroom:
-                    errors.append(f"{arch}/{lane}: job + managers + margin exceeds memory headroom")
+            required_cpu = max(required_cpu, request + overhead + fixture["margin_cpu_m"])
+            required_memory = max(required_memory, memory_request + memory_overhead + fixture["margin_memory_mi"])
+        pool = fixture["pools"][arch]
+        slots = sum(cpu >= required_cpu and memory >= required_memory
+                    for _, cpu, memory in zip(pool["nodes"], pool["headroom_cpu_m"],
+                                              pool["headroom_memory_mi"], strict=True))
+        if config["concurrent"] != slots:
+            errors.append(f"{arch}: acquisition bound must equal {slots} usable slots")
+        for runner in config["runners"]:
+            lane = runner["name"].removeprefix("k8s-")
+            if runner["limit"] != (slots if lane == "any" else 1):
+                errors.append(f"{arch}/{lane}: incorrect per-registration limit")
     return errors
 
 
