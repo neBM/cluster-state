@@ -102,6 +102,12 @@ Pods are `Burstable`, not `BestEffort`, and their parent cgroup CPU weight is
 non-minimal. Keep the existing container requests/limits and admission bounds;
 CPU requests must provide sharing weight without adding CPU quotas.
 
+All lanes leave `helper_image` unset so Runner selects its version-coupled native
+helper for the job's architecture selector, not the manager Pod's architecture.
+Do not restore a static helper override: the helper's internal API is
+[strictly coupled to Runner](https://docs.gitlab.com/runner/configuration/advanced-configuration/#helper-image).
+Generic/services lanes retain their existing `gitlab-runner-helper-pull` pull secret.
+
 For a manager configuration rollout, pause the actual existing registrations
 and verify zero active CI jobs before reconciliation. The shared generator
 change affects both managers; `shutdown_timeout = 0` and the 30-second Pod grace

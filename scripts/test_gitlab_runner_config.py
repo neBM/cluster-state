@@ -117,6 +117,10 @@ class RunnerConfigTests(unittest.TestCase):
                         expected["cache"]["s3"].update(ServerAddress="s3.example:8333", BucketName=bucket["bucketName"], AccessKey=access, SecretKey=secret)
                         self.assertEqual(runner, expected, f"{arch}/{lane}: generation changed lane semantics")
                         self.assertEqual(runner["request_concurrency"], 4)
+                        # Runner chooses its version-coupled, selector-aware native helper.
+                        self.assertNotIn("helper_image", runner["kubernetes"], f"{arch}/{lane}")
+                        self.assertEqual(runner["kubernetes"].get("image_pull_secrets", []),
+                                         ["gitlab-runner-helper-pull"] if lane in ("any", "services") else [])
                         services = runner["kubernetes"].get("services", [])
                         self.assertEqual(services, [] if lane == "any" else [{
                             "name": "joyrex2001/kubedock:0.20.3", "alias": "kubedock",
