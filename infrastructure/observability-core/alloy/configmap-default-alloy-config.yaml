@@ -166,6 +166,8 @@ data:
     prometheus.exporter.process "host" {
       procfs_path         = "/host/proc"
       gather_smaps        = false
+      // Embedded process-exporter v0.8.7 still scans threads; this only
+      // suppresses per-thread-name metrics. States can double-count leaders.
       track_threads       = false
       track_children      = false
       recheck_on_scrape   = false
@@ -215,7 +217,7 @@ data:
       }
       matcher {
         name = "ffmpeg"
-        comm = ["ffmpeg", "ffprobe"]
+        comm = ["ffmpeg", "ffprobe", "ffmpeg-linux"]
       }
       // Upstream matches regexes against the joined command line. Only known
       // test-package path segments select this literal; no captures are exported.
@@ -277,8 +279,20 @@ data:
       job_name        = "node/processes"
       scrape_interval = "15s"
       scrape_timeout  = "10s"
+      // Raw scrape limit, before downstream relabeling; includes wchan samples.
       sample_limit    = 2000
+      forward_to      = [prometheus.relabel.host_processes.receiver]
+    }
+
+    prometheus.relabel "host_processes" {
       forward_to      = [prometheus.remote_write.victoriametrics.receiver]
+      // Bound forwarded labels only: collection/raw samples still include wchan.
+      // Keep all other families, including native scrape error counters.
+      rule {
+        source_labels = ["__name__"]
+        regex         = "^namedprocess_namegroup_threads_wchan$"
+        action        = "drop"
+      }
     }
 
     prometheus.remote_write "victoriametrics" {
