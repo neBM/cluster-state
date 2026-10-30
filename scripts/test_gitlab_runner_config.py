@@ -37,6 +37,43 @@ class RunnerConfigTests(unittest.TestCase):
         cls.configs = {}
         cls.requests = {}
 
+    def test_internal_metrics_service_and_policy(self):
+        service, = [o for o in self.objects if o["kind"] == "Service"]
+        policy, = [o for o in self.objects if o["kind"] == "CiliumNetworkPolicy"]
+        self.assertEqual(service["metadata"]["namespace"], "default")
+        self.assertEqual(service["metadata"]["annotations"], {
+            "prometheus.io/scrape": "true", "prometheus.io/path": "/metrics",
+            "prometheus.io/port": "9252",
+        })
+        self.assertEqual(service["spec"], {
+            "type": "ClusterIP", "selector": {"app": "gitlab-runner"},
+            "ports": [{"name": "metrics", "port": 9252, "targetPort": "metrics", "protocol": "TCP"}],
+        })
+        self.assertEqual(policy["metadata"]["namespace"], "default")
+        self.assertEqual(policy["spec"], {
+            "endpointSelector": {"matchLabels": service["spec"]["selector"]},
+            "enableDefaultDeny": {"ingress": True, "egress": False},
+            "ingress": [{"fromEndpoints": [{"matchLabels": {
+                "k8s:io.kubernetes.pod.namespace": "default",
+                "app.kubernetes.io/instance": "victoriametrics",
+                "app.kubernetes.io/name": "victoriametrics",
+            }}], "toPorts": [{"ports": [{"port": "9252", "protocol": "TCP"}]}]}],
+            "ingressDeny": [{"fromEntities": ["world", "host", "remote-node"]}],
+        })
+        for manager in self.managers:
+            template = manager["spec"]["template"]
+            self.assertTrue(all(template["metadata"]["labels"].get(k) == v
+                                for k, v in service["spec"]["selector"].items()))
+            self.assertNotIn("prometheus.io/scrape", template["metadata"].get("annotations", {}))
+            self.assertFalse(template["spec"].get("hostNetwork", False))
+            self.assertEqual(template["spec"]["containers"][0]["ports"],
+                             [{"name": "metrics", "containerPort": 9252, "protocol": "TCP"}])
+        templates = (o for o in self.objects if o["kind"] == "ConfigMap"
+                     and "20-runner-header.toml" in o.get("data", {}))
+        for config in templates:
+            runner, = tomllib.loads("".join(value for key, value in sorted(config["data"].items())))["runners"]
+            self.assertNotEqual(runner["kubernetes"]["pod_labels"].get("app"), "gitlab-runner")
+
     def test_architecture_admission_and_generator(self):
         self.assertEqual(sorted(m["metadata"]["name"] for m in self.managers),
                          ["gitlab-runner-amd64", "gitlab-runner-arm64"])
@@ -108,6 +145,7 @@ class RunnerConfigTests(unittest.TestCase):
                     self.configs[arch] = actual
                     self.assertEqual(actual["check_interval"], 1)
                     self.assertEqual(actual["shutdown_timeout"], 0)  # admitted idle cutover, not an active-job drain claim
+                    self.assertEqual(actual["listen_address"], ":9252")
                     self.assertEqual(actual["session_server"], {"session_timeout": 1800})
                     for lane, runner in zip(environment["RUNNER_LANES"].split(), actual["runners"], strict=True):
                         template_dir = paths[f"/template/{lane}"]
@@ -117,6 +155,7 @@ class RunnerConfigTests(unittest.TestCase):
                         expected["cache"]["s3"].update(ServerAddress="s3.example:8333", BucketName=bucket["bucketName"], AccessKey=access, SecretKey=secret)
                         self.assertEqual(runner, expected, f"{arch}/{lane}: generation changed lane semantics")
                         self.assertEqual(runner["request_concurrency"], 4)
+                        self.assertEqual(runner["feature_flags"], {"FF_EXPORT_HIGH_CARDINALITY_METRICS": True})
                         # Runner chooses its version-coupled, selector-aware native helper.
                         self.assertNotIn("helper_image", runner["kubernetes"], f"{arch}/{lane}")
                         self.assertEqual(runner["kubernetes"].get("image_pull_secrets", []),

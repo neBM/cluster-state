@@ -1,0 +1,3 @@
+  # Native phase histograms; config flags cannot be overridden by CI variables.
+  [runners.feature_flags]
+    FF_EXPORT_HIGH_CARDINALITY_METRICS = true

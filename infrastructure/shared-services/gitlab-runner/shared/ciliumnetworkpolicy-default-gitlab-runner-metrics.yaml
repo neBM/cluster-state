@@ -1,0 +1,27 @@
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: gitlab-runner-metrics
+  namespace: default
+spec:
+  endpointSelector:
+    matchLabels:
+      app: gitlab-runner
+  enableDefaultDeny:
+    ingress: true
+    egress: false
+  # The native listener also serves debug/pprof. Permit only the collector.
+  ingress:
+  - fromEndpoints:
+    - matchLabels:
+        k8s:io.kubernetes.pod.namespace: default
+        app.kubernetes.io/instance: victoriametrics
+        app.kubernetes.io/name: victoriametrics
+    toPorts:
+    - ports:
+      - port: '9252'
+        protocol: TCP
+  # Match the repository's private-listener fence, including node-origin traffic.
+  ingressDeny:
+  - fromEntities: [world, host, remote-node]
+  # No egress rules: GitLab acquisition, Kubernetes API, DNS and cache are unchanged.

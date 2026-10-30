@@ -14,6 +14,7 @@ configMapGenerator:
   - fragments/20-runner-header.toml
   - fragments/30-env-common.toml
   - fragments/40-env-close.toml
+  - fragments/45-feature-flags.toml
   - fragments/50-kubernetes-common.toml
   - fragments/70-pod-labels-affinity.toml
   - fragments/90-storage.toml

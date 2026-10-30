@@ -1,5 +1,6 @@
 check_interval = 1
 shutdown_timeout = 0
+listen_address = ":9252"
 
 [session_server]
   session_timeout = 1800
