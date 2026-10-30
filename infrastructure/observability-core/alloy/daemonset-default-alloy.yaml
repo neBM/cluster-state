@@ -57,6 +57,10 @@ spec:
         terminationMessagePath: /dev/termination-log
         terminationMessagePolicy: File
         volumeMounts:
+        - mountPath: /host/proc
+          mountPropagation: None
+          name: host-proc
+          readOnly: true
         - mountPath: /etc/alloy
           mountPropagation: None
           name: config
@@ -94,6 +98,10 @@ spec:
         key: node-role.kubernetes.io/control-plane
         operator: Exists
       volumes:
+      - hostPath:
+          path: /proc
+          type: Directory
+        name: host-proc
       - configMap:
           defaultMode: 420
           name: alloy-config

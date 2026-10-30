@@ -10,6 +10,8 @@ This directory contains documentation for the K8s (K3s) cluster infrastructure.
 
 ### Observability
 
+- **[process-metrics.md](process-metrics.md)** - Alloy's native host/process collection, bounded groups, queries, and rollout acceptance.
+
 - **[elasticsearch-pipelines.md](elasticsearch-pipelines.md)** - Historical Elasticsearch ingest pipeline notes.
 
 ### Applications
