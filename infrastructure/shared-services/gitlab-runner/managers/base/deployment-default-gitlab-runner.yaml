@@ -33,6 +33,10 @@ spec:
         image: gitlab/gitlab-runner
         imagePullPolicy: Always
         name: gitlab-runner
+        ports:
+        - containerPort: 9252
+          name: metrics
+          protocol: TCP
         resources:
           limits:
             memory: 256Mi
