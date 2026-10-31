@@ -447,10 +447,12 @@ def validate_legacy_artifact_tmp(docs):
         errors.append("web Pod volume names must be unique")
     for component in ("webservice", "workhorse"):
         container = next(c for c in containers if c["name"] == component)
-        mounts = [m for m in container.get("volumeMounts", []) if m["mountPath"] == "/tmp/gitlab"]
-        if mounts != [{"name": "web-tmp", "mountPath": "/tmp/gitlab"}]:
-            errors.append(f"{component}: /tmp/gitlab must share writable web-tmp without subPath")
+        mounts = [m for m in container.get("volumeMounts", []) if m["mountPath"] == "/tmp"]
+        if mounts != [{"name": "web-tmp", "mountPath": "/tmp"}]:
+            errors.append(f"{component}: /tmp parent must share writable web-tmp without subPath")
         for mount in container.get("volumeMounts", []):
+            if mount["mountPath"] == "/tmp/gitlab" or mount["mountPath"].startswith("/tmp/gitlab/"):
+                errors.append(f"{component}: native /tmp/gitlab must be created by CNG, not mounted")
             if mount.get("subPath") == "workhorse-tmp":
                 errors.append(f"{component}: obsolete PVC temporary subPath remains")
     if [v for v in volumes if v["name"] == "web-tmp"] != [{"name": "web-tmp", "emptyDir": {}}]:

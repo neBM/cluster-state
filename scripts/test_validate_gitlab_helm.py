@@ -489,7 +489,8 @@ class LegacyS3ConfigTests(unittest.TestCase):
     def test_artifact_metadata_shared_native_temp(self):
         self.assertEqual(self.validator.validate_legacy_artifact_tmp(self.docs), [])
         consumers = {d["metadata"]["name"] for d in self.docs if d["kind"] in ("Deployment", "Job")
-                     and any(m["mountPath"] == "/tmp/gitlab"
+                     and d["metadata"].get("labels", {}).get("app") == "gitlab"
+                     and any(m["mountPath"] == "/tmp"
                              for c in d["spec"]["template"]["spec"].get("containers", [])
                              for m in c.get("volumeMounts", []))}
         self.assertEqual(consumers, {"gitlab-webservice"})
@@ -497,21 +498,30 @@ class LegacyS3ConfigTests(unittest.TestCase):
                           and d["metadata"]["name"] == "gitlab-webservice")
         pod = deployment["spec"]["template"]["spec"]
         self.assertCountEqual([c["name"] for c in pod["containers"]], ["webservice", "workhorse"])
+        self.assertNotIn("initContainers", pod)
         for container in pod["containers"]:
-            self.assertIn({"name": "web-tmp", "mountPath": "/tmp/gitlab"}, container["volumeMounts"])
+            # CNG's native mkdir -p -m 3770 /tmp/gitlab must create the child;
+            # -m cannot fix the permissions of an existing emptyDir mount root.
+            self.assertIn({"name": "web-tmp", "mountPath": "/tmp"}, container["volumeMounts"])
+            self.assertFalse(any(m["mountPath"].startswith("/tmp/gitlab")
+                                 for m in container["volumeMounts"]))
+            self.assertNotIn("TMPDIR", {e["name"] for e in container["env"]})
+            self.assertNotIn("command", container)
+            self.assertNotIn("args", container)
         self.assertIn({"name": "web-tmp", "emptyDir": {}}, pod["volumes"])
 
     def test_artifact_metadata_rejects_private_or_mismatched_temp(self):
         self.assertEqual(self.validator.validate_legacy_artifact_tmp(self.docs), [])
         for component in ("webservice", "workhorse"):
-            for mutation in ("missing", "private", "pvc", "subpath", "memory", "read-only"):
+            for mutation in ("missing", "private", "pvc", "subpath", "memory", "read-only",
+                             "mount-root", "shadow-child"):
                 with self.subTest(component=component, mutation=mutation):
                     changed = copy.deepcopy(self.docs)
                     workload = next(d for d in changed if d["kind"] == "Deployment"
                                     and d["metadata"]["name"] == "gitlab-webservice")
                     pod = workload["spec"]["template"]["spec"]
                     container = next(c for c in pod["containers"] if c["name"] == component)
-                    mount = next(m for m in container["volumeMounts"] if m["mountPath"] == "/tmp/gitlab")
+                    mount = next(m for m in container["volumeMounts"] if m["mountPath"] == "/tmp")
                     volume = next(v for v in pod["volumes"] if v["name"] == "web-tmp")
                     if mutation == "missing":
                         container["volumeMounts"].remove(mount)
@@ -525,8 +535,12 @@ class LegacyS3ConfigTests(unittest.TestCase):
                         mount["subPath"] = "workhorse-tmp"
                     elif mutation == "memory":
                         volume["emptyDir"]["medium"] = "Memory"
-                    else:
+                    elif mutation == "read-only":
                         mount["readOnly"] = True
+                    elif mutation == "mount-root":
+                        mount["mountPath"] = "/tmp/gitlab"
+                    else:
+                        container["volumeMounts"].append({"name": "web-tmp", "mountPath": "/tmp/gitlab"})
                     self.assertTrue(self.validator.validate_legacy_artifact_tmp(changed))
 
     def test_web_tier_rejects_split_backend_or_service(self):

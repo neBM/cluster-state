@@ -122,7 +122,8 @@ spec:
         - mountPath: /srv/gitlab/shared
           mountPropagation: HostToContainer
           name: shared
-        - mountPath: /tmp/gitlab
+        # Let CNG create /tmp/gitlab with its native mode, not as a mount root.
+        - mountPath: /tmp
           name: web-tmp
       # GitLab chart v10.5.0 colocates Workhorse and Rails. ZIP metadata paths
       # handed to Rails must resolve to the same local filesystem in both.
@@ -183,7 +184,7 @@ spec:
         - mountPath: /srv/gitlab/shared
           mountPropagation: HostToContainer
           name: shared
-        - mountPath: /tmp/gitlab
+        - mountPath: /tmp
           name: web-tmp
         - mountPath: /etc/gitlab/objectstore
           name: objectstore-connection
