@@ -15,6 +15,6 @@ spec:
     targetPort: 8181
   selector:
     app: gitlab
-    component: workhorse
+    component: webservice
   sessionAffinity: None
   type: ClusterIP

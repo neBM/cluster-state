@@ -1,15 +1,22 @@
-- op: add
-  path: /spec/template/spec/containers/0/volumeMounts/8
-  value:
-    mountPath: /etc/gitlab/registry
-    mountPropagation: None
-    name: registry-auth
-    readOnly: true
-- op: add
-  path: /spec/template/spec/volumes/8
-  value:
-    name: registry-auth
-    secret:
-      defaultMode: 420
-      optional: false
-      secretName: gitlab-registry-auth
+# Only Rails receives the registry signing key, regardless of container order.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gitlab-webservice
+  namespace: default
+spec:
+  template:
+    spec:
+      containers:
+      - name: webservice
+        volumeMounts:
+        - mountPath: /etc/gitlab/registry
+          mountPropagation: None
+          name: registry-auth
+          readOnly: true
+      volumes:
+      - name: registry-auth
+        secret:
+          defaultMode: 420
+          optional: false
+          secretName: gitlab-registry-auth

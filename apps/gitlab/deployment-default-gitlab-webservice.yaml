@@ -122,10 +122,73 @@ spec:
         - mountPath: /srv/gitlab/shared
           mountPropagation: HostToContainer
           name: shared
-        - mountPath: /tmp/gitlab
+        # Let CNG create /tmp/gitlab with its native mode, not as a mount root.
+        - mountPath: /tmp
+          name: web-tmp
+      # GitLab chart v10.5.0 colocates Workhorse and Rails. ZIP metadata paths
+      # handed to Rails must resolve to the same local filesystem in both.
+      - env:
+        - name: CONFIG_TEMPLATE_DIRECTORY
+          value: /var/opt/gitlab/config/templates
+        - name: CONFIG_DIRECTORY
+          value: /srv/gitlab/config
+        - name: GITLAB_WORKHORSE_EXTRA_ARGS
+          value: -authBackend http://127.0.0.1:8080 -cableBackend http://127.0.0.1:8080
+            -apiCiLongPollingDuration 50s
+        image: registry.gitlab.com/gitlab-org/build/cng/gitlab-workhorse-ce:placeholder
+        imagePullPolicy: IfNotPresent
+        livenessProbe:
+          failureThreshold: 10
+          httpGet:
+            path: /-/liveness
+            port: 8181
+            scheme: HTTP
+          initialDelaySeconds: 30
+          periodSeconds: 30
+          successThreshold: 1
+          timeoutSeconds: 5
+        name: workhorse
+        ports:
+        - containerPort: 8181
+          name: workhorse
+          protocol: TCP
+        readinessProbe:
+          failureThreshold: 6
+          httpGet:
+            path: /-/readiness
+            port: 8181
+            scheme: HTTP
+          initialDelaySeconds: 10
+          periodSeconds: 10
+          successThreshold: 1
+          timeoutSeconds: 5
+        resources:
+          limits:
+            memory: 256Mi
+          requests:
+            cpu: 100m
+            memory: 32Mi
+        terminationMessagePath: /dev/termination-log
+        terminationMessagePolicy: File
+        volumeMounts:
+        - mountPath: /var/opt/gitlab/config/templates
+          mountPropagation: None
+          name: workhorse-config
+        - mountPath: /etc/gitlab/gitlab-workhorse
+          mountPropagation: None
+          name: workhorse-secret
+          readOnly: true
+        - mountPath: /srv/gitlab/public/uploads
+          mountPropagation: HostToContainer
+          name: uploads
+        - mountPath: /srv/gitlab/shared
           mountPropagation: HostToContainer
           name: shared
-          subPath: workhorse-tmp
+        - mountPath: /tmp
+          name: web-tmp
+        - mountPath: /etc/gitlab/objectstore
+          name: objectstore-connection
+          readOnly: true
       dnsPolicy: ClusterFirst
       enableServiceLinks: true
       restartPolicy: Always
@@ -144,3 +207,10 @@ spec:
       - name: shared
         persistentVolumeClaim:
           claimName: gitlab-shared-sw
+      - name: web-tmp
+        emptyDir: {}
+      - configMap:
+          defaultMode: 420
+          name: workhorse-config
+          optional: false
+        name: workhorse-config
