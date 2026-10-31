@@ -32,9 +32,12 @@ EXPECTED_IMAGE_FILES = {
     "healthcheck.py",
     "sshd_config",
 }
+# Independent policy pin, not derived from the Dockerfile. Refresh only after
+# registry qualification of the Ubuntu 24.04 index and both native descriptors;
+# update the documented index/children in image/README.md in the same change.
 BASE = (
     "ubuntu:24.04@sha256:"
-    "33ceb71981b602c1a7443a53469e4dba065f7503eab3078a2d7a57a2ab987517"
+    "68ee22004a9109b44973313b02ff7b1de250f1de0f5ecb628d73f579aaff33ac"
 )
 PINNED_ARGUMENTS = {
     "UV_VERSION": "0.12.10",
@@ -896,6 +899,21 @@ def require_rejected(check: Callable[[], None], label: str) -> None:
 
 def validate_dockerfile_mutations(text: str) -> None:
     mutations = {
+        "mutable base tag": replaced(
+            text, BASE, "ubuntu:24.04", "mutable base tag"
+        ),
+        "unauthenticated base digest": replaced(
+            text,
+            BASE,
+            "ubuntu:24.04@sha256:" + "0" * 64,
+            "unauthenticated base digest",
+        ),
+        "wrong Ubuntu release": replaced(
+            text, BASE, BASE.replace("24.04", "26.04"), "wrong Ubuntu release"
+        ),
+        "wrong base repository": replaced(
+            text, BASE, BASE.replace("ubuntu:", "untrusted/ubuntu:"), "wrong base repository"
+        ),
         "missing arm64 checksum": replaced(
             text,
             f'ARG UV_ARM64_SHA256={PINNED_ARGUMENTS["UV_ARM64_SHA256"]}\n',
