@@ -13,7 +13,6 @@ resources:
 - deployment-default-gitlab-registry.yaml
 - deployment-default-gitlab-sidekiq.yaml
 - deployment-default-gitlab-webservice.yaml
-- deployment-default-gitlab-workhorse.yaml
 - ingressroute-default-gitlab.yaml
 - ingressroute-default-gitlab-registry.yaml
 - persistentvolumeclaim-default-gitlab-registry-sw.yaml
@@ -119,15 +118,8 @@ replacements:
       kind: Deployment
       name: gitlab-webservice
     fieldPaths:
-    - spec.template.spec.containers.0.image
-    options:
-      delimiter: ':'
-      index: 1
-  - select:
-      kind: Deployment
-      name: gitlab-workhorse
-    fieldPaths:
-    - spec.template.spec.containers.0.image
+    - spec.template.spec.containers.[name=webservice].image
+    - spec.template.spec.containers.[name=workhorse].image
     options:
       delimiter: ':'
       index: 1
@@ -141,17 +133,11 @@ images:
 # between webservice, sidekiq, and migrations.
 patches:
 - path: patch-gitlab-rails-runtime-deployments.yaml
-  target:
-    kind: Deployment
-    labelSelector: gitlab.com/rails-runtime=true
 - path: patch-gitlab-rails-runtime-job.yaml
   target:
     kind: Job
     labelSelector: gitlab.com/rails-runtime=true
 - path: patch-gitlab-rails-registry-auth-deployment.yaml
-  target:
-    kind: Deployment
-    labelSelector: gitlab.com/rails-registry-auth=true
 - path: patch-gitlab-rails-registry-auth-job.yaml
   target:
     kind: Job

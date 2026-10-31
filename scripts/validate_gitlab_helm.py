@@ -426,28 +426,57 @@ def validate_legacy_workhorse_template(docs):
 
 
 def validate_legacy_artifact_tmp(docs):
-    """Workhorse's local ZIP metadata pathname must resolve in the Rails Pod."""
+    """The active CNG web tier shares local ZIP metadata and GPG temp space."""
     errors = []
+    deployments = [d for d in docs if d.get("kind") == "Deployment"
+                   and d.get("metadata", {}).get("namespace") == "default"]
+    if any(d["metadata"]["name"] == "gitlab-workhorse" for d in deployments):
+        errors.append("separate gitlab-workhorse Deployment must be retired")
+    workloads = [d for d in deployments if d["metadata"]["name"] == "gitlab-webservice"]
+    if len(workloads) != 1:
+        return errors + ["exactly one colocated gitlab-webservice Deployment required"]
+    workload = workloads[0]
+    expect(errors, workload, "spec.replicas", 1)
+    expect(errors, workload, "spec.strategy", {"type": "Recreate"})
+    pod = workload["spec"]["template"]["spec"]
+    containers = pod.get("containers", [])
+    if sorted(c["name"] for c in containers) != ["webservice", "workhorse"]:
+        return errors + ["webservice and workhorse must be the only two web Pod containers"]
+    volumes = pod.get("volumes", [])
+    if len({v["name"] for v in volumes}) != len(volumes):
+        errors.append("web Pod volume names must be unique")
     for component in ("webservice", "workhorse"):
-        name = f"gitlab-{component}"
-        workloads = [d for d in docs if d.get("kind") == "Deployment"
-                     and d.get("metadata", {}).get("name") == name
-                     and d["metadata"].get("namespace") == "default"]
-        if len(workloads) != 1:
-            errors.append(f"{name}: exactly one artifact metadata consumer required")
-            continue
-        pod = workloads[0]["spec"]["template"]["spec"]
-        containers = [c for c in pod.get("containers", []) if c["name"] == component]
-        if len(containers) != 1:
-            errors.append(f"{name}: artifact metadata serving container missing")
-            continue
-        mounts = [m for m in containers[0].get("volumeMounts", []) if m["mountPath"] == "/tmp/gitlab"]
-        if mounts != [{"name": "shared", "mountPath": "/tmp/gitlab", "subPath": "workhorse-tmp",
-                       "mountPropagation": "HostToContainer"}]:
-            errors.append(f"{name}: /tmp/gitlab must share writable shared/workhorse-tmp")
-        volumes = [v for v in pod.get("volumes", []) if v["name"] == "shared"]
-        if volumes != [{"name": "shared", "persistentVolumeClaim": {"claimName": "gitlab-shared-sw"}}]:
-            errors.append(f"{name}: artifact metadata must use the existing gitlab-shared-sw PVC")
+        container = next(c for c in containers if c["name"] == component)
+        mounts = [m for m in container.get("volumeMounts", []) if m["mountPath"] == "/tmp/gitlab"]
+        if mounts != [{"name": "web-tmp", "mountPath": "/tmp/gitlab"}]:
+            errors.append(f"{component}: /tmp/gitlab must share writable web-tmp without subPath")
+        for mount in container.get("volumeMounts", []):
+            if mount.get("subPath") == "workhorse-tmp":
+                errors.append(f"{component}: obsolete PVC temporary subPath remains")
+    if [v for v in volumes if v["name"] == "web-tmp"] != [{"name": "web-tmp", "emptyDir": {}}]:
+        errors.append("web-tmp must be one disk-backed emptyDir, not PVC or memory")
+    ports = [p["name"] for c in containers for p in c.get("ports", []) if "name" in p]
+    if len(ports) != len(set(ports)):
+        errors.append("web Pod container port names must be unique")
+    workhorse = next(c for c in containers if c["name"] == "workhorse")
+    args = [e.get("value") for e in workhorse.get("env", []) if e["name"] == "GITLAB_WORKHORSE_EXTRA_ARGS"]
+    if args != ["-authBackend http://127.0.0.1:8080 -cableBackend http://127.0.0.1:8080 -apiCiLongPollingDuration 50s"]:
+        errors.append("Workhorse auth and cable backends must use Pod loopback Rails")
+    services = [d for d in docs if d.get("kind") == "Service"
+                and d.get("metadata", {}).get("name") == "gitlab-workhorse"
+                and d["metadata"].get("namespace") == "default"]
+    if len(services) != 1:
+        errors.append("exactly one compatible gitlab-workhorse Service required")
+    else:
+        service = services[0]
+        expect(errors, service, "spec.selector", {"app": "gitlab", "component": "webservice"})
+        expect(errors, service, "spec.ports", [{"name": "http", "port": 8181, "protocol": "TCP", "targetPort": 8181}])
+        selector = service["spec"].get("selector", {})
+        selected = [d["metadata"]["name"] for d in deployments if selector
+                    and all(d["spec"]["template"]["metadata"].get("labels", {}).get(k) == v
+                            for k, v in selector.items())]
+        if selected != ["gitlab-webservice"]:
+            errors.append("gitlab-workhorse Service must select only the colocated web tier")
     return errors
 
 

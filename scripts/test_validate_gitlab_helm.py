@@ -5,8 +5,11 @@
 # ///
 """Mutate the real candidate source and one real Helm render, never fake readiness."""
 import copy
+import hashlib
 import importlib.util
+import json
 import os
+import shutil
 import subprocess
 from pathlib import Path
 import tempfile
@@ -421,26 +424,26 @@ class LegacyS3ConfigTests(unittest.TestCase):
         cls.docs = validator.kustomize(ROOT, "apps")
 
     def test_required_native_connection_consumers(self):
-        active = {"gitlab-webservice", "gitlab-sidekiq", "gitlab-workhorse"}
+        active = {"gitlab-webservice", "gitlab-sidekiq"}
         projected = {d["metadata"]["name"] for d in self.docs if d["kind"] in ("Deployment", "Job")
                      and any(v["name"] == "objectstore-connection"
                              for v in d["spec"]["template"]["spec"].get("volumes", []))}
         self.assertEqual(projected, active)
         # Keep existing tuning/path checks on the historical Job, without new S3 input.
         workloads = {
-            "gitlab-webservice": ("75m", "2100Mi", "3Gi"),
-            "gitlab-sidekiq": ("150m", "1600Mi", "2Gi"),
-            "gitlab-workhorse": ("100m", "32Mi", "256Mi"),
-            "gitlab-migrations-v19.5.0-r1": ("75m", "2100Mi", "3Gi"),
+            ("gitlab-webservice", "webservice"): ("75m", "2100Mi", "3Gi"),
+            ("gitlab-webservice", "workhorse"): ("100m", "32Mi", "256Mi"),
+            ("gitlab-sidekiq", "sidekiq"): ("150m", "1600Mi", "2Gi"),
+            ("gitlab-migrations-v19.5.0-r1", "migrations"): ("75m", "2100Mi", "3Gi"),
         }
-        for name, (cpu, memory, limit) in workloads.items():
-            with self.subTest(consumer=name):
+        for (name, component), (cpu, memory, limit) in workloads.items():
+            with self.subTest(consumer=name, container=component):
                 matches = [d for d in self.docs if d["kind"] in ("Deployment", "Job")
                            and d["metadata"]["name"] == name]
                 self.assertEqual(len(matches), 1)
                 workload = matches[0]
                 pod = workload["spec"]["template"]["spec"]
-                container = pod["containers"][0]
+                container = next(c for c in pod["containers"] if c["name"] == component)
                 volumes = {v["name"]: v for v in pod["volumes"]}
                 mounts = {m["mountPath"]: m for m in container["volumeMounts"]}
                 if name in active:
@@ -472,8 +475,8 @@ class LegacyS3ConfigTests(unittest.TestCase):
                 self.assertEqual(env["CONFIG_TEMPLATE_DIRECTORY"]["value"], "/var/opt/gitlab/config/templates")
                 self.assertEqual(env["CONFIG_DIRECTORY"]["value"], "/srv/gitlab/config")
                 self.assertFalse(any(e.startswith(("AWS_", "S3_")) for e in env))
-                tuning = {"gitlab-webservice": {"WORKER_PROCESSES": "1", "PUMA_THREADS_MIN": "1", "PUMA_THREADS_MAX": "4"},
-                          "gitlab-sidekiq": {"SIDEKIQ_CONCURRENCY": "5"}}.get(name, {})
+                tuning = {"webservice": {"WORKER_PROCESSES": "1", "PUMA_THREADS_MIN": "1", "PUMA_THREADS_MAX": "4"},
+                          "sidekiq": {"SIDEKIQ_CONCURRENCY": "5"}}.get(component, {})
                 for key, value in tuning.items():
                     self.assertEqual(env[key]["value"], value)
                 self.assertEqual(container["resources"], {
@@ -489,34 +492,110 @@ class LegacyS3ConfigTests(unittest.TestCase):
                      and any(m["mountPath"] == "/tmp/gitlab"
                              for c in d["spec"]["template"]["spec"].get("containers", [])
                              for m in c.get("volumeMounts", []))}
-        self.assertEqual(consumers, {"gitlab-webservice", "gitlab-workhorse"})
+        self.assertEqual(consumers, {"gitlab-webservice"})
+        deployment = next(d for d in self.docs if d["kind"] == "Deployment"
+                          and d["metadata"]["name"] == "gitlab-webservice")
+        pod = deployment["spec"]["template"]["spec"]
+        self.assertCountEqual([c["name"] for c in pod["containers"]], ["webservice", "workhorse"])
+        for container in pod["containers"]:
+            self.assertIn({"name": "web-tmp", "mountPath": "/tmp/gitlab"}, container["volumeMounts"])
+        self.assertIn({"name": "web-tmp", "emptyDir": {}}, pod["volumes"])
 
     def test_artifact_metadata_rejects_private_or_mismatched_temp(self):
         self.assertEqual(self.validator.validate_legacy_artifact_tmp(self.docs), [])
         for component in ("webservice", "workhorse"):
-            for mutation in ("missing", "private", "wrong-claim", "wrong-subpath", "pvc-root", "read-only"):
+            for mutation in ("missing", "private", "pvc", "subpath", "memory", "read-only"):
                 with self.subTest(component=component, mutation=mutation):
                     changed = copy.deepcopy(self.docs)
                     workload = next(d for d in changed if d["kind"] == "Deployment"
-                                    and d["metadata"]["name"] == f"gitlab-{component}")
+                                    and d["metadata"]["name"] == "gitlab-webservice")
                     pod = workload["spec"]["template"]["spec"]
                     container = next(c for c in pod["containers"] if c["name"] == component)
                     mount = next(m for m in container["volumeMounts"] if m["mountPath"] == "/tmp/gitlab")
-                    volume = next(v for v in pod["volumes"] if v["name"] == "shared")
+                    volume = next(v for v in pod["volumes"] if v["name"] == "web-tmp")
                     if mutation == "missing":
                         container["volumeMounts"].remove(mount)
                     elif mutation == "private":
-                        volume.pop("persistentVolumeClaim")
-                        volume["emptyDir"] = {}
-                    elif mutation == "wrong-claim":
-                        volume["persistentVolumeClaim"]["claimName"] = "private-tmp"
-                    elif mutation == "wrong-subpath":
-                        mount["subPath"] = "other-tmp"
-                    elif mutation == "pvc-root":
-                        mount.pop("subPath")
+                        mount["name"] = "private-tmp"
+                        pod["volumes"].append({"name": "private-tmp", "emptyDir": {}})
+                    elif mutation == "pvc":
+                        volume.pop("emptyDir")
+                        volume["persistentVolumeClaim"] = {"claimName": "gitlab-shared-sw"}
+                    elif mutation == "subpath":
+                        mount["subPath"] = "workhorse-tmp"
+                    elif mutation == "memory":
+                        volume["emptyDir"]["medium"] = "Memory"
                     else:
                         mount["readOnly"] = True
                     self.assertTrue(self.validator.validate_legacy_artifact_tmp(changed))
+
+    def test_web_tier_rejects_split_backend_or_service(self):
+        for mutation in ("split", "retired", "backend", "selector", "port", "duplicate-port", "duplicate-volume", "replicas", "rolling"):
+            with self.subTest(mutation=mutation):
+                changed = copy.deepcopy(self.docs)
+                web = next(d for d in changed if d["kind"] == "Deployment"
+                           and d["metadata"]["name"] == "gitlab-webservice")
+                pod = web["spec"]["template"]["spec"]
+                workhorse = next(c for c in pod["containers"] if c["name"] == "workhorse")
+                service = next(d for d in changed if d["kind"] == "Service"
+                               and d["metadata"]["name"] == "gitlab-workhorse")
+                if mutation == "split":
+                    pod["containers"].remove(workhorse)
+                elif mutation == "retired":
+                    retired = copy.deepcopy(web)
+                    retired["metadata"]["name"] = "gitlab-workhorse"
+                    changed.append(retired)
+                elif mutation == "backend":
+                    next(e for e in workhorse["env"] if e["name"] == "GITLAB_WORKHORSE_EXTRA_ARGS")["value"] = "-authBackend http://gitlab-webservice:8080"
+                elif mutation == "selector":
+                    service["spec"]["selector"] = {"app": "gitlab"}
+                elif mutation == "port":
+                    service["spec"]["ports"][0]["targetPort"] = 8080
+                elif mutation == "duplicate-port":
+                    workhorse["ports"][0]["name"] = "http"
+                elif mutation == "duplicate-volume":
+                    pod["volumes"].append(copy.deepcopy(pod["volumes"][0]))
+                elif mutation == "replicas":
+                    web["spec"]["replicas"] = 2
+                else:
+                    web["spec"]["strategy"] = {"type": "RollingUpdate"}
+                self.assertTrue(self.validator.validate_legacy_artifact_tmp(changed))
+
+    def test_name_keyed_config_and_images_survive_container_reordering(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            shutil.copytree(ROOT / "apps/gitlab", root / "gitlab")
+            source = root / "gitlab/deployment-default-gitlab-webservice.yaml"
+            deployment = yaml.safe_load(source.read_text())
+            deployment["spec"]["template"]["spec"]["containers"].reverse()
+            source.write_text(yaml.safe_dump(deployment))
+            docs = self.validator.kustomize(root, "gitlab")
+        web = next(d for d in docs if d["kind"] == "Deployment" and d["metadata"]["name"] == "gitlab-webservice")
+        pod = web["spec"]["template"]["spec"]
+        self.assertEqual(pod["securityContext"], {
+            "fsGroup": 1000, "runAsGroup": 1000, "runAsNonRoot": False, "runAsUser": 1000,
+        })
+        for container in pod["containers"]:
+            component = container["name"]
+            mounts = {m["mountPath"]: m for m in container["volumeMounts"]}
+            self.assertEqual(len(mounts), len(container["volumeMounts"]))
+            expected_config = "workhorse-config" if component == "workhorse" else "config-templates"
+            self.assertEqual(mounts["/var/opt/gitlab/config/templates"]["name"], expected_config)
+            self.assertEqual(container["image"], f"registry.gitlab.com/gitlab-org/build/cng/gitlab-{component}-ce:v19.5.0")
+            for path in ("/etc/gitlab/postgres", "/srv/gitlab/config/secrets.yml", "/etc/gitlab/registry"):
+                self.assertEqual(path in mounts, component == "webservice")
+            self.assertEqual(mounts["/etc/gitlab/gitlab-workhorse"]["name"], "workhorse-secret")
+            self.assertTrue(mounts["/etc/gitlab/gitlab-workhorse"]["readOnly"])
+        self.assertEqual(self.validator.validate_legacy_artifact_tmp(docs), [])
+
+    def test_completed_migration_template_unchanged(self):
+        # The existing completed Job cannot acquire this web-tier rollout.
+        # Baseline e51997ea; a future migration must use a new version/run name.
+        job = next(d for d in self.docs if d["kind"] == "Job"
+                   and d["metadata"]["name"] == "gitlab-migrations-v19.5.0-r1")
+        template = json.dumps(job["spec"]["template"], sort_keys=True, separators=(",", ":")).encode()
+        self.assertEqual(hashlib.sha256(template).hexdigest(),
+                         "d498e353a5ead595ab53f28f55c6d043461ad8e3f43eacfd5eebe6bbb30158c7")
 
     def test_uploads_native_parent_root_and_consumed_rollout(self):
         configs = {d["metadata"]["name"]: d["data"] for d in self.docs if d["kind"] == "ConfigMap"}

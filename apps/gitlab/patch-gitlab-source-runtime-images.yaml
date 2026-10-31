@@ -50,15 +50,5 @@ spec:
       containers:
       - name: webservice
         image: registry.gitlab.com/gitlab-org/build/cng/gitlab-webservice-ce:v19.5.0@sha256:517def09396d5e6a736a26b474758695a1a0bc557544af0a3e8c29684c969fc8
----
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: gitlab-workhorse
-  namespace: default
-spec:
-  template:
-    spec:
-      containers:
       - name: workhorse
         image: registry.gitlab.com/gitlab-org/build/cng/gitlab-workhorse-ce:v19.5.0@sha256:aab34f7dfe65bb6d5571035b52ed051b9d9eb7c5a6dd4f947810abfff5a2f0d1
