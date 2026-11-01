@@ -40,7 +40,7 @@ images:
 - name: "registry.k8s.io/sig-storage/livenessprobe"
   newTag: "v2.20.0"
 - name: "registry.brmartin.co.uk/ben/seaweedfs-mount"
-  digest: "sha256:80f6416c9c83196091a7687b5f6f62eb5bcd978240eb55e92b8cff92f3dd12fb"
+  digest: "sha256:7d5f0771b8a17fb18cf2e24f8c2f61c42a4496f3789366b58644e6d031ed9292"
 - name: "chrislusf/seaweedfs"
   newTag: "4.19-nebm-4289e12"
 - name: "registry.k8s.io/sig-storage/csi-provisioner"
