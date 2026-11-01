@@ -1,1 +1,2 @@
-
+    # Shared eligibility preserves pull access from the former generic runner.
+    image_pull_secrets = ["gitlab-runner-helper-pull"]

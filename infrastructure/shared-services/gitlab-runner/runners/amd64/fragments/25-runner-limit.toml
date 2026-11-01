@@ -1,0 +1,2 @@
+  # Native, shared and services eligibility consume the same architecture slot.
+  limit = 1

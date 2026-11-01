@@ -1,9 +1,10 @@
 {
+  "description": "Synthetic healthy capacity envelope, not measured live headroom or an outage guarantee",
   "pools": {
-    "amd64": {"nodes": ["hestia"], "headroom_cpu_m": [1430], "headroom_memory_mi": [6275.46875]},
-    "arm64": {"nodes": ["heracles", "nyx"], "headroom_cpu_m": [1240, 2530], "headroom_memory_mi": [4690.796875, 7.83203125]}
+    "amd64": {"slots": 1, "nodes": ["amd-a"], "headroom_cpu_m": [1000], "headroom_memory_mi": [2048]},
+    "arm64": {"slots": 2, "nodes": ["arm-a", "arm-b"], "headroom_cpu_m": [1000, 1000], "headroom_memory_mi": [2048, 2048]}
   },
   "margin_cpu_m": 125,
   "margin_memory_mi": 128,
-  "max_declared_services": {"amd64": 2, "arm64": 2, "any": 2, "services": 2}
+  "max_declared_services": {"amd64": 2, "arm64": 2}
 }

@@ -1,3 +1,2 @@
-# Template default only; production managers mount their pool-specific bound.
-# Each architecture shares acquisition across all its registrations.
-concurrent = 2
+# The production generator enforces this single-manager bound across both pools.
+concurrent = 3

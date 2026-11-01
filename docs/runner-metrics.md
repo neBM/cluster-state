@@ -1,21 +1,21 @@
 # Native GitLab Runner metrics
 
-The two architecture acquisition managers use the existing pinned GitLab Runner
+The single architecture-aware acquisition manager uses the existing pinned GitLab Runner
 19.5.2 listener. There is no exporter, sidecar, custom endpoint or CI instrumentation.
 
 ## Collection and access
 
 - `runner-base/fragments/10-global.toml` sets top-level
-  `listen_address = ":9252"`, before any TOML tables. Each manager's production
-  config generator reads this global fragment from its architecture-specific
-  `any` template. Enabling the listener requires a manager restart.
+  `listen_address = ":9252"`, before any TOML tables. The manager's production
+  config generator reads this global fragment from its `amd64` template.
+  Enabling the listener requires a manager restart.
 - The common `45-feature-flags.toml` fragment sets
   `[runners.feature_flags] FF_EXPORT_HIGH_CARDINALITY_METRICS = true`. Every
-  rendered registration inherits it, including both architecture-specific `any`
-  variants; the registration configuration prevents CI-variable overrides.
+  rendered registration inherits it; the registration configuration prevents
+  CI-variable overrides.
   The listener alone does not enable phase histograms (the flag defaults false).
 - The single `default/gitlab-runner-metrics` ClusterIP Service selects
-  `app: gitlab-runner`: both manager Pods, not ephemeral CI job Pods (which use
+  `app: gitlab-runner`: the manager Pod, not ephemeral CI job Pods (which use
   `ci.brmartin.co.uk/job`). Its real TCP port is 9252, targeting the manager's
   named `metrics` port. Only the Service has `prometheus.io/*` scrape annotations.
 - The existing VictoriaMetrics service-endpoints job discovers each manager
@@ -53,12 +53,12 @@ added to these histograms. The native `runner` label is Runner's shortened token
 identifier, not the authentication token; treat internal metrics accordingly.
 
 Each histogram has ten finite bucket boundaries plus `+Inf`, `_sum` and `_count`:
-13 time series per observed label combination. Four registrations across two
-stable manager system IDs create five registration/system-ID pairs because
-`any` is served by both managers. Budget at most **975 phase series** for the
-14 predefined phase names plus ordinary `step_script` (5 × 15 × 13). Including
-native `step_run` and `concrete` paths gives a conservative **1,105 phase-series
-budget** (5 × 17 × 13). This is an estimate for the current native phase/step
+13 time series per observed label combination. Two registrations under one
+stable manager system ID create two registration/system-ID pairs.
+Budget at most **390 phase series** for the
+14 predefined phase names plus ordinary `step_script` (2 × 15 × 13). Including
+native `step_run` and `concrete` paths gives a conservative **442 phase-series
+budget** (2 × 17 × 13). This is an estimate for the current native phase/step
 vocabulary, not a hard runtime cap: new server-supplied step names, Runner
 upgrades, identity rotations or scrape target churn require reassessment.
 The listener also exports other native Runner/Go/process metrics; the phase
@@ -83,19 +83,42 @@ python3 scripts/validate_gitlab_runner_templates.py
 kubectl kustomize infrastructure/shared-services/gitlab-runner > /dev/null
 ```
 
-The existing generator test exercises both complete effective manager configs,
-all five mounted registration variants, credential escaping and file modes.
+The existing generator test exercises the complete effective manager config,
+both mounted registration variants, credential escaping and file modes.
 It also checks the listener, phase flag, manager-only Service and ingress fence.
 Use `RUNNER_CONFIG_CONTAINER=1` with the existing pinned BusyBox image for the
 native generator path. Full canonical repository CI remains a separate gate.
 
-Rollout is not performed by these checks. The rollout owner must preserve the
-existing paused states of registrations 2, 3, 4 and 5, admit zero active CI before
-recreating managers, and restore those exact paused states afterward. Keep both
-manager concurrency values at 1 and every registration limit at 1; preserve
-request concurrency, native helper selection, immutable image pins, requests,
-QoS behavior, architecture admission, mount and job-pod isolation contracts.
-After reconciliation, verify both unique endpoint targets are up, effective
+Rollout is not performed by these checks. The rollout owner must drain existing
+managers before replacing them: `Recreate` does not serialize different
+Deployment names, and `shutdown_timeout = 0` is not an active-job drain guarantee.
+The single `gitlab-runner` Deployment has global `concurrent = 3`, with exactly
+two registrations: `k8s-amd64` has `limit = 1`, and `k8s-arm64` has `limit = 2`.
+Untagged and shared jobs consume those same limits, not additional capacity.
+Native architecture selectors and hard one-job-per-node anti-affinity remain;
+three simultaneous jobs require three healthy eligible nodes with resource fit.
+Node outages, other reservations and Kubedock child Pods can still constrain
+actual scheduling. The architecture fixture is synthetic, not live headroom.
+
+GitLab server eligibility is a separate required contract, not Runner TOML:
+the reused AMD64 registration accepts tags `amd64`, `shared`, `services` and
+untagged jobs; the reused ARM64 registration accepts tags `arm64`, `shared` and
+untagged jobs. Retire the former generic/services registrations after draining;
+do not leave them acquiring independent capacity. No application CI change is
+required. Authentication still uses `gitlab-runner-secrets` keys
+`runner_token_amd64` and `runner_token_arm64`; no new token is needed. The old
+generic/services keys are no longer consumed. One existing manager system ID is
+retained for both registrations.
+
+Merging eligibility preserves the native Kubedock service, Docker/Testcontainers
+environment and service requests for both architectures, and preserves the
+former generic/services image-pull Secret reference on both. Consequently,
+untagged jobs now inherit Kubedock and its Docker environment too; there is no
+per-tag TOML selection within a registration. No additional privilege is added:
+the existing privileged executor, mounts, security settings, resource limits,
+request concurrency, native version-coupled helper and image pins are retained.
+
+After reconciliation, verify the single endpoint target is up, effective
 policy allows the collector and denies unauthorized sources, and native
 histogram samples appear after naturally occurring jobs. Do not retry or
 manufacture jobs to populate telemetry.

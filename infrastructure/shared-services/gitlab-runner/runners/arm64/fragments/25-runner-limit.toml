@@ -1,0 +1,2 @@
+  # Native and shared eligibility consume the same two architecture slots.
+  limit = 2

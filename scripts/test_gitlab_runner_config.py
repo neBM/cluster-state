@@ -24,7 +24,7 @@ from validate_gitlab_runner_templates import cpu_millicores, validate_pool_contr
 
 ROOT = Path(__file__).resolve().parent.parent
 RUNNERS = ROOT / "infrastructure/shared-services/gitlab-runner"
-LANES = ("amd64", "any", "arm64", "services")
+LANES = ("amd64", "arm64")
 
 
 class RunnerConfigTests(unittest.TestCase):
@@ -76,12 +76,12 @@ class RunnerConfigTests(unittest.TestCase):
 
     def test_architecture_admission_and_generator(self):
         self.assertEqual(sorted(m["metadata"]["name"] for m in self.managers),
-                         ["gitlab-runner-amd64", "gitlab-runner-arm64"])
+                         ["gitlab-runner"])
         maps = {obj["metadata"]["name"]: obj["data"] for obj in self.objects if obj["kind"] == "ConfigMap"}
         pins = {image["name"]: image for image in yaml.safe_load((RUNNERS / "kustomization.yaml").read_text())["images"]}
         system_ids = []
         for manager in self.managers:
-            arch = manager["spec"]["template"]["metadata"]["labels"]["pool"]
+            arch = "architecture"
             self.assertEqual(manager["spec"]["replicas"], 1)
             self.assertEqual(manager["spec"]["strategy"], {"type": "Recreate"})
             pod = manager["spec"]["template"]["spec"]
@@ -158,10 +158,28 @@ class RunnerConfigTests(unittest.TestCase):
                         self.assertEqual(runner["feature_flags"], {"FF_EXPORT_HIGH_CARDINALITY_METRICS": True})
                         # Runner chooses its version-coupled, selector-aware native helper.
                         self.assertNotIn("helper_image", runner["kubernetes"], f"{arch}/{lane}")
+                        k = runner["kubernetes"]
+                        self.assertTrue(k["privileged"])
+                        self.assertFalse(k["enable_service_links"])
+                        self.assertEqual(k["cpu_request"], "250m" if lane == "amd64" else "500m")
+                        self.assertEqual(k["helper_cpu_request"], "50m")
+                        self.assertEqual(k["service_cpu_request"], "25m")
+                        self.assertEqual(k["service_account"], "gitlab-runner")
+                        self.assertEqual(k["namespace"], "ci")
+                        self.assertEqual(k["pull_policy"], ["if-not-present"])
+                        self.assertEqual(k["allowed_pull_policies"], ["always", "if-not-present", "never"])
+                        self.assertEqual(k["volumes"]["host_path"], [
+                            {"name": name, "mount_path": mount, "host_path": path, "read_only": False}
+                            for name, mount, path in (
+                                ("repo", "/builds", "/var/lib/ci-builds-nocow"),
+                                ("ci-cache", "/ci-cache", "/var/lib/ci-cache-nocow"),
+                                ("containers-storage", "/var/lib/containers", "/var/lib/ci-containers-nocow"))])
+                        self.assertTrue({"DOCKER_HOST=tcp://kubedock:2475", "TESTCONTAINERS_RYUK_DISABLED=true",
+                                         "TESTCONTAINERS_CHECKS_DISABLE=true"}.issubset(runner["environment"]))
                         self.assertEqual(runner["kubernetes"].get("image_pull_secrets", []),
-                                         ["gitlab-runner-helper-pull"] if lane in ("any", "services") else [])
+                                         ["gitlab-runner-helper-pull"])
                         services = runner["kubernetes"].get("services", [])
-                        self.assertEqual(services, [] if lane == "any" else [{
+                        self.assertEqual(services, [{
                             "name": "joyrex2001/kubedock:0.20.3", "alias": "kubedock",
                             "command": ["server", "--port-forward"]
                         }])
@@ -179,7 +197,7 @@ class RunnerConfigTests(unittest.TestCase):
                             (paths["/cosi/gitlab-runner-cache"] / "BucketInfo").write_text("{}")
                         else:
                             (paths["/cosi/gitlab-runner-cache"] / "BucketInfo").write_text(json.dumps(bucket))
-                            # Reject the former two-slot ARM pool, not only three.
+                            # Reject independent manager bounds in the unified pool.
                             invalid_env["RUNNER_CONCURRENT"] = "2"
                         result = subprocess.run(command, env=invalid_env, capture_output=True, timeout=60)
                         self.assertNotEqual(result.returncode, 0)
@@ -188,47 +206,42 @@ class RunnerConfigTests(unittest.TestCase):
                 finally:
                     if container:
                         subprocess.run(["podman", "rm", "--force", "--ignore", name], check=True, capture_output=True)
-        self.assertEqual(len(set(system_ids)), 2)
+        self.assertEqual(len(set(system_ids)), 1)
         self.assertEqual(validate_pool_contract(self.configs, self.requests, self.fixture), [])
         self.assertEqual({arch: c["concurrent"] for arch, c in self.configs.items()},
-                         {"amd64": 1, "arm64": 1})
-        self.assertEqual(sum(c["concurrent"] for c in self.configs.values()), 2)
-        # Nyx has abundant CPU but only 7.8Mi memory after GitLab reservations.
-        # Both dimensions must fit on the same node; it is not a second ARM slot.
-        measured = copy.deepcopy(self.fixture)
-        measured["pools"]["arm64"].update(
-            headroom_cpu_m=[1240, 2530],
-            headroom_memory_mi=[4690.796875, 7.83203125])
-        self.assertEqual(validate_pool_contract(self.configs, self.requests, measured), [])
-        fake_two_slots = copy.deepcopy(self.configs)
-        fake_two_slots["arm64"]["concurrent"] = 2
-        fake_two_slots["arm64"]["runners"][1]["limit"] = 2
-        self.assertIn("arm64: acquisition bound must equal 1 usable slots",
-                      validate_pool_contract(fake_two_slots, self.requests, measured))
-        # CPU on Nyx and memory on Heracles cannot be combined into one slot.
-        measured["pools"]["arm64"]["headroom_cpu_m"][0] = 100
-        self.assertIn("arm64: acquisition bound must equal 0 usable slots",
-                      validate_pool_contract(self.configs, self.requests, measured))
-        # Focused counterexamples: over-acquisition, architecture escape, and the
-        # actual native + helper + Kubedock + two database sidecars CPU envelope.
-        for case in ("second-arm-slot", "second-amd-slot", "old-all-lane-manager", "generic-architecture", "unaccounted-services", "oversized-sidecars", "oversized-amd-service"):
+                         {"architecture": 3})
+        self.assertEqual([r["limit"] for r in self.configs["architecture"]["runners"]], [1, 2])
+        # Synthetic resource-fit counterexample: CPU and memory must fit on the
+        # same node. This does not dynamically lower production pool limits.
+        constrained = copy.deepcopy(self.fixture)
+        constrained["pools"]["arm64"].update(
+            headroom_cpu_m=[100, 1000], headroom_memory_mi=[2048, 8])
+        self.assertIn("arm64: fixture fits only 0 of 2 configured slots",
+                      validate_pool_contract(self.configs, self.requests, constrained))
+        for case in ("global-bound", "arm-bound", "amd-bound", "extra-manager", "extra-registration",
+                     "architecture-escape", "unaccounted-services", "oversized-sidecars", "oversized-build"):
             with self.subTest(case=case):
                 bad = copy.deepcopy(self.configs)
-                if case == "second-arm-slot":
-                    bad["arm64"]["concurrent"] = 2
-                elif case == "second-amd-slot":
-                    bad["amd64"]["concurrent"] = 2
-                elif case == "old-all-lane-manager":
-                    bad["any"] = copy.deepcopy(bad["arm64"])
-                elif case == "generic-architecture":
-                    del bad["amd64"]["runners"][1]["kubernetes"]["node_selector"]
+                config = bad["architecture"]
+                amd, arm = config["runners"]
+                if case == "global-bound":
+                    config["concurrent"] = 4
+                elif case == "arm-bound":
+                    arm["limit"] = 3
+                elif case == "amd-bound":
+                    amd["limit"] = 2
+                elif case == "extra-manager":
+                    bad["any"] = copy.deepcopy(config)
+                elif case == "extra-registration":
+                    config["runners"].append(copy.deepcopy(amd))
+                elif case == "architecture-escape":
+                    del arm["kubernetes"]["node_selector"]
                 elif case == "unaccounted-services":
-                    bad["amd64"]["runners"][0]["kubernetes"]["service_cpu_request"] = "0"
+                    amd["kubernetes"]["service_cpu_request"] = "0"
                 elif case == "oversized-sidecars":
-                    # Exceed the target budget, including its larger raw headroom.
-                    bad["amd64"]["runners"][0]["kubernetes"]["service_cpu_request"] = "400m"
+                    amd["kubernetes"]["service_cpu_request"] = "400m"
                 else:
-                    bad["amd64"]["runners"][2]["kubernetes"]["cpu_request"] = "1500m"
+                    amd["kubernetes"]["cpu_request"] = "1500m"
                 self.assertTrue(validate_pool_contract(bad, self.requests, self.fixture))
 
 

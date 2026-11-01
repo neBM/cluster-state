@@ -4,12 +4,8 @@ resources:
 - ci
 - shared
 - runners/amd64
-- runners/any-amd64
-- runners/any-arm64
 - runners/arm64
-- runners/services
-- managers/amd64
-- managers/arm64
+- managers/base
 
 # Official multi-architecture Runner release with the empty Pod resources QoS fix.
 images:

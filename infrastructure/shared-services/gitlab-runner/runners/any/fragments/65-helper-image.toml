@@ -1,1 +1,0 @@
-    image_pull_secrets = ["gitlab-runner-helper-pull"]
