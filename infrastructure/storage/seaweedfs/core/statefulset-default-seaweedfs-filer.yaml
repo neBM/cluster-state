@@ -46,7 +46,7 @@ spec:
             fieldRef:
               apiVersion: v1
               fieldPath: metadata.name
-        image: chrislusf/seaweedfs
+        image: docker.io/chrislusf/seaweedfs@sha256:7391c6d4b55bf1ddc09193082eb1fd2379ebf56390df1650b6495db4f2cc5968
         imagePullPolicy: IfNotPresent
         livenessProbe:
           failureThreshold: 3
