@@ -1,3 +1,0 @@
-  # Share the amd64 slot with native and generic jobs, including service requests.
-  # Useful execution may use all otherwise idle cores; memory limits stay intact.
-  cpu_request = "250m"

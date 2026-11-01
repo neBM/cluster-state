@@ -8,6 +8,7 @@ configMapGenerator:
 - name: gitlab-runner-config-template
   behavior: merge
   files:
+  - fragments/25-runner-limit.toml
   - fragments/35-env-extra.toml
   - fragments/55-kubernetes-resources.toml
   - fragments/60-pull-policy.toml

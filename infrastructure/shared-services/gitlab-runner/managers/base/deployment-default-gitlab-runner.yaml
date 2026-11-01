@@ -83,20 +83,20 @@ spec:
           cache_access_key=$(escape_replacement "$cache_access_key")
           cache_secret_key=$(escape_replacement "$cache_secret_key")
 
-          # The pool bound applies before acquisition, across every selected lane.
+          # One manager owns all acquisition; generic jobs share native slots.
           # Cut over only at admitted idle: Recreate cannot serialize distinct Deployments.
           case "$RUNNER_POOL:$RUNNER_CONCURRENT:$RUNNER_LANES" in
-            'amd64:1:amd64 any services'|'arm64:1:arm64 any') ;;
+            'architecture:3:amd64 arm64') ;;
             *) echo "ERROR: invalid runner acquisition pool"; exit 1 ;;
           esac
           printf 'concurrent = %s\n' "$RUNNER_CONCURRENT" > /config/config.toml
-          cat /template/any/10-global.toml >> /config/config.toml
+          cat /template/amd64/10-global.toml >> /config/config.toml
           for lane in $RUNNER_LANES; do
             case "$lane" in
               amd64) token=$RUNNER_TOKEN_AMD64 ;;
-              any) token=$RUNNER_TOKEN_ANY ;;
+
               arm64) token=$RUNNER_TOKEN_ARM64 ;;
-              services) token=$RUNNER_TOKEN_SERVICES ;;
+
             esac
             if [ -z "$token" ]; then
               echo "ERROR: missing runner token for $lane"
@@ -120,30 +120,26 @@ spec:
         - /bin/sh
         - -c
         env:
+        - name: RUNNER_POOL
+          value: architecture
+        - name: RUNNER_CONCURRENT
+          value: "3"
+        - name: RUNNER_LANES
+          value: "amd64 arm64"
         - name: RUNNER_TOKEN_AMD64
           valueFrom:
             secretKeyRef:
               key: runner_token_amd64
               name: gitlab-runner-secrets
               optional: false
-        - name: RUNNER_TOKEN_ANY
-          valueFrom:
-            secretKeyRef:
-              key: runner_token_any
-              name: gitlab-runner-secrets
-              optional: false
+
         - name: RUNNER_TOKEN_ARM64
           valueFrom:
             secretKeyRef:
               key: runner_token_arm64
               name: gitlab-runner-secrets
               optional: false
-        - name: RUNNER_TOKEN_SERVICES
-          valueFrom:
-            secretKeyRef:
-              key: runner_token_services
-              name: gitlab-runner-secrets
-              optional: false
+
         image: busybox
         imagePullPolicy: IfNotPresent
         name: config-generator
@@ -151,19 +147,14 @@ spec:
         terminationMessagePath: /dev/termination-log
         terminationMessagePolicy: File
         volumeMounts:
-        - mountPath: /template/any
-          mountPropagation: None
-          name: config-template
-          readOnly: true
+
         - mountPath: /template/amd64
           name: config-template-amd64
           readOnly: true
         - mountPath: /template/arm64
           name: config-template-arm64
           readOnly: true
-        - mountPath: /template/services
-          name: config-template-services
-          readOnly: true
+
         - mountPath: /config
           mountPropagation: None
           name: config
@@ -175,8 +166,7 @@ spec:
           name: gitlab-runner-cache-cosi
           readOnly: true
       restartPolicy: Always
-      # Managers may run anywhere; prefer the larger arm64 reservation pool.
-      # Capacity validation reserves both 50m managers on any one node.
+      # The manager may run anywhere; execution uses native architecture selectors.
       affinity:
         nodeAffinity:
           preferredDuringSchedulingIgnoredDuringExecution:
@@ -193,11 +183,7 @@ spec:
       shareProcessNamespace: false
       terminationGracePeriodSeconds: 30
       volumes:
-      - configMap:
-          defaultMode: 420
-          name: gitlab-runner-config-template
-          optional: false
-        name: config-template
+
       - name: config-template-amd64
         configMap:
           name: gitlab-runner-config-template-amd64
@@ -206,10 +192,7 @@ spec:
         configMap:
           name: gitlab-runner-config-template-arm64
           optional: false
-      - name: config-template-services
-        configMap:
-          name: gitlab-runner-config-template-services
-          optional: false
+
       - configMap:
           defaultMode: 420
           name: gitlab-runner-system-id

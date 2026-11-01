@@ -1,3 +1,0 @@
-  # Generic arm64 share; the amd64 pool overrides this to fit its smaller slot.
-  # Requests govern sharing without a hard idle-core quota.
-  cpu_request = "500m"
