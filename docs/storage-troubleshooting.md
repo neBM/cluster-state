@@ -136,11 +136,25 @@ checked after age cleanup. Both root directories and their ownership remain
 intact. Unexpected non-directory entries and runtime-store names are protected.
 
 The job shares the existing immutable image and list-only service account.
-Hard CI-label anti-affinity blocks new CI scheduling on Hestia, and a complete
-namespace Pod-list fence requires this maintenance Pod's UID/labels/node to
-match, its phase to be Running, and no other Running or Pending CI Pod anywhere
-in `ci`. Only this Pod's initial Pending observation is retried (15 observations,
-2 seconds apart). The API fence is checked again before each deletion.
+Both maintenance gates retain a complete namespace Pod-list fence: the maintenance
+Pod's UID/labels/Hestia assignment must match and its phase must be Running.
+Hard CI-label hostname anti-affinity blocks new CI scheduling on Hestia. Other
+Running or Pending CI Pods block cleanup unless positively assigned to the known
+remote nodes `heracles` or `nyx`. Unassigned Pods, unknown nodes or phases,
+terminating CI Pods (including remote ones), invalid identities, duplicate UIDs,
+and incomplete or malformed lists fail closed. Nonterminating Failed/Succeeded
+Pods remain nonactive. Only this maintenance Pod's initial Pending observation is
+retried (15 fresh observations, 2 seconds apart); every observation checks for
+conflicts again. The cache-retention API fence is checked before each deletion.
+
+This node-local exemption relies on the current local XFS CI hostPaths and
+Kubedock **0.20.3** without a custom `POD_TEMPLATE`: child Pods use an empty
+template, with folders copied one-way into `emptyDir` and files via ConfigMaps,
+not shared mounts of the parent job's hostPaths. A child on another node cannot
+write Hestia's CI hostPaths through those copies. This is a current architecture
+property, not hostile-workload/RBAC isolation. Requalify both gates before changing
+the node inventory, CI storage sharing, Kubedock version, child-Pod templates or
+volume/copy behavior; do not extend the exemption to an unknown node by default.
 
 `hostPID` allows read-only `/proc` FD/cwd inspection by **device/inode**, so
 bind-mount/path aliases do not hide local consumers. Symlinks, special entries,
