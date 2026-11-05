@@ -83,6 +83,18 @@ class RunnerConfigTests(unittest.TestCase):
             self.assertTrue(any(o['kind'] == 'ConfigMap' and o['metadata']['namespace'] == 'ci-maintenance'
                                 and o['metadata']['name'] == policy['configMap']['name'] for o in self.objects))
         worker = jobs['hestia-ci-cache-retention']['spec']['jobTemplate']['spec']['template']['spec']
+        self.assertFalse(worker['hostPID'])
+        self.assertFalse(worker['shareProcessNamespace'])
+        container, = worker['containers']
+        self.assertEqual(container['image'], 'ghcr.io/astral-sh/uv@sha256:d21c2dd538d409d050027f67cd09f0b84882cf59072cf77720b15e21f3fe6af5')
+        self.assertEqual(container['command'], ['/usr/local/bin/python3', '-B', '/policy/cache-retention.py'])
+        self.assertEqual(container['args'], ['--execute'])
+        self.assertEqual(container['resources'], {'requests': {'cpu': '10m', 'memory': '64Mi'}, 'limits': {'cpu': '500m', 'memory': '512Mi'}})
+        self.assertIn({'name': 'host-proc', 'mountPath': '/host/proc', 'readOnly': True}, container['volumeMounts'])
+        self.assertEqual([v for v in worker['volumes'] if 'hostPath' in v], [
+            {'name': 'host-proc', 'hostPath': {'path': '/proc', 'type': 'Directory'}},
+            {'name': 'builds', 'hostPath': {'path': '/var/lib/ci-builds-nocow', 'type': 'Directory'}},
+            {'name': 'cache', 'hostPath': {'path': '/var/lib/ci-cache-nocow', 'type': 'Directory'}}])
         self.assertEqual(jobs['hestia-ci-cache-retention']['metadata']['namespace'], 'ci-maintenance-worker')
         namespaces = {o['metadata']['name']: o for o in self.objects if o['kind'] == 'Namespace'}
         self.assertEqual(namespaces['ci-maintenance-worker']['metadata']['labels']['pod-security.kubernetes.io/enforce'], 'privileged')

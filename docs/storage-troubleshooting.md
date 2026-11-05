@@ -133,8 +133,8 @@ to qualify a narrower authoritative accepted-job API rather than weakening check
 The privileged worker must win ADMITTED-to-CLAIMED for its exact native scheduled
 Job and Pod UID, and checks the current claim/deadline before every candidate.
 Its original 30-minute Job deadline is unchanged: draining consumes that budget.
-All old mount/open/device/snapshot/API guards remain. No UV-native cleanup is
-introduced by this admission slice.
+All old mount/open/device/snapshot/API guards remain, including immediately before
+the single UV-owner-native pressure backstop described below.
 
 The independent minutely `ci-maintenance/hestia-ci-maintenance-recovery` Job has a 45-second
 execution / 50-second native deadline. It CAS-seals future claims, then requires
@@ -194,8 +194,11 @@ The earlier trigger and hourly cadence proactively preserve headroom, but cadenc
 alone does not guarantee a reserve: active consumers and safety guards can prevent
 cleanup, and filesystem usage can grow between runs.
 
-The worker keeps its existing immutable Podman image, host privileges and host
-roots, but its dedicated service account and policy bundle now live only in the
+The worker uses the qualified official UV 0.11.26/Python 3.14 image pinned to
+`ghcr.io/astral-sh/uv@sha256:d21c2dd538d409d050027f67cd09f0b84882cf59072cf77720b15e21f3fe6af5`
+and direct `/usr/local/bin/python3 -B /policy/cache-retention.py`. Store-GC keeps
+its separate Podman image and policy unchanged. The worker retains its host
+privileges and writable host roots; its dedicated service account and policy bundle live only in the
 GitOps-owned privileged-PSA `ci-maintenance-worker` namespace. Its cross-namespace
 bindings allow listing CI Pods and get/update only the named
 `ci-maintenance/hestia-ci-maintenance-state`; its local observer can list Pods and
@@ -241,7 +244,8 @@ property, not hostile-workload/RBAC isolation. Requalify both gates before chang
 the node inventory, CI storage sharing, Kubedock version, child-Pod templates or
 volume/copy behavior; do not extend the exemption to an unknown node by default.
 
-`hostPID` allows read-only `/proc` FD/cwd inspection by **device/inode**, so
+Read-only hostPath `/proc` at `/host/proc` replaces the former hostPID view for
+host FD/cwd/mount inspection by **device/inode**, so
 bind-mount/path aliases do not hide local consumers. Root and direct-child
 candidate symlinks, all symlinks inside cache namespaces, special entries,
 cross-filesystem trees, and descendant mounts (including same-device bind
@@ -249,8 +253,9 @@ mounts across visible process mount namespaces) protect the entire candidate.
 Only nested symlinks inside workspace directories are unlink-only leaves:
 absolute, relative, dangling, cyclic, file and directory links are never followed
 or opened, and their targets are never deleted. Their own identity and metadata
-participate in the pre-deletion proof and leaf-change checks. This does not change
-package/toolchain-cache eligibility, including Bun, Cargo or uv caches.
+participate in the pre-deletion proof and leaf-change checks. Generic deletion still denies cache links. The fixed `uv` child is always excluded
+from Python age and pressure deletion, even without links. Bun, Cargo, installed
+tools and managed Python are protected, not newly reclaimable classes.
 Unreadable process/mount metadata, malformed mount records, and inaccessible
 mount roots on the cleanup filesystem fail closed. Mount roots are skipped before
 resolution only when validated kernel device identities prove they belong to a
@@ -261,15 +266,47 @@ the final inspection. Protected entries are logged, never force-removed. If the
 capacity target cannot be reached in scope, the job fails rather than widening
 cleanup. Dry runs report candidates but cannot claim a post-deletion capacity.
 
+Only if ordinary retention triggered at 67% and still cannot reach 65%, the worker
+may run **one** `/usr/local/bin/uv --no-config --offline --no-python-downloads cache clean
+--cache-dir /var/lib/ci-cache-nocow/uv`, never `--force`, prune/retry, or Python
+fallback. The Runner mapping `UV_CACHE_DIR=/ci-cache/uv` must still resolve to this
+exact host child. Cache-only custody, ordinary no-follow ancestry, same device,
+validated CACHEDIR.TAG, cache-generation-only top-level names, complete mount/open
+guards and an unchanged streamed metadata fingerprint are required. UV proof alone
+admits link leaves without following targets; it grants no generic deletion rights.
+The binary SHA/version are checked against the qualified executor. The subprocess
+uses a minimal explicit environment, neutral cwd and closed stdin, inherited logs,
+a 330-second wait and bounded kill/reap on failure. UV's default native locks remain.
+Native clean may remove the cache root; only normal UV operations recreate it.
+Success is measured from actual filesystem use, not UV's hardlink byte count:
+65% maximum and at least **38,857,516,474 available bytes** are required after a
+pressure run. Insufficient reclaim, nonzero exit, timeout or reserve shortfall fail
+without another class or cleanup attempt.
+
+The worker now has private PID namespaces (`hostPID: false`,
+`shareProcessNamespace: false`), and Python must be container PID1 before spawning
+UV. Namespace-init teardown kills/waits for namespace children before init exits;
+the existing all-container terminal recovery fence therefore includes the native
+child boundary. If bounded reap cannot prove retirement, the worker fails and
+relies on that kernel containment; it does not claim child retirement. No new
+capability, runtime mount or sidecar is added. This is path-based native deletion
+under maintained scheduler/claimed-pause writer exclusion, not descriptor-relative
+UV removal or malicious-host-root race resistance. Actual host-proc visibility,
+PID-namespace retirement and default-lock behavior in this exact image require
+native release qualification. Before activation also verify effective cache-only
+custody/overrides, external cache-symlink dependents, root recreation ownership and
+SELinux, and the unchanged pause/drain/restoration gates. The administrator token
+remains revoked/absent until the release owner completes those checks.
+
 ```bash
-kubectl get cronjobs,jobs -n ci -l app=hestia-ci-cache-retention
-kubectl logs -n ci -l app=hestia-ci-cache-retention --tail=100
+kubectl get cronjobs,jobs -n ci-maintenance-worker -l app=hestia-ci-cache-retention
+kubectl logs -n ci-maintenance-worker -l app=hestia-ci-cache-retention --tail=100
 python3 scripts/test_hestia_ci_cache_retention.py
 ```
 
 The ConfigMap helper defaults to a dry run; the CronJob explicitly supplies
 `--execute`. A one-off dry-run Pod must retain the same service account,
-downward-API identity, labels, anti-affinity, hostPID and narrow mounts, omitting
+downward-API identity, labels, anti-affinity, private PID namespace and narrow mounts, omitting
 only `--execute`. There are no production path overrides or force/bypass flags.
 Use the approved retention owner rather than raw recursive deletion.
 

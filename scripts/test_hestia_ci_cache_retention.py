@@ -328,7 +328,7 @@ class AdmissionBootstrapTests(unittest.TestCase):
                         'production independent admission/recovery is absent')
 
 
-class RetentionTests(unittest.TestCase):
+class RetentionFixture(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory(prefix='retention-test-')
         self.addCleanup(self.temp.cleanup)
@@ -350,12 +350,16 @@ class RetentionTests(unittest.TestCase):
 
     def run_retention(self, **kwargs):
         with contextlib.redirect_stdout(io.StringIO()) as output, \
-                patch.object(r, 'WORKSPACE_ROOT', self.builds):
+                patch.object(r, 'WORKSPACE_ROOT', self.builds), \
+                patch.object(r, 'UV_ROOT', self.cache / 'uv'), \
+                patch.object(r, 'ROOTS', self.roots):
             r.retain(self.roots, now=self.now, used=kwargs.pop('used', lambda _: 50),
+                     available=kwargs.pop('available', lambda _: r.COLD_RESERVE),
                      opened=kwargs.pop('opened', set), mounts=kwargs.pop('mounts', set),
                      **kwargs)
         return output.getvalue()
 
+class RetentionTests(RetentionFixture):
     def test_age_uses_newest_descendant_file_not_directory(self):
         stale = self.candidate(self.builds, 'stale', 8)
         fresh = self.candidate(self.cache, 'fresh', 40)
@@ -952,6 +956,201 @@ class RetentionTests(unittest.TestCase):
             with self.assertRaises(r.Refuse):
                 r.remove_tree(path, path.stat().st_dev, set(), set(), proof[1])
             self.assertEqual(outside.read_text(), 'preserve')
+
+
+class UVTests(RetentionFixture):
+    def uv(self, links=False):
+        root = self.cache / 'uv'
+        (root / 'archive-v0').mkdir(parents=True)
+        (root / 'CACHEDIR.TAG').write_bytes(r.CACHE_TAG + b'\n')
+        (root / '.lock').touch()
+        payload = root / 'archive-v0/data'
+        payload.write_text('cache')
+        os.utime(payload, (1, 1))
+        if links:
+            (root / 'archive-v0/link').symlink_to(self.base / 'outside')
+        return root
+
+    def test_uv_exclusion_age_pressure_and_skip_cases(self):
+        root = self.uv()
+        with patch.object(r, 'qualify_uv', self.fail), patch.object(r, 'owned_uv', self.fail):
+            self.run_retention(execute=True)
+            self.run_retention(execute=True, used=lambda _: 66.99)
+            self.run_retention(execute=False, used=lambda _: 80)
+            old = self.candidate(self.builds, 'aged', 8)
+            self.run_retention(execute=True, used=lambda _: 65 + 15 * old.exists())
+        self.assertTrue((root / 'archive-v0/data').exists())
+        with patch.object(r, 'qualify_uv', return_value=None), \
+                patch.object(r, 'remove_tree', self.fail), \
+                patch.object(r, 'owned_uv', return_value=(0, b'')) as native:
+            with self.assertRaisesRegex(r.Refuse, 'cannot reach 65%'):
+                self.run_retention(execute=True, used=lambda _: 80)
+            native.assert_called_once()
+
+    def test_native_argv_success_and_protected_namespaces(self):
+        root = self.uv(links=True)
+        protected = [self.candidate(self.cache, name, 40) for name in
+                     ('bun', 'cargo', 'tools', 'python')]
+        def native(argv):
+            self.assertEqual(argv, ['/usr/local/bin/uv', '--no-config', '--offline',
+                                   '--no-python-downloads', 'cache', 'clean', '--cache-dir', str(root)])
+            (root / 'archive-v0/data').unlink()  # Only the fake owner mutates UV.
+            return 0, b''
+        with patch.object(r, 'qualify_uv', return_value=None), patch.object(r, 'owned_uv', native):
+            self.run_retention(execute=True, used=lambda _: 80 if (root / 'archive-v0/data').exists() else 65)
+        self.assertTrue(all((p / 'nested/data').exists() for p in protected))
+
+    def test_native_absent_failure_timeout_insufficient_and_reserve(self):
+        with patch.object(r, 'qualify_uv', self.fail), patch.object(r, 'owned_uv', self.fail):
+            with self.assertRaisesRegex(r.Refuse, 'cannot reach 65%'):
+                self.run_retention(execute=True, used=lambda _: 80)
+        root = self.uv()
+        for outcome in ((9, b''), r.subprocess.TimeoutExpired('fixture', 1), (0, b'')):
+            with self.subTest(outcome=outcome), patch.object(r, 'qualify_uv', return_value=None), \
+                    patch.object(r, 'owned_uv', side_effect=outcome if isinstance(outcome, Exception) else None,
+                                 return_value=outcome) as native:
+                with self.assertRaises((r.Refuse, r.subprocess.TimeoutExpired)):
+                    self.run_retention(execute=True, used=lambda _: 80)
+                native.assert_called_once()
+                self.assertTrue((root / 'archive-v0/data').exists())
+        calls = 0
+        def used(_):
+            return 65 if calls else 80
+        def native(_):
+            nonlocal calls
+            calls += 1
+            return 0, b''
+        with patch.object(r, 'qualify_uv', return_value=None), patch.object(r, 'owned_uv', native):
+            with self.assertRaisesRegex(r.Refuse, 'cold reserve'):
+                self.run_retention(execute=True, used=used, available=lambda _: r.COLD_RESERVE - 1)
+        self.assertEqual(calls, 1)
+
+    def test_uv_guard_refusals_and_revalidation(self):
+        root = self.uv(links=True)
+        for field in ('opened', 'mounts'):
+            with self.subTest(field=field), patch.object(r, 'qualify_uv', self.fail):
+                with self.assertRaisesRegex(r.Refuse, 'open/mounted'):
+                    self.run_retention(execute=True, used=lambda _: 80,
+                                       **{field: lambda: {r.identity((root / 'archive-v0/data').stat())}})
+        with patch.object(r, 'qualify_uv', return_value=None), patch.object(r, 'owned_uv', self.fail):
+            def gate():
+                (root / 'archive-v0/data').write_text('changed')
+            with self.assertRaisesRegex(r.Refuse, 'fingerprint changed'):
+                self.run_retention(execute=True, used=lambda _: 80, gate=gate)
+            def denied_gate():
+                raise r.Refuse('stale claim')
+            with self.assertRaisesRegex(r.Refuse, 'stale claim'):
+                self.run_retention(execute=True, used=lambda _: 80, gate=denied_gate)
+        for mutation in ('marker', 'tool', 'replacement', 'root-link'):
+            with self.subTest(mutation=mutation), patch.object(r, 'owned_uv', self.fail):
+                if mutation == 'marker':
+                    (root / 'CACHEDIR.TAG').write_text('invalid')
+                elif mutation == 'tool':
+                    (root / 'CACHEDIR.TAG').write_bytes(r.CACHE_TAG)
+                    (root / 'tools').mkdir()
+                elif mutation == 'replacement':
+                    (root / 'tools').rmdir()
+                else:
+                    root.rename(self.cache / 'saved')
+                    root.symlink_to(self.cache / 'saved')
+                def qualify():
+                    root.rename(self.cache / 'replaced')
+                    root.mkdir()
+                with patch.object(r, 'qualify_uv', qualify if mutation == 'replacement' else self.fail):
+                    with self.assertRaises((r.Refuse, OSError)):
+                        self.run_retention(execute=True, used=lambda _: 80)
+                if mutation == 'replacement':
+                    root.rmdir()
+                    (self.cache / 'replaced').rename(root)
+        with self.assertRaisesRegex(r.Refuse, 'wrong UV'):
+            r.uv_proof(root, root.lstat().st_dev, set(), set())
+
+    def test_qualified_binary_and_version(self):
+        binary = self.base / 'uv-binary'
+        binary.write_bytes(b'fixture binary')
+        with patch.object(r, 'UV_BINARY', binary), patch.object(r, 'owned_uv') as native:
+            with self.assertRaisesRegex(r.Refuse, 'unsupported UV binary'):
+                r.qualify_uv()
+            native.assert_not_called()
+            with patch.object(r, 'UV_SHA256', r.hashlib.sha256(binary.read_bytes()).hexdigest()):
+                for rc, output in ((0, b'uv 0.11.26\n'), (0, b'uv 0.11.25\n'), (2, b'uv 0.11.26\n')):
+                    native.return_value = rc, output
+                    if rc == 0 and output == b'uv 0.11.26\n':
+                        r.qualify_uv()
+                    else:
+                        with self.assertRaisesRegex(r.Refuse, 'unsupported UV version'):
+                            r.qualify_uv()
+                self.assertEqual(native.call_args.args[0], [str(binary), '--version'])
+
+    def test_owned_child_timeout_reaped_and_environment_scrubbed(self):
+        real_popen = r.subprocess.Popen
+        children = []
+        def launch(*args, **kwargs):
+            self.assertEqual(kwargs['env'], r.UV_ENV)
+            self.assertEqual(kwargs['cwd'], '/')
+            self.assertEqual(kwargs['stdin'], r.subprocess.DEVNULL)
+            self.assertIsNone(kwargs['stdout'])
+            self.assertNotIn('stderr', kwargs)
+            child = real_popen(*args, **kwargs)
+            children.append(child)
+            return child
+        with patch.object(r.os, 'getpid', return_value=1), patch.object(r.subprocess, 'Popen', launch), \
+                patch.dict(os.environ, {'UV_CONFIG_FILE': '/untrusted', 'HTTPS_PROXY': 'untrusted'}):
+            with self.assertRaises(r.subprocess.TimeoutExpired):
+                r.owned_uv(['/usr/bin/python3', '-B', '-c', 'import time; time.sleep(60)'], timeout=0.1)
+        self.assertEqual(len(children), 1)
+        self.assertIsNotNone(children[0].returncode)
+        with self.assertRaises(ChildProcessError):
+            os.waitpid(children[0].pid, os.WNOHANG)
+        with patch.object(r.os, 'getpid', return_value=2), patch.object(r.subprocess, 'Popen', self.fail):
+            with self.assertRaisesRegex(r.Refuse, 'private PID'):
+                r.owned_uv(['never'])
+
+    def test_native_fresh_open_mount_parent_link_and_device_guards(self):
+        root = self.uv()
+        with patch.object(r, 'UV_ROOT', root), patch.object(r, 'ROOTS', self.roots):
+            with self.assertRaisesRegex(r.Refuse, 'filesystem changed'):
+                r.uv_proof(root, root.stat().st_dev ^ 1, set(), set())
+            with patch.object(r.os, 'statvfs', return_value=SimpleNamespace(f_flag=os.ST_RDONLY)):
+                with self.assertRaisesRegex(r.Refuse, 'read-only'):
+                    r.uv_proof(root, root.stat().st_dev, set(), set())
+            alias = self.base / 'alias'
+            alias.symlink_to(self.cache)
+            with patch.object(r, 'UV_ROOT', alias / 'uv'), patch.object(r, 'ROOTS', ((self.builds, 7), (alias, 30))):
+                with self.assertRaisesRegex(r.Refuse, 'ancestor'):
+                    r.uv_proof(alias / 'uv', root.stat().st_dev, set(), set())
+        for field in ('opened', 'mounts'):
+            calls = 0
+            def scan():
+                nonlocal calls
+                calls += 1
+                return {r.identity(root.stat())} if calls > 1 else set()
+            with self.subTest(field=field), patch.object(r, 'qualify_uv', return_value=None), \
+                    patch.object(r, 'owned_uv', self.fail):
+                with self.assertRaisesRegex(r.Refuse, 'open/mounted'):
+                    self.run_retention(execute=True, used=lambda _: 80, **{field: scan})
+            self.assertEqual(calls, 2)
+
+    def test_owned_child_baseexception_and_unreaped_containment(self):
+        primary = KeyboardInterrupt('fixture primary')
+        class Child:
+            stdout = None
+            def __init__(self):
+                self.trace = []
+            def wait(self, *, timeout):
+                self.trace.append(('wait', timeout))
+                if len(self.trace) == 1:
+                    raise primary
+                raise r.subprocess.TimeoutExpired('fixture', timeout)
+            def kill(self):
+                self.trace.append(('kill',))
+        child = Child()
+        with patch.object(r.os, 'getpid', return_value=1), patch.object(r.subprocess, 'Popen', return_value=child):
+            with self.assertRaises(KeyboardInterrupt) as caught:
+                r.owned_uv(['fixture'])
+        self.assertIs(caught.exception, primary)
+        self.assertEqual(child.trace, [('wait', 330), ('kill',), ('wait', 5)])
+        self.assertTrue(any('retirement UNPROVED' in note for note in primary.__notes__))
 
 
 class GateTests(unittest.TestCase):
