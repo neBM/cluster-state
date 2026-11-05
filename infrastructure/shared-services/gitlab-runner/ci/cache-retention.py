@@ -4,6 +4,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import re
 import ssl
 import stat
 import sys
@@ -139,8 +140,8 @@ def snapshot(path, device, mounted=frozenset(), busy=frozenset()):
     return (digest.digest(), root_id), latest_directory if latest_file is None else latest_file
 
 
-def mount_ids(proc=Path('/proc')):
-    """Inspect all visible mount namespaces, including same-device bind aliases."""
+def mount_ids(device, proc=Path('/proc')):
+    """Resolve only cleanup-filesystem mounts, across all visible namespaces."""
     result = set()
     seen = set()
     owners = [proc / 'self', *(p for p in proc.iterdir() if p.name.isdecimal())]
@@ -149,17 +150,54 @@ def mount_ids(proc=Path('/proc')):
             namespace = identity((owner / 'ns/mnt').stat())
             if namespace in seen:
                 continue
-            for line in (owner / 'mountinfo').read_text().splitlines():
-                mountpoint = line.split()[4]
+            lines = (owner / 'mountinfo').read_text().splitlines()
+            if not lines:
+                raise Refuse('empty mountinfo')
+            mount_numbers = set()
+            for line in lines:
+                fields = line.split()
+                if (len(fields) < 10 or fields[-4] != '-' or '-' in fields[:-4]
+                        or not re.fullmatch(r'[1-9][0-9]*', fields[0])
+                        or not re.fullmatch(r'0|[1-9][0-9]*', fields[1])
+                        or fields[0] in mount_numbers):
+                    raise Refuse('malformed or ambiguous mountinfo record')
+                mount_numbers.add(fields[0])
+                if not re.fullmatch(r'(0|[1-9][0-9]*):(0|[1-9][0-9]*)', fields[2]):
+                    raise Refuse('invalid mountinfo device')
+                major, minor = map(int, fields[2].split(':'))
+                try:
+                    mount_device = os.makedev(major, minor)
+                    if (os.major(mount_device), os.minor(mount_device)) != (major, minor):
+                        raise ValueError('device does not round trip')
+                except (ValueError, OverflowError) as error:
+                    raise Refuse('invalid mountinfo device') from error
+                for value in fields[3:5]:
+                    if (not value.startswith('/') or '\x00' in value
+                            or re.search(r'\\(?!040|011|012|134)', value)
+                            or any(part in {'.', '..'} for part in value.split('/'))):
+                        raise Refuse('invalid mountinfo path')
+                # Only a validated kernel device identity can exclude a mount.
+                # Cross-device tree entries are independently rejected by snapshot.
+                if mount_device != device:
+                    continue
+                mountpoint = fields[4]
                 for encoded, decoded in (('\\040', ' '), ('\\011', '\t'), ('\\012', '\n'), ('\\134', '\\')):
                     mountpoint = mountpoint.replace(encoded, decoded)
-                try:
-                    result.add(identity((owner / 'root' / mountpoint.lstrip('/')).stat()))
-                except (FileNotFoundError, ProcessLookupError):
-                    pass
+                st = (owner / 'root' / mountpoint.lstrip('/')).stat()
+                if st.st_dev != device:
+                    raise Refuse('relevant mount device changed')
+                result.add(identity(st))
             seen.add(namespace)
         except (FileNotFoundError, ProcessLookupError):
-            pass  # Exited process; permission/parse failures still fail closed.
+            # A vanished process/namespace is a race, not negative mount evidence.
+            # Missing metadata or relevant roots in a live namespace still refuse.
+            if owner.name == 'self':
+                raise
+            try:
+                (owner / 'ns/mnt').stat()
+            except (FileNotFoundError, ProcessLookupError):
+                continue
+            raise
     return result
 
 
@@ -226,16 +264,21 @@ def remove_tree(path, device, busy, mounted, expected_root):
 
 
 def retain(roots, *, execute=False, now=None, used=usage,
-           opened=open_ids, mounts=mount_ids, gate=lambda: None):
+           opened=open_ids, mounts=None, gate=lambda: None):
     now = time.time() if now is None else now
     candidates = []
-    devices = set()
-    mounted, busy = mounts(), opened()
-    for root, days in roots:
-        st = root.lstat()
+    root_stats = [root.lstat() for root, _ in roots]
+    for (root, _), st in zip(roots, root_stats):
         if not stat.S_ISDIR(st.st_mode):
             raise Refuse(f'root is not an ordinary directory: {root}')
-        devices.add(st.st_dev)
+    devices = {st.st_dev for st in root_stats}
+    if len(devices) != 1:
+        raise Refuse('retention roots must share the same filesystem')
+    device = devices.pop()
+    if mounts is None:
+        mounts = lambda: mount_ids(device)
+    mounted, busy = mounts(), opened()
+    for (root, days), st in zip(roots, root_stats):
         for path in sorted(root.iterdir()):
             try:
                 if not stat.S_ISDIR(path.lstat().st_mode):
@@ -247,8 +290,6 @@ def retain(roots, *, execute=False, now=None, used=usage,
                 print(f'PROTECTED {error}', flush=True)
                 continue
             candidates.append((root, days, path, proof, latest))
-    if len(devices) != 1:
-        raise Refuse('retention roots must share the same filesystem')
     safe = candidates
     # Workspaces first, oldest namespace first within each group.
     safe.sort(key=lambda c: (next(i for i, r in enumerate(roots) if r[0] == c[0]), c[4], str(c[2])))
@@ -257,8 +298,10 @@ def retain(roots, *, execute=False, now=None, used=usage,
         print(f'{"DELETE" if execute else "WOULD DELETE"} {path} reason={reason} latest_file_mtime={latest}', flush=True)
         if execute:
             gate()
+            current_root = root.lstat()
+            if not stat.S_ISDIR(current_root.st_mode) or current_root.st_dev != device:
+                raise Refuse('retention root filesystem changed')
             mounted, busy = mounts(), opened()
-            device = root.stat().st_dev
             try:
                 current, _ = snapshot(path, device, mounted, busy)
             except Refuse as error:
