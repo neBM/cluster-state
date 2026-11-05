@@ -118,6 +118,59 @@ restore each registration's prior pause/tag/untagged state. Validate locally wit
 
 ## Hestia CI cache and workspace retention
 
+### Runner2 acquisition admission and independent restoration
+
+The hourly minute47 unprivileged `ci-maintenance/hestia-ci-maintenance-admission` Job pauses
+Runner2 only after a fresh independent-recovery heartbeat and durable named-CAS
+pause intent. A preexisting pause is preserved with zero writes. Accepted work
+drains naturally for up to 20 minutes; no accepted job cancellation or manager
+signal is used. Complete GitLab Runner2 job pagination (including running prepare
+and canceling states) and the CI Pod snapshot must both show idle before admission.
+Incomplete/malformed evidence refuses cleanup, never means idle. Job history
+pagination is bounded to 100 pages; exceeding it refuses and requires an operator
+to qualify a narrower authoritative accepted-job API rather than weakening checks.
+
+The privileged worker must win ADMITTED-to-CLAIMED for its exact native scheduled
+Job and Pod UID, and checks the current claim/deadline before every candidate.
+Its original 30-minute Job deadline is unchanged: draining consumes that budget.
+All old mount/open/device/snapshot/API guards remain. No UV-native cleanup is
+introduced by this admission slice.
+
+The independent minutely `ci-maintenance/hestia-ci-maintenance-recovery` Job has a 45-second
+execution / 50-second native deadline. It CAS-seals future claims, then requires
+exact terminal Pod and terminated-container evidence for the coordinator, any
+claimed worker, and a prior restoration holder before baseline restoration.
+Unclaimed workers cannot pass a sealed CAS and need not retire first. FailureTarget,
+deletion, deadline expiry, missing Pods and NotReady nodes are not retirement proof.
+Retain recovery history (90 successes and failures) and do not add a short TTL.
+The next operation also waits for the previous restoration holder to retire.
+
+State is deliberately **metadata-only in Git** (`ssa: Merge`, prune disabled).
+Before activation the operator must qualify Flux field ownership, create dynamic
+`data["state.json"]` explicitly using schema1, the exact ConfigMap UID, current
+`policy_hash()` from the mounted two-file policy bundle, runner2, heartbeat0,
+phaseIDLE and operationnull. There is no automatic missing-state bootstrap or
+baseline-false default. A policy rollout requires a closed, reconciled operation
+and explicit operator migration of the policy identity; never reset a live latch.
+Controls alone mount the separately provisioned immutable token Secret read-only;
+no Secret API permissions are granted. Token rotation must update the declared
+expiry bound and requalify the closed policy identity before expiry.
+
+`Hestia CI Maintenance Recovery Unhealthy` is a **warning**, routed by the existing
+notify-only policy. It detects retained failed controller/worker Jobs and missing
+or stale independent successful runs (180 seconds), including credential/API errors.
+The in-state heartbeat refuses new pauses after150 seconds. At45 minutes an
+unclosed operation latches ALERT; ALERT refuses new cleanup/pauses and recovery
+Jobs fail visibly. An HTTP PUT timeout or crash with an unacknowledged durable
+write intent is remote-effect-unknown: latch ALERT, do not issue speculative PUTs.
+A readback alone cannot rule out a delayed write. The operator must establish
+remote request quiescence, exact owner retirement and actual Runner2 baseline,
+then explicitly reconcile the same state. Never delete the ConfigMap to silence
+the warning. Ordinary acknowledged pause plus coordinator failure restores through
+the independent Job; failed cleanup remains `cleanup-failed` even after restoration.
+Native metric selectors, warning delivery and scheduled failure behavior must be
+qualified by the release owner before enabling effects; fixtures are not that proof.
+
 Two separate GitOps CronJobs in `ci` own regenerable CI storage:
 
 - `hestia-ci-store-gc` runs at 04:17 UTC for the existing Podman image store;
@@ -141,7 +194,19 @@ The earlier trigger and hourly cadence proactively preserve headroom, but cadenc
 alone does not guarantee a reserve: active consumers and safety guards can prevent
 cleanup, and filesystem usage can grow between runs.
 
-The job shares the existing immutable image and list-only service account.
+The worker keeps its existing immutable Podman image and host privileges, but uses
+the dedicated `hestia-ci-maintenance-worker` service account: list Pods plus
+get/update only `ci-maintenance/hestia-ci-maintenance-state` through a cross-namespace
+RoleBinding. It has no GitLab credential. The restricted `ci-maintenance` namespace
+isolates control state and the future token Secret from the existing CI job SA's
+Secret/ConfigMap authority in `ci`. Prove that SA cannot get/delete either control
+object before the operator provisions the new token there. Direct negative SARs
+are not sufficient activation proof: the existing CI SA can create and exec Pods
+in `ci`, potentially obtaining the worker SA's cross-namespace state authority.
+The release owner must close or explicitly resolve that indirect authority path
+before activation; this source slice does not introduce an admission policy.
+Controls have only read-only Pod/Job observation in both namespaces and named
+state update; no Secret API verbs.
 Both maintenance gates retain a complete namespace Pod-list fence: the maintenance
 Pod's UID/labels/Hestia assignment must match and its phase must be Running.
 Hard CI-label hostname anti-affinity blocks new CI scheduling on Hestia. Other

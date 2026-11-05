@@ -21,6 +21,282 @@ spec = importlib.util.spec_from_file_location('retention', CI / 'cache-retention
 assert spec is not None and spec.loader is not None
 r = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(r)
+admission_spec = importlib.util.spec_from_file_location('admission', CI / 'maintenance-admission.py')
+assert admission_spec is not None and admission_spec.loader is not None
+a = importlib.util.module_from_spec(admission_spec)
+admission_spec.loader.exec_module(a)
+
+
+class FakeAPI:
+    def __init__(self, state, snapshot, jobs):
+        self.cm = {'kind': 'ConfigMap', 'metadata': {'name': 'hestia-ci-maintenance-state',
+                   'namespace': 'ci-maintenance', 'uid': 'state-uid', 'resourceVersion': '1'},
+                   'data': {'state.json': json.dumps(state)}}
+        self.snapshot, self.jobs, self.fail_save = snapshot, jobs, False
+
+    def request(self, method, path, body=None):
+        if path == a.STATE:
+            if method == 'PUT':
+                if self.fail_save:
+                    raise OSError('fixture state unavailable')
+                if body['metadata']['resourceVersion'] != self.cm['metadata']['resourceVersion']:
+                    raise a.Conflict('fixture CAS')
+                self.cm = copy.deepcopy(body)
+                self.cm['metadata']['resourceVersion'] = str(int(self.cm['metadata']['resourceVersion']) + 1)
+            return copy.deepcopy(self.cm), {}
+        if path.startswith(a.PODS) or path.startswith(a.CONTROL_PODS):
+            namespace = path.split('/')[4]
+            return {'metadata': {}, 'items': copy.deepcopy([p for p in self.snapshot if p['metadata']['namespace'] == namespace])}, {}
+        if '/jobs/' in path:
+            return copy.deepcopy(self.jobs[path.rsplit('/', 1)[1]]), {}
+        raise AssertionError((method, path))
+
+
+class FakeGitLab:
+    def __init__(self, paused=False):
+        self.paused, self.puts, self.unknown = paused, [], False
+        self.pages = {'1': ([], {'X-Next-Page': ''})}
+
+    def request(self, method, path, body=None):
+        if method == 'PUT':
+            assert path == '/runners/2' and set(body) == {'paused'} and type(body['paused']) is bool
+            self.puts.append(copy.deepcopy(body))
+            self.paused = body['paused']
+            if self.unknown:
+                raise TimeoutError('fixture effect unknown')
+            return {'id': 2, 'paused': self.paused}, {}
+        if path == '/runners/2':
+            return {'id': 2, 'paused': self.paused}, {}
+        return copy.deepcopy(self.pages[path.rsplit('=', 1)[1]])
+
+
+class AdmissionTests(unittest.TestCase):
+    def setUp(self):
+        self.slot = 1793872020  # Replaced below with an exact UTC minute47.
+        self.slot = self.slot // 3600 * 3600 + 47 * 60
+        self.clock = self.slot + 10
+        self.policy = 'f' * 64
+        self.coordinator = self.pod('coord', 'hestia-ci-maintenance-admission')
+        self.worker = self.pod('worker', 'hestia-ci-cache-retention')
+        self.recovery = self.pod('recovery', 'hestia-ci-maintenance-recovery')
+        snapshot = [self.coordinator, self.worker, self.recovery]
+        stamp = a.dt.datetime.fromtimestamp(self.slot, a.dt.timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
+        jobs = {p['metadata']['name'] + '-job': {'metadata': {
+            'uid': p['metadata']['name'] + '-job-uid',
+            'annotations': {'batch.kubernetes.io/cronjob-scheduled-timestamp': stamp},
+            'ownerReferences': [{'kind': 'CronJob', 'name': p['metadata']['labels']['app'],
+                                 'controller': True, 'uid': 'cron-uid'}]}} for p in snapshot}
+        state = {'schema': 1, 'runner': 2, 'uid': 'state-uid', 'policy': self.policy,
+                 'heartbeat': self.clock, 'phase': 'IDLE', 'operation': None}
+        self.api = FakeAPI(state, snapshot, jobs)
+        self.store = a.Store(self.api, self.policy)
+        self.gl = FakeGitLab()
+        self.me, self.who, self.rec = map(a.pod_identity, snapshot)
+
+    def pod(self, name, app):
+        labels = {'app': app}
+        if name == 'worker':
+            labels.update({'ci.brmartin.co.uk/job': 'true', 'ci.brmartin.co.uk/maintenance': 'true'})
+        return {'metadata': {'namespace': 'ci' if name == 'worker' else 'ci-maintenance', 'uid': name + '-uid', 'name': name, 'labels': labels,
+                'ownerReferences': [{'kind': 'Job', 'name': name + '-job', 'uid': name + '-job-uid', 'controller': True}]},
+                'spec': {'containers': [{'name': 'main'}], 'nodeName': 'hestia'},
+                'status': {'phase': 'Running', 'containerStatuses': [{'name': 'main', 'state': {'running': {}}}]}}
+
+    def finish(self, name, phase='Succeeded'):
+        pod = next(p for p in self.api.snapshot if p['metadata']['name'] == name)
+        pod['status'] = {'phase': phase, 'containerStatuses': [{'name': 'main', 'state': {'terminated': {'exitCode': 0}}}]}
+
+    def coordinate(self):
+        a.coordinate(self.store, self.gl, self.me, now=lambda: self.clock,
+                     sleep=lambda _: setattr(self, 'clock', self.clock + 1200))
+
+    def recover(self):
+        a.recover(self.store, self.gl, self.rec, now=lambda: self.clock)
+
+    def state(self):
+        return self.store.read()[1]
+
+    def save(self, state):
+        cm, _ = self.store.read()
+        self.store.save(cm, state)
+
+    def test_true_baseline_and_persistence_failure_zero_puts(self):
+        self.gl.paused = True
+        self.coordinate()
+        self.assertEqual(self.gl.puts, [])
+        self.gl.paused, self.api.fail_save = False, True
+        with self.assertRaises(OSError):
+            self.coordinate()
+        self.assertEqual(self.gl.puts, [])
+
+    def test_normal_claim_terminal_restore_exact_puts(self):
+        self.coordinate()
+        fence = a.WorkerFence(self.store, self.who, now=lambda: self.clock)
+        fence.claim(sleep=self.fail)
+        fence.check()
+        self.finish('coord')
+        self.recover()
+        self.assertEqual(self.gl.puts, [{'paused': True}])
+        self.finish('worker')
+        self.recover()
+        self.assertEqual(self.gl.puts, [{'paused': True}, {'paused': False}])
+        self.assertEqual(self.state()['phase'], 'DONE')
+        self.assertEqual(self.state()['operation']['outcome'], 'cleanup-succeeded')
+        with self.assertRaises(a.Refuse):
+            fence.check()
+
+    def test_failed_cleanup_restores_but_outcome_stays_failed(self):
+        self.coordinate()
+        a.WorkerFence(self.store, self.who, now=lambda: self.clock).claim(sleep=self.fail)
+        self.finish('coord', 'Failed')
+        self.finish('worker', 'Failed')
+        self.recover()
+        self.assertFalse(self.gl.paused)
+        self.assertEqual(self.state()['operation']['outcome'], 'cleanup-failed')
+
+    def test_pause_ack_coordinator_crash_independent_recovery(self):
+        def crash(_):
+            raise RuntimeError('fixture coordinator crashed after durable pause ack')
+        self.gl.pages['1'] = ([{'id': 8, 'status': 'running'}], {'X-Next-Page': ''})
+        with self.assertRaises(RuntimeError):
+            a.coordinate(self.store, self.gl, self.me, now=lambda: self.clock, sleep=crash)
+        self.assertEqual(self.state()['phase'], 'DRAINING')
+        self.finish('coord', 'Failed')
+        self.recover()
+        self.assertFalse(self.gl.paused)
+        self.assertEqual(self.state()['phase'], 'DONE')
+
+    def test_unknown_pause_and_restore_latch_no_extra_put(self):
+        self.gl.unknown = True
+        with self.assertRaises(a.Refuse):
+            self.coordinate()
+        self.assertEqual(self.state()['phase'], 'ALERT')
+        self.finish('coord')
+        with self.assertRaises(a.Refuse):
+            self.recover()
+        self.assertEqual(len(self.gl.puts), 1)
+        self.setUp()
+        self.coordinate()
+        self.finish('coord')
+        self.clock = self.slot + 1801
+        self.gl.unknown = True
+        with self.assertRaises(a.Refuse):
+            self.recover()
+        self.assertEqual(self.state()['phase'], 'ALERT')
+        with self.assertRaises(a.Refuse):
+            self.recover()
+        self.assertEqual(len(self.gl.puts), 2)
+
+    def test_pagination_malformed_and_accepted_running_fail_closed(self):
+        self.gl.pages = {'1': ([], {'X-Next-Page': '2'}),
+                         '2': ([{'id': 22, 'status': 'running'}], {'X-Next-Page': ''})}
+        self.assertFalse(a.drained(self.gl))
+        for page in (([], {}), ([{'id': 22, 'status': 'mystery'}], {'X-Next-Page': ''}),
+                     ([], {'X-Next-Page': '1'})):
+            self.gl.pages = {'1': page}
+            with self.assertRaises(a.Refuse):
+                self.coordinate()
+            self.assertNotIn(self.state()['phase'], {'ADMITTED', 'CLAIMED'})
+            self.setUp()
+
+    def test_claim_cas_one_winner_and_seal_wins(self):
+        self.coordinate()
+        cm1, st1 = self.store.read()
+        cm2, st2 = self.store.read()
+        st1['phase'], st1['operation']['claimed'] = 'CLAIMED', True
+        self.store.save(cm1, st1)
+        st2['phase'] = 'CLOSING'
+        with self.assertRaises(a.Conflict):
+            self.store.save(cm2, st2)
+        self.assertTrue(self.state()['operation']['claimed'])
+        self.setUp()
+        self.coordinate()
+        cm1, st1 = self.store.read()
+        cm2, st2 = self.store.read()
+        st1['phase'] = 'CLOSING'
+        self.store.save(cm1, st1)
+        st2['phase'], st2['operation']['claimed'] = 'CLAIMED', True
+        with self.assertRaises(a.Conflict):
+            self.store.save(cm2, st2)
+        with self.assertRaises(a.Refuse):
+            a.WorkerFence(self.store, self.who, now=lambda: self.clock).claim(sleep=self.fail)
+
+    def test_claimed_alive_missing_failuretarget_not_retirement(self):
+        self.coordinate()
+        fence = a.WorkerFence(self.store, self.who, now=lambda: self.clock)
+        fence.claim(sleep=self.fail)
+        self.finish('coord')
+        self.clock = self.slot + 1801
+        for phase in ('Running', 'Pending', 'Unknown'):
+            self.api.snapshot[1]['status'].update(phase=phase, conditions=[{'type': 'FailureTarget', 'status': 'True'}])
+            self.recover()
+            self.assertEqual(len(self.gl.puts), 1)
+        self.api.snapshot.pop(1)
+        self.recover()
+        self.assertEqual(len(self.gl.puts), 1)
+        with self.assertRaises(a.Refuse):
+            fence.check()
+        self.clock = self.slot + 2700
+        with self.assertRaises(a.Refuse):
+            self.recover()
+        self.assertEqual(self.state()['phase'], 'ALERT')
+
+    def test_unclaimed_pending_sealed_does_not_block_restore(self):
+        self.coordinate()
+        self.finish('coord')
+        self.api.snapshot[1]['status']['phase'] = 'Pending'
+        self.clock = self.slot + 1801
+        self.recover()
+        self.assertEqual(self.state()['phase'], 'DONE')
+        self.assertFalse(self.gl.paused)
+
+    def test_stale_heartbeat_expiry_manual_late_schedule_zero_puts(self):
+        for kind in ('heartbeat', 'token', 'manual', 'late'):
+            with self.subTest(kind=kind):
+                self.setUp()
+                if kind == 'heartbeat':
+                    state = self.state()
+                    state['heartbeat'] = self.clock - 151
+                    self.save(state)
+                elif kind == 'manual':
+                    self.api.jobs['coord-job']['metadata']['annotations'] = {}
+                elif kind == 'late':
+                    self.clock += 100
+                with patch.object(a, 'TOKEN_EXPIRY', self.clock if kind == 'token' else a.TOKEN_EXPIRY):
+                    with self.assertRaises(a.Refuse):
+                        self.coordinate()
+                self.assertEqual(self.gl.puts, [])
+
+    def test_strict_types_uid_corruption_and_stale_holder(self):
+        self.coordinate()
+        state = self.state()
+        state['operation']['baseline'] = 'false'
+        with self.assertRaises(a.Refuse):
+            self.save(state)
+        self.api.cm['metadata']['uid'] = 'replacement'
+        with self.assertRaises(a.Refuse):
+            self.store.read()
+        self.setUp()
+        self.coordinate()
+        self.finish('coord')
+        self.clock = self.slot + 1801
+        self.recover()
+        self.assertEqual(self.state()['phase'], 'DONE')
+        self.clock = self.slot + 3600 + 10
+        stamp = a.dt.datetime.fromtimestamp(self.slot + 3600, a.dt.timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
+        self.api.jobs['coord-job']['metadata']['annotations']['batch.kubernetes.io/cronjob-scheduled-timestamp'] = stamp
+        state = self.state()
+        state['heartbeat'] = self.clock
+        self.save(state)
+        with self.assertRaises(a.Refuse):
+            self.coordinate()  # Previous restoration holder still Running.
+        self.assertEqual(len(self.gl.puts), 2)
+
+
+class AdmissionBootstrapTests(unittest.TestCase):
+    def test_independent_recovery_entrypoint_exists(self):
+        self.assertTrue((CI / 'maintenance-admission.py').is_file(),
+                        'production independent admission/recovery is absent')
 
 
 class RetentionTests(unittest.TestCase):

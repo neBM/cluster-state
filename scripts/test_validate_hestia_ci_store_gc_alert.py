@@ -394,8 +394,27 @@ def test_runtime_gate(module: ModuleType) -> None:
             print(f"PASS runtime gate {name}")
 
 
+def test_maintenance_warning(module: ModuleType) -> None:
+    document = module.yaml.safe_load((ROOT / 'infrastructure/observability-ui/grafana/_grafana_alert_rules.yaml').read_text())
+    checks = module.Checks()
+    module.validate_maintenance_alert(document, checks)
+    if checks.errors:
+        raise AssertionError(checks.errors)
+    rule = next(r for g in document['groups'] for r in g['rules'] if r['uid'] == 'hestia-ci-maintenance-recovery-api')
+    for field, value in (('labels', {'severity': 'critical'}), ('noDataState', 'OK')):
+        old = rule[field]
+        rule[field] = value
+        checks = module.Checks()
+        module.validate_maintenance_alert(document, checks)
+        if not checks.errors:
+            raise AssertionError('maintenance unsafe warning mutation accepted')
+        rule[field] = old
+    print('PASS maintenance warning contract and mutations')
+
+
 def main() -> int:
     module = load_validator()
+    test_maintenance_warning(module)
     test_podman_runtime_paths(module)
     clean = run(ROOT)
     if clean.returncode:

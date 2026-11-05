@@ -426,6 +426,33 @@ def validate_alert(document: dict[str, Any], checks: Checks) -> None:
     checks.equal(threshold.get("model", {}).get("type"), "threshold", "alert threshold type")
 
 
+def validate_maintenance_alert(document: dict[str, Any], checks: Checks) -> None:
+    rules = [r for g in document.get('groups', []) for r in g.get('rules', [])
+             if r.get('uid') == 'hestia-ci-maintenance-recovery-api']
+    checks.equal(len(rules), 1, 'maintenance warning rule count')
+    if len(rules) != 1:
+        return
+    rule = rules[0]
+    checks.equal(rule.get('labels'), {'severity': 'warning'}, 'maintenance notify-only severity')
+    checks.equal(rule.get('noDataState'), 'Alerting', 'maintenance missing metrics')
+    checks.equal(rule.get('execErrState'), 'Alerting', 'maintenance query errors')
+    checks.equal(rule.get('isPaused'), False, 'maintenance warning enabled')
+    checks.equal(rule.get('for'), '1m', 'maintenance warning delay')
+    data = rule.get('data', [])
+    checks.equal([d.get('refId') for d in data], ['A', 'C'], 'maintenance warning data')
+    if len(data) != 2:
+        return
+    expression = normalized(data[0].get('model', {}).get('expr'))
+    for required in ('max by(namespace, job_name) (kube_job_status_failed',
+                     'max by(namespace, job_name, owner_name) (kube_job_owner',
+                     'owner_is_controller="true"', 'job="kubernetes-service-endpoints"',
+                     'kube_cronjob_status_last_successful_time', 'namespace="ci-maintenance"',
+                     'cronjob="hestia-ci-maintenance-recovery"', 'or vector(1000000)', '> bool 180'):
+        checks.true(required in expression, 'maintenance warning missing ' + required)
+    checks.equal(data[1].get('model', {}).get('conditions'),
+                 [{'evaluator': {'params': [0], 'type': 'gt'}}], 'maintenance warning threshold')
+
+
 def validate_wiring(root: Path, checks: Checks) -> None:
     wrapper = (root / "scripts/validate_kustomize.sh").read_text()
     gitlab_ci = (root / ".gitlab-ci.yml").read_text()
@@ -460,6 +487,7 @@ def validate(root: Path) -> list[str]:
             checks.errors.append("Grafana alert rules must be a mapping")
         else:
             validate_alert(document, checks)
+            validate_maintenance_alert(document, checks)
     try:
         validate_wiring(root, checks)
     except OSError as exc:

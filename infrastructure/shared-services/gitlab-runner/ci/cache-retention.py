@@ -318,6 +318,7 @@ def retain(roots, *, execute=False, now=None, used=usage,
                 raise Refuse(f'candidate changed/open/mounted: {path}: {error}') from error
             if current != proof:
                 raise Refuse(f'candidate changed/open/mounted: {path}')
+            gate()  # Metadata scanning may take time: recheck admission at unlink boundary.
             remove_tree(path, device, busy, mounted, current[1],
                         workspace=root == WORKSPACE_ROOT)
 
@@ -341,8 +342,21 @@ def retain(roots, *, execute=False, now=None, used=usage,
 def main():
     if sys.argv[1:] not in ([], ['--execute']):
         raise Refuse('usage: cache-retention.py [--execute] (default: dry run)')
-    api_gate()  # Required even for dry run; no force/bypass or path overrides.
-    retain(ROOTS, execute=sys.argv[1:] == ['--execute'], gate=api_gate)
+    # Import the same immutable policy bundle as the separate controls. No GitLab
+    # credential or GitLab client is constructed in this privileged Pod.
+    import importlib.util
+    spec = importlib.util.spec_from_file_location('maintenance', Path(__file__).with_name('maintenance-admission.py'))
+    assert spec is not None and spec.loader is not None
+    admission = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(admission)
+    store = admission.kube_store()
+    fence = admission.WorkerFence(store, admission.self_identity(store.api))
+    fence.claim()  # CAS ownership before even scanning host roots.
+    def gate():
+        fence.check()
+        api_gate()  # Preserve all previous complete Pod-list checks.
+    gate()
+    retain(ROOTS, execute=sys.argv[1:] == ['--execute'], gate=gate)
 
 
 if __name__ == '__main__':

@@ -1162,3 +1162,55 @@ groups:
           labels:
             severity: critical
           isPaused: false
+    - orgId: 1
+      name: ci-maintenance-recovery
+      folder: Infrastructure Alerts
+      interval: 1m
+      rules:
+        - uid: hestia-ci-maintenance-recovery-api
+          title: Hestia CI Maintenance Recovery Unhealthy
+          condition: C
+          data:
+            - refId: A
+              relativeTimeRange:
+                from: 600
+                to: 0
+              datasourceUid: prometheus
+              model:
+                datasource:
+                  type: prometheus
+                  uid: prometheus
+                expr: >-
+                  ((sum(max by(namespace, job_name) (kube_job_status_failed{job="kubernetes-service-endpoints",namespace=~"ci|ci-maintenance"})
+                    * on(namespace, job_name) group_left(owner_name)
+                    max by(namespace, job_name, owner_name) (kube_job_owner{job="kubernetes-service-endpoints",namespace=~"ci|ci-maintenance",owner_kind="CronJob",owner_is_controller="true",owner_name=~"hestia-ci-maintenance-(admission|recovery)|hestia-ci-cache-retention"})) or vector(0)) > bool 0)
+                  +
+                  (((time() - max(kube_cronjob_status_last_successful_time{job="kubernetes-service-endpoints",namespace="ci-maintenance",cronjob="hestia-ci-maintenance-recovery"})) or vector(1000000)) > bool 180)
+                instant: true
+                intervalMs: 1000
+                maxDataPoints: 43200
+                refId: A
+            - refId: C
+              datasourceUid: "-100"
+              model:
+                conditions:
+                  - evaluator:
+                      params: [0]
+                      type: gt
+                datasource:
+                  type: __expr__
+                  uid: "-100"
+                expression: A
+                intervalMs: 1000
+                maxDataPoints: 43200
+                refId: C
+                type: threshold
+          noDataState: Alerting
+          execErrState: Alerting
+          for: 1m
+          annotations:
+            description: CI maintenance has a retained failed Job or independent recovery has no successful run within 180 seconds. Inspect ci-maintenance/hestia-ci-maintenance-state and exact owner Pod generations. ALERT or uncertain HTTP writes require operator reconciliation; never clear state, cancel accepted jobs, restart the manager or unpause while an effect-capable holder may still run. Failed cleanup and successful restoration are separate outcomes. Warning uses the existing notify-only route, not automated remediation.
+            summary: Runner2 maintenance needs operator attention
+          labels:
+            severity: warning
+          isPaused: false

@@ -54,6 +54,47 @@ class RunnerConfigTests(unittest.TestCase):
                     }],
                 })
 
+    def test_maintenance_namespace_and_least_privilege(self):
+        # Dedicated namespace keeps the existing CI job SA's Secret/ConfigMap
+        # CRUD authority away from the administrator credential/restoration latch.
+        jobs = {o['metadata']['name']: o for o in self.objects if o['kind'] == 'CronJob'}
+        state, = [o for o in self.objects if o['kind'] == 'ConfigMap' and o['metadata']['name'] == 'hestia-ci-maintenance-state']
+        self.assertEqual(state['metadata']['namespace'], 'ci-maintenance')
+        self.assertNotIn('data', state)
+        self.assertEqual(state['metadata']['annotations']['kustomize.toolkit.fluxcd.io/ssa'], 'Merge')
+        for name, bound in (('admission', 1380), ('recovery', 50)):
+            job = jobs['hestia-ci-maintenance-' + name]
+            self.assertEqual(job['metadata']['namespace'], 'ci-maintenance')
+            self.assertEqual(job['spec']['jobTemplate']['spec']['activeDeadlineSeconds'], bound)
+            template = job['spec']['jobTemplate']['spec']['template']
+            self.assertNotIn('ci.brmartin.co.uk/job', template['metadata']['labels'])
+            self.assertNotIn('ci.brmartin.co.uk/maintenance', template['metadata']['labels'])
+            pod = template['spec']
+            self.assertNotIn('hostPID', pod)
+            self.assertTrue(pod['securityContext']['runAsNonRoot'])
+            self.assertTrue(all('hostPath' not in v for v in pod['volumes']))
+            container, = pod['containers']
+            self.assertEqual(container['securityContext']['capabilities']['drop'], ['ALL'])
+            self.assertTrue(container['securityContext']['readOnlyRootFilesystem'])
+            self.assertFalse(container['securityContext']['allowPrivilegeEscalation'])
+            self.assertIn({'name': 'credential', 'mountPath': '/credential', 'readOnly': True}, container['volumeMounts'])
+            policy, = [v for v in pod['volumes'] if v['name'] == 'policy']
+            self.assertTrue(any(o['kind'] == 'ConfigMap' and o['metadata']['namespace'] == 'ci-maintenance'
+                                and o['metadata']['name'] == policy['configMap']['name'] for o in self.objects))
+        worker = jobs['hestia-ci-cache-retention']['spec']['jobTemplate']['spec']['template']['spec']
+        self.assertFalse(any('secret' in v for v in worker['volumes']))
+        self.assertEqual(worker['serviceAccountName'], 'hestia-ci-maintenance-worker')
+        for role in [o for o in self.objects if o['kind'] == 'Role' and o['metadata']['name'].startswith('hestia-ci-maintenance')]:
+            for rule in role['rules']:
+                self.assertNotIn('secrets', rule['resources'])
+                self.assertTrue(set(rule['verbs']) <= {'get', 'list', 'update'})
+                if 'configmaps' in rule['resources']:
+                    self.assertEqual(role['metadata']['namespace'], 'ci-maintenance')
+                    self.assertEqual(rule['resourceNames'], ['hestia-ci-maintenance-state'])
+        for binding in [o for o in self.objects if o['kind'] == 'RoleBinding' and o['metadata']['namespace'] == 'ci-maintenance']:
+            self.assertTrue(all(s['namespace'] == 'ci-maintenance' or
+                                s['namespace'] == 'ci' and s['name'] == 'hestia-ci-maintenance-worker'
+                                for s in binding['subjects']))
     def test_internal_metrics_service_and_policy(self):
         service, = [o for o in self.objects if o["kind"] == "Service"]
         policy, = [o for o in self.objects if o["kind"] == "CiliumNetworkPolicy"]
@@ -94,7 +135,7 @@ class RunnerConfigTests(unittest.TestCase):
     def test_architecture_admission_and_generator(self):
         self.assertEqual(sorted(m["metadata"]["name"] for m in self.managers),
                          ["gitlab-runner"])
-        maps = {obj["metadata"]["name"]: obj["data"] for obj in self.objects if obj["kind"] == "ConfigMap"}
+        maps = {obj["metadata"]["name"]: obj.get("data", {}) for obj in self.objects if obj["kind"] == "ConfigMap"}
         pins = {image["name"]: image for image in yaml.safe_load((RUNNERS / "kustomization.yaml").read_text())["images"]}
         system_ids = []
         for manager in self.managers:

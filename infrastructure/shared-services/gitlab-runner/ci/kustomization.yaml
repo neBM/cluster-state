@@ -5,6 +5,11 @@ resources:
 - configmap-ci-gitlab-runner-registries-conf.yaml
 - cronjob-ci-hestia-ci-store-gc.yaml
 - cronjob-ci-hestia-ci-cache-retention.yaml
+- cronjob-ci-hestia-ci-maintenance-admission.yaml
+- cronjob-ci-hestia-ci-maintenance-recovery.yaml
+- configmap-ci-hestia-ci-maintenance-state.yaml
+- rbac-ci-hestia-ci-maintenance.yaml
+- namespace-ci-maintenance.yaml
 - daemonset-ci-gitlab-runner-host-storage.yaml
 - namespace-ci.yaml
 - role-ci-gitlab-runner.yaml
@@ -15,6 +20,12 @@ resources:
 - serviceaccount-ci-hestia-ci-store-gc.yaml
 configMapGenerator:
 - name: hestia-ci-cache-retention
+  namespace: ci-maintenance
+  files:
+  - cache-retention.py
+  - maintenance-admission.py
+- name: hestia-ci-cache-retention
   namespace: ci
   files:
   - cache-retention.py
+  - maintenance-admission.py
