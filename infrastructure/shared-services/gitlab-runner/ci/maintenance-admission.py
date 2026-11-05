@@ -22,6 +22,8 @@ import urllib.request
 STATE = '/api/v1/namespaces/ci-maintenance/configmaps/hestia-ci-maintenance-state'
 PODS = '/api/v1/namespaces/ci/pods'
 CONTROL_PODS = '/api/v1/namespaces/ci-maintenance/pods'
+WORKER_NAMESPACE = 'ci-maintenance-worker'
+WORKER_PODS = '/api/v1/namespaces/ci-maintenance-worker/pods'
 GITLAB = 'https://git.brmartin.co.uk/api/v4'
 TOKEN = Path('/credential/token')
 TOKEN_EXPIRY = int(dt.datetime(2027, 11, 5, tzinfo=dt.timezone.utc).timestamp())
@@ -57,7 +59,7 @@ def text(value):
 def identity(value):
     require(type(value) is dict and set(value) == {'namespace', 'name', 'uid', 'job', 'job_uid'}
             and all(text(v) for v in value.values()), 'invalid owner identity')
-    require(value['namespace'] in {'ci', 'ci-maintenance'}, 'invalid owner namespace')
+    require(value['namespace'] in {WORKER_NAMESPACE, 'ci-maintenance'}, 'invalid owner namespace')
     return value
 
 
@@ -89,7 +91,7 @@ def validate(state, uid, policy):
         if op[field] is not None:
             identity(op[field])
     require(op['coordinator']['namespace'] == 'ci-maintenance'
-            and (op['worker'] is None or op['worker']['namespace'] == 'ci')
+            and (op['worker'] is None or op['worker']['namespace'] == WORKER_NAMESPACE)
             and (op['holder'] is None or op['holder']['namespace'] == 'ci-maintenance'), 'wrong effect-owner namespace')
     require(all(type(op[k]) is bool for k in ('claimed', 'baseline', 'restore_required', 'restored'))
             and op['baseline'] is False and op['restore_required'] is True
@@ -169,8 +171,8 @@ class Store:
 
 
 def pods(api, namespace='ci'):
-    require(namespace in {'ci', 'ci-maintenance'}, 'invalid observation namespace')
-    value, _ = api.request('GET', (PODS if namespace == 'ci' else CONTROL_PODS) + '?limit=500')
+    require(namespace in {'ci', 'ci-maintenance', WORKER_NAMESPACE}, 'invalid observation namespace')
+    value, _ = api.request('GET', '/api/v1/namespaces/' + namespace + '/pods?limit=500')
     require(type(value) is dict and type(value.get('items')) is list
             and type(value.get('metadata')) is dict and value['metadata'].get('continue', '') == '',
             'incomplete Pod snapshot')
@@ -187,7 +189,9 @@ def pods(api, namespace='ci'):
 
 
 def snapshot_all(api):
-    return pods(api) + pods(api, 'ci-maintenance')
+    snapshot = pods(api) + pods(api, 'ci-maintenance') + pods(api, WORKER_NAMESPACE)
+    require(len({p['metadata']['uid'] for p in snapshot}) == len(snapshot), 'duplicate snapshot UID')
+    return snapshot
 
 
 def owner_ref(pod):
@@ -205,10 +209,27 @@ def pod_identity(pod):
             'job': owner['name'], 'job_uid': owner['uid']}
 
 
+def bundle(pod):
+    volumes = [v for v in pod['spec'].get('volumes', []) if v.get('name') == 'policy']
+    require(len(volumes) == 1, 'missing policy bundle')
+    name = volumes[0].get('configMap', {}).get('name')
+    require(text(name) and name.startswith('hestia-ci-cache-retention-'), 'wrong policy bundle')
+    return name
+
+
 def scheduled(api, pod, cron):
     ident = pod_identity(pod)
+    namespace = WORKER_NAMESPACE if cron == 'hestia-ci-cache-retention' else 'ci-maintenance'
+    require(ident['namespace'] == namespace, 'wrong scheduled namespace')
     job, _ = api.request('GET', '/apis/batch/v1/namespaces/' + ident['namespace'] + '/jobs/' + urllib.parse.quote(ident['job'], safe=''))
-    require(job.get('metadata', {}).get('uid') == ident['job_uid'], 'Job generation changed')
+    require(job.get('metadata', {}).get('uid') == ident['job_uid']
+            and job['metadata'].get('namespace') == namespace
+            and job['metadata'].get('name') == ident['job'], 'Job generation changed')
+    template = job.get('spec', {}).get('template', {})
+    sa = 'hestia-ci-maintenance-worker' if namespace == WORKER_NAMESPACE else cron
+    require(pod['spec'].get('serviceAccountName') == sa
+            and template.get('spec', {}).get('serviceAccountName') == sa
+            and bundle(template) == bundle(pod), 'Job policy or service account changed')
     refs = job['metadata'].get('ownerReferences', [])
     require(len(refs) == 1 and refs[0].get('kind') == 'CronJob' and refs[0].get('name') == cron
             and refs[0].get('controller') is True and text(refs[0].get('uid')), 'not a scheduled native Job')
@@ -333,8 +354,9 @@ def coordinate(store, gitlab, me, now=time.time, sleep=time.sleep):
                 'drain ownership sealed')
         snapshot = snapshot_all(store.api)
         if runner(gitlab) and drained(gitlab) and ci_drained(snapshot):
-            workers = [p for p in snapshot if p['metadata']['namespace'] == 'ci'
+            workers = [p for p in snapshot if p['metadata']['namespace'] == WORKER_NAMESPACE
                        and p['metadata'].get('labels', {}).get('app') == 'hestia-ci-cache-retention'
+                       and bundle(p) == bundle(own)
                        and p['status']['phase'] in {'Pending', 'Running'} and not p['metadata'].get('deletionTimestamp')
                        and scheduled(store.api, p, 'hestia-ci-cache-retention') == slot]
             require(len(workers) <= 1, 'ambiguous worker generation')
@@ -417,6 +439,7 @@ def recover(store, gitlab, me, now=time.time):
 
 class WorkerFence:
     def __init__(self, store, me, now=time.time):
+        require(me['namespace'] == WORKER_NAMESPACE, 'wrong worker namespace')
         self.store, self.me, self.now, self.operation = store, me, now, None
 
     def claim(self, sleep=time.sleep):
@@ -453,7 +476,7 @@ def kube_store():
 
 def self_identity(api):
     namespace = os.environ['POD_NAMESPACE']
-    require(namespace in {'ci', 'ci-maintenance'}, 'wrong self namespace')
+    require(namespace in {WORKER_NAMESPACE, 'ci-maintenance'}, 'wrong self namespace')
     matches = [p for p in pods(api, namespace) if p['metadata']['uid'] == os.environ['POD_UID']
                and p['metadata']['name'] == os.environ['POD_NAME']]
     require(len(matches) == 1 and not matches[0]['metadata'].get('deletionTimestamp'), 'self Pod identity missing')

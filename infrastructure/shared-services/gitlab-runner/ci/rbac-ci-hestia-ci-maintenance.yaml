@@ -16,7 +16,7 @@ apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: hestia-ci-maintenance-worker
-  namespace: ci
+  namespace: ci-maintenance-worker
 automountServiceAccountToken: true
 ---
 apiVersion: rbac.authorization.k8s.io/v1
@@ -48,7 +48,7 @@ subjects:
   namespace: ci-maintenance
 - kind: ServiceAccount
   name: hestia-ci-maintenance-worker
-  namespace: ci
+  namespace: ci-maintenance-worker
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
@@ -132,4 +132,37 @@ roleRef:
 subjects:
 - kind: ServiceAccount
   name: hestia-ci-maintenance-worker
-  namespace: ci
+  namespace: ci-maintenance-worker
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: hestia-ci-maintenance-observer
+  namespace: ci-maintenance-worker
+rules:
+- apiGroups: [""]
+  resources: [pods]
+  verbs: [list]
+- apiGroups: [batch]
+  resources: [jobs]
+  verbs: [get]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: hestia-ci-maintenance-observer
+  namespace: ci-maintenance-worker
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: hestia-ci-maintenance-observer
+subjects:
+- kind: ServiceAccount
+  name: hestia-ci-maintenance-admission
+  namespace: ci-maintenance
+- kind: ServiceAccount
+  name: hestia-ci-maintenance-recovery
+  namespace: ci-maintenance
+- kind: ServiceAccount
+  name: hestia-ci-maintenance-worker
+  namespace: ci-maintenance-worker

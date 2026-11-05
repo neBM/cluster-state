@@ -10,6 +10,7 @@ resources:
 - configmap-ci-hestia-ci-maintenance-state.yaml
 - rbac-ci-hestia-ci-maintenance.yaml
 - namespace-ci-maintenance.yaml
+- namespace-ci-maintenance-worker.yaml
 - daemonset-ci-gitlab-runner-host-storage.yaml
 - namespace-ci.yaml
 - role-ci-gitlab-runner.yaml
@@ -25,7 +26,7 @@ configMapGenerator:
   - cache-retention.py
   - maintenance-admission.py
 - name: hestia-ci-cache-retention
-  namespace: ci
+  namespace: ci-maintenance-worker
   files:
   - cache-retention.py
   - maintenance-admission.py

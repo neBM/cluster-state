@@ -171,11 +171,11 @@ the independent Job; failed cleanup remains `cleanup-failed` even after restorat
 Native metric selectors, warning delivery and scheduled failure behavior must be
 qualified by the release owner before enabling effects; fixtures are not that proof.
 
-Two separate GitOps CronJobs in `ci` own regenerable CI storage:
+Two separate GitOps CronJobs own regenerable CI storage:
 
-- `hestia-ci-store-gc` runs at 04:17 UTC for the existing Podman image store;
+- `ci/hestia-ci-store-gc` runs at 04:17 UTC for the existing Podman image store;
   its scope and 168-hour image/container policy are unchanged.
-- `hestia-ci-cache-retention` runs hourly at minute 47 UTC on Hestia. It mounts only
+- `ci-maintenance-worker/hestia-ci-cache-retention` runs hourly at minute 47 UTC on Hestia. It mounts only
   `/var/lib/ci-builds-nocow` and `/var/lib/ci-cache-nocow` writable, never the
   image store, Docker, k3s/containerd, PVCs, or application data.
 
@@ -194,20 +194,34 @@ The earlier trigger and hourly cadence proactively preserve headroom, but cadenc
 alone does not guarantee a reserve: active consumers and safety guards can prevent
 cleanup, and filesystem usage can grow between runs.
 
-The worker keeps its existing immutable Podman image and host privileges, but uses
-the dedicated `hestia-ci-maintenance-worker` service account: list Pods plus
-get/update only `ci-maintenance/hestia-ci-maintenance-state` through a cross-namespace
-RoleBinding. It has no GitLab credential. The restricted `ci-maintenance` namespace
-isolates control state and the future token Secret from the existing CI job SA's
-Secret/ConfigMap authority in `ci`. Prove that SA cannot get/delete either control
-object before the operator provisions the new token there. Direct negative SARs
-are not sufficient activation proof: the existing CI SA can create and exec Pods
-in `ci`, potentially obtaining the worker SA's cross-namespace state authority.
-The release owner must close or explicitly resolve that indirect authority path
-before activation; this source slice does not introduce an admission policy.
-Controls have only read-only Pod/Job observation in both namespaces and named
-state update; no Secret API verbs.
-Both maintenance gates retain a complete namespace Pod-list fence: the maintenance
+The worker keeps its existing immutable Podman image, host privileges and host
+roots, but its dedicated service account and policy bundle now live only in the
+GitOps-owned privileged-PSA `ci-maintenance-worker` namespace. Its cross-namespace
+bindings allow listing CI Pods and get/update only the named
+`ci-maintenance/hestia-ci-maintenance-state`; its local observer can list Pods and
+read Jobs for identity. It has no GitLab credential. Controls, state and the future
+token Secret remain in restricted `ci-maintenance`. Controls only observe Pods/Jobs
+in all three namespaces and update named state; no Secret API or workload writes.
+The existing CI role is unchanged and has no binding into either new namespace:
+its create/exec authority in `ci` cannot select or exec the worker/control SAs
+there. Before replacement credentials or activation, qualify native negative SARs
+for state/Secret and Pod create/exec in both namespaces, and read back actual Pod
+service accounts, namespaces and policy bundles. Source fixtures are not live proof.
+This closes the direct Kubernetes API/SA-selection/exec path, not the preexisting
+host trust boundary: malicious privileged node-root CI remains outside this claim.
+
+CI job templates, the worker and store-GC all require hard hostname anti-affinity
+over exactly `ci` and `ci-maintenance-worker`, retaining the same CI-label selector.
+Before merge/Flux reconciliation, the release owner must pause new acquisition on
+both Runner2 and Runner3 and let every accepted job finish naturally, then perform
+the routine GitOps manager template rollout. Read back effective generated config
+and new Pod affinity before restoring each prior acquisition baseline and running
+exact-main CI. No SIGTERM/restart of a manager with accepted work, CI cancellation,
+capacity/deadline change or imperative manager workaround is authorized.
+
+Store-GC retains its CI namespace fence; cache retention independently validates
+complete CI and worker-namespace Pod lists before its combined UID/conflict fence.
+The maintenance
 Pod's UID/labels/Hestia assignment must match and its phase must be Running.
 Hard CI-label hostname anti-affinity blocks new CI scheduling on Hestia. Other
 Running or Pending CI Pods block cleanup unless positively assigned to the known

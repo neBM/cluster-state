@@ -74,21 +74,56 @@ def wait_for_gate(fetch, uid, sleep=time.sleep):
     raise Refuse('maintenance Pod did not become Running')
 
 
+def combined_pods(fetch):
+    items = []
+    for namespace in ('ci', 'ci-maintenance-worker'):
+        payload = fetch(namespace)
+        if (type(payload) is not dict or type(payload.get('items')) is not list
+                or type(payload.get('metadata')) is not dict
+                or payload['metadata'].get('continue', '') != ''):
+            raise Refuse('incomplete namespace Pod list')
+        seen = set()
+        for pod in payload['items']:
+            if (type(pod) is not dict or type(pod.get('metadata')) is not dict
+                    or pod['metadata'].get('namespace') != namespace
+                    or any(type(pod.get(k)) is not dict for k in ('spec', 'status'))):
+                raise Refuse('wrong namespace or malformed Pod')
+            meta = pod['metadata']
+            if (any(type(meta.get(k)) is not str or not meta[k] for k in ('uid', 'name'))
+                    or meta['uid'] in seen or type(meta.get('labels')) is not dict
+                    or type(pod['status'].get('phase')) is not str
+                    or type(pod['spec'].get('nodeName', '')) is not str):
+                raise Refuse('invalid namespace Pod identity')
+            seen.add(meta['uid'])
+        items.extend(payload['items'])
+    # pod_gate rejects duplicate UIDs across either list before allowing cleanup.
+    return {'metadata': {}, 'items': items}
+
+
 def api_gate():
-    if os.environ.get('NODE_NAME') != 'hestia' or not os.environ.get('POD_UID'):
+    if (os.environ.get('NODE_NAME') != 'hestia' or not os.environ.get('POD_UID')
+            or os.environ.get('POD_NAMESPACE') != 'ci-maintenance-worker'):
         raise Refuse('missing/wrong downward API identity')
     sa = Path('/var/run/secrets/kubernetes.io/serviceaccount')
     context = ssl.create_default_context(cafile=str(sa / 'ca.crt'))
     url = ('https://' + os.environ['KUBERNETES_SERVICE_HOST'] + ':'
-           + os.environ['KUBERNETES_SERVICE_PORT_HTTPS'] + '/api/v1/namespaces/ci/pods?limit=500')
+           + os.environ['KUBERNETES_SERVICE_PORT_HTTPS'])
 
-    def fetch():
-        request = urllib.request.Request(url, headers={
+    def fetch(namespace):
+        request = urllib.request.Request(url + '/api/v1/namespaces/' + namespace + '/pods?limit=500', headers={
             'Authorization': 'Bearer ' + (sa / 'token').read_text().strip()})
         with urllib.request.urlopen(request, context=context, timeout=15) as response:
             return json.load(response)
 
-    wait_for_gate(fetch, os.environ['POD_UID'])
+    def snapshot():
+        payload = combined_pods(fetch)
+        matches = [p for p in payload['items'] if p['metadata'].get('uid') == os.environ['POD_UID']]
+        if (len(matches) != 1 or matches[0]['metadata']['namespace'] != 'ci-maintenance-worker'
+                or matches[0]['metadata'].get('name') != os.environ.get('POD_NAME')):
+            raise Refuse('wrong worker Pod identity')
+        return payload
+
+    wait_for_gate(snapshot, os.environ['POD_UID'])
 
 
 def identity(st):

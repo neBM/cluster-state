@@ -2,7 +2,7 @@ apiVersion: batch/v1
 kind: CronJob
 metadata:
   name: hestia-ci-cache-retention
-  namespace: ci
+  namespace: ci-maintenance-worker
   labels:
     app: hestia-ci-cache-retention
 spec:
@@ -36,6 +36,7 @@ spec:
               - labelSelector:
                   matchLabels:
                     ci.brmartin.co.uk/job: "true"
+                namespaces: [ci, ci-maintenance-worker]
                 topologyKey: kubernetes.io/hostname
           restartPolicy: Never
           containers:

@@ -302,7 +302,7 @@ def validate_gc(resources: list[dict[str, Any]], checks: Checks) -> None:
     checks.equal(pod.get("enableServiceLinks"), True, "GC enableServiceLinks")
     checks.equal(
         pod.get("affinity"),
-        {"podAntiAffinity": {"requiredDuringSchedulingIgnoredDuringExecution": [{"labelSelector": {"matchLabels": {JOB_LABEL: "true"}}, "topologyKey": "kubernetes.io/hostname"}]}},
+        {"podAntiAffinity": {"requiredDuringSchedulingIgnoredDuringExecution": [{"labelSelector": {"matchLabels": {JOB_LABEL: "true"}}, "namespaces": ["ci", "ci-maintenance-worker"], "topologyKey": "kubernetes.io/hostname"}]}},
         "GC scheduler exclusion",
     )
 
@@ -443,6 +443,8 @@ def validate_maintenance_alert(document: dict[str, Any], checks: Checks) -> None
     if len(data) != 2:
         return
     expression = normalized(data[0].get('model', {}).get('expr'))
+    checks.equal(expression.count('namespace=~"ci|ci-maintenance|ci-maintenance-worker"'), 2,
+                 'maintenance worker and controller namespace coverage')
     for required in ('max by(namespace, job_name) (kube_job_status_failed',
                      'max by(namespace, job_name, owner_name) (kube_job_owner',
                      'owner_is_controller="true"', 'job="kubernetes-service-endpoints"',

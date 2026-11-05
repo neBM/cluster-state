@@ -1181,9 +1181,9 @@ groups:
                   type: prometheus
                   uid: prometheus
                 expr: >-
-                  ((sum(max by(namespace, job_name) (kube_job_status_failed{job="kubernetes-service-endpoints",namespace=~"ci|ci-maintenance"})
+                  ((sum(max by(namespace, job_name) (kube_job_status_failed{job="kubernetes-service-endpoints",namespace=~"ci|ci-maintenance|ci-maintenance-worker"})
                     * on(namespace, job_name) group_left(owner_name)
-                    max by(namespace, job_name, owner_name) (kube_job_owner{job="kubernetes-service-endpoints",namespace=~"ci|ci-maintenance",owner_kind="CronJob",owner_is_controller="true",owner_name=~"hestia-ci-maintenance-(admission|recovery)|hestia-ci-cache-retention"})) or vector(0)) > bool 0)
+                    max by(namespace, job_name, owner_name) (kube_job_owner{job="kubernetes-service-endpoints",namespace=~"ci|ci-maintenance|ci-maintenance-worker",owner_kind="CronJob",owner_is_controller="true",owner_name=~"hestia-ci-maintenance-(admission|recovery)|hestia-ci-cache-retention"})) or vector(0)) > bool 0)
                   +
                   (((time() - max(kube_cronjob_status_last_successful_time{job="kubernetes-service-endpoints",namespace="ci-maintenance",cronjob="hestia-ci-maintenance-recovery"})) or vector(1000000)) > bool 180)
                 instant: true

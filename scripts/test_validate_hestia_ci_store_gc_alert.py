@@ -410,6 +410,14 @@ def test_maintenance_warning(module: ModuleType) -> None:
             raise AssertionError('maintenance unsafe warning mutation accepted')
         rule[field] = old
     print('PASS maintenance warning contract and mutations')
+    query = rule['data'][0]['model']
+    original = query['expr']
+    query['expr'] = original.replace('ci|ci-maintenance|ci-maintenance-worker', 'ci|ci-maintenance')
+    checks = module.Checks()
+    module.validate_maintenance_alert(document, checks)
+    if not checks.errors:
+        raise AssertionError('maintenance worker namespace omission accepted')
+    query['expr'] = original
 
 
 def main() -> int:

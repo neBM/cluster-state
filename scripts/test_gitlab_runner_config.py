@@ -51,6 +51,7 @@ class RunnerConfigTests(unittest.TestCase):
                     'requiredDuringSchedulingIgnoredDuringExecution': [{
                         'labelSelector': {'matchLabels': {'ci.brmartin.co.uk/job': 'true'}},
                         'topologyKey': 'kubernetes.io/hostname',
+                        'namespaces': ['ci', 'ci-maintenance-worker'],
                     }],
                 })
 
@@ -82,6 +83,19 @@ class RunnerConfigTests(unittest.TestCase):
             self.assertTrue(any(o['kind'] == 'ConfigMap' and o['metadata']['namespace'] == 'ci-maintenance'
                                 and o['metadata']['name'] == policy['configMap']['name'] for o in self.objects))
         worker = jobs['hestia-ci-cache-retention']['spec']['jobTemplate']['spec']['template']['spec']
+        self.assertEqual(jobs['hestia-ci-cache-retention']['metadata']['namespace'], 'ci-maintenance-worker')
+        namespaces = {o['metadata']['name']: o for o in self.objects if o['kind'] == 'Namespace'}
+        self.assertEqual(namespaces['ci-maintenance-worker']['metadata']['labels']['pod-security.kubernetes.io/enforce'], 'privileged')
+        accounts = {(o['metadata']['namespace'], o['metadata']['name']) for o in self.objects if o['kind'] == 'ServiceAccount'}
+        self.assertIn(('ci-maintenance-worker', 'hestia-ci-maintenance-worker'), accounts)
+        self.assertNotIn(('ci', 'hestia-ci-maintenance-worker'), accounts)
+        policy, = [v for v in worker['volumes'] if v['name'] == 'policy']
+        for control in ('admission', 'recovery'):
+            control_pod = jobs['hestia-ci-maintenance-' + control]['spec']['jobTemplate']['spec']['template']['spec']
+            control_policy, = [v for v in control_pod['volumes'] if v['name'] == 'policy']
+            self.assertEqual(policy['configMap']['name'], control_policy['configMap']['name'])
+        self.assertTrue(any(o['kind'] == 'ConfigMap' and o['metadata']['namespace'] == 'ci-maintenance-worker'
+                            and o['metadata']['name'] == policy['configMap']['name'] for o in self.objects))
         self.assertFalse(any('secret' in v for v in worker['volumes']))
         self.assertEqual(worker['serviceAccountName'], 'hestia-ci-maintenance-worker')
         for role in [o for o in self.objects if o['kind'] == 'Role' and o['metadata']['name'].startswith('hestia-ci-maintenance')]:
@@ -93,8 +107,26 @@ class RunnerConfigTests(unittest.TestCase):
                     self.assertEqual(rule['resourceNames'], ['hestia-ci-maintenance-state'])
         for binding in [o for o in self.objects if o['kind'] == 'RoleBinding' and o['metadata']['namespace'] == 'ci-maintenance']:
             self.assertTrue(all(s['namespace'] == 'ci-maintenance' or
-                                s['namespace'] == 'ci' and s['name'] == 'hestia-ci-maintenance-worker'
+                                s['namespace'] == 'ci-maintenance-worker' and s['name'] == 'hestia-ci-maintenance-worker'
                                 for s in binding['subjects']))
+        state_binding, = [o for o in self.objects if o['kind'] == 'RoleBinding' and o['metadata']['name'] == 'hestia-ci-maintenance-state']
+        self.assertIn({'kind': 'ServiceAccount', 'name': 'hestia-ci-maintenance-worker', 'namespace': 'ci-maintenance-worker'}, state_binding['subjects'])
+        roles = {(o['metadata']['namespace'], o['metadata']['name']): o for o in self.objects if o['kind'] == 'Role'}
+        for binding in [o for o in self.objects if o['kind'] == 'RoleBinding' and o['metadata']['namespace'] in ('ci-maintenance', 'ci-maintenance-worker')]:
+            self.assertTrue(all(s.get('namespace') != 'ci' for s in binding['subjects']))
+        observer = roles['ci-maintenance-worker', 'hestia-ci-maintenance-observer']
+        bindings = [o for o in self.objects if o['kind'] == 'RoleBinding']
+        for identity, namespaces in ((('ci-maintenance-worker', 'hestia-ci-maintenance-worker'), ('ci', 'ci-maintenance-worker')),
+                                     (('ci-maintenance', 'hestia-ci-maintenance-admission'), ('ci', 'ci-maintenance', 'ci-maintenance-worker')),
+                                     (('ci-maintenance', 'hestia-ci-maintenance-recovery'), ('ci', 'ci-maintenance', 'ci-maintenance-worker'))):
+            for namespace in namespaces:
+                granted = [roles[namespace, b['roleRef']['name']] for b in bindings
+                           if b['metadata']['namespace'] == namespace and any(
+                               (s.get('namespace'), s.get('name')) == identity for s in b['subjects'])]
+                self.assertTrue(any('pods' in rule['resources'] and 'list' in rule['verbs']
+                                    for role in granted for rule in role['rules']), (identity, namespace))
+        self.assertEqual(observer['rules'], [{'apiGroups': [''], 'resources': ['pods'], 'verbs': ['list']},
+                                             {'apiGroups': ['batch'], 'resources': ['jobs'], 'verbs': ['get']}])
     def test_internal_metrics_service_and_policy(self):
         service, = [o for o in self.objects if o["kind"] == "Service"]
         policy, = [o for o in self.objects if o["kind"] == "CiliumNetworkPolicy"]
@@ -217,6 +249,7 @@ class RunnerConfigTests(unittest.TestCase):
                         # Runner chooses its version-coupled, selector-aware native helper.
                         self.assertNotIn("helper_image", runner["kubernetes"], f"{arch}/{lane}")
                         k = runner["kubernetes"]
+                        self.assertEqual(k['affinity']['pod_anti_affinity']['required_during_scheduling_ignored_during_execution'][0]['namespaces'], ['ci', 'ci-maintenance-worker'])
                         self.assertTrue(k["privileged"])
                         self.assertFalse(k["enable_service_links"])
                         self.assertEqual(k["cpu_request"], "250m" if lane == "amd64" else "500m")

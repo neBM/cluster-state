@@ -44,7 +44,7 @@ class FakeAPI:
                 self.cm = copy.deepcopy(body)
                 self.cm['metadata']['resourceVersion'] = str(int(self.cm['metadata']['resourceVersion']) + 1)
             return copy.deepcopy(self.cm), {}
-        if path.startswith(a.PODS) or path.startswith(a.CONTROL_PODS):
+        if any(path.startswith(p) for p in (a.PODS, a.CONTROL_PODS, a.WORKER_PODS)):
             namespace = path.split('/')[4]
             return {'metadata': {}, 'items': copy.deepcopy([p for p in self.snapshot if p['metadata']['namespace'] == namespace])}, {}
         if '/jobs/' in path:
@@ -82,10 +82,12 @@ class AdmissionTests(unittest.TestCase):
         snapshot = [self.coordinator, self.worker, self.recovery]
         stamp = a.dt.datetime.fromtimestamp(self.slot, a.dt.timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
         jobs = {p['metadata']['name'] + '-job': {'metadata': {
+            'namespace': p['metadata']['namespace'], 'name': p['metadata']['name'] + '-job',
             'uid': p['metadata']['name'] + '-job-uid',
             'annotations': {'batch.kubernetes.io/cronjob-scheduled-timestamp': stamp},
             'ownerReferences': [{'kind': 'CronJob', 'name': p['metadata']['labels']['app'],
-                                 'controller': True, 'uid': 'cron-uid'}]}} for p in snapshot}
+                                 'controller': True, 'uid': 'cron-uid'}]},
+            'spec': {'template': {'spec': copy.deepcopy(p['spec'])}}} for p in snapshot}
         state = {'schema': 1, 'runner': 2, 'uid': 'state-uid', 'policy': self.policy,
                  'heartbeat': self.clock, 'phase': 'IDLE', 'operation': None}
         self.api = FakeAPI(state, snapshot, jobs)
@@ -97,9 +99,11 @@ class AdmissionTests(unittest.TestCase):
         labels = {'app': app}
         if name == 'worker':
             labels.update({'ci.brmartin.co.uk/job': 'true', 'ci.brmartin.co.uk/maintenance': 'true'})
-        return {'metadata': {'namespace': 'ci' if name == 'worker' else 'ci-maintenance', 'uid': name + '-uid', 'name': name, 'labels': labels,
+        return {'metadata': {'namespace': 'ci-maintenance-worker' if name == 'worker' else 'ci-maintenance', 'uid': name + '-uid', 'name': name, 'labels': labels,
                 'ownerReferences': [{'kind': 'Job', 'name': name + '-job', 'uid': name + '-job-uid', 'controller': True}]},
-                'spec': {'containers': [{'name': 'main'}], 'nodeName': 'hestia'},
+                'spec': {'containers': [{'name': 'main'}], 'nodeName': 'hestia',
+                         'serviceAccountName': 'hestia-ci-maintenance-worker' if name == 'worker' else app,
+                         'volumes': [{'name': 'policy', 'configMap': {'name': 'hestia-ci-cache-retention-fixture'}}]},
                 'status': {'phase': 'Running', 'containerStatuses': [{'name': 'main', 'state': {'running': {}}}]}}
 
     def finish(self, name, phase='Succeeded'):
@@ -119,6 +123,31 @@ class AdmissionTests(unittest.TestCase):
     def save(self, state):
         cm, _ = self.store.read()
         self.store.save(cm, state)
+
+    def test_foreign_ci_cannot_claim_or_retire_worker(self):
+        forged = copy.deepcopy(self.worker)
+        forged['metadata']['namespace'] = 'ci'
+        with self.assertRaises(a.Refuse):
+            a.scheduled(self.api, forged, 'hestia-ci-cache-retention')
+        with self.assertRaises(a.Refuse):
+            a.WorkerFence(self.store, a.pod_identity(forged))
+        self.assertFalse(a.terminal([forged], self.who))
+        self.api.snapshot[1] = forged
+        with self.assertRaises(a.Refuse):
+            self.coordinate()
+        self.assertIsNone(self.state()['operation']['worker'])
+
+    def test_worker_job_generation_namespace_and_bundle_bound(self):
+        for field in ('namespace', 'uid', 'name'):
+            with self.subTest(field=field):
+                saved = self.api.jobs['worker-job']['metadata'][field]
+                self.api.jobs['worker-job']['metadata'][field] = 'foreign'
+                with self.assertRaises(a.Refuse):
+                    a.scheduled(self.api, self.worker, 'hestia-ci-cache-retention')
+                self.api.jobs['worker-job']['metadata'][field] = saved
+        self.api.jobs['worker-job']['spec']['template']['spec']['volumes'][0]['configMap']['name'] += '-foreign'
+        with self.assertRaises(a.Refuse):
+            a.scheduled(self.api, self.worker, 'hestia-ci-cache-retention')
 
     def test_true_baseline_and_persistence_failure_zero_puts(self):
         self.gl.paused = True
@@ -926,6 +955,51 @@ class RetentionTests(unittest.TestCase):
 
 
 class GateTests(unittest.TestCase):
+    def test_api_gate_reads_real_namespaces_and_rejects_ci_self(self):
+        own = self.payload()
+        own['items'][0]['metadata']['namespace'] = 'ci-maintenance-worker'
+        env = {'NODE_NAME': 'hestia', 'POD_UID': 'self', 'POD_NAME': 'retention',
+               'POD_NAMESPACE': 'ci-maintenance-worker', 'KUBERNETES_SERVICE_HOST': 'fixture',
+               'KUBERNETES_SERVICE_PORT_HTTPS': '443'}
+        urls = []
+        lists = {'ci': {'metadata': {}, 'items': []}, 'ci-maintenance-worker': own}
+        def response(request, **kwargs):
+            urls.append(request.full_url)
+            return io.StringIO(json.dumps(lists[request.full_url.split('/')[6]]))
+        with patch.dict(r.os.environ, env), patch.object(r.ssl, 'create_default_context'), \
+                patch.object(Path, 'read_text', return_value='fixture-token'), \
+                patch.object(r.urllib.request, 'urlopen', response):
+            r.api_gate()
+            self.assertEqual(urls, ['https://fixture:443/api/v1/namespaces/ci/pods?limit=500',
+                                    'https://fixture:443/api/v1/namespaces/ci-maintenance-worker/pods?limit=500'])
+            lists['ci'] = copy.deepcopy(own)
+            lists['ci']['items'][0]['metadata']['namespace'] = 'ci'
+            lists['ci-maintenance-worker'] = {'metadata': {}, 'items': []}
+            with self.assertRaises(r.Refuse):
+                r.api_gate()
+
+    def test_cross_namespace_complete_or_refuse(self):
+        own = self.payload()
+        own['items'][0]['metadata']['namespace'] = 'ci-maintenance-worker'
+        empty = {'metadata': {}, 'items': []}
+        lists = {'ci': copy.deepcopy(empty), 'ci-maintenance-worker': own}
+        self.assertTrue(r.pod_gate(r.combined_pods(lists.__getitem__), 'self'))
+        for namespace in lists:
+            for bad in (None, {'metadata': {'continue': 'more'}, 'items': []},
+                        {'metadata': {}, 'items': [None]}, {'metadata': {}, 'items': None}):
+                changed = copy.deepcopy(lists)
+                changed[namespace] = bad
+                with self.subTest(namespace=namespace, bad=bad), self.assertRaises(r.Refuse):
+                    r.pod_gate(r.combined_pods(changed.__getitem__), 'self')
+        duplicate = copy.deepcopy(own['items'][0])
+        duplicate['metadata']['namespace'] = 'ci'
+        lists['ci']['items'] = [duplicate]
+        with self.assertRaises(r.Refuse):
+            r.pod_gate(r.combined_pods(lists.__getitem__), 'self')
+        lists['ci']['items'][0]['metadata']['namespace'] = 'foreign'
+        with self.assertRaises(r.Refuse):
+            r.combined_pods(lists.__getitem__)
+
     def payload(self, phase='Running'):
         return {'metadata': {}, 'items': [{
             'metadata': {'uid': 'self', 'name': 'retention', 'labels': {

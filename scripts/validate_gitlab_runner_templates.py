@@ -64,6 +64,7 @@ def validate_capacity_contract(
         )
         if not any(
             term.get("topology_key") == "kubernetes.io/hostname"
+            and term.get("namespaces") == ["ci", "ci-maintenance-worker"]
             and term.get("label_selector", {}).get("match_labels", {}).get(
                 "ci.brmartin.co.uk/job"
             )
@@ -123,6 +124,7 @@ def validate_pool_contract(configs, manager_requests, fixture):
             "required_during_scheduling_ignored_during_execution", [])
         if k.get("pod_labels", {}).get("ci.brmartin.co.uk/job") != "true" or not any(
             t.get("topology_key") == "kubernetes.io/hostname" and
+            t.get("namespaces") == ["ci", "ci-maintenance-worker"] and
             t.get("label_selector", {}).get("match_labels") == {"ci.brmartin.co.uk/job": "true"}
             for t in terms
         ):

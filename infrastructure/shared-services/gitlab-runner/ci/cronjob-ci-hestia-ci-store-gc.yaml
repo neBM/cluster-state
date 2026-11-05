@@ -30,6 +30,7 @@ spec:
               - labelSelector:
                   matchLabels:
                     ci.brmartin.co.uk/job: "true"
+                namespaces: [ci, ci-maintenance-worker]
                 topologyKey: kubernetes.io/hostname
           automountServiceAccountToken: true
           containers:
