@@ -44,7 +44,8 @@ class RetentionTests(unittest.TestCase):
         return path
 
     def run_retention(self, **kwargs):
-        with contextlib.redirect_stdout(io.StringIO()) as output:
+        with contextlib.redirect_stdout(io.StringIO()) as output, \
+                patch.object(r, 'WORKSPACE_ROOT', self.builds):
             r.retain(self.roots, now=self.now, used=kwargs.pop('used', lambda _: 50),
                      opened=kwargs.pop('opened', set), mounts=kwargs.pop('mounts', set),
                      **kwargs)
@@ -106,6 +107,211 @@ class RetentionTests(unittest.TestCase):
         output = self.run_retention(execute=False, used=lambda _: 80)
         self.assertIn('WOULD DELETE', output)
         self.assertTrue(path.exists())
+
+    def test_idle_workspace_unlinks_nested_symlink_only(self):
+        outside = self.base / 'outside'
+        outside.mkdir()
+        sentinel = outside / 'sentinel'
+        sentinel.write_text('preserve outside data')
+        before = sentinel.stat()
+        path = self.candidate(self.builds, 'old-workspace', 8)
+        link = path / 'nested/link'
+        link.symlink_to(outside, target_is_directory=True)
+        stamp = self.now - 8 * r.DAY
+        os.utime(link, (stamp, stamp), follow_symlinks=False)
+        self.run_retention(execute=True)
+        self.assertFalse(path.exists())
+        self.assertFalse(link.is_symlink())
+        self.assertEqual(sentinel.read_text(), 'preserve outside data')
+        self.assertEqual(sentinel.stat(), before)
+
+    def test_workspace_link_forms_never_open_or_follow_targets(self):
+        outside = self.base / 'outside'
+        outside.mkdir()
+        sentinel = outside / 'sentinel'
+        sentinel.write_text('preserve')
+        target_before = sentinel.stat(), outside.stat()
+        for form in ('absolute-file', 'relative-file', 'directory', 'dangling', 'cycle'):
+            with self.subTest(form=form):
+                path = self.candidate(self.builds, form, 8)
+                link = path / 'nested/link'
+                target = {'absolute-file': sentinel, 'relative-file': '../../../outside/sentinel',
+                          'directory': outside, 'dangling': 'missing', 'cycle': 'link'}[form]
+                link.symlink_to(target)
+                stamp = self.now - 8 * r.DAY
+                os.utime(link, (stamp, stamp), follow_symlinks=False)
+                original_open, original_stat = r.os.open, r.os.stat
+                def no_link_open(name, flags, *args, **kwargs):
+                    self.assertNotEqual(str(name), 'link', 'symlink leaf was opened')
+                    return original_open(name, flags, *args, **kwargs)
+                def no_link_follow(name, *args, **kwargs):
+                    if str(name) == 'link':
+                        self.assertIs(kwargs.get('follow_symlinks'), False)
+                    return original_stat(name, *args, **kwargs)
+                with patch.object(r.os, 'open', no_link_open), \
+                        patch.object(r.os, 'stat', no_link_follow):
+                    self.run_retention(execute=True)
+                self.assertFalse(path.exists())
+                self.assertEqual((sentinel.stat(), outside.stat()), target_before)
+        self.assertEqual(sentinel.read_text(), 'preserve')
+
+    def test_workspace_link_own_freshness_and_default_helper_veto(self):
+        path = self.candidate(self.builds, 'fresh-link', 8)
+        link = path / 'nested/link'
+        link.symlink_to('missing')
+        os.utime(link, (self.now, self.now), follow_symlinks=False)
+        self.run_retention(execute=True)
+        self.assertTrue(link.is_symlink())
+        device = path.stat().st_dev
+        with self.assertRaises(r.Refuse):
+            r.snapshot(path, device)
+        generic = path / 'generic'
+        generic.mkdir()
+        (generic / 'link').symlink_to('missing')
+        with self.assertRaises(r.Refuse):
+            r.remove_tree(generic, device, set(), set(), r.identity(generic.stat()))
+        (generic / 'link').unlink()
+        generic.rmdir()
+        # A backdated link mtime cannot hide a recent link creation/change.
+        self.now = link.lstat().st_ctime + r.DAY
+        old = self.now - 8 * r.DAY
+        os.utime(path / 'nested/data', (old, old))
+        os.utime(link, (old, old), follow_symlinks=False)
+        _, latest = r.snapshot(path, device, workspace=True)
+        self.assertEqual(latest, link.lstat().st_ctime)
+        self.run_retention(execute=True)
+        self.assertTrue(link.is_symlink())
+
+    def test_workspace_root_candidate_and_cache_links_remain_protected(self):
+        outside = self.base / 'outside'
+        outside.mkdir()
+        alias = self.base / 'root-alias'
+        alias.symlink_to(self.builds, target_is_directory=True)
+        with self.assertRaises(r.Refuse):
+            r.retain(((alias, 7),), opened=set, mounts=set)
+        candidate_alias = self.builds / 'alias'
+        candidate_alias.symlink_to(outside, target_is_directory=True)
+        for workspace in (False, True):
+            with self.subTest(workspace=workspace), self.assertRaises(r.Refuse):
+                r.snapshot(candidate_alias, self.builds.stat().st_dev, workspace=workspace)
+            with self.subTest(workspace=workspace), self.assertRaises(r.Refuse):
+                r.remove_tree(candidate_alias, self.builds.stat().st_dev, set(), set(),
+                              r.identity(candidate_alias.lstat()), workspace=workspace)
+        cached = self.candidate(self.cache, 'cache-link', 40)
+        (cached / 'nested/link').symlink_to(outside)
+        # Permission follows the fixed workspace identity, not age or input order.
+        self.roots = ((self.cache, 7), (self.builds, 30))
+        output = self.run_retention(execute=True)
+        self.assertIn('PROTECTED', output)
+        self.assertTrue(cached.exists())
+        self.assertTrue(candidate_alias.is_symlink())
+        self.assertTrue(outside.is_dir())
+
+    def test_workspace_link_changes_between_proofs_refuse(self):
+        for change in ('retarget', 'replace-directory', 'replace-candidate'):
+            with self.subTest(change=change):
+                path = self.candidate(self.builds, change, 8)
+                link = path / 'nested/link'
+                link.symlink_to('missing')
+                old = self.now - 8 * r.DAY
+                os.utime(link, (old, old), follow_symlinks=False)
+                def gate():
+                    if change == 'replace-candidate':
+                        path.rename(path.with_name('moved'))
+                        path.mkdir()
+                    elif change == 'replace-directory':
+                        (path / 'nested').rename(path / 'saved')
+                        (path / 'nested').symlink_to(self.base)
+                    else:
+                        link.unlink()
+                        link.symlink_to('different-missing')
+                        os.utime(link, (old, old), follow_symlinks=False)
+                with self.assertRaisesRegex(r.Refuse, 'changed/open/mounted'):
+                    self.run_retention(execute=True, gate=gate)
+                self.assertTrue(path.is_dir())
+                # Each race gets its own workspace pair; no prior residual is consumed.
+                self.builds = self.base / (change + '-next-builds')
+                self.cache = self.base / (change + '-next-cache')
+                self.builds.mkdir()
+                self.cache.mkdir()
+                self.roots = ((self.builds, 7), (self.cache, 30))
+
+    def test_workspace_link_safety_fences_and_rechecks(self):
+        path = self.candidate(self.builds, 'guarded', 8)
+        link = path / 'nested/link'
+        link.symlink_to('missing')
+        old = self.now - 8 * r.DAY
+        os.utime(link, (old, old), follow_symlinks=False)
+        link_id = r.identity(link.lstat())
+        for evidence in ('opened', 'mounts'):
+            for pass_number in (1, 2):
+                with self.subTest(evidence=evidence, pass_number=pass_number):
+                    calls = 0
+                    def scan():
+                        nonlocal calls
+                        calls += 1
+                        return {link_id} if calls >= pass_number else set()
+                    if pass_number == 1:
+                        output = self.run_retention(execute=True, **{evidence: scan})
+                        self.assertIn('PROTECTED', output)
+                    else:
+                        with self.assertRaisesRegex(r.Refuse, 'changed/open/mounted'):
+                            self.run_retention(execute=True, **{evidence: scan})
+                    self.assertTrue(link.is_symlink())
+        with self.assertRaises(r.Refuse):
+            r.snapshot(path, path.stat().st_dev ^ 1, workspace=True)
+        original_stat = r.os.stat
+        def other_device(name, *args, **kwargs):
+            st = original_stat(name, *args, **kwargs)
+            if str(name) == 'link':
+                return SimpleNamespace(st_dev=st.st_dev ^ 1, st_ino=st.st_ino,
+                                       st_mode=st.st_mode)
+            return st
+        with patch.object(r.os, 'stat', other_device):
+            self.assertIn('PROTECTED', self.run_retention(execute=True))
+        self.assertTrue(link.is_symlink())
+        def denied_gate():
+            raise r.Refuse('fixture API refusal')
+        with self.assertRaisesRegex(r.Refuse, 'API refusal'):
+            self.run_retention(execute=True, gate=denied_gate)
+        self.assertTrue((path / 'nested/data').is_file())
+        special = path / 'nested/special'
+        os.mkfifo(special)
+        self.assertIn('PROTECTED', self.run_retention(execute=True))
+        self.assertTrue(link.is_symlink())
+        with self.assertRaisesRegex(r.Refuse, 'cannot reach 65%'):
+            self.run_retention(execute=True, used=lambda _: 80)
+
+    def test_workspace_link_and_directory_replacement_during_deletion_refuse(self):
+        outside = self.base / 'outside'
+        outside.mkdir()
+        sentinel = outside / 'sentinel'
+        sentinel.write_text('preserve')
+        for race in ('link', 'directory'):
+            with self.subTest(race=race):
+                path = self.candidate(self.builds, race + '-workspace', 8)
+                link = path / 'nested/link'
+                link.symlink_to(outside)
+                proof, _ = r.snapshot(path, path.stat().st_dev, workspace=True)
+                original = r.os.stat
+                changed = False
+                def metadata(name, *args, **kwargs):
+                    nonlocal changed
+                    st = original(name, *args, **kwargs)
+                    if not changed and str(name) == ('link' if race == 'link' else 'nested'):
+                        changed = True
+                        if race == 'link':
+                            link.unlink()
+                            link.symlink_to('different-missing')
+                        else:
+                            (path / 'nested').rename(path / 'saved')
+                            (path / 'nested').symlink_to(outside)
+                    return st
+                with patch.object(r.os, 'stat', metadata), self.assertRaises((r.Refuse, OSError)):
+                    r.remove_tree(path, path.stat().st_dev, set(), set(), proof[1], workspace=True)
+                self.assertTrue(changed)
+                self.assertTrue(path.exists())
+                self.assertEqual(sentinel.read_text(), 'preserve')
 
     def test_symlink_and_image_store_rejected_without_following(self):
         outside = self.base / 'outside'

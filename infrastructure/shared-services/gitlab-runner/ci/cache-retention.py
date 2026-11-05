@@ -11,7 +11,9 @@ import sys
 import time
 import urllib.request
 
-ROOTS = ((Path('/var/lib/ci-builds-nocow'), 7),
+# Only this fixed root admits nested unlink-only links; never infer from age/order.
+WORKSPACE_ROOT = Path('/var/lib/ci-builds-nocow')
+ROOTS = ((WORKSPACE_ROOT, 7),
          (Path('/var/lib/ci-cache-nocow'), 30))
 DAY = 86400
 
@@ -93,14 +95,15 @@ def identity(st):
     return st.st_dev, st.st_ino
 
 
-def check_entry(st, device, busy, mounted):
+def check_entry(st, device, busy, mounted, *, symlink_leaf=False):
     if identity(st) in busy or identity(st) in mounted:
         raise Refuse('open/mounted entry')
-    if st.st_dev != device or not (stat.S_ISDIR(st.st_mode) or stat.S_ISREG(st.st_mode)):
+    if st.st_dev != device or not (stat.S_ISDIR(st.st_mode) or stat.S_ISREG(st.st_mode)
+                                 or symlink_leaf and stat.S_ISLNK(st.st_mode)):
         raise Refuse('non-ordinary or cross-device entry')
 
 
-def snapshot(path, device, mounted=frozenset(), busy=frozenset()):
+def snapshot(path, device, mounted=frozenset(), busy=frozenset(), *, workspace=False):
     """Stream ordered metadata; retain only directory names on the active DFS path."""
     digest = hashlib.sha256()
     latest_file, latest_directory = None, float('-inf')
@@ -111,14 +114,14 @@ def snapshot(path, device, mounted=frozenset(), busy=frozenset()):
     def visit(parent, name, relative):
         nonlocal latest_file, latest_directory, root_id
         st = os.stat(name, dir_fd=parent, follow_symlinks=False)
-        check_entry(st, device, busy, mounted)
+        check_entry(st, device, busy, mounted, symlink_leaf=workspace and relative != Path('.'))
         if relative == Path('.'):
             root_id = identity(st)
         # unlink() changes surviving hardlinks' ctime (even across candidates).
         # File identity/mode/size/mtime remain invariant; do not fingerprint ctime
         # or nlink for regular files, including the final surviving link.
         value = (identity(st), st.st_mode, st.st_uid, st.st_gid, st.st_size, st.st_mtime_ns,
-                 st.st_ctime_ns if stat.S_ISDIR(st.st_mode) else None)
+                 st.st_ctime_ns if not stat.S_ISREG(st.st_mode) else None)
         digest.update(repr((str(relative), value)).encode())
         if stat.S_ISDIR(st.st_mode):
             latest_directory = max(latest_directory, st.st_mtime)
@@ -131,7 +134,10 @@ def snapshot(path, device, mounted=frozenset(), busy=frozenset()):
             finally:
                 os.close(fd)
         else:
-            latest_file = st.st_mtime if latest_file is None else max(latest_file, st.st_mtime)
+            # A link is an unlink-only leaf: inspect its own metadata, never its
+            # target. Its ctime also prevents backdated/recreated links aging out.
+            latest = max(st.st_mtime, st.st_ctime) if stat.S_ISLNK(st.st_mode) else st.st_mtime
+            latest_file = latest if latest_file is None else max(latest_file, latest)
     try:
         visit(parent, path.name, Path('.'))
     finally:
@@ -227,14 +233,14 @@ def usage(root):
     return 100 * (fs.f_blocks - fs.f_bavail) / fs.f_blocks
 
 
-def remove_tree(path, device, busy, mounted, expected_root):
+def remove_tree(path, device, busy, mounted, expected_root, *, workspace=False):
     """FD-relative, no-follow deletion, with only active ancestors retained."""
     flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
     with_fd = os.open(path.parent, flags)
 
     def remove(parent, name, expected=None):
         st = os.stat(name, dir_fd=parent, follow_symlinks=False)
-        check_entry(st, device, busy, mounted)
+        check_entry(st, device, busy, mounted, symlink_leaf=workspace and expected is None)
         if expected is not None and identity(st) != expected:
             raise Refuse('candidate replaced before deletion')
         if stat.S_ISDIR(st.st_mode):
@@ -287,7 +293,8 @@ def retain(roots, *, execute=False, now=None, used=usage,
                     raise Refuse(f'candidate is not an ordinary directory: {path}')
                 if path.name in {'storage', 'docker', 'containerd', 'containers', 'libpod'}:
                     raise Refuse(f'image/runtime store name: {path}')
-                proof, latest = snapshot(path, st.st_dev, mounted, busy)
+                proof, latest = snapshot(path, st.st_dev, mounted, busy,
+                                         workspace=root == WORKSPACE_ROOT)
             except Refuse as error:
                 print(f'PROTECTED {error}', flush=True)
                 continue
@@ -305,12 +312,14 @@ def retain(roots, *, execute=False, now=None, used=usage,
                 raise Refuse('retention root filesystem changed')
             mounted, busy = mounts(), opened()
             try:
-                current, _ = snapshot(path, device, mounted, busy)
+                current, _ = snapshot(path, device, mounted, busy,
+                                      workspace=root == WORKSPACE_ROOT)
             except Refuse as error:
                 raise Refuse(f'candidate changed/open/mounted: {path}: {error}') from error
             if current != proof:
                 raise Refuse(f'candidate changed/open/mounted: {path}')
-            remove_tree(path, device, busy, mounted, current[1])
+            remove_tree(path, device, busy, mounted, current[1],
+                        workspace=root == WORKSPACE_ROOT)
 
     remaining = []
     for candidate in safe:

@@ -128,8 +128,10 @@ Two separate GitOps CronJobs in `ci` own regenerable CI storage:
 
 Retention removes idle direct-child workspace directories after **7 days** and
 regenerable direct-child cache namespaces after **30 days**. Age is the newest
-descendant **regular file mtime**, not the namespace/parent directory mtime;
-empty directory trees use their newest directory mtime conservatively. At
+descendant **regular file mtime**, not the namespace/parent directory mtime.
+Nested workspace symlinks also contribute their own newest mtime/ctime, never
+their target's age; empty directory trees use their newest directory mtime
+conservatively. At
 **67% or more filesystem usage**, the capacity backstop removes idle workspaces
 first, then oldest cache namespaces, until usage is **65% or less**. Usage is
 checked after age cleanup. Both root directories and their ownership remain
@@ -161,9 +163,15 @@ the node inventory, CI storage sharing, Kubedock version, child-Pod templates or
 volume/copy behavior; do not extend the exemption to an unknown node by default.
 
 `hostPID` allows read-only `/proc` FD/cwd inspection by **device/inode**, so
-bind-mount/path aliases do not hide local consumers. Symlinks, special entries,
+bind-mount/path aliases do not hide local consumers. Root and direct-child
+candidate symlinks, all symlinks inside cache namespaces, special entries,
 cross-filesystem trees, and descendant mounts (including same-device bind
 mounts across visible process mount namespaces) protect the entire candidate.
+Only nested symlinks inside workspace directories are unlink-only leaves:
+absolute, relative, dangling, cyclic, file and directory links are never followed
+or opened, and their targets are never deleted. Their own identity and metadata
+participate in the pre-deletion proof and leaf-change checks. This does not change
+package/toolchain-cache eligibility, including Bun, Cargo or uv caches.
 Unreadable process/mount metadata, malformed mount records, and inaccessible
 mount roots on the cleanup filesystem fail closed. Mount roots are skipped before
 resolution only when validated kernel device identities prove they belong to a
