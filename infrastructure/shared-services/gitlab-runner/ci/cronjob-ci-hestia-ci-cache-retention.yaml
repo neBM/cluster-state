@@ -6,7 +6,7 @@ metadata:
   labels:
     app: hestia-ci-cache-retention
 spec:
-  schedule: 47 4 * * *
+  schedule: 47 * * * *
   timeZone: Etc/UTC
   concurrencyPolicy: Forbid
   startingDeadlineSeconds: 1800

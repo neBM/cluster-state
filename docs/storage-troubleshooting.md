@@ -122,7 +122,7 @@ Two separate GitOps CronJobs in `ci` own regenerable CI storage:
 
 - `hestia-ci-store-gc` runs at 04:17 UTC for the existing Podman image store;
   its scope and 168-hour image/container policy are unchanged.
-- `hestia-ci-cache-retention` runs daily at 04:47 UTC on Hestia. It mounts only
+- `hestia-ci-cache-retention` runs hourly at minute 47 UTC on Hestia. It mounts only
   `/var/lib/ci-builds-nocow` and `/var/lib/ci-cache-nocow` writable, never the
   image store, Docker, k3s/containerd, PVCs, or application data.
 
@@ -130,10 +130,14 @@ Retention removes idle direct-child workspace directories after **7 days** and
 regenerable direct-child cache namespaces after **30 days**. Age is the newest
 descendant **regular file mtime**, not the namespace/parent directory mtime;
 empty directory trees use their newest directory mtime conservatively. At
-**75% or more filesystem usage**, the capacity backstop removes idle workspaces
+**67% or more filesystem usage**, the capacity backstop removes idle workspaces
 first, then oldest cache namespaces, until usage is **65% or less**. Usage is
 checked after age cleanup. Both root directories and their ownership remain
 intact. Unexpected non-directory entries and runtime-store names are protected.
+
+The earlier trigger and hourly cadence proactively preserve headroom, but cadence
+alone does not guarantee a reserve: active consumers and safety guards can prevent
+cleanup, and filesystem usage can grow between runs.
 
 The job shares the existing immutable image and list-only service account.
 Both maintenance gates retain a complete namespace Pod-list fence: the maintenance

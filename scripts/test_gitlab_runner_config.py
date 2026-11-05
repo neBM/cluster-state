@@ -39,6 +39,7 @@ class RunnerConfigTests(unittest.TestCase):
 
     def test_maintenance_keeps_hestia_scheduler_lock(self):
         jobs = {o['metadata']['name']: o for o in self.objects if o['kind'] == 'CronJob'}
+        self.assertEqual(jobs['hestia-ci-cache-retention']['spec']['schedule'], '47 * * * *')
         for name in ('hestia-ci-store-gc', 'hestia-ci-cache-retention'):
             with self.subTest(job=name):
                 template = jobs[name]['spec']['jobTemplate']['spec']['template']

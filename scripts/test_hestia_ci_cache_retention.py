@@ -84,15 +84,20 @@ class RetentionTests(unittest.TestCase):
         self.assertFalse(old.exists())
         self.assertTrue(new.exists())
 
-    def test_under_75_preserves_young_data(self):
+    def test_at_67_triggers_pressure_cleanup_to_65(self):
         path = self.candidate(self.builds, 'young', 1)
-        self.run_retention(execute=True, used=lambda _: 74.99)
+        self.run_retention(execute=True, used=lambda _: 65 + 2 * path.exists())
+        self.assertFalse(path.exists())
+
+    def test_under_67_preserves_young_data(self):
+        path = self.candidate(self.builds, 'young', 1)
+        self.run_retention(execute=True, used=lambda _: 66.99)
         self.assertTrue(path.exists())
 
     def test_age_cleanup_precedes_capacity_backstop(self):
         old = self.candidate(self.cache, 'aged', 40)
         young = self.candidate(self.builds, 'young', 1)
-        self.run_retention(execute=True, used=lambda _: 70 + 10 * old.exists())
+        self.run_retention(execute=True, used=lambda _: 66 + 10 * old.exists())
         self.assertFalse(old.exists())
         self.assertTrue(young.exists())
 

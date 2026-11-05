@@ -319,7 +319,7 @@ def retain(roots, *, execute=False, now=None, used=usage,
         else:
             remaining.append(candidate)
     # Age expiry first; only a still-pressured filesystem needs the backstop.
-    pressure = used(roots[0][0]) >= 75
+    pressure = used(roots[0][0]) >= 67
     for candidate in remaining:
         if pressure and used(candidate[0]) > 65:
             delete(candidate, 'capacity')
