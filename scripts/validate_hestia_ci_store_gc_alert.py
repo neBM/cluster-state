@@ -71,6 +71,7 @@ if type(metadata) is not dict or metadata.get("continue", "") != "":
 self_uid = os.environ["POD_UID"]
 self_seen = False
 self_pending = False
+uids = set()
 active = []
 for pod in payload["items"]:
     if type(pod) is not dict:
@@ -87,14 +88,22 @@ for pod in payload["items"]:
     node = pod_spec.get("nodeName", "")
     if type(uid) is not str or type(name) is not str or type(labels) is not dict or type(phase) is not str or type(node) is not str:
         raise SystemExit("Kubernetes API pod list contains invalid identity types; refusing cleanup")
+    if not uid or not name or uid in uids:
+        raise SystemExit("Kubernetes API pod list contains empty or duplicate identity; refusing cleanup")
+    uids.add(uid)
     if uid == self_uid:
         if self_seen or labels.get("{MAINTENANCE_LABEL}") != "true" or labels.get("{JOB_LABEL}") != "true" or phase not in {{"Running", "Pending"}} or node != "hestia" or pod_metadata.get("deletionTimestamp"):
             raise SystemExit("maintenance Pod identity is inconsistent; refusing cleanup")
         self_seen = True
         self_pending = phase == "Pending"
         continue
-    if labels.get("{JOB_LABEL}") == "true" and phase in {{"Running", "Pending"}}:
-        active.append(f"ci/{{name}} ({{phase}}, node={{node or 'unscheduled'}})")
+    if labels.get("{JOB_LABEL}") == "true":
+        if pod_metadata.get("deletionTimestamp") or phase not in {{"Running", "Pending", "Failed", "Succeeded"}}:
+            raise SystemExit("terminating or unknown-phase CI Pod; refusing cleanup")
+        # Current CI hostPaths are node-local; Kubedock copies do not share them.
+        # Only positively assigned, known remote nodes qualify for exemption.
+        if phase in {{"Running", "Pending"}} and node not in {{"heracles", "nyx"}}:
+            active.append(f"ci/{{name}} ({{phase}}, node={{node or 'unscheduled'}})")
 if not self_seen:
     raise SystemExit("maintenance Pod is absent from the Kubernetes API snapshot; refusing cleanup")
 if active:
@@ -102,7 +111,7 @@ if active:
 if self_pending:
     print("maintenance Pod is still Pending in the API; waiting for Running", flush=True)
     raise SystemExit(75)
-print("Kubernetes API gate passed: scheduler lock is present and no other Running or Pending CI job Pods exist")
+print("Kubernetes API gate passed: Hestia scheduler lock is present and no conflicting CI job Pods exist")
 PY
 
 if (( gate_rc == 0 )); then break; fi

@@ -296,10 +296,41 @@ class GateTests(unittest.TestCase):
                 'ci.brmartin.co.uk/job': 'true', 'ci.brmartin.co.uk/maintenance': 'true'}},
             'spec': {'nodeName': 'hestia'}, 'status': {'phase': phase}}]}
 
-    def test_gate_matches_existing_gc_fence(self):
-        # Reuse the original production gate as the reference, without its huge harness.
+    def gate_results(self, case):
+        # Execute the actual embedded GC gate, replacing only its input I/O.
         source = (CI / 'cronjob-ci-hestia-ci-store-gc.yaml').read_text()
         code = textwrap.dedent(source.split("python3 - <<'PY' || gate_rc=$?\n", 1)[1].split('\n              PY', 1)[0])
+        class OriginalOS:
+            environ = {'POD_UID': 'self'}
+        namespace = {'json': json, 'os': OriginalOS, 'fixture': case}
+        rewritten = code.replace('import json\n', '').replace('import os\n', '')
+        rewritten = rewritten.replace('with open("/tmp/pods.json", "rb") as stream:\n    payload = json.load(stream)', 'payload = fixture')
+        embedded = 0
+        with contextlib.redirect_stdout(io.StringIO()):
+            try:
+                exec(rewritten, namespace)
+            except SystemExit as error:
+                embedded = 75 if error.code == 75 else 1
+        try:
+            retention = 0 if r.pod_gate(case, 'self') else 75
+        except r.Refuse:
+            retention = 1
+        return embedded, retention
+
+    def test_remote_active_ci_is_node_local(self):
+        for node in ('heracles', 'nyx'):
+            for phase in ('Running', 'Pending'):
+                case = self.payload()
+                remote = copy.deepcopy(case['items'][0])
+                remote['metadata'].update(uid='remote', name='runner-remote')
+                remote['metadata']['labels'].pop('ci.brmartin.co.uk/maintenance')
+                remote['spec']['nodeName'] = node
+                remote['status']['phase'] = phase
+                case['items'].append(remote)
+                with self.subTest(node=node, phase=phase):
+                    self.assertEqual(self.gate_results(case), (0, 0))
+
+    def test_gate_matches_existing_gc_fence(self):
         cases = [self.payload(), self.payload('Pending')]
         for phase in ('Running', 'Pending'):
             item = copy.deepcopy(self.payload()['items'][0])
@@ -318,24 +349,69 @@ class GateTests(unittest.TestCase):
         cases.append(wrong_node)
         for case in cases:
             with self.subTest(payload=case):
-                # Redirect original /tmp JSON read and environment only, not gate logic.
-                class OriginalOS:
-                    environ = {'POD_UID': 'self'}
-                namespace = {'json': json, 'os': OriginalOS}
-                rewritten = code.replace('import json\n', '').replace('import os\n', '')
-                rewritten = rewritten.replace('with open("/tmp/pods.json", "rb") as stream:\n    payload = json.load(stream)', 'payload = fixture')
-                namespace['fixture'] = case
-                expected = 0
-                with contextlib.redirect_stdout(io.StringIO()):
-                    try:
-                        exec(rewritten, namespace)
-                    except SystemExit as error:
-                        expected = 75 if error.code == 75 else 1
-                try:
-                    actual = 0 if r.pod_gate(case, 'self') else 75
-                except r.Refuse:
-                    actual = 1
-                self.assertEqual(expected, actual)
+                embedded, retention = self.gate_results(case)
+                self.assertEqual(embedded, retention)
+
+    def test_node_local_safety_matrix(self):
+        for node in ('hestia', 'heracles', 'nyx', '', 'unknown'):
+            for phase in ('Running', 'Pending', 'Unknown', '', 'Failed', 'Succeeded'):
+                for terminating in (False, True):
+                    case = self.payload()
+                    other = copy.deepcopy(case['items'][0])
+                    other['metadata'].update(uid='other', name='runner-other')
+                    other['spec']['nodeName'] = node
+                    other['status']['phase'] = phase
+                    if terminating:
+                        other['metadata']['deletionTimestamp'] = 'now'
+                    case['items'].append(other)
+                    allowed = not terminating and (phase in ('Failed', 'Succeeded') or
+                        phase in ('Running', 'Pending') and node in ('heracles', 'nyx'))
+                    expected = 0 if allowed else 1
+                    with self.subTest(node=node, phase=phase, terminating=terminating):
+                        self.assertEqual(self.gate_results(case), (expected, expected))
+        for mutation in ('uid', 'name', 'labels', 'spec', 'status', 'item', 'duplicate'):
+            for remote in (False, True):
+                case = self.payload()
+                item = copy.deepcopy(case['items'][0])
+                if remote:
+                    item['metadata'].update(uid='remote', name='runner-remote')
+                    item['spec']['nodeName'] = 'heracles'
+                if mutation in ('uid', 'name', 'labels'):
+                    item['metadata'][mutation] = '' if mutation != 'labels' else None
+                elif mutation in ('spec', 'status'):
+                    item[mutation] = None
+                elif mutation == 'item':
+                    item = None
+                case['items'] = [case['items'][0], item] if remote else [item]
+                if mutation == 'duplicate':
+                    case['items'].append(copy.deepcopy(item))
+                with self.subTest(mutation=mutation, remote=remote):
+                    self.assertEqual(self.gate_results(case), (1, 1))
+        for malformed in (None, {}, {'items': None}, {'metadata': {}, 'items': [None]},
+                          {'metadata': {'continue': 'more'}, 'items': []}):
+            with self.subTest(malformed=malformed):
+                self.assertEqual(self.gate_results(malformed), (1, 1))
+        # Preserve otherwise valid non-CI observations, even unknown phases.
+        case = self.payload()
+        other = copy.deepcopy(case['items'][0])
+        other['metadata'].update(uid='non-ci', labels={})
+        other['status']['phase'] = 'Unknown'
+        case['items'].append(other)
+        self.assertEqual(self.gate_results(case), (0, 0))
+
+    def test_local_conflict_during_pending_retry_is_fatal(self):
+        conflict = self.payload('Pending')
+        other = copy.deepcopy(conflict['items'][0])
+        other['metadata']['uid'] = 'arriving'
+        other['status']['phase'] = 'Running'
+        conflict['items'].append(other)
+        self.assertEqual(self.gate_results(conflict), (1, 1))
+        payloads = iter([self.payload('Pending'), conflict, self.payload()])
+        sleeps = []
+        with contextlib.redirect_stdout(io.StringIO()), self.assertRaises(r.Refuse):
+            r.wait_for_gate(lambda: next(payloads), 'self', sleeps.append)
+        self.assertEqual(sleeps, [2])
+        self.assertEqual(next(payloads), self.payload())
 
     def test_pending_retry_bounded_and_rejections_not_retried(self):
         with contextlib.redirect_stdout(io.StringIO()):

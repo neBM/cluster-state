@@ -28,6 +28,7 @@ def pod_gate(payload, self_uid):
         raise Refuse('incomplete Pod list')
     seen = False
     pending = False
+    uids = set()
     for pod in payload['items']:
         if type(pod) is not dict:
             raise Refuse('invalid Pod item')
@@ -38,6 +39,9 @@ def pod_gate(payload, self_uid):
         phase, node = status.get('phase'), spec.get('nodeName', '')
         if any(type(v) is not str for v in (uid, name, phase, node)) or type(labels) is not dict:
             raise Refuse('invalid Pod identity types')
+        if not uid or not name or uid in uids:
+            raise Refuse('empty or duplicate Pod identity')
+        uids.add(uid)
         if uid == self_uid:
             if (seen or labels.get('ci.brmartin.co.uk/maintenance') != 'true'
                     or labels.get('ci.brmartin.co.uk/job') != 'true'
@@ -45,8 +49,13 @@ def pod_gate(payload, self_uid):
                     or meta.get('deletionTimestamp')):
                 raise Refuse('inconsistent maintenance Pod identity')
             seen, pending = True, phase == 'Pending'
-        elif labels.get('ci.brmartin.co.uk/job') == 'true' and phase in {'Running', 'Pending'}:
-            raise Refuse(f'active CI Pod: {name} ({phase})')
+        elif labels.get('ci.brmartin.co.uk/job') == 'true':
+            if meta.get('deletionTimestamp') or phase not in {'Running', 'Pending', 'Failed', 'Succeeded'}:
+                raise Refuse(f'terminating or unknown-phase CI Pod: {name}')
+            # Current CI hostPaths are node-local; Kubedock copies do not share them.
+            # Only positively assigned, known remote nodes qualify for exemption.
+            if phase in {'Running', 'Pending'} and node not in {'heracles', 'nyx'}:
+                raise Refuse(f'active CI Pod: {name} ({phase})')
     if not seen:
         raise Refuse('maintenance Pod absent')
     return not pending

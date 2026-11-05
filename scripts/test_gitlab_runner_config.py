@@ -37,6 +37,22 @@ class RunnerConfigTests(unittest.TestCase):
         cls.configs = {}
         cls.requests = {}
 
+    def test_maintenance_keeps_hestia_scheduler_lock(self):
+        jobs = {o['metadata']['name']: o for o in self.objects if o['kind'] == 'CronJob'}
+        for name in ('hestia-ci-store-gc', 'hestia-ci-cache-retention'):
+            with self.subTest(job=name):
+                template = jobs[name]['spec']['jobTemplate']['spec']['template']
+                self.assertEqual(template['metadata']['labels']['ci.brmartin.co.uk/job'], 'true')
+                self.assertEqual(template['metadata']['labels']['ci.brmartin.co.uk/maintenance'], 'true')
+                pod = template['spec']
+                self.assertEqual(pod['nodeSelector']['kubernetes.io/hostname'], 'hestia')
+                self.assertEqual(pod['affinity']['podAntiAffinity'], {
+                    'requiredDuringSchedulingIgnoredDuringExecution': [{
+                        'labelSelector': {'matchLabels': {'ci.brmartin.co.uk/job': 'true'}},
+                        'topologyKey': 'kubernetes.io/hostname',
+                    }],
+                })
+
     def test_internal_metrics_service_and_policy(self):
         service, = [o for o in self.objects if o["kind"] == "Service"]
         policy, = [o for o in self.objects if o["kind"] == "CiliumNetworkPolicy"]
