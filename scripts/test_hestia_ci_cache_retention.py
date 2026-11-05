@@ -141,18 +141,167 @@ class RetentionTests(unittest.TestCase):
         finally:
             os.chdir(previous)
 
+    def mount_owner(self, pid='self', mountpoint='/', device=None):
+        proc = self.base / 'proc'
+        owner = proc / pid
+        (owner / 'ns').mkdir(parents=True, exist_ok=True)
+        (owner / 'ns/mnt').touch()
+        if not (owner / 'root').exists():
+            (owner / 'root').symlink_to(self.base, target_is_directory=True)
+        device = self.cache.stat().st_dev if device is None else device
+        record = (f'1 0 {os.major(device)}:{os.minor(device)} / {mountpoint} '
+                  'rw - xfs fixture rw\n')
+        (owner / 'mountinfo').write_text(record)
+        return proc, owner
+
+    def test_unrelated_inaccessible_mount_is_not_statted(self):
+        proc, owner = self.mount_owner(mountpoint='/unrelated',
+                                      device=self.cache.stat().st_dev ^ 1)
+        unrelated = owner / 'root/unrelated'
+        original = Path.stat
+        touched = []
+        def metadata(path, *args, **kwargs):
+            if path == unrelated:
+                touched.append(path)
+                raise PermissionError('fixture unrelated filesystem')
+            return original(path, *args, **kwargs)
+        with patch.object(Path, 'stat', metadata):
+            try:
+                mounted = r.mount_ids(self.cache.stat().st_dev, proc)
+            except PermissionError as error:
+                self.fail(f'provably unrelated mount root was accessed: {error}')
+        self.assertEqual(mounted, set())
+        self.assertEqual(touched, [])
+
+    def test_unrelated_nsfs_opaque_root_is_not_resolved(self):
+        proc, owner = self.mount_owner(mountpoint='/run/netns/fixture',
+                                      device=os.makedev(0, 5))
+        # Linux fs/namespace.c show_mountinfo() uses seq_dentry(); nsfs's
+        # fs/nsfs.c ns_dname() emits an opaque namespace object, not a path.
+        (owner / 'mountinfo').write_text(
+            '1 0 0:5 net:[4026532000] /run/netns/fixture rw - nsfs nsfs rw\n')
+        original = Path.stat
+        def metadata(path, *args, **kwargs):
+            if path == owner / 'root' or owner / 'root' in path.parents:
+                self.fail(f'unrelated nsfs mount was resolved: {path}')
+            return original(path, *args, **kwargs)
+        with patch.object(Path, 'stat', metadata):
+            self.assertEqual(r.mount_ids(os.makedev(8, 1), proc), set())
+
     def test_mountinfo_alias_resolves_to_inode_in_other_namespace(self):
         path = self.candidate(self.cache, 'mounted', 40)
         proc = self.base / 'proc'
         for pid in ('self', '1', '123'):
-            owner = proc / pid
-            (owner / 'ns').mkdir(parents=True)
-            (owner / 'ns/mnt').touch()
-            (owner / 'root').symlink_to(self.base, target_is_directory=True)
-            (owner / 'mountinfo').write_text('1 0 0:1 / /alias rw - xfs fixture rw\n' if pid == '123' else '')
-        (self.base / 'alias').symlink_to(path / 'nested', target_is_directory=True)
-        self.assertIn(r.identity((path / 'nested').stat()), r.mount_ids(proc))
-        self.run_retention(execute=True, mounts=lambda: r.mount_ids(proc))
+            self.mount_owner(pid, '/alias\\040mount' if pid == '123' else '/')
+        (self.base / 'alias mount').symlink_to(path / 'nested', target_is_directory=True)
+        self.assertIn(r.identity((path / 'nested').stat()), r.mount_ids(self.cache.stat().st_dev, proc))
+        self.run_retention(execute=True, mounts=lambda: r.mount_ids(self.cache.stat().st_dev, proc))
+        self.assertTrue(path.exists())
+
+    def test_relevant_mount_access_and_metadata_fail_closed(self):
+        self.mount_owner()
+        proc, owner = self.mount_owner('123', mountpoint='/relevant')
+        target = owner / 'root/relevant'
+        original_stat, original_read = Path.stat, Path.read_text
+        for denied in (target, owner / 'ns/mnt', owner / 'mountinfo'):
+            with self.subTest(denied=denied):
+                def metadata(path, *args, **kwargs):
+                    if path == denied:
+                        raise PermissionError('fixture relevant metadata')
+                    return original_stat(path, *args, **kwargs)
+                def read(path, *args, **kwargs):
+                    if path == denied:
+                        raise PermissionError('fixture mountinfo')
+                    return original_read(path, *args, **kwargs)
+                with patch.object(Path, 'stat', metadata), patch.object(Path, 'read_text', read):
+                    with self.assertRaises(PermissionError):
+                        r.mount_ids(self.cache.stat().st_dev, proc)
+        # A missing relevant mount with a still-live namespace is not an exit race.
+        with self.assertRaises(FileNotFoundError):
+            r.mount_ids(self.cache.stat().st_dev, proc)
+
+    def test_malformed_mountinfo_refuses_even_for_unrelated_device(self):
+        proc, owner = self.mount_owner(device=self.cache.stat().st_dev ^ 1)
+        valid = (owner / 'mountinfo').read_text()
+        valid_device = valid.split()[2]
+        malformed = ['', '1 0 0:1 / /', valid.replace(' - ', ' '),
+                     valid.replace(' - ', ' - - '), valid + valid,
+                     valid.replace(' / / ', ' / relative '),
+                     valid.replace(' / / ', ' / /bad\\999 '),
+                     valid.replace(' / / ', ' / /../escape ')]
+        for device in ('unknown', '0', '0:1:2', '-1:2', '0:-1', '+0:1',
+                       '00:1', '0:01', '０:1', '0:999999999999999999999'):
+            malformed.append(valid.replace(valid_device, device, 1))
+        for record in malformed:
+            with self.subTest(record=record):
+                (owner / 'mountinfo').write_text(record)
+                with self.assertRaises(r.Refuse):
+                    r.mount_ids(self.cache.stat().st_dev, proc)
+        # Root path grammar is required on the cleanup device, not universally:
+        # nsfs supplies opaque roots through the kernel's dentry-name callback.
+        proc, owner = self.mount_owner()
+        valid = (owner / 'mountinfo').read_text()
+        for root in ('relative', r'/bad\999', '/../escape'):
+            with self.subTest(root=root):
+                (owner / 'mountinfo').write_text(valid.replace(' / / ', f' {root} / '))
+                with self.assertRaises(r.Refuse):
+                    r.mount_ids(self.cache.stat().st_dev, proc)
+
+    def test_exited_process_mount_scan_races(self):
+        proc, _ = self.mount_owner()
+        _, owner = self.mount_owner('123')
+        original_read, original_stat = Path.read_text, Path.stat
+        expected = {r.identity(self.base.stat())}
+        for phase in ('namespace', 'mountinfo', 'root'):
+            with self.subTest(phase=phase):
+                # Model a vanished process namespace, including ENOENT after read.
+                def metadata(path, *args, **kwargs):
+                    if path == owner / 'ns/mnt' and phase == 'namespace':
+                        path.unlink()
+                        raise FileNotFoundError('fixture exited namespace')
+                    if path == owner / 'root' and phase == 'root':
+                        (owner / 'ns/mnt').unlink()
+                        raise ProcessLookupError('fixture exited process')
+                    return original_stat(path, *args, **kwargs)
+                def read(path, *args, **kwargs):
+                    if path == owner / 'mountinfo' and phase == 'mountinfo':
+                        (owner / 'ns/mnt').unlink()
+                        raise FileNotFoundError('fixture exited process')
+                    return original_read(path, *args, **kwargs)
+                with patch.object(Path, 'stat', metadata), patch.object(Path, 'read_text', read):
+                    self.assertEqual(r.mount_ids(self.cache.stat().st_dev, proc), expected)
+                (owner / 'ns/mnt').touch()
+
+    def test_default_scanner_uses_validated_fixture_filesystem(self):
+        path = self.candidate(self.cache, 'old', 40)
+        calls = []
+        def scanner(device):
+            calls.append(device)
+            return set()
+        with patch.object(r, 'mount_ids', scanner):
+            self.run_retention(execute=True, mounts=None)
+        self.assertEqual(calls, [self.cache.stat().st_dev] * 2)
+        self.assertFalse(path.exists())
+        (self.base / 'root-alias').symlink_to(self.cache, target_is_directory=True)
+        with patch.object(r, 'mount_ids', self.fail), self.assertRaises(r.Refuse):
+            r.retain(((self.base / 'root-alias', 30),), opened=set)
+        original = Path.lstat
+        def other_device(path, *args, **kwargs):
+            st = original(path, *args, **kwargs)
+            if path == self.cache:
+                return SimpleNamespace(st_mode=st.st_mode, st_dev=st.st_dev ^ 1)
+            return st
+        with patch.object(Path, 'lstat', other_device), patch.object(r, 'mount_ids', self.fail):
+            with self.assertRaisesRegex(r.Refuse, 'share the same filesystem'):
+                self.run_retention(mounts=None)
+        path = self.candidate(self.cache, 'replaced-root', 40)
+        def gate():
+            changed.start()
+        changed = patch.object(Path, 'lstat', other_device)
+        self.addCleanup(changed.stop)
+        with self.assertRaisesRegex(r.Refuse, 'root filesystem changed'):
+            self.run_retention(execute=True, gate=gate)
+        changed.stop()
         self.assertTrue(path.exists())
 
     def test_incomplete_proc_scan_and_unreachable_target_fail_closed(self):

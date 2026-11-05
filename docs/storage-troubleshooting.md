@@ -160,7 +160,10 @@ volume/copy behavior; do not extend the exemption to an unknown node by default.
 bind-mount/path aliases do not hide local consumers. Symlinks, special entries,
 cross-filesystem trees, and descendant mounts (including same-device bind
 mounts across visible process mount namespaces) protect the entire candidate.
-Unreadable process/mount metadata fails closed. Deletion rechecks the tree and uses
+Unreadable process/mount metadata, malformed mount records, and inaccessible
+mount roots on the cleanup filesystem fail closed. Mount roots are skipped before
+resolution only when validated kernel device identities prove they belong to a
+different filesystem. Deletion rechecks the tree and uses
 no-follow, FD-relative traversal. Do not start ad-hoc host consumers concurrently:
 the scheduler fence covers CI, not arbitrary host processes opening files after
 the final inspection. Protected entries are logged, never force-removed. If the
