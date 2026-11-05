@@ -171,7 +171,9 @@ def mount_ids(device, proc=Path('/proc')):
                         raise ValueError('device does not round trip')
                 except (ValueError, OverflowError) as error:
                     raise Refuse('invalid mountinfo device') from error
-                for value in fields[3:5]:
+                # Mountpoints are paths, but unrelated roots may be opaque
+                # kernel objects (e.g. nsfs). Require path roots only on target.
+                for value in (fields[3:5] if mount_device == device else fields[4:5]):
                     if (not value.startswith('/') or '\x00' in value
                             or re.search(r'\\(?!040|011|012|134)', value)
                             or any(part in {'.', '..'} for part in value.split('/'))):

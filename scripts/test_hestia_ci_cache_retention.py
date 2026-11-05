@@ -173,6 +173,21 @@ class RetentionTests(unittest.TestCase):
         self.assertEqual(mounted, set())
         self.assertEqual(touched, [])
 
+    def test_unrelated_nsfs_opaque_root_is_not_resolved(self):
+        proc, owner = self.mount_owner(mountpoint='/run/netns/fixture',
+                                      device=os.makedev(0, 5))
+        # Linux fs/namespace.c show_mountinfo() uses seq_dentry(); nsfs's
+        # fs/nsfs.c ns_dname() emits an opaque namespace object, not a path.
+        (owner / 'mountinfo').write_text(
+            '1 0 0:5 net:[4026532000] /run/netns/fixture rw - nsfs nsfs rw\n')
+        original = Path.stat
+        def metadata(path, *args, **kwargs):
+            if path == owner / 'root' or owner / 'root' in path.parents:
+                self.fail(f'unrelated nsfs mount was resolved: {path}')
+            return original(path, *args, **kwargs)
+        with patch.object(Path, 'stat', metadata):
+            self.assertEqual(r.mount_ids(os.makedev(8, 1), proc), set())
+
     def test_mountinfo_alias_resolves_to_inode_in_other_namespace(self):
         path = self.candidate(self.cache, 'mounted', 40)
         proc = self.base / 'proc'
@@ -211,7 +226,6 @@ class RetentionTests(unittest.TestCase):
         valid_device = valid.split()[2]
         malformed = ['', '1 0 0:1 / /', valid.replace(' - ', ' '),
                      valid.replace(' - ', ' - - '), valid + valid,
-                     valid.replace(' / / ', ' relative / '),
                      valid.replace(' / / ', ' / relative '),
                      valid.replace(' / / ', ' / /bad\\999 '),
                      valid.replace(' / / ', ' / /../escape ')]
@@ -221,6 +235,15 @@ class RetentionTests(unittest.TestCase):
         for record in malformed:
             with self.subTest(record=record):
                 (owner / 'mountinfo').write_text(record)
+                with self.assertRaises(r.Refuse):
+                    r.mount_ids(self.cache.stat().st_dev, proc)
+        # Root path grammar is required on the cleanup device, not universally:
+        # nsfs supplies opaque roots through the kernel's dentry-name callback.
+        proc, owner = self.mount_owner()
+        valid = (owner / 'mountinfo').read_text()
+        for root in ('relative', r'/bad\999', '/../escape'):
+            with self.subTest(root=root):
+                (owner / 'mountinfo').write_text(valid.replace(' / / ', f' {root} / '))
                 with self.assertRaises(r.Refuse):
                     r.mount_ids(self.cache.stat().st_dev, proc)
 
