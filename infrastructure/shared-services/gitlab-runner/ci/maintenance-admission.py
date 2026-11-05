@@ -29,9 +29,10 @@ TOKEN = Path('/credential/token')
 TOKEN_EXPIRY = int(dt.datetime(2027, 11, 5, tzinfo=dt.timezone.utc).timestamp())
 PHASES = {'IDLE', 'PAUSE_INTENT', 'DRAINING', 'ADMITTED', 'CLAIMED',
           'CLOSING', 'RESTORING', 'DONE', 'ALERT'}
-ACTIVE = {'created', 'pending', 'preparing', 'running', 'canceling',
-          'waiting_for_resource', 'scheduled', 'manual'}
-TERMINAL = {'success', 'failed', 'canceled', 'skipped'}
+# GitLab 19.5 HasStatus: all AVAILABLE_STATUSES except completed statuses.
+# Observe pre-execution first, then running (including native prepare), then canceling.
+ACTIVE = ('created', 'waiting_for_resource', 'preparing', 'waiting_for_callback',
+          'pending', 'manual', 'scheduled', 'running', 'canceling')
 
 
 class Refuse(RuntimeError):
@@ -182,7 +183,8 @@ def pods(api, namespace='ci'):
                 'malformed Pod')
         meta = pod['metadata']
         require(meta.get('namespace') == namespace and text(meta.get('uid')) and text(meta.get('name')) and meta['uid'] not in seen
-                and type(meta.get('labels', {})) is dict and text(pod['status'].get('phase')),
+                and type(meta.get('labels')) is dict and text(pod['status'].get('phase'))
+                and type(pod['spec'].get('nodeName', '')) is str,
                 'malformed Pod identity')
         seen.add(meta['uid'])
     return value['items']
@@ -265,34 +267,42 @@ def runner(api):
 
 
 def drained(api):
-    # Unfiltered pages include every assigned nonterminal status, including prepare
-    # (native Runner reports that stage as running). Never interpret malformed or
-    # partially paged data as idle. Large histories refuse within the native bound.
-    page, seen_pages, seen_jobs, busy = '1', set(), set(), False
-    while True:
-        require(page not in seen_pages and len(seen_pages) < 100, 'unbounded/incomplete jobs pagination')
-        seen_pages.add(page)
-        values, headers = api.request('GET', '/runners/2/jobs?per_page=100&page=' + page)
-        require(type(values) is list, 'invalid jobs page')
-        for value in values:
-            require(type(value) is dict and type(value.get('id')) is int and value['id'] > 0
-                    and value['id'] not in seen_jobs and value.get('status') in ACTIVE | TERMINAL,
-                    'invalid accepted-job evidence')
-            seen_jobs.add(value['id'])
-            busy |= value['status'] in ACTIVE
-        headers = {k.lower(): v for k, v in headers.items()}
-        require('x-next-page' in headers and type(headers['x-next-page']) is str, 'missing pagination evidence')
-        page = headers['x-next-page']
-        if page == '':
-            return not busy
-        require(re.fullmatch(r'[1-9][0-9]*', page) is not None, 'invalid next page')
+    # Supported scalar status filter avoids completed history. Idle requires every
+    # filter's complete bounded pagination; foreign statuses mean ignored filtering.
+    for status in ACTIVE:
+        page, seen_pages, seen_jobs = '1', set(), set()
+        while True:
+            require(page not in seen_pages and len(seen_pages) < 100, 'unbounded/incomplete jobs pagination')
+            seen_pages.add(page)
+            values, headers = api.request('GET', '/runners/2/jobs?status=' + status + '&per_page=100&page=' + page)
+            require(type(values) is list, 'invalid jobs page')
+            for value in values:
+                require(type(value) is dict and type(value.get('id')) is int and value['id'] > 0
+                        and value['id'] not in seen_jobs and type(value.get('status')) is str
+                        and value['status'] == status, 'invalid accepted-job evidence or ignored status filter')
+                seen_jobs.add(value['id'])
+            headers = {k.lower(): v for k, v in headers.items()}
+            require('x-next-page' in headers and type(headers['x-next-page']) is str, 'missing pagination evidence')
+            page = headers['x-next-page']
+            require(page == '' or re.fullmatch(r'[1-9][0-9]*', page) is not None, 'invalid next page')
+            require(page not in seen_pages, 'repeated jobs page')
+            if values:
+                return False  # Proven busy needs no further history or filters.
+            if page == '':
+                break
+    return True
 
 
 def ci_drained(snapshot):
     for pod in snapshot:
-        labels = pod['metadata'].get('labels', {})
+        labels = pod['metadata'].get('labels')
+        require(type(labels) is dict, 'missing Pod labels')
         if labels.get('ci.brmartin.co.uk/job') == 'true' and labels.get('ci.brmartin.co.uk/maintenance') != 'true':
-            if pod['metadata'].get('deletionTimestamp') or pod['status']['phase'] not in {'Succeeded', 'Failed'}:
+            phase = pod['status']['phase']
+            if pod['metadata'].get('deletionTimestamp') or phase not in {'Running', 'Pending', 'Succeeded', 'Failed'}:
+                return False
+            # Same positive node-local hostPath exemption as cache-retention pod_gate.
+            if phase in {'Running', 'Pending'} and pod['spec'].get('nodeName') not in {'heracles', 'nyx'}:
                 return False
     return True
 

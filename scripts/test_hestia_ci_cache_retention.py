@@ -13,6 +13,7 @@ import textwrap
 import tracemalloc
 from types import SimpleNamespace
 import unittest
+import urllib.parse
 from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -55,7 +56,7 @@ class FakeAPI:
 class FakeGitLab:
     def __init__(self, paused=False):
         self.paused, self.puts, self.unknown = paused, [], False
-        self.pages = {'1': ([], {'X-Next-Page': ''})}
+        self.pages, self.queries = {}, []
 
     def request(self, method, path, body=None):
         if method == 'PUT':
@@ -67,7 +68,13 @@ class FakeGitLab:
             return {'id': 2, 'paused': self.paused}, {}
         if path == '/runners/2':
             return {'id': 2, 'paused': self.paused}, {}
-        return copy.deepcopy(self.pages[path.rsplit('=', 1)[1]])
+        parsed = urllib.parse.urlsplit(path)
+        query = urllib.parse.parse_qs(parsed.query)
+        assert method == 'GET' and parsed.path == '/runners/2/jobs'
+        assert set(query) == {'status', 'per_page', 'page'} and query['per_page'] == ['100']
+        status, page = query['status'][0], query['page'][0]
+        self.queries.append((status, page))
+        return copy.deepcopy(self.pages.get(status, {'1': ([], {'X-Next-Page': ''})})[page])
 
 
 class AdmissionTests(unittest.TestCase):
@@ -186,7 +193,7 @@ class AdmissionTests(unittest.TestCase):
     def test_pause_ack_coordinator_crash_independent_recovery(self):
         def crash(_):
             raise RuntimeError('fixture coordinator crashed after durable pause ack')
-        self.gl.pages['1'] = ([{'id': 8, 'status': 'running'}], {'X-Next-Page': ''})
+        self.gl.pages['running'] = {'1': ([{'id': 8, 'status': 'running'}], {'X-Next-Page': ''})}
         with self.assertRaises(RuntimeError):
             a.coordinate(self.store, self.gl, self.me, now=lambda: self.clock, sleep=crash)
         self.assertEqual(self.state()['phase'], 'DRAINING')
@@ -217,16 +224,77 @@ class AdmissionTests(unittest.TestCase):
         self.assertEqual(len(self.gl.puts), 2)
 
     def test_pagination_malformed_and_accepted_running_fail_closed(self):
-        self.gl.pages = {'1': ([], {'X-Next-Page': '2'}),
-                         '2': ([{'id': 22, 'status': 'running'}], {'X-Next-Page': ''})}
+        self.gl.pages = {'running': {'1': ([], {'X-Next-Page': '2'}),
+                                    '2': ([{'id': 22, 'status': 'running'}], {'X-Next-Page': ''})}}
         self.assertFalse(a.drained(self.gl))
         for page in (([], {}), ([{'id': 22, 'status': 'mystery'}], {'X-Next-Page': ''}),
                      ([], {'X-Next-Page': '1'})):
-            self.gl.pages = {'1': page}
+            self.gl.pages = {'running': {'1': page}}
             with self.assertRaises(a.Refuse):
                 self.coordinate()
             self.assertNotIn(self.state()['phase'], {'ADMITTED', 'CLAIMED'})
             self.setUp()
+
+    def test_status_filtered_idle_and_all_nonterminal_busy(self):
+        expected = ('created', 'waiting_for_resource', 'preparing', 'waiting_for_callback',
+                    'pending', 'manual', 'scheduled', 'running', 'canceling')
+        self.assertTrue(a.drained(self.gl))
+        self.assertEqual(self.gl.queries, [(status, '1') for status in expected])
+        for status in expected:
+            with self.subTest(status=status):
+                gl = FakeGitLab()
+                gl.pages[status] = {'1': ([{'id': 8, 'status': status}], {'x-next-page': '2'})}
+                self.assertFalse(a.drained(gl))
+                self.assertEqual(gl.queries[-1], (status, '1'))  # Busy needs no next page.
+
+    def test_filtered_pagination_refuses_ignored_filter_bad_ids_and_bounds(self):
+        bad_rows = [[{'id': 1, 'status': status}] for status in ('success', 'failed', 'canceled', 'skipped', 'running')]
+        bad_rows += [[{'id': value, 'status': 'created'}] for value in (True, 0, -1, '8')]
+        bad_rows += [[{'id': 1, 'status': 'created'}] * 2, [{}], {}]
+        for rows in bad_rows:
+            with self.subTest(rows=rows):
+                self.gl.pages = {'created': {'1': (rows, {'X-Next-Page': ''})}}
+                with self.assertRaises(a.Refuse):
+                    a.drained(self.gl)
+        for headers in ({}, {'x-next-page': None}, {'x-next-page': '0'},
+                        {'x-next-page': '-1'}, {'x-next-page': '01'}, {'x-next-page': '1'}):
+            self.gl.pages = {'created': {'1': ([], headers)}}
+            with self.subTest(headers=headers), self.assertRaises(a.Refuse):
+                a.drained(self.gl)
+        self.gl.pages = {'created': {str(i): ([], {'x-next-page': str(i + 1)}) for i in range(1, 101)}}
+        with self.assertRaisesRegex(a.Refuse, 'unbounded/incomplete'):
+            a.drained(self.gl)
+        self.gl.pages['created']['100'] = ([], {'x-next-page': ''})
+        self.assertTrue(a.drained(self.gl))
+
+    def test_hestia_local_drain_matches_worker_positive_remote_exemption(self):
+        job = copy.deepcopy(self.worker)
+        job['metadata'].update(namespace='ci', uid='ordinary-job', name='ordinary-job',
+                               labels={'ci.brmartin.co.uk/job': 'true'})
+        for node in ('heracles', 'nyx', 'hestia', 'unknown', ''):
+            for phase in ('Running', 'Pending', 'Unknown', 'Succeeded', 'Failed'):
+                for terminating in (False, True):
+                    with self.subTest(node=node, phase=phase, terminating=terminating):
+                        job['spec']['nodeName'], job['status']['phase'] = node, phase
+                        job['metadata']['deletionTimestamp'] = 'fixture' if terminating else None
+                        expected = not terminating and (phase in {'Succeeded', 'Failed'} or
+                                   phase in {'Running', 'Pending'} and node in {'heracles', 'nyx'})
+                        self.assertEqual(a.ci_drained([job]), expected)
+                        payload = {'metadata': {}, 'items': [self.worker, job]}
+                        if expected:
+                            self.assertTrue(r.pod_gate(payload, self.who['uid']))
+                        else:
+                            with self.assertRaises(r.Refuse):
+                                r.pod_gate(payload, self.who['uid'])
+        job['spec'].pop('nodeName')
+        job['status']['phase'], job['metadata']['deletionTimestamp'] = 'Pending', None
+        self.assertFalse(a.ci_drained([job]))
+        job['metadata'].pop('labels')
+        with self.assertRaises(a.Refuse):
+            a.ci_drained([job])
+        self.api.snapshot.append(job)
+        with self.assertRaises(a.Refuse):
+            a.snapshot_all(self.api)
 
     def test_claim_cas_one_winner_and_seal_wins(self):
         self.coordinate()
@@ -970,6 +1038,29 @@ class UVTests(RetentionFixture):
         if links:
             (root / 'archive-v0/link').symlink_to(self.base / 'outside')
         return root
+
+    def test_vendor_cache_buckets_and_retained_tool_directories(self):
+        root = self.uv()
+        buckets = ('archive-v0', 'builds-v0', 'environments-v2', 'interpreter-v4',
+                   'sdists-v9', 'simple-v21', 'wheels-v6', 'python-v0', 'binaries-v0',
+                   'osv-v0', 'flat-index-v2', 'git-v0', 'wheels-v5')
+        with patch.object(r, 'UV_ROOT', root), patch.object(r, 'ROOTS', self.roots):
+            for bucket in buckets:
+                (root / bucket).mkdir(exist_ok=True)
+            self.assertTrue(r.uv_proof(root, root.stat().st_dev, set(), set()))
+            for name in ('tools', 'python', 'bun', 'cargo', 'unknown-v0', 'tools-v0'):
+                with self.subTest(name=name):
+                    (root / name).mkdir()
+                    with self.assertRaisesRegex(r.Refuse, 'cache-only role'):
+                        r.uv_proof(root, root.stat().st_dev, set(), set())
+                    (root / name).rmdir()
+            (root / 'git-v1').symlink_to(root / 'git-v0')
+            with self.assertRaisesRegex(r.Refuse, 'cache-only role'):
+                r.uv_proof(root, root.stat().st_dev, set(), set())
+            (root / 'git-v1').unlink()
+            os.mkfifo(root / 'python-v1')
+            with self.assertRaisesRegex(r.Refuse, 'cache-only role'):
+                r.uv_proof(root, root.stat().st_dev, set(), set())
 
     def test_uv_exclusion_age_pressure_and_skip_cases(self):
         root = self.uv()

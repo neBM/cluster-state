@@ -124,11 +124,15 @@ The hourly minute47 unprivileged `ci-maintenance/hestia-ci-maintenance-admission
 Runner2 only after a fresh independent-recovery heartbeat and durable named-CAS
 pause intent. A preexisting pause is preserved with zero writes. Accepted work
 drains naturally for up to 20 minutes; no accepted job cancellation or manager
-signal is used. Complete GitLab Runner2 job pagination (including running prepare
-and canceling states) and the CI Pod snapshot must both show idle before admission.
-Incomplete/malformed evidence refuses cleanup, never means idle. Job history
-pagination is bounded to 100 pages; exceeding it refuses and requires an operator
-to qualify a narrower authoritative accepted-job API rather than weakening checks.
+signal is used. Runner2 jobs are queried with GitLab's supported scalar status
+filter for all nine nonterminal statuses: created, waiting_for_resource, preparing,
+waiting_for_callback, pending, manual, scheduled, then running (including native
+prepare), then canceling. Idle requires complete pagination for every filter,
+bounded to 100 pages each; missing/invalid pagination or ignored filters refuse.
+Completed job history is not scanned. The complete CI Pod snapshot must also show
+Hestia idle: Running/Pending jobs positively assigned to heracles/nyx are exempt
+because their hostPaths are node-local. Unassigned/Hestia/unknown-node active jobs,
+terminating jobs and unknown phases still block; ARM Runner3 is not paused daily.
 
 The privileged worker must win ADMITTED-to-CLAIMED for its exact native scheduled
 Job and Pod UID, and checks the current claim/deadline before every candidate.
@@ -274,6 +278,12 @@ exact host child. Cache-only custody, ordinary no-follow ancestry, same device,
 validated CACHEDIR.TAG, cache-generation-only top-level names, complete mount/open
 guards and an unchanged streamed metadata fingerprint are required. UV proof alone
 admits link leaves without following targets; it grants no generic deletion rights.
+The qualified UV 0.11.26 cache buckets are archive, binaries, builds, environments,
+flat-index, git, interpreter, osv, python, sdists, simple and wheels, each with a
+`-vN` generation suffix (coexisting generations allowed). `python-vN` caches Python
+downloads and `binaries-vN` caches tool downloads: neither admits installed managed
+Python or tools. Plain `python`/`tools`, unknown buckets, root links and specials
+remain refused; protected sibling namespaces are unchanged.
 The binary SHA/version are checked against the qualified executor. The subprocess
 uses a minimal explicit environment, neutral cwd and closed stdin, inherited logs,
 a 330-second wait and bounded kill/reap on failure. UV's default native locks remain.

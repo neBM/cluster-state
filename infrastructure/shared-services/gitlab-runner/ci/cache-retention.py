@@ -406,7 +406,7 @@ def uv_proof(root, device, mounted, busy):
     for path in root.iterdir():
         mode = path.lstat().st_mode
         if stat.S_ISDIR(mode):
-            if not re.fullmatch(r'(archive|builds|environments|interpreter|sdists|simple|wheels)-v[0-9]+', path.name):
+            if not re.fullmatch(r'(archive|binaries|builds|environments|flat-index|git|interpreter|osv|python|sdists|simple|wheels)-v[0-9]+', path.name):
                 raise Refuse('UV cache-only role not established')
         elif path.name not in {'.gitignore', '.lock', 'CACHEDIR.TAG'} or not stat.S_ISREG(mode):
             raise Refuse('UV cache-only role not established')
