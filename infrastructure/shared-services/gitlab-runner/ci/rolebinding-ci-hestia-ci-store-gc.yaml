@@ -12,4 +12,4 @@ roleRef:
 subjects:
 - kind: ServiceAccount
   name: hestia-ci-store-gc
-  namespace: ci
+  namespace: ci-maintenance-worker

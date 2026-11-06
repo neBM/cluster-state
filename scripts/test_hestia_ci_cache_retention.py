@@ -13,6 +13,7 @@ import textwrap
 import tracemalloc
 from types import SimpleNamespace
 import unittest
+import urllib.parse
 from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -21,9 +22,505 @@ spec = importlib.util.spec_from_file_location('retention', CI / 'cache-retention
 assert spec is not None and spec.loader is not None
 r = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(r)
+admission_spec = importlib.util.spec_from_file_location('admission', CI / 'maintenance-admission.py')
+assert admission_spec is not None and admission_spec.loader is not None
+a = importlib.util.module_from_spec(admission_spec)
+admission_spec.loader.exec_module(a)
 
 
-class RetentionTests(unittest.TestCase):
+class FakeAPI:
+    def __init__(self, state, snapshot, jobs):
+        self.cm = {'kind': 'ConfigMap', 'metadata': {'name': 'hestia-ci-maintenance-state',
+                   'namespace': 'ci-maintenance', 'uid': 'state-uid', 'resourceVersion': '1'},
+                   'data': {'state.json': json.dumps(state)}}
+        self.snapshot, self.jobs, self.fail_save = snapshot, jobs, False
+
+    def request(self, method, path, body=None):
+        if path == a.STATE:
+            if method == 'PUT':
+                if self.fail_save:
+                    raise OSError('fixture state unavailable')
+                if body['metadata']['resourceVersion'] != self.cm['metadata']['resourceVersion']:
+                    raise a.Conflict('fixture CAS')
+                self.cm = copy.deepcopy(body)
+                self.cm['metadata']['resourceVersion'] = str(int(self.cm['metadata']['resourceVersion']) + 1)
+            return copy.deepcopy(self.cm), {}
+        if any(path.startswith(p) for p in (a.PODS, a.CONTROL_PODS, a.WORKER_PODS)):
+            namespace = path.split('/')[4]
+            return {'metadata': {}, 'items': copy.deepcopy([p for p in self.snapshot if p['metadata']['namespace'] == namespace])}, {}
+        if '/jobs/' in path:
+            return copy.deepcopy(self.jobs[path.rsplit('/', 1)[1]]), {}
+        raise AssertionError((method, path))
+
+
+class FakeGitLab:
+    def __init__(self, paused=False):
+        self.paused, self.puts, self.unknown = paused, [], False
+        self.pages, self.queries = {}, []
+
+    def request(self, method, path, body=None):
+        if method == 'PUT':
+            assert path == '/runners/2' and set(body) == {'paused'} and type(body['paused']) is bool
+            self.puts.append(copy.deepcopy(body))
+            self.paused = body['paused']
+            if self.unknown:
+                raise TimeoutError('fixture effect unknown')
+            return {'id': 2, 'paused': self.paused}, {}
+        if path == '/runners/2':
+            return {'id': 2, 'paused': self.paused}, {}
+        parsed = urllib.parse.urlsplit(path)
+        query = urllib.parse.parse_qs(parsed.query)
+        assert method == 'GET' and parsed.path == '/runners/2/jobs'
+        assert set(query) == {'status', 'per_page', 'page'} and query['per_page'] == ['100']
+        status, page = query['status'][0], query['page'][0]
+        self.queries.append((status, page))
+        return copy.deepcopy(self.pages.get(status, {'1': ([], {'X-Next-Page': ''})})[page])
+
+
+class AdmissionTests(unittest.TestCase):
+    def setUp(self):
+        self.slot = 1793872020  # Replaced below with an exact UTC minute47.
+        self.slot = self.slot // 3600 * 3600 + 47 * 60
+        self.clock = self.slot + 10
+        self.policy = 'f' * 64
+        self.coordinator = self.pod('coord', 'hestia-ci-maintenance-admission')
+        self.worker = self.pod('worker', 'hestia-ci-cache-retention')
+        self.recovery = self.pod('recovery', 'hestia-ci-maintenance-recovery')
+        snapshot = [self.coordinator, self.worker, self.recovery]
+        stamp = a.dt.datetime.fromtimestamp(self.slot, a.dt.timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
+        jobs = {p['metadata']['name'] + '-job': {'metadata': {
+            'namespace': p['metadata']['namespace'], 'name': p['metadata']['name'] + '-job',
+            'uid': p['metadata']['name'] + '-job-uid',
+            'annotations': {'batch.kubernetes.io/cronjob-scheduled-timestamp': stamp},
+            'ownerReferences': [{'kind': 'CronJob', 'name': p['metadata']['labels']['app'],
+                                 'controller': True, 'uid': 'cron-uid'}]},
+            'spec': {'template': {'spec': copy.deepcopy(p['spec'])}}} for p in snapshot}
+        state = {'schema': 1, 'runner': 2, 'uid': 'state-uid', 'policy': self.policy,
+                 'heartbeat': self.clock, 'phase': 'IDLE', 'operation': None, 'gc_holder': None}
+        self.api = FakeAPI(state, snapshot, jobs)
+        self.store = a.Store(self.api, self.policy)
+        self.gl = FakeGitLab()
+        self.me, self.who, self.rec = map(a.pod_identity, snapshot)
+
+    def pod(self, name, app):
+        labels = {'app': app}
+        if name == 'worker':
+            labels.update({'ci.brmartin.co.uk/job': 'true', 'ci.brmartin.co.uk/maintenance': 'true'})
+        return {'metadata': {'namespace': 'ci-maintenance-worker' if name == 'worker' else 'ci-maintenance', 'uid': name + '-uid', 'name': name, 'labels': labels,
+                'ownerReferences': [{'kind': 'Job', 'name': name + '-job', 'uid': name + '-job-uid', 'controller': True}]},
+                'spec': {'containers': [{'name': 'main'}], 'nodeName': 'hestia',
+                         'serviceAccountName': 'hestia-ci-maintenance-worker' if name == 'worker' else app,
+                         'volumes': [{'name': 'policy', 'configMap': {'name': 'hestia-ci-cache-retention-fixture'}}]},
+                'status': {'phase': 'Running', 'containerStatuses': [{'name': 'main', 'state': {'running': {}}}]}}
+
+    def finish(self, name, phase='Succeeded'):
+        pod = next(p for p in self.api.snapshot if p['metadata']['name'] == name)
+        pod['status'] = {'phase': phase, 'containerStatuses': [{'name': 'main', 'state': {'terminated': {'exitCode': 0}}}]}
+
+    def coordinate(self):
+        a.coordinate(self.store, self.gl, self.me, now=lambda: self.clock,
+                     sleep=lambda _: setattr(self, 'clock', self.clock + 1200))
+
+    def recover(self):
+        a.recover(self.store, self.gl, self.rec, now=lambda: self.clock)
+
+    def state(self):
+        return self.store.read()[1]
+
+    def save(self, state):
+        cm, _ = self.store.read()
+        self.store.save(cm, state)
+
+    def test_foreign_ci_cannot_claim_or_retire_worker(self):
+        forged = copy.deepcopy(self.worker)
+        forged['metadata']['namespace'] = 'ci'
+        with self.assertRaises(a.Refuse):
+            a.scheduled(self.api, forged, 'hestia-ci-cache-retention')
+        with self.assertRaises(a.Refuse):
+            a.WorkerFence(self.store, a.pod_identity(forged))
+        self.assertFalse(a.terminal([forged], self.who))
+        self.api.snapshot[1] = forged
+        with self.assertRaises(a.Refuse):
+            self.coordinate()
+        self.assertIsNone(self.state()['operation']['worker'])
+
+    def add_gc(self):
+        gc = copy.deepcopy(self.worker)
+        gc['metadata'].update(name='gc', uid='gc-uid', labels={
+            'app': 'hestia-ci-store-gc', 'ci.brmartin.co.uk/job': 'true',
+            'ci.brmartin.co.uk/maintenance': 'true'}, ownerReferences=[{
+                'kind': 'Job', 'name': 'gc-job', 'uid': 'gc-job-uid', 'controller': True}])
+        gc['spec']['serviceAccountName'] = 'hestia-ci-store-gc'
+        self.api.snapshot.append(gc)
+        self.api.jobs['gc-job'] = {'metadata': {'namespace': a.WORKER_NAMESPACE,
+            'name': 'gc-job', 'uid': 'gc-job-uid'}, 'spec': {'template': {'spec': copy.deepcopy(gc['spec'])}}}
+        return a.pod_identity(gc)
+
+    def claim_gc(self, who):
+        a.gc_claim(self.store, who, lambda: None, now=lambda: self.clock)
+
+    def test_gc_claim_durable_before_effect_and_failure_zero_effects(self):
+        who = self.add_gc()
+        trace = []
+        def gate():
+            trace.append(self.state()['gc_holder'])
+        a.gc_claim(self.store, who, gate, now=lambda: self.clock)
+        self.assertIsNone(trace[0])
+        self.assertEqual(trace[1]['identity'], who)
+        self.finish('gc')
+        self.recover()
+        self.assertIsNone(self.state()['gc_holder'])
+        self.assertEqual(self.gl.puts, [])
+        self.api.fail_save = True
+        trace.clear()
+        with self.assertRaises(OSError):
+            a.gc_claim(self.store, who, gate, now=lambda: self.clock)
+        self.assertEqual(len(trace), 1)
+
+    def test_gc_wins_coordinator_waits_and_restoration_waits_for_exact_retirement(self):
+        who = self.add_gc()
+        self.claim_gc(who)
+        with self.assertRaises(a.Refuse):
+            self.coordinate()
+        self.assertEqual(self.state()['phase'], 'CLOSING')
+        self.assertIsNone(self.state()['operation']['worker'])
+        self.finish('coord')
+        gc = self.api.snapshot[-1]
+        for change in ('running', 'phase-only', 'missing', 'replacement', 'job-replacement'):
+            saved = copy.deepcopy(gc)
+            if change == 'phase-only':
+                gc['status']['phase'] = 'Succeeded'
+            elif change == 'missing':
+                self.api.snapshot.remove(gc)
+            elif change == 'replacement':
+                gc['metadata']['uid'] = 'other'
+            elif change == 'job-replacement':
+                gc['metadata']['ownerReferences'][0]['uid'] = 'other'
+            self.recover()
+            self.assertEqual(self.gl.puts, [{'paused': True}], change)
+            if change == 'missing':
+                self.api.snapshot.append(gc)
+            gc.clear()
+            gc.update(saved)
+        self.finish('gc')
+        self.recover()
+        self.assertEqual(self.gl.puts, [{'paused': True}, {'paused': False}])
+        self.assertEqual(self.state()['phase'], 'DONE')
+        self.assertIsNone(self.state()['gc_holder'])
+
+    def test_gc_late_claim_and_stale_cas_are_fenced(self):
+        who = self.add_gc()
+        cm, stale = self.store.read()
+        self.coordinate()
+        for phase in ('ADMITTED', 'CLAIMED', 'CLOSING', 'RESTORING', 'ALERT'):
+            state = self.state()
+            state['phase'] = phase
+            state['operation']['claimed'] = True
+            self.save(state)
+            with self.assertRaises(a.Refuse):
+                self.claim_gc(who)
+        stale['gc_holder'] = {'identity': who, 'claimed_at': self.clock}
+        with self.assertRaises(a.Conflict):
+            self.store.save(cm, stale)
+        self.assertIsNone(self.state()['gc_holder'])
+
+    def test_idle_unknown_gc_has_bounded_warning_and_strict_schema(self):
+        who = self.add_gc()
+        self.claim_gc(who)
+        state = self.state()
+        state['gc_holder']['claimed_at'] = True
+        with self.assertRaises(a.Refuse):
+            self.save(state)
+        self.api.snapshot.pop()
+        self.clock += 2700
+        with self.assertRaises(a.Refuse):
+            self.recover()
+        self.assertEqual(self.state()['phase'], 'ALERT')
+        self.assertEqual(self.gl.puts, [])
+
+    def test_gc_start_real_cas_loses_to_coordinator_without_effects(self):
+        who = self.add_gc()
+        original = self.store.save
+        trace = []
+        def race(cm, state):
+            if state['gc_holder'] is not None and not trace:
+                trace.append('coordinator-wins')
+                self.coordinate()
+            return original(cm, state)
+        gates = []
+        with patch.object(self.store, 'save', race), self.assertRaises(a.Conflict):
+            a.gc_claim(self.store, who, lambda: gates.append('gate'), now=lambda: self.clock)
+        self.assertEqual(gates, ['gate'])
+        self.assertIsNone(self.state()['gc_holder'])
+        self.assertEqual(self.state()['phase'], 'ADMITTED')
+
+    def test_coordinator_cas_loses_to_gc_before_pause(self):
+        who = self.add_gc()
+        original = self.store.save
+        raced = []
+        def race(cm, state):
+            if state['phase'] == 'PAUSE_INTENT' and not raced:
+                raced.append(True)
+                self.claim_gc(who)
+            return original(cm, state)
+        with patch.object(self.store, 'save', race), self.assertRaises(a.Conflict):
+            self.coordinate()
+        self.assertEqual(self.gl.puts, [])
+        self.assertEqual(self.state()['gc_holder']['identity'], who)
+
+    def test_worker_job_generation_namespace_and_bundle_bound(self):
+        for field in ('namespace', 'uid', 'name'):
+            with self.subTest(field=field):
+                saved = self.api.jobs['worker-job']['metadata'][field]
+                self.api.jobs['worker-job']['metadata'][field] = 'foreign'
+                with self.assertRaises(a.Refuse):
+                    a.scheduled(self.api, self.worker, 'hestia-ci-cache-retention')
+                self.api.jobs['worker-job']['metadata'][field] = saved
+        self.api.jobs['worker-job']['spec']['template']['spec']['volumes'][0]['configMap']['name'] += '-foreign'
+        with self.assertRaises(a.Refuse):
+            a.scheduled(self.api, self.worker, 'hestia-ci-cache-retention')
+
+    def test_true_baseline_and_persistence_failure_zero_puts(self):
+        self.gl.paused = True
+        self.coordinate()
+        self.assertEqual(self.gl.puts, [])
+        self.gl.paused, self.api.fail_save = False, True
+        with self.assertRaises(OSError):
+            self.coordinate()
+        self.assertEqual(self.gl.puts, [])
+
+    def test_normal_claim_terminal_restore_exact_puts(self):
+        self.coordinate()
+        fence = a.WorkerFence(self.store, self.who, now=lambda: self.clock)
+        fence.claim(sleep=self.fail)
+        fence.check()
+        self.finish('coord')
+        self.recover()
+        self.assertEqual(self.gl.puts, [{'paused': True}])
+        self.finish('worker')
+        self.recover()
+        self.assertEqual(self.gl.puts, [{'paused': True}, {'paused': False}])
+        self.assertEqual(self.state()['phase'], 'DONE')
+        self.assertEqual(self.state()['operation']['outcome'], 'cleanup-succeeded')
+        with self.assertRaises(a.Refuse):
+            fence.check()
+
+    def test_failed_cleanup_restores_but_outcome_stays_failed(self):
+        self.coordinate()
+        a.WorkerFence(self.store, self.who, now=lambda: self.clock).claim(sleep=self.fail)
+        self.finish('coord', 'Failed')
+        self.finish('worker', 'Failed')
+        self.recover()
+        self.assertFalse(self.gl.paused)
+        self.assertEqual(self.state()['operation']['outcome'], 'cleanup-failed')
+
+    def test_pause_ack_coordinator_crash_independent_recovery(self):
+        def crash(_):
+            raise RuntimeError('fixture coordinator crashed after durable pause ack')
+        self.gl.pages['running'] = {'1': ([{'id': 8, 'status': 'running'}], {'X-Next-Page': ''})}
+        with self.assertRaises(RuntimeError):
+            a.coordinate(self.store, self.gl, self.me, now=lambda: self.clock, sleep=crash)
+        self.assertEqual(self.state()['phase'], 'DRAINING')
+        self.finish('coord', 'Failed')
+        self.recover()
+        self.assertFalse(self.gl.paused)
+        self.assertEqual(self.state()['phase'], 'DONE')
+
+    def test_unknown_pause_and_restore_latch_no_extra_put(self):
+        self.gl.unknown = True
+        with self.assertRaises(a.Refuse):
+            self.coordinate()
+        self.assertEqual(self.state()['phase'], 'ALERT')
+        self.finish('coord')
+        with self.assertRaises(a.Refuse):
+            self.recover()
+        self.assertEqual(len(self.gl.puts), 1)
+        self.setUp()
+        self.coordinate()
+        self.finish('coord')
+        self.clock = self.slot + 1801
+        self.gl.unknown = True
+        with self.assertRaises(a.Refuse):
+            self.recover()
+        self.assertEqual(self.state()['phase'], 'ALERT')
+        with self.assertRaises(a.Refuse):
+            self.recover()
+        self.assertEqual(len(self.gl.puts), 2)
+
+    def test_pagination_malformed_and_accepted_running_fail_closed(self):
+        self.gl.pages = {'running': {'1': ([], {'X-Next-Page': '2'}),
+                                    '2': ([{'id': 22, 'status': 'running'}], {'X-Next-Page': ''})}}
+        self.assertFalse(a.drained(self.gl))
+        for page in (([], {}), ([{'id': 22, 'status': 'mystery'}], {'X-Next-Page': ''}),
+                     ([], {'X-Next-Page': '1'})):
+            self.gl.pages = {'running': {'1': page}}
+            with self.assertRaises(a.Refuse):
+                self.coordinate()
+            self.assertNotIn(self.state()['phase'], {'ADMITTED', 'CLAIMED'})
+            self.setUp()
+
+    def test_status_filtered_idle_and_all_nonterminal_busy(self):
+        expected = ('created', 'waiting_for_resource', 'preparing', 'waiting_for_callback',
+                    'pending', 'manual', 'scheduled', 'running', 'canceling')
+        self.assertTrue(a.drained(self.gl))
+        self.assertEqual(self.gl.queries, [(status, '1') for status in expected])
+        for status in expected:
+            with self.subTest(status=status):
+                gl = FakeGitLab()
+                gl.pages[status] = {'1': ([{'id': 8, 'status': status}], {'x-next-page': '2'})}
+                self.assertFalse(a.drained(gl))
+                self.assertEqual(gl.queries[-1], (status, '1'))  # Busy needs no next page.
+
+    def test_filtered_pagination_refuses_ignored_filter_bad_ids_and_bounds(self):
+        bad_rows = [[{'id': 1, 'status': status}] for status in ('success', 'failed', 'canceled', 'skipped', 'running')]
+        bad_rows += [[{'id': value, 'status': 'created'}] for value in (True, 0, -1, '8')]
+        bad_rows += [[{'id': 1, 'status': 'created'}] * 2, [{}], {}]
+        for rows in bad_rows:
+            with self.subTest(rows=rows):
+                self.gl.pages = {'created': {'1': (rows, {'X-Next-Page': ''})}}
+                with self.assertRaises(a.Refuse):
+                    a.drained(self.gl)
+        for headers in ({}, {'x-next-page': None}, {'x-next-page': '0'},
+                        {'x-next-page': '-1'}, {'x-next-page': '01'}, {'x-next-page': '1'}):
+            self.gl.pages = {'created': {'1': ([], headers)}}
+            with self.subTest(headers=headers), self.assertRaises(a.Refuse):
+                a.drained(self.gl)
+        self.gl.pages = {'created': {str(i): ([], {'x-next-page': str(i + 1)}) for i in range(1, 101)}}
+        with self.assertRaisesRegex(a.Refuse, 'unbounded/incomplete'):
+            a.drained(self.gl)
+        self.gl.pages['created']['100'] = ([], {'x-next-page': ''})
+        self.assertTrue(a.drained(self.gl))
+
+    def test_hestia_local_drain_matches_worker_positive_remote_exemption(self):
+        job = copy.deepcopy(self.worker)
+        job['metadata'].update(namespace='ci', uid='ordinary-job', name='ordinary-job',
+                               labels={'ci.brmartin.co.uk/job': 'true'})
+        for node in ('heracles', 'nyx', 'hestia', 'unknown', ''):
+            for phase in ('Running', 'Pending', 'Unknown', 'Succeeded', 'Failed'):
+                for terminating in (False, True):
+                    with self.subTest(node=node, phase=phase, terminating=terminating):
+                        job['spec']['nodeName'], job['status']['phase'] = node, phase
+                        job['metadata']['deletionTimestamp'] = 'fixture' if terminating else None
+                        expected = not terminating and (phase in {'Succeeded', 'Failed'} or
+                                   phase in {'Running', 'Pending'} and node in {'heracles', 'nyx'})
+                        self.assertEqual(a.ci_drained([job]), expected)
+                        payload = {'metadata': {}, 'items': [self.worker, job]}
+                        if expected:
+                            self.assertTrue(r.pod_gate(payload, self.who['uid']))
+                        else:
+                            with self.assertRaises(r.Refuse):
+                                r.pod_gate(payload, self.who['uid'])
+        job['spec'].pop('nodeName')
+        job['status']['phase'], job['metadata']['deletionTimestamp'] = 'Pending', None
+        self.assertFalse(a.ci_drained([job]))
+        job['metadata'].pop('labels')
+        with self.assertRaises(a.Refuse):
+            a.ci_drained([job])
+        self.api.snapshot.append(job)
+        with self.assertRaises(a.Refuse):
+            a.snapshot_all(self.api)
+
+    def test_claim_cas_one_winner_and_seal_wins(self):
+        self.coordinate()
+        cm1, st1 = self.store.read()
+        cm2, st2 = self.store.read()
+        st1['phase'], st1['operation']['claimed'] = 'CLAIMED', True
+        self.store.save(cm1, st1)
+        st2['phase'] = 'CLOSING'
+        with self.assertRaises(a.Conflict):
+            self.store.save(cm2, st2)
+        self.assertTrue(self.state()['operation']['claimed'])
+        self.setUp()
+        self.coordinate()
+        cm1, st1 = self.store.read()
+        cm2, st2 = self.store.read()
+        st1['phase'] = 'CLOSING'
+        self.store.save(cm1, st1)
+        st2['phase'], st2['operation']['claimed'] = 'CLAIMED', True
+        with self.assertRaises(a.Conflict):
+            self.store.save(cm2, st2)
+        with self.assertRaises(a.Refuse):
+            a.WorkerFence(self.store, self.who, now=lambda: self.clock).claim(sleep=self.fail)
+
+    def test_claimed_alive_missing_failuretarget_not_retirement(self):
+        self.coordinate()
+        fence = a.WorkerFence(self.store, self.who, now=lambda: self.clock)
+        fence.claim(sleep=self.fail)
+        self.finish('coord')
+        self.clock = self.slot + 1801
+        for phase in ('Running', 'Pending', 'Unknown'):
+            self.api.snapshot[1]['status'].update(phase=phase, conditions=[{'type': 'FailureTarget', 'status': 'True'}])
+            self.recover()
+            self.assertEqual(len(self.gl.puts), 1)
+        self.api.snapshot.pop(1)
+        self.recover()
+        self.assertEqual(len(self.gl.puts), 1)
+        with self.assertRaises(a.Refuse):
+            fence.check()
+        self.clock = self.slot + 2700
+        with self.assertRaises(a.Refuse):
+            self.recover()
+        self.assertEqual(self.state()['phase'], 'ALERT')
+
+    def test_unclaimed_pending_sealed_does_not_block_restore(self):
+        self.coordinate()
+        self.finish('coord')
+        self.api.snapshot[1]['status']['phase'] = 'Pending'
+        self.clock = self.slot + 1801
+        self.recover()
+        self.assertEqual(self.state()['phase'], 'DONE')
+        self.assertFalse(self.gl.paused)
+
+    def test_stale_heartbeat_expiry_manual_late_schedule_zero_puts(self):
+        for kind in ('heartbeat', 'token', 'manual', 'late'):
+            with self.subTest(kind=kind):
+                self.setUp()
+                if kind == 'heartbeat':
+                    state = self.state()
+                    state['heartbeat'] = self.clock - 151
+                    self.save(state)
+                elif kind == 'manual':
+                    self.api.jobs['coord-job']['metadata']['annotations'] = {}
+                elif kind == 'late':
+                    self.clock += 100
+                with patch.object(a, 'TOKEN_EXPIRY', self.clock if kind == 'token' else a.TOKEN_EXPIRY):
+                    with self.assertRaises(a.Refuse):
+                        self.coordinate()
+                self.assertEqual(self.gl.puts, [])
+
+    def test_strict_types_uid_corruption_and_stale_holder(self):
+        self.coordinate()
+        state = self.state()
+        state['operation']['baseline'] = 'false'
+        with self.assertRaises(a.Refuse):
+            self.save(state)
+        self.api.cm['metadata']['uid'] = 'replacement'
+        with self.assertRaises(a.Refuse):
+            self.store.read()
+        self.setUp()
+        self.coordinate()
+        self.finish('coord')
+        self.clock = self.slot + 1801
+        self.recover()
+        self.assertEqual(self.state()['phase'], 'DONE')
+        self.clock = self.slot + 3600 + 10
+        stamp = a.dt.datetime.fromtimestamp(self.slot + 3600, a.dt.timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
+        self.api.jobs['coord-job']['metadata']['annotations']['batch.kubernetes.io/cronjob-scheduled-timestamp'] = stamp
+        state = self.state()
+        state['heartbeat'] = self.clock
+        self.save(state)
+        with self.assertRaises(a.Refuse):
+            self.coordinate()  # Previous restoration holder still Running.
+        self.assertEqual(len(self.gl.puts), 2)
+
+
+class AdmissionBootstrapTests(unittest.TestCase):
+    def test_independent_recovery_entrypoint_exists(self):
+        self.assertTrue((CI / 'maintenance-admission.py').is_file(),
+                        'production independent admission/recovery is absent')
+
+
+class RetentionFixture(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory(prefix='retention-test-')
         self.addCleanup(self.temp.cleanup)
@@ -45,12 +542,16 @@ class RetentionTests(unittest.TestCase):
 
     def run_retention(self, **kwargs):
         with contextlib.redirect_stdout(io.StringIO()) as output, \
-                patch.object(r, 'WORKSPACE_ROOT', self.builds):
+                patch.object(r, 'WORKSPACE_ROOT', self.builds), \
+                patch.object(r, 'UV_ROOT', self.cache / 'uv'), \
+                patch.object(r, 'ROOTS', self.roots):
             r.retain(self.roots, now=self.now, used=kwargs.pop('used', lambda _: 50),
+                     available=kwargs.pop('available', lambda _: r.COLD_RESERVE),
                      opened=kwargs.pop('opened', set), mounts=kwargs.pop('mounts', set),
                      **kwargs)
         return output.getvalue()
 
+class RetentionTests(RetentionFixture):
     def test_age_uses_newest_descendant_file_not_directory(self):
         stale = self.candidate(self.builds, 'stale', 8)
         fresh = self.candidate(self.cache, 'fresh', 40)
@@ -649,7 +1150,270 @@ class RetentionTests(unittest.TestCase):
             self.assertEqual(outside.read_text(), 'preserve')
 
 
+class UVTests(RetentionFixture):
+    def uv(self, links=False):
+        root = self.cache / 'uv'
+        (root / 'archive-v0').mkdir(parents=True)
+        (root / 'CACHEDIR.TAG').write_bytes(r.CACHE_TAG + b'\n')
+        (root / '.lock').touch()
+        payload = root / 'archive-v0/data'
+        payload.write_text('cache')
+        os.utime(payload, (1, 1))
+        if links:
+            (root / 'archive-v0/link').symlink_to(self.base / 'outside')
+        return root
+
+    def test_vendor_cache_buckets_and_retained_tool_directories(self):
+        root = self.uv()
+        buckets = ('archive-v0', 'builds-v0', 'environments-v2', 'interpreter-v4',
+                   'sdists-v9', 'simple-v21', 'wheels-v6', 'python-v0', 'binaries-v0',
+                   'osv-v0', 'flat-index-v2', 'git-v0', 'wheels-v5')
+        with patch.object(r, 'UV_ROOT', root), patch.object(r, 'ROOTS', self.roots):
+            for bucket in buckets:
+                (root / bucket).mkdir(exist_ok=True)
+            self.assertTrue(r.uv_proof(root, root.stat().st_dev, set(), set()))
+            for name in ('tools', 'python', 'bun', 'cargo', 'unknown-v0', 'tools-v0'):
+                with self.subTest(name=name):
+                    (root / name).mkdir()
+                    with self.assertRaisesRegex(r.Refuse, 'cache-only role'):
+                        r.uv_proof(root, root.stat().st_dev, set(), set())
+                    (root / name).rmdir()
+            (root / 'git-v1').symlink_to(root / 'git-v0')
+            with self.assertRaisesRegex(r.Refuse, 'cache-only role'):
+                r.uv_proof(root, root.stat().st_dev, set(), set())
+            (root / 'git-v1').unlink()
+            os.mkfifo(root / 'python-v1')
+            with self.assertRaisesRegex(r.Refuse, 'cache-only role'):
+                r.uv_proof(root, root.stat().st_dev, set(), set())
+
+    def test_uv_exclusion_age_pressure_and_skip_cases(self):
+        root = self.uv()
+        with patch.object(r, 'qualify_uv', self.fail), patch.object(r, 'owned_uv', self.fail):
+            self.run_retention(execute=True)
+            self.run_retention(execute=True, used=lambda _: 66.99)
+            self.run_retention(execute=False, used=lambda _: 80)
+            old = self.candidate(self.builds, 'aged', 8)
+            self.run_retention(execute=True, used=lambda _: 65 + 15 * old.exists())
+        self.assertTrue((root / 'archive-v0/data').exists())
+        with patch.object(r, 'qualify_uv', return_value=None), \
+                patch.object(r, 'remove_tree', self.fail), \
+                patch.object(r, 'owned_uv', return_value=(0, b'')) as native:
+            with self.assertRaisesRegex(r.Refuse, 'cannot reach 65%'):
+                self.run_retention(execute=True, used=lambda _: 80)
+            native.assert_called_once()
+
+    def test_native_argv_success_and_protected_namespaces(self):
+        root = self.uv(links=True)
+        protected = [self.candidate(self.cache, name, 40) for name in
+                     ('bun', 'cargo', 'tools', 'python')]
+        def native(argv):
+            self.assertEqual(argv, ['/usr/local/bin/uv', '--no-config', '--offline',
+                                   '--no-python-downloads', 'cache', 'clean', '--cache-dir', str(root)])
+            (root / 'archive-v0/data').unlink()  # Only the fake owner mutates UV.
+            return 0, b''
+        with patch.object(r, 'qualify_uv', return_value=None), patch.object(r, 'owned_uv', native):
+            self.run_retention(execute=True, used=lambda _: 80 if (root / 'archive-v0/data').exists() else 65)
+        self.assertTrue(all((p / 'nested/data').exists() for p in protected))
+
+    def test_native_absent_failure_timeout_insufficient_and_reserve(self):
+        with patch.object(r, 'qualify_uv', self.fail), patch.object(r, 'owned_uv', self.fail):
+            with self.assertRaisesRegex(r.Refuse, 'cannot reach 65%'):
+                self.run_retention(execute=True, used=lambda _: 80)
+        root = self.uv()
+        for outcome in ((9, b''), r.subprocess.TimeoutExpired('fixture', 1), (0, b'')):
+            with self.subTest(outcome=outcome), patch.object(r, 'qualify_uv', return_value=None), \
+                    patch.object(r, 'owned_uv', side_effect=outcome if isinstance(outcome, Exception) else None,
+                                 return_value=outcome) as native:
+                with self.assertRaises((r.Refuse, r.subprocess.TimeoutExpired)):
+                    self.run_retention(execute=True, used=lambda _: 80)
+                native.assert_called_once()
+                self.assertTrue((root / 'archive-v0/data').exists())
+        calls = 0
+        def used(_):
+            return 65 if calls else 80
+        def native(_):
+            nonlocal calls
+            calls += 1
+            return 0, b''
+        with patch.object(r, 'qualify_uv', return_value=None), patch.object(r, 'owned_uv', native):
+            with self.assertRaisesRegex(r.Refuse, 'cold reserve'):
+                self.run_retention(execute=True, used=used, available=lambda _: r.COLD_RESERVE - 1)
+        self.assertEqual(calls, 1)
+
+    def test_uv_guard_refusals_and_revalidation(self):
+        root = self.uv(links=True)
+        for field in ('opened', 'mounts'):
+            with self.subTest(field=field), patch.object(r, 'qualify_uv', self.fail):
+                with self.assertRaisesRegex(r.Refuse, 'open/mounted'):
+                    self.run_retention(execute=True, used=lambda _: 80,
+                                       **{field: lambda: {r.identity((root / 'archive-v0/data').stat())}})
+        with patch.object(r, 'qualify_uv', return_value=None), patch.object(r, 'owned_uv', self.fail):
+            def gate():
+                (root / 'archive-v0/data').write_text('changed')
+            with self.assertRaisesRegex(r.Refuse, 'fingerprint changed'):
+                self.run_retention(execute=True, used=lambda _: 80, gate=gate)
+            def denied_gate():
+                raise r.Refuse('stale claim')
+            with self.assertRaisesRegex(r.Refuse, 'stale claim'):
+                self.run_retention(execute=True, used=lambda _: 80, gate=denied_gate)
+        for mutation in ('marker', 'tool', 'replacement', 'root-link'):
+            with self.subTest(mutation=mutation), patch.object(r, 'owned_uv', self.fail):
+                if mutation == 'marker':
+                    (root / 'CACHEDIR.TAG').write_text('invalid')
+                elif mutation == 'tool':
+                    (root / 'CACHEDIR.TAG').write_bytes(r.CACHE_TAG)
+                    (root / 'tools').mkdir()
+                elif mutation == 'replacement':
+                    (root / 'tools').rmdir()
+                else:
+                    root.rename(self.cache / 'saved')
+                    root.symlink_to(self.cache / 'saved')
+                def qualify():
+                    root.rename(self.cache / 'replaced')
+                    root.mkdir()
+                with patch.object(r, 'qualify_uv', qualify if mutation == 'replacement' else self.fail):
+                    with self.assertRaises((r.Refuse, OSError)):
+                        self.run_retention(execute=True, used=lambda _: 80)
+                if mutation == 'replacement':
+                    root.rmdir()
+                    (self.cache / 'replaced').rename(root)
+        with self.assertRaisesRegex(r.Refuse, 'wrong UV'):
+            r.uv_proof(root, root.lstat().st_dev, set(), set())
+
+    def test_qualified_binary_and_version(self):
+        binary = self.base / 'uv-binary'
+        binary.write_bytes(b'fixture binary')
+        with patch.object(r, 'UV_BINARY', binary), patch.object(r, 'owned_uv') as native:
+            with self.assertRaisesRegex(r.Refuse, 'unsupported UV binary'):
+                r.qualify_uv()
+            native.assert_not_called()
+            with patch.object(r, 'UV_SHA256', r.hashlib.sha256(binary.read_bytes()).hexdigest()):
+                for rc, output in ((0, b'uv 0.11.26\n'), (0, b'uv 0.11.25\n'), (2, b'uv 0.11.26\n')):
+                    native.return_value = rc, output
+                    if rc == 0 and output == b'uv 0.11.26\n':
+                        r.qualify_uv()
+                    else:
+                        with self.assertRaisesRegex(r.Refuse, 'unsupported UV version'):
+                            r.qualify_uv()
+                self.assertEqual(native.call_args.args[0], [str(binary), '--version'])
+
+    def test_owned_child_timeout_reaped_and_environment_scrubbed(self):
+        real_popen = r.subprocess.Popen
+        children = []
+        def launch(*args, **kwargs):
+            self.assertEqual(kwargs['env'], r.UV_ENV)
+            self.assertEqual(kwargs['cwd'], '/')
+            self.assertEqual(kwargs['stdin'], r.subprocess.DEVNULL)
+            self.assertIsNone(kwargs['stdout'])
+            self.assertNotIn('stderr', kwargs)
+            child = real_popen(*args, **kwargs)
+            children.append(child)
+            return child
+        with patch.object(r.os, 'getpid', return_value=1), patch.object(r.subprocess, 'Popen', launch), \
+                patch.dict(os.environ, {'UV_CONFIG_FILE': '/untrusted', 'HTTPS_PROXY': 'untrusted'}):
+            with self.assertRaises(r.subprocess.TimeoutExpired):
+                r.owned_uv(['/usr/bin/python3', '-B', '-c', 'import time; time.sleep(60)'], timeout=0.1)
+        self.assertEqual(len(children), 1)
+        self.assertIsNotNone(children[0].returncode)
+        with self.assertRaises(ChildProcessError):
+            os.waitpid(children[0].pid, os.WNOHANG)
+        with patch.object(r.os, 'getpid', return_value=2), patch.object(r.subprocess, 'Popen', self.fail):
+            with self.assertRaisesRegex(r.Refuse, 'private PID'):
+                r.owned_uv(['never'])
+
+    def test_native_fresh_open_mount_parent_link_and_device_guards(self):
+        root = self.uv()
+        with patch.object(r, 'UV_ROOT', root), patch.object(r, 'ROOTS', self.roots):
+            with self.assertRaisesRegex(r.Refuse, 'filesystem changed'):
+                r.uv_proof(root, root.stat().st_dev ^ 1, set(), set())
+            with patch.object(r.os, 'statvfs', return_value=SimpleNamespace(f_flag=os.ST_RDONLY)):
+                with self.assertRaisesRegex(r.Refuse, 'read-only'):
+                    r.uv_proof(root, root.stat().st_dev, set(), set())
+            alias = self.base / 'alias'
+            alias.symlink_to(self.cache)
+            with patch.object(r, 'UV_ROOT', alias / 'uv'), patch.object(r, 'ROOTS', ((self.builds, 7), (alias, 30))):
+                with self.assertRaisesRegex(r.Refuse, 'ancestor'):
+                    r.uv_proof(alias / 'uv', root.stat().st_dev, set(), set())
+        for field in ('opened', 'mounts'):
+            calls = 0
+            def scan():
+                nonlocal calls
+                calls += 1
+                return {r.identity(root.stat())} if calls > 1 else set()
+            with self.subTest(field=field), patch.object(r, 'qualify_uv', return_value=None), \
+                    patch.object(r, 'owned_uv', self.fail):
+                with self.assertRaisesRegex(r.Refuse, 'open/mounted'):
+                    self.run_retention(execute=True, used=lambda _: 80, **{field: scan})
+            self.assertEqual(calls, 2)
+
+    def test_owned_child_baseexception_and_unreaped_containment(self):
+        primary = KeyboardInterrupt('fixture primary')
+        class Child:
+            stdout = None
+            def __init__(self):
+                self.trace = []
+            def wait(self, *, timeout):
+                self.trace.append(('wait', timeout))
+                if len(self.trace) == 1:
+                    raise primary
+                raise r.subprocess.TimeoutExpired('fixture', timeout)
+            def kill(self):
+                self.trace.append(('kill',))
+        child = Child()
+        with patch.object(r.os, 'getpid', return_value=1), patch.object(r.subprocess, 'Popen', return_value=child):
+            with self.assertRaises(KeyboardInterrupt) as caught:
+                r.owned_uv(['fixture'])
+        self.assertIs(caught.exception, primary)
+        self.assertEqual(child.trace, [('wait', 330), ('kill',), ('wait', 5)])
+        self.assertTrue(any('retirement UNPROVED' in note for note in primary.__notes__))
+
+
 class GateTests(unittest.TestCase):
+    def test_api_gate_reads_real_namespaces_and_rejects_ci_self(self):
+        own = self.payload()
+        own['items'][0]['metadata']['namespace'] = 'ci-maintenance-worker'
+        env = {'NODE_NAME': 'hestia', 'POD_UID': 'self', 'POD_NAME': 'retention',
+               'POD_NAMESPACE': 'ci-maintenance-worker', 'KUBERNETES_SERVICE_HOST': 'fixture',
+               'KUBERNETES_SERVICE_PORT_HTTPS': '443'}
+        urls = []
+        lists = {'ci': {'metadata': {}, 'items': []}, 'ci-maintenance-worker': own}
+        def response(request, **kwargs):
+            urls.append(request.full_url)
+            return io.StringIO(json.dumps(lists[request.full_url.split('/')[6]]))
+        with patch.dict(r.os.environ, env), patch.object(r.ssl, 'create_default_context'), \
+                patch.object(Path, 'read_text', return_value='fixture-token'), \
+                patch.object(r.urllib.request, 'urlopen', response):
+            r.api_gate()
+            self.assertEqual(urls, ['https://fixture:443/api/v1/namespaces/ci/pods?limit=500',
+                                    'https://fixture:443/api/v1/namespaces/ci-maintenance-worker/pods?limit=500'])
+            lists['ci'] = copy.deepcopy(own)
+            lists['ci']['items'][0]['metadata']['namespace'] = 'ci'
+            lists['ci-maintenance-worker'] = {'metadata': {}, 'items': []}
+            with self.assertRaises(r.Refuse):
+                r.api_gate()
+
+    def test_cross_namespace_complete_or_refuse(self):
+        own = self.payload()
+        own['items'][0]['metadata']['namespace'] = 'ci-maintenance-worker'
+        empty = {'metadata': {}, 'items': []}
+        lists = {'ci': copy.deepcopy(empty), 'ci-maintenance-worker': own}
+        self.assertTrue(r.pod_gate(r.combined_pods(lists.__getitem__), 'self'))
+        for namespace in lists:
+            for bad in (None, {'metadata': {'continue': 'more'}, 'items': []},
+                        {'metadata': {}, 'items': [None]}, {'metadata': {}, 'items': None}):
+                changed = copy.deepcopy(lists)
+                changed[namespace] = bad
+                with self.subTest(namespace=namespace, bad=bad), self.assertRaises(r.Refuse):
+                    r.pod_gate(r.combined_pods(changed.__getitem__), 'self')
+        duplicate = copy.deepcopy(own['items'][0])
+        duplicate['metadata']['namespace'] = 'ci'
+        lists['ci']['items'] = [duplicate]
+        with self.assertRaises(r.Refuse):
+            r.pod_gate(r.combined_pods(lists.__getitem__), 'self')
+        lists['ci']['items'][0]['metadata']['namespace'] = 'foreign'
+        with self.assertRaises(r.Refuse):
+            r.combined_pods(lists.__getitem__)
+
     def payload(self, phase='Running'):
         return {'metadata': {}, 'items': [{
             'metadata': {'uid': 'self', 'name': 'retention', 'labels': {
@@ -657,20 +1421,11 @@ class GateTests(unittest.TestCase):
             'spec': {'nodeName': 'hestia'}, 'status': {'phase': phase}}]}
 
     def gate_results(self, case):
-        # Execute the actual embedded GC gate, replacing only its input I/O.
-        source = (CI / 'cronjob-ci-hestia-ci-store-gc.yaml').read_text()
-        code = textwrap.dedent(source.split("python3 - <<'PY' || gate_rc=$?\n", 1)[1].split('\n              PY', 1)[0])
-        class OriginalOS:
-            environ = {'POD_UID': 'self'}
-        namespace = {'json': json, 'os': OriginalOS, 'fixture': case}
-        rewritten = code.replace('import json\n', '').replace('import os\n', '')
-        rewritten = rewritten.replace('with open("/tmp/pods.json", "rb") as stream:\n    payload = json.load(stream)', 'payload = fixture')
-        embedded = 0
-        with contextlib.redirect_stdout(io.StringIO()):
-            try:
-                exec(rewritten, namespace)
-            except SystemExit as error:
-                embedded = 75 if error.code == 75 else 1
+        # GC and UV now execute the same production gate, not duplicate parsers.
+        try:
+            embedded = 0 if r.pod_gate(case, 'self') else 75
+        except r.Refuse:
+            embedded = 1
         try:
             retention = 0 if r.pod_gate(case, 'self') else 75
         except r.Refuse:

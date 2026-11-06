@@ -40,88 +40,7 @@ FORBIDDEN_HOST_PATHS = (
 )
 GC_SCRIPT = f'''set -euo pipefail
 
-api="https://${{KUBERNETES_SERVICE_HOST:?Kubernetes API host is unavailable}}:${{KUBERNETES_SERVICE_PORT_HTTPS:?Kubernetes API port is unavailable}}"
-token={SA_TOKEN_PATH}
-ca={SA_CA_PATH}
-[ -r "$token" ] && [ -r "$ca" ]
-[ "${{NODE_NAME:?Pod node identity is unavailable}}" = hestia ]
-[ -n "${{POD_UID:?Pod UID is unavailable}}" ]
-
-# Pod execution can precede publication of its Running API phase.
-# Retry only that observation race; keep every safety gate intact.
-for attempt in {{1..15}}; do
-curl --fail --silent --show-error --connect-timeout 5 --max-time 15 \\
-  --cacert "$ca" \\
-  --header "Authorization: Bearer $(cat "$token")" \\
-  --output /tmp/pods.json \\
-  "$api/api/v1/namespaces/ci/pods?limit=500"
-
-gate_rc=0
-python3 - <<'PY' || gate_rc=$?
-import json
-import os
-
-with open("/tmp/pods.json", "rb") as stream:
-    payload = json.load(stream)
-if type(payload) is not dict or type(payload.get("items")) is not list:
-    raise SystemExit("Kubernetes API pod list has an invalid shape; refusing cleanup")
-metadata = payload.get("metadata")
-if type(metadata) is not dict or metadata.get("continue", "") != "":
-    raise SystemExit("Kubernetes API pod list is incomplete; refusing cleanup")
-self_uid = os.environ["POD_UID"]
-self_seen = False
-self_pending = False
-uids = set()
-active = []
-for pod in payload["items"]:
-    if type(pod) is not dict:
-        raise SystemExit("Kubernetes API pod list contains an invalid item; refusing cleanup")
-    pod_metadata = pod.get("metadata")
-    pod_spec = pod.get("spec")
-    status = pod.get("status")
-    if type(pod_metadata) is not dict or type(pod_spec) is not dict or type(status) is not dict:
-        raise SystemExit("Kubernetes API pod list contains incomplete identity; refusing cleanup")
-    uid = pod_metadata.get("uid")
-    name = pod_metadata.get("name")
-    labels = pod_metadata.get("labels")
-    phase = status.get("phase")
-    node = pod_spec.get("nodeName", "")
-    if type(uid) is not str or type(name) is not str or type(labels) is not dict or type(phase) is not str or type(node) is not str:
-        raise SystemExit("Kubernetes API pod list contains invalid identity types; refusing cleanup")
-    if not uid or not name or uid in uids:
-        raise SystemExit("Kubernetes API pod list contains empty or duplicate identity; refusing cleanup")
-    uids.add(uid)
-    if uid == self_uid:
-        if self_seen or labels.get("{MAINTENANCE_LABEL}") != "true" or labels.get("{JOB_LABEL}") != "true" or phase not in {{"Running", "Pending"}} or node != "hestia" or pod_metadata.get("deletionTimestamp"):
-            raise SystemExit("maintenance Pod identity is inconsistent; refusing cleanup")
-        self_seen = True
-        self_pending = phase == "Pending"
-        continue
-    if labels.get("{JOB_LABEL}") == "true":
-        if pod_metadata.get("deletionTimestamp") or phase not in {{"Running", "Pending", "Failed", "Succeeded"}}:
-            raise SystemExit("terminating or unknown-phase CI Pod; refusing cleanup")
-        # Current CI hostPaths are node-local; Kubedock copies do not share them.
-        # Only positively assigned, known remote nodes qualify for exemption.
-        if phase in {{"Running", "Pending"}} and node not in {{"heracles", "nyx"}}:
-            active.append(f"ci/{{name}} ({{phase}}, node={{node or 'unscheduled'}})")
-if not self_seen:
-    raise SystemExit("maintenance Pod is absent from the Kubernetes API snapshot; refusing cleanup")
-if active:
-    raise SystemExit("active GitLab job pod(s) block cleanup: " + ", ".join(sorted(active)))
-if self_pending:
-    print("maintenance Pod is still Pending in the API; waiting for Running", flush=True)
-    raise SystemExit(75)
-print("Kubernetes API gate passed: Hestia scheduler lock is present and no conflicting CI job Pods exist")
-PY
-
-if (( gate_rc == 0 )); then break; fi
-if (( gate_rc != 75 )); then exit "$gate_rc"; fi
-if (( attempt == 15 )); then
-  echo "maintenance Pod did not become Running; refusing cleanup" >&2
-  exit 1
-fi
-sleep 2
-done
+python3 -B /policy/maintenance-admission.py gc-claim
 
 podman_store=(
   podman
@@ -202,8 +121,8 @@ ALERT_DESCRIPTION = (
     "The canonical node-exporter service-endpoint series reports "
     "{{ $values.A.Value }}% available on {{ $values.A.Labels.node }} "
     "{{ $values.A.Labels.instance }} for /srv/noisy, or the expected series is "
-    "missing and represented as 0%. Use ci/hestia-ci-store-gc for Podman images "
-    "and ci/hestia-ci-cache-retention for bounded idle cache/workspace retention; "
+    "missing and represented as 0%. Use ci-maintenance-worker/hestia-ci-store-gc for Podman images "
+    "and ci-maintenance-worker/hestia-ci-cache-retention for bounded idle cache/workspace retention; "
     "never delete k3s/containerd, Docker, or PVC state."
 )
 ALERT_SUMMARY = "Hestia /srv/noisy is below 15% available or its canonical metric is missing"
@@ -277,7 +196,7 @@ def validate_gc(resources: list[dict[str, Any]], checks: Checks) -> None:
     if not cronjob:
         return
 
-    checks.equal(cronjob.get("metadata", {}).get("namespace"), "ci", "CronJob namespace")
+    checks.equal(cronjob.get("metadata", {}).get("namespace"), "ci-maintenance-worker", "CronJob namespace")
     spec = cronjob.get("spec", {})
     checks.equal(spec.get("schedule"), "17 4 * * *", "CronJob schedule")
     checks.equal(spec.get("concurrencyPolicy"), "Forbid", "CronJob concurrencyPolicy")
@@ -302,7 +221,7 @@ def validate_gc(resources: list[dict[str, Any]], checks: Checks) -> None:
     checks.equal(pod.get("enableServiceLinks"), True, "GC enableServiceLinks")
     checks.equal(
         pod.get("affinity"),
-        {"podAntiAffinity": {"requiredDuringSchedulingIgnoredDuringExecution": [{"labelSelector": {"matchLabels": {JOB_LABEL: "true"}}, "topologyKey": "kubernetes.io/hostname"}]}},
+        {"podAntiAffinity": {"requiredDuringSchedulingIgnoredDuringExecution": [{"labelSelector": {"matchLabels": {JOB_LABEL: "true"}}, "namespaces": ["ci", "ci-maintenance-worker"], "topologyKey": "kubernetes.io/hostname"}]}},
         "GC scheduler exclusion",
     )
 
@@ -324,13 +243,15 @@ def validate_gc(resources: list[dict[str, Any]], checks: Checks) -> None:
             {"name": "NODE_NAME", "valueFrom": {"fieldRef": {"fieldPath": "spec.nodeName"}}},
             {"name": "POD_UID", "valueFrom": {"fieldRef": {"fieldPath": "metadata.uid"}}},
             {"name": "TMPDIR", "value": GC_TMPDIR},
+            {"name": "POD_NAME", "valueFrom": {"fieldRef": {"fieldPath": "metadata.name"}}},
+            {"name": "POD_NAMESPACE", "valueFrom": {"fieldRef": {"fieldPath": "metadata.namespace"}}},
         ],
         "GC container environment",
     )
     checks.true("--filter until=168h" in actual_script, "GC operations must be age-bounded at 168h")
     checks.true('"${podman_store[@]}" rm --force "${stale_external_ids[@]}"' in actual_script, "GC must remove stale external containers through Podman's documented force path")
     checks.true("image prune --all --force" in actual_script, "GC must prune unused images through Podman")
-    checks.true("/api/v1/namespaces/ci/pods?limit=500" in actual_script, "GC must use the namespace-scoped Kubernetes API gate")
+    checks.true("python3 -B /policy/maintenance-admission.py gc-claim" in actual_script, "GC must use shared named-CAS admission")
     checks.true("recent external container through the 168h filter" in actual_script, "GC must independently reject recent external containers")
     checks.true(
         not re.search(
@@ -361,6 +282,7 @@ def validate_gc(resources: list[dict[str, Any]], checks: Checks) -> None:
             {"mountPath": GC_RUN_LOCK_PATH, "name": "run-lock"},
             {"mountPath": "/tmp", "name": "tmp"},
             {"mountPath": GC_SHM_PATH, "name": "dev-shm"},
+            {"mountPath": "/policy", "name": "policy", "readOnly": True},
         ],
         "GC volumeMounts",
     )
@@ -374,16 +296,17 @@ def validate_gc(resources: list[dict[str, Any]], checks: Checks) -> None:
             {"emptyDir": {"medium": "Memory"}, "name": "run-lock"},
             {"emptyDir": {}, "name": "tmp"},
             {"emptyDir": {"medium": "Memory", "sizeLimit": "64Mi"}, "name": "dev-shm"},
+            {"configMap": {"name": next((o['metadata']['name'] for o in resources if o.get('kind') == 'ConfigMap' and o['metadata'].get('namespace') == 'ci-maintenance-worker' and o['metadata']['name'].startswith('hestia-ci-cache-retention-')), None), "defaultMode": 292}, "name": "policy"},
         ],
         "GC volumes",
     )
-    checks.equal(service_account.get("metadata", {}).get("namespace"), "ci", "GC ServiceAccount namespace")
+    checks.equal(service_account.get("metadata", {}).get("namespace"), "ci-maintenance-worker", "GC ServiceAccount namespace")
     checks.equal(service_account.get("automountServiceAccountToken"), True, "GC ServiceAccount token policy")
     checks.equal(role.get("metadata", {}).get("namespace"), "ci", "GC Role namespace")
     checks.equal(role.get("rules"), [{"apiGroups": [""], "resources": ["pods"], "verbs": ["list"]}], "GC Role rules")
     checks.equal(binding.get("metadata", {}).get("namespace"), "ci", "GC RoleBinding namespace")
     checks.equal(binding.get("roleRef"), {"apiGroup": "rbac.authorization.k8s.io", "kind": "Role", "name": "hestia-ci-store-gc"}, "GC RoleBinding roleRef")
-    checks.equal(binding.get("subjects"), [{"kind": "ServiceAccount", "name": "hestia-ci-store-gc", "namespace": "ci"}], "GC RoleBinding subjects")
+    checks.equal(binding.get("subjects"), [{"kind": "ServiceAccount", "name": "hestia-ci-store-gc", "namespace": "ci-maintenance-worker"}], "GC RoleBinding subjects")
 
 
 def validate_alert(document: dict[str, Any], checks: Checks) -> None:
@@ -426,6 +349,35 @@ def validate_alert(document: dict[str, Any], checks: Checks) -> None:
     checks.equal(threshold.get("model", {}).get("type"), "threshold", "alert threshold type")
 
 
+def validate_maintenance_alert(document: dict[str, Any], checks: Checks) -> None:
+    rules = [r for g in document.get('groups', []) for r in g.get('rules', [])
+             if r.get('uid') == 'hestia-ci-maintenance-recovery-api']
+    checks.equal(len(rules), 1, 'maintenance warning rule count')
+    if len(rules) != 1:
+        return
+    rule = rules[0]
+    checks.equal(rule.get('labels'), {'severity': 'warning'}, 'maintenance notify-only severity')
+    checks.equal(rule.get('noDataState'), 'Alerting', 'maintenance missing metrics')
+    checks.equal(rule.get('execErrState'), 'Alerting', 'maintenance query errors')
+    checks.equal(rule.get('isPaused'), False, 'maintenance warning enabled')
+    checks.equal(rule.get('for'), '1m', 'maintenance warning delay')
+    data = rule.get('data', [])
+    checks.equal([d.get('refId') for d in data], ['A', 'C'], 'maintenance warning data')
+    if len(data) != 2:
+        return
+    expression = normalized(data[0].get('model', {}).get('expr'))
+    checks.equal(expression.count('namespace=~"ci|ci-maintenance|ci-maintenance-worker"'), 2,
+                 'maintenance worker and controller namespace coverage')
+    for required in ('max by(namespace, job_name) (kube_job_status_failed',
+                     'max by(namespace, job_name, owner_name) (kube_job_owner',
+                     'owner_is_controller="true"', 'job="kubernetes-service-endpoints"',
+                     'kube_cronjob_status_last_successful_time', 'namespace="ci-maintenance"',
+                     'cronjob="hestia-ci-maintenance-recovery"', 'or vector(1000000)', '> bool 180'):
+        checks.true(required in expression, 'maintenance warning missing ' + required)
+    checks.equal(data[1].get('model', {}).get('conditions'),
+                 [{'evaluator': {'params': [0], 'type': 'gt'}}], 'maintenance warning threshold')
+
+
 def validate_wiring(root: Path, checks: Checks) -> None:
     wrapper = (root / "scripts/validate_kustomize.sh").read_text()
     gitlab_ci = (root / ".gitlab-ci.yml").read_text()
@@ -460,6 +412,7 @@ def validate(root: Path) -> list[str]:
             checks.errors.append("Grafana alert rules must be a mapping")
         else:
             validate_alert(document, checks)
+            validate_maintenance_alert(document, checks)
     try:
         validate_wiring(root, checks)
     except OSError as exc:

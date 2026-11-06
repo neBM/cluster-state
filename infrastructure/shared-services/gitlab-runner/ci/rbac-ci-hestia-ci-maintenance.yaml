@@ -1,0 +1,177 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: hestia-ci-maintenance-admission
+  namespace: ci-maintenance
+automountServiceAccountToken: true
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: hestia-ci-maintenance-recovery
+  namespace: ci-maintenance
+automountServiceAccountToken: true
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: hestia-ci-maintenance-worker
+  namespace: ci-maintenance-worker
+automountServiceAccountToken: true
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: hestia-ci-maintenance-state
+  namespace: ci-maintenance
+rules:
+- apiGroups: [""]
+  resources: [configmaps]
+  resourceNames: [hestia-ci-maintenance-state]
+  verbs: [get, update]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: hestia-ci-maintenance-state
+  namespace: ci-maintenance
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: hestia-ci-maintenance-state
+subjects:
+- kind: ServiceAccount
+  name: hestia-ci-maintenance-admission
+  namespace: ci-maintenance
+- kind: ServiceAccount
+  name: hestia-ci-maintenance-recovery
+  namespace: ci-maintenance
+- kind: ServiceAccount
+  name: hestia-ci-maintenance-worker
+  namespace: ci-maintenance-worker
+- kind: ServiceAccount
+  name: hestia-ci-store-gc
+  namespace: ci-maintenance-worker
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: hestia-ci-maintenance-observer
+  namespace: ci-maintenance
+rules:
+- apiGroups: [""]
+  resources: [pods]
+  verbs: [list]
+- apiGroups: [batch]
+  resources: [jobs]
+  verbs: [get]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: hestia-ci-maintenance-observer
+  namespace: ci-maintenance
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: hestia-ci-maintenance-observer
+subjects:
+- kind: ServiceAccount
+  name: hestia-ci-maintenance-admission
+  namespace: ci-maintenance
+- kind: ServiceAccount
+  name: hestia-ci-maintenance-recovery
+  namespace: ci-maintenance
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: hestia-ci-maintenance-observer
+  namespace: ci
+rules:
+- apiGroups: [""]
+  resources: [pods]
+  verbs: [list]
+- apiGroups: [batch]
+  resources: [jobs]
+  verbs: [get]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: hestia-ci-maintenance-observer
+  namespace: ci
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: hestia-ci-maintenance-observer
+subjects:
+- kind: ServiceAccount
+  name: hestia-ci-maintenance-admission
+  namespace: ci-maintenance
+- kind: ServiceAccount
+  name: hestia-ci-maintenance-recovery
+  namespace: ci-maintenance
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: hestia-ci-maintenance-worker
+  namespace: ci
+rules:
+- apiGroups: [""]
+  resources: [pods]
+  verbs: [list]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: hestia-ci-maintenance-worker
+  namespace: ci
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: hestia-ci-maintenance-worker
+subjects:
+- kind: ServiceAccount
+  name: hestia-ci-maintenance-worker
+  namespace: ci-maintenance-worker
+- kind: ServiceAccount
+  name: hestia-ci-store-gc
+  namespace: ci-maintenance-worker
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: hestia-ci-maintenance-observer
+  namespace: ci-maintenance-worker
+rules:
+- apiGroups: [""]
+  resources: [pods]
+  verbs: [list]
+- apiGroups: [batch]
+  resources: [jobs]
+  verbs: [get]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: hestia-ci-maintenance-observer
+  namespace: ci-maintenance-worker
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: hestia-ci-maintenance-observer
+subjects:
+- kind: ServiceAccount
+  name: hestia-ci-maintenance-admission
+  namespace: ci-maintenance
+- kind: ServiceAccount
+  name: hestia-ci-maintenance-recovery
+  namespace: ci-maintenance
+- kind: ServiceAccount
+  name: hestia-ci-maintenance-worker
+  namespace: ci-maintenance-worker
+- kind: ServiceAccount
+  name: hestia-ci-store-gc
+  namespace: ci-maintenance-worker

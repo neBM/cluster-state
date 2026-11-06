@@ -1,0 +1,10 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: hestia-ci-maintenance-state
+  namespace: ci-maintenance
+  annotations:
+    # Runtime owns data. Bootstrap explicitly after Flux creates the object;
+    # never add data/stringData here, even for an initial idle value.
+    kustomize.toolkit.fluxcd.io/ssa: Merge
+    kustomize.toolkit.fluxcd.io/prune: disabled

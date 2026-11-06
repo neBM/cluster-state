@@ -15,6 +15,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import textwrap
 from pathlib import Path
 from types import ModuleType
 
@@ -264,13 +265,47 @@ def test_runtime_gate(module: ModuleType) -> None:
         for executable in bin_dir.iterdir():
             executable.chmod(0o755)
 
-        script = module.GC_SCRIPT.replace(module.SA_TOKEN_PATH, str(token)).replace(module.SA_CA_PATH, str(ca)).replace("/tmp/", str(root) + "/")
+        # Reuse FakeAPI and the real shared API gate; only input I/O is fake.
+        driver = root / 'gc-fixture.py'
+        driver.write_text(textwrap.dedent('''
+            import importlib.util, io, json, os
+            from pathlib import Path
+            from unittest.mock import patch
+            spec = importlib.util.spec_from_file_location('fixtures', FIXTURES)
+            f = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(f)
+            t = f.AdmissionTests()
+            t.setUp()
+            t.add_gc()
+            gc = t.api.snapshot[-1]
+            gc['metadata'].update(uid='maintenance-uid', name='hestia-ci-store-gc-test')
+            me = f.a.pod_identity(gc)
+            def response(request, **kwargs):
+                path = Path(os.environ['PODS_FIXTURE'])
+                payload = json.loads(path.read_bytes())
+                namespace = request.full_url.split('/')[6]
+                for pod in payload['items']:
+                    pod['metadata']['namespace'] = ('ci-maintenance-worker' if pod['metadata']['uid'] == 'maintenance-uid' else 'ci')
+                payload['items'] = [p for p in payload['items'] if p['metadata']['namespace'] == namespace]
+                if namespace == 'ci-maintenance-worker' and os.environ.get('PODS_NEXT_FIXTURE'):
+                    path.write_bytes(Path(os.environ['PODS_NEXT_FIXTURE']).read_bytes())
+                return io.StringIO(json.dumps(payload))
+            original = f.r.wait_for_gate
+            with patch.object(f.r.ssl, 'create_default_context'), patch.object(Path, 'read_text', return_value='fixture-token'), patch.object(f.r.urllib.request, 'urlopen', response), patch.object(f.r, 'wait_for_gate', lambda fetch, uid: original(fetch, uid, sleep=lambda _: None)):
+                f.a.gc_claim(t.store, me, f.r.api_gate, now=lambda: t.clock)
+            assert t.state()['gc_holder']['identity'] == me
+            print('Kubernetes API gate passed')
+        ''').replace('FIXTURES', repr(str(ROOT / 'scripts/test_hestia_ci_cache_retention.py'))))
+        script = module.GC_SCRIPT.replace("/tmp/", str(root) + "/").replace('python3 -B /policy/maintenance-admission.py gc-claim', f'{sys.executable} -B {driver}')
         base_env = {
             "PATH": f"{bin_dir}:/usr/bin:/bin",
             "KUBERNETES_SERVICE_HOST": "127.0.0.1",
             "KUBERNETES_SERVICE_PORT_HTTPS": "443",
             "NODE_NAME": "hestia",
             "POD_UID": "maintenance-uid",
+            "POD_NAME": "hestia-ci-store-gc-test",
+            "POD_NAMESPACE": "ci-maintenance-worker",
+            "PYTHONDONTWRITEBYTECODE": "1",
             "PODMAN_CALLS": str(calls),
         }
         cases = (
@@ -384,6 +419,10 @@ def test_runtime_gate(module: ModuleType) -> None:
                 raise AssertionError(f"{name}: unexpected exit {result.returncode}:\n{combined}")
             if len(mutations) != expected_mutations:
                 raise AssertionError(f"{name}: expected {expected_mutations} mutations, got {call_lines}")
+            expected = {'active GitLab job pod(s) block cleanup': 'active CI Pod',
+                        'maintenance Pod identity is inconsistent': 'inconsistent maintenance Pod identity',
+                        'pod list is incomplete': 'incomplete namespace Pod list',
+                        'maintenance Pod is absent': 'wrong worker Pod identity'}.get(expected, expected)
             if expected not in combined:
                 raise AssertionError(f"{name}: expected {expected!r}, got:\n{combined}")
             if name == "stale-external":
@@ -394,8 +433,35 @@ def test_runtime_gate(module: ModuleType) -> None:
             print(f"PASS runtime gate {name}")
 
 
+def test_maintenance_warning(module: ModuleType) -> None:
+    document = module.yaml.safe_load((ROOT / 'infrastructure/observability-ui/grafana/_grafana_alert_rules.yaml').read_text())
+    checks = module.Checks()
+    module.validate_maintenance_alert(document, checks)
+    if checks.errors:
+        raise AssertionError(checks.errors)
+    rule = next(r for g in document['groups'] for r in g['rules'] if r['uid'] == 'hestia-ci-maintenance-recovery-api')
+    for field, value in (('labels', {'severity': 'critical'}), ('noDataState', 'OK')):
+        old = rule[field]
+        rule[field] = value
+        checks = module.Checks()
+        module.validate_maintenance_alert(document, checks)
+        if not checks.errors:
+            raise AssertionError('maintenance unsafe warning mutation accepted')
+        rule[field] = old
+    print('PASS maintenance warning contract and mutations')
+    query = rule['data'][0]['model']
+    original = query['expr']
+    query['expr'] = original.replace('ci|ci-maintenance|ci-maintenance-worker', 'ci|ci-maintenance')
+    checks = module.Checks()
+    module.validate_maintenance_alert(document, checks)
+    if not checks.errors:
+        raise AssertionError('maintenance worker namespace omission accepted')
+    query['expr'] = original
+
+
 def main() -> int:
     module = load_validator()
+    test_maintenance_warning(module)
     test_podman_runtime_paths(module)
     clean = run(ROOT)
     if clean.returncode:
@@ -448,10 +514,10 @@ def main() -> int:
             ("gc-duplicate-dev-shm-volume", gc, "          - emptyDir: {medium: Memory, sizeLimit: 64Mi}\n            name: dev-shm\n", "          - emptyDir: {medium: Memory, sizeLimit: 64Mi}\n            name: dev-shm\n          - emptyDir: {medium: Memory, sizeLimit: 64Mi}\n            name: dev-shm\n", "GC volumes"),
             ("gc-not-age-bounded", gc, "--filter until=168h --format json", "--filter until=24h --format json", "GC script"),
             ("gc-overlap", gc, "concurrencyPolicy: Forbid", "concurrencyPolicy: Allow", "CronJob concurrencyPolicy"),
-            ("gc-no-scheduler-lock", gc, 'matchLabels:\n                    ci.brmartin.co.uk/job: "true"\n                topologyKey:', 'matchLabels:\n                    ci.brmartin.co.uk/job: "false"\n                topologyKey:', "GC scheduler exclusion"),
+            ("gc-no-scheduler-lock", gc, 'matchLabels:\n                    ci.brmartin.co.uk/job: "true"\n                namespaces: [ci, ci-maintenance-worker]\n                topologyKey:', 'matchLabels:\n                    ci.brmartin.co.uk/job: "false"\n                namespaces: [ci, ci-maintenance-worker]\n                topologyKey:', "GC scheduler exclusion"),
             ("gc-mutable-image", gc, module.GC_IMAGE, "quay.io/podman/stable:v5.8.2", "GC image"),
             ("gc-raw-delete", gc, "              podman_store=(", "              rm -rf /var/lib/containers/storage\n              podman_store=(", "GC must not raw-delete storage"),
-            ("gc-no-active-gate", gc, "/api/v1/namespaces/ci/pods?limit=500", "/api/v1/namespaces/ci/pods/does-not-exist", "GC script"),
+            ("gc-no-active-gate", gc, "python3 -B /policy/maintenance-admission.py gc-claim", "true", "GC script"),
             ("gc-no-external-cleanup", gc, "ps -a --external", "ps -a", "GC script"),
             ("gc-broad-rbac", role, "verbs:\n  - list", "verbs:\n  - list\n  - get", "GC Role rules"),
             ("gc-unprivileged", gc, "privileged: true", "privileged: false", "GC securityContext"),

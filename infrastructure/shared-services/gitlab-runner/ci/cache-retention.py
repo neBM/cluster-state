@@ -7,6 +7,9 @@ from pathlib import Path
 import re
 import ssl
 import stat
+import signal
+import subprocess
+import threading
 import sys
 import time
 import urllib.request
@@ -74,21 +77,56 @@ def wait_for_gate(fetch, uid, sleep=time.sleep):
     raise Refuse('maintenance Pod did not become Running')
 
 
+def combined_pods(fetch):
+    items = []
+    for namespace in ('ci', 'ci-maintenance-worker'):
+        payload = fetch(namespace)
+        if (type(payload) is not dict or type(payload.get('items')) is not list
+                or type(payload.get('metadata')) is not dict
+                or payload['metadata'].get('continue', '') != ''):
+            raise Refuse('incomplete namespace Pod list')
+        seen = set()
+        for pod in payload['items']:
+            if (type(pod) is not dict or type(pod.get('metadata')) is not dict
+                    or pod['metadata'].get('namespace') != namespace
+                    or any(type(pod.get(k)) is not dict for k in ('spec', 'status'))):
+                raise Refuse('wrong namespace or malformed Pod')
+            meta = pod['metadata']
+            if (any(type(meta.get(k)) is not str or not meta[k] for k in ('uid', 'name'))
+                    or meta['uid'] in seen or type(meta.get('labels')) is not dict
+                    or type(pod['status'].get('phase')) is not str
+                    or type(pod['spec'].get('nodeName', '')) is not str):
+                raise Refuse('invalid namespace Pod identity')
+            seen.add(meta['uid'])
+        items.extend(payload['items'])
+    # pod_gate rejects duplicate UIDs across either list before allowing cleanup.
+    return {'metadata': {}, 'items': items}
+
+
 def api_gate():
-    if os.environ.get('NODE_NAME') != 'hestia' or not os.environ.get('POD_UID'):
+    if (os.environ.get('NODE_NAME') != 'hestia' or not os.environ.get('POD_UID')
+            or os.environ.get('POD_NAMESPACE') != 'ci-maintenance-worker'):
         raise Refuse('missing/wrong downward API identity')
     sa = Path('/var/run/secrets/kubernetes.io/serviceaccount')
     context = ssl.create_default_context(cafile=str(sa / 'ca.crt'))
     url = ('https://' + os.environ['KUBERNETES_SERVICE_HOST'] + ':'
-           + os.environ['KUBERNETES_SERVICE_PORT_HTTPS'] + '/api/v1/namespaces/ci/pods?limit=500')
+           + os.environ['KUBERNETES_SERVICE_PORT_HTTPS'])
 
-    def fetch():
-        request = urllib.request.Request(url, headers={
+    def fetch(namespace):
+        request = urllib.request.Request(url + '/api/v1/namespaces/' + namespace + '/pods?limit=500', headers={
             'Authorization': 'Bearer ' + (sa / 'token').read_text().strip()})
         with urllib.request.urlopen(request, context=context, timeout=15) as response:
             return json.load(response)
 
-    wait_for_gate(fetch, os.environ['POD_UID'])
+    def snapshot():
+        payload = combined_pods(fetch)
+        matches = [p for p in payload['items'] if p['metadata'].get('uid') == os.environ['POD_UID']]
+        if (len(matches) != 1 or matches[0]['metadata']['namespace'] != 'ci-maintenance-worker'
+                or matches[0]['metadata'].get('name') != os.environ.get('POD_NAME')):
+            raise Refuse('wrong worker Pod identity')
+        return payload
+
+    wait_for_gate(snapshot, os.environ['POD_UID'])
 
 
 def identity(st):
@@ -103,8 +141,10 @@ def check_entry(st, device, busy, mounted, *, symlink_leaf=False):
         raise Refuse('non-ordinary or cross-device entry')
 
 
-def snapshot(path, device, mounted=frozenset(), busy=frozenset(), *, workspace=False):
+def snapshot(path, device, mounted=frozenset(), busy=frozenset(), *, workspace=False, native_uv=False):
     """Stream ordered metadata; retain only directory names on the active DFS path."""
+    if native_uv and path != UV_ROOT:
+        raise Refuse('wrong UV proof root')
     digest = hashlib.sha256()
     latest_file, latest_directory = None, float('-inf')
     flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
@@ -114,7 +154,7 @@ def snapshot(path, device, mounted=frozenset(), busy=frozenset(), *, workspace=F
     def visit(parent, name, relative):
         nonlocal latest_file, latest_directory, root_id
         st = os.stat(name, dir_fd=parent, follow_symlinks=False)
-        check_entry(st, device, busy, mounted, symlink_leaf=workspace and relative != Path('.'))
+        check_entry(st, device, busy, mounted, symlink_leaf=(workspace or native_uv) and relative != Path('.'))
         if relative == Path('.'):
             root_id = identity(st)
         # unlink() changes surviving hardlinks' ctime (even across candidates).
@@ -271,7 +311,138 @@ def remove_tree(path, device, busy, mounted, expected_root, *, workspace=False):
         os.close(with_fd)
 
 
-def retain(roots, *, execute=False, now=None, used=usage,
+UV_ROOT = Path('/var/lib/ci-cache-nocow/uv')
+HOST_PROC = Path('/host/proc')
+UV_BINARY = Path('/usr/local/bin/uv')
+UV_SHA256 = '0c7b00d4f2c10d0bf66b26e4f432388d7782e1071d913f921eae0b8e35cb3c80'
+UV_ENV = {'PATH': '/usr/local/bin:/usr/bin:/bin', 'HOME': '/', 'LANG': 'C.UTF-8'}
+COLD_RESERVE = 38_857_516_474
+CACHE_TAG = b'Signature: 8a477f597d28d172789f06886806bc55'
+
+
+def free_bytes(root):
+    fs = os.statvfs(root)
+    return fs.f_bavail * fs.f_frsize
+
+
+def owned_uv(argv, *, timeout=330, version=False):
+    """Own one direct child; no raw PID/PGID authority after Popen reaps it.
+
+    Production admits only private-namespace PID1. Kernel namespace teardown is
+    the ultimate containment if bounded kill/reap cannot retire a stuck child.
+    The immutable UV clean does not launch helpers. Never infer retirement from
+    a Job deadline or an init-only exit in a host PID namespace.
+    """
+    if (os.getpid() != 1 or threading.current_thread() is not threading.main_thread()
+            or signal.getsignal(signal.SIGCHLD) != signal.SIG_DFL):
+        raise Refuse('native UV requires direct Python private PID namespace init')
+    child = None
+    try:
+        child = subprocess.Popen(argv, env=UV_ENV.copy(), cwd='/',
+                                 stdin=subprocess.DEVNULL,
+                                 stdout=subprocess.PIPE if version else None)
+        rc = child.wait(timeout=timeout)
+        if version:
+            assert child.stdout is not None
+        output = child.stdout.read(257) if child.stdout is not None else b''
+        if len(output) > 256:
+            raise Refuse('unsupported UV version output')
+        return rc, output
+    except BaseException as primary:
+        if child is not None:
+            # Popen pins its unreaped direct child and internally checks returncode;
+            # do not use os.kill()/killpg() after poll()/wait(). Sole reaper is PID1.
+            try:
+                child.kill()
+            except BaseException as error:
+                primary.add_note('UV child kill failed: ' + type(error).__name__)
+            try:
+                child.wait(timeout=5)
+            except BaseException as error:
+                primary.add_note('UV child retirement UNPROVED: ' + type(error).__name__)
+        raise
+    finally:
+        if child is not None and child.stdout is not None:
+            child.stdout.close()
+
+
+def qualify_uv():
+    digest = hashlib.sha256()
+    with UV_BINARY.open('rb') as stream:
+        for chunk in iter(lambda: stream.read(1024 * 1024), b''):
+            digest.update(chunk)
+    if digest.hexdigest() != UV_SHA256:
+        raise Refuse('unsupported UV binary')
+    rc, output = owned_uv([str(UV_BINARY), '--version'], timeout=10, version=True)
+    if rc != 0 or not re.fullmatch(rb'uv 0\.11\.26(?: \([^\r\n]*\))?\n', output):
+        raise Refuse('unsupported UV version')
+
+
+def uv_proof(root, device, mounted, busy):
+    """Fixed cache-only role, no-follow ancestors and streamed link-leaf proof.
+
+    Link permission is proof-only here; generic remove_tree remains default deny.
+    Native UV is path based: maintained scheduler/claimed-pause writer exclusion,
+    not descriptor-relative deletion or malicious-host-root race resistance.
+    """
+    if root != UV_ROOT or root.parent != ROOTS[1][0]:
+        raise Refuse('wrong UV cache role')
+    ancestors = []
+    for path in reversed((root.parent, *root.parent.parents)):
+        st = path.lstat()
+        if not stat.S_ISDIR(st.st_mode):
+            raise Refuse('UV ancestor is not an ordinary directory')
+        ancestors.append((str(path), identity(st), st.st_mode, st.st_uid, st.st_gid))
+    parent = root.parent.lstat()
+    if parent.st_dev != device:
+        raise Refuse('UV parent filesystem changed')
+    if os.statvfs(root.parent).f_flag & os.ST_RDONLY:
+        raise Refuse('UV filesystem is read-only')
+    st = root.lstat()
+    check_entry(st, device, busy, mounted)
+    if not stat.S_ISDIR(st.st_mode):
+        raise Refuse('UV root is not an ordinary directory')
+    # Cache generations coexist normally; bucket numbers do not identify producers.
+    for path in root.iterdir():
+        mode = path.lstat().st_mode
+        if stat.S_ISDIR(mode):
+            if not re.fullmatch(r'(archive|binaries|builds|environments|flat-index|git|interpreter|osv|python|sdists|simple|wheels)-v[0-9]+', path.name):
+                raise Refuse('UV cache-only role not established')
+        elif path.name not in {'.gitignore', '.lock', 'CACHEDIR.TAG'} or not stat.S_ISREG(mode):
+            raise Refuse('UV cache-only role not established')
+    fd = os.open(root / 'CACHEDIR.TAG', os.O_RDONLY | os.O_NOFOLLOW)
+    try:
+        if not stat.S_ISREG(os.fstat(fd).st_mode) or os.read(fd, len(CACHE_TAG)) != CACHE_TAG:
+            raise Refuse('invalid UV cache marker')
+    finally:
+        os.close(fd)
+    proof, _ = snapshot(root, device, mounted, busy, native_uv=True)
+    return ancestors, proof
+
+
+def clean_uv(root, device, mounted, busy, *, mounts, opened, gate):
+    try:
+        root.lstat()
+    except FileNotFoundError:
+        print('UV native outcome=absent', flush=True)
+        return
+    proof = uv_proof(root, device, mounted, busy)
+    qualify_uv()
+    gate()  # WorkerFence.check + complete API gate, after executable qualification.
+    current = uv_proof(root, device, mounts(), opened())
+    if current != proof:
+        raise Refuse('UV root/fingerprint changed')
+    gate()  # Long metadata scans cannot spend the admission lease unchecked.
+    # No other writers can enter until the claimed worker's containers terminate.
+    rc, _ = owned_uv([str(UV_BINARY), '--no-config', '--offline', '--no-python-downloads',
+                      'cache', 'clean', '--cache-dir', str(root)])
+    print(f'UV native outcome=completed exit={rc}', flush=True)
+    if rc != 0:
+        raise Refuse(f'UV native clean failed exit={rc}')
+    # UV may remove its root: do not recreate internals or require the old inode.
+
+
+def retain(roots, *, execute=False, now=None, used=usage, available=free_bytes,
            opened=open_ids, mounts=None, gate=lambda: None):
     now = time.time() if now is None else now
     candidates = []
@@ -288,6 +459,10 @@ def retain(roots, *, execute=False, now=None, used=usage,
     mounted, busy = mounts(), opened()
     for (root, days), st in zip(roots, root_stats):
         for path in sorted(root.iterdir()):
+            if path == UV_ROOT:
+                continue  # UV owns this class, even without links; never Python age/capacity deletion.
+            if root == UV_ROOT.parent and path.name in {'bun', 'cargo', 'tools', 'python', 'managed-python', 'uv-tools', 'uv-python'}:
+                continue  # Retained tool/runtime namespaces are not newly reclaimable.
             try:
                 if not stat.S_ISDIR(path.lstat().st_mode):
                     raise Refuse(f'candidate is not an ordinary directory: {path}')
@@ -318,6 +493,7 @@ def retain(roots, *, execute=False, now=None, used=usage,
                 raise Refuse(f'candidate changed/open/mounted: {path}: {error}') from error
             if current != proof:
                 raise Refuse(f'candidate changed/open/mounted: {path}')
+            gate()  # Metadata scanning may take time: recheck admission at unlink boundary.
             remove_tree(path, device, busy, mounted, current[1],
                         workspace=root == WORKSPACE_ROOT)
 
@@ -333,16 +509,41 @@ def retain(roots, *, execute=False, now=None, used=usage,
         if pressure and used(candidate[0]) > 65:
             delete(candidate, 'capacity')
     final = used(roots[0][0])
+    if execute and pressure and final > 65:
+        for (root, _), st in zip(roots, root_stats):
+            if root == UV_ROOT.parent and identity(root.lstat()) != identity(st):
+                raise Refuse('UV parent replaced')
+        clean_uv(UV_ROOT, device, mounted, busy, mounts=mounts, opened=opened, gate=gate)
+        final = used(roots[0][0])  # Actual filesystem use, not UV's hardlink-overcounted report.
     print(f'filesystem used={final:.2f}% pressure_triggered={pressure} execute={execute}', flush=True)
     if execute and pressure and final > 65:
         raise Refuse('cannot reach 65% within approved idle directories; no scope widening')
+    if execute and pressure and available(roots[0][0]) < COLD_RESERVE:
+        raise Refuse('cold reserve not reached; no scope widening')
 
 
 def main():
     if sys.argv[1:] not in ([], ['--execute']):
         raise Refuse('usage: cache-retention.py [--execute] (default: dry run)')
-    api_gate()  # Required even for dry run; no force/bypass or path overrides.
-    retain(ROOTS, execute=sys.argv[1:] == ['--execute'], gate=api_gate)
+    # Import the same immutable policy bundle as the separate controls. No GitLab
+    # credential or GitLab client is constructed in this privileged Pod.
+    import importlib.util
+    spec = importlib.util.spec_from_file_location('maintenance', Path(__file__).with_name('maintenance-admission.py'))
+    assert spec is not None and spec.loader is not None
+    admission = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(admission)
+    store = admission.kube_store()
+    fence = admission.WorkerFence(store, admission.self_identity(store.api))
+    fence.claim()  # CAS ownership before even scanning host roots.
+    def gate():
+        fence.check()
+        api_gate()  # Preserve all previous complete Pod-list checks.
+    gate()
+    # Replace hostPID observation with the same host /proc mounted read-only.
+    # Python stays private PID1 so all-container termination includes UV retirement.
+    retain(ROOTS, execute=sys.argv[1:] == ['--execute'], gate=gate,
+           opened=lambda: open_ids(HOST_PROC),
+           mounts=lambda: mount_ids(ROOTS[0][0].lstat().st_dev, HOST_PROC))
 
 
 if __name__ == '__main__':

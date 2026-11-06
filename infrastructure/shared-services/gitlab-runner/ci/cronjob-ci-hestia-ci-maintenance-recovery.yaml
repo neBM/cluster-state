@@ -1,0 +1,81 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: hestia-ci-maintenance-recovery
+  namespace: ci-maintenance
+spec:
+  schedule: '* * * * *'
+  timeZone: Etc/UTC
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 30
+  # Preserve exact terminal holders for the entire 45-minute recovery horizon.
+  successfulJobsHistoryLimit: 90
+  failedJobsHistoryLimit: 90
+  suspend: false
+  jobTemplate:
+    spec:
+      activeDeadlineSeconds: 50
+      backoffLimit: 0
+      template:
+        metadata:
+          labels:
+            app: hestia-ci-maintenance-recovery
+        spec:
+          serviceAccountName: hestia-ci-maintenance-recovery
+          automountServiceAccountToken: true
+          restartPolicy: Never
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65532
+            runAsGroup: 65532
+            fsGroup: 65532
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+          - name: recovery
+            image: ghcr.io/astral-sh/uv@sha256:d21c2dd538d409d050027f67cd09f0b84882cf59072cf77720b15e21f3fe6af5
+            imagePullPolicy: IfNotPresent
+            command: [/usr/local/bin/python3, -B, /policy/maintenance-admission.py, recover]
+            env:
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: POD_UID
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.uid
+            resources:
+              requests:
+                cpu: 10m
+                memory: 32Mi
+              limits:
+                cpu: 100m
+                memory: 128Mi
+            securityContext:
+              allowPrivilegeEscalation: false
+              readOnlyRootFilesystem: true
+              capabilities:
+                drop: [ALL]
+            volumeMounts:
+            - name: policy
+              mountPath: /policy
+              readOnly: true
+            - name: credential
+              mountPath: /credential
+              readOnly: true
+          volumes:
+          - name: policy
+            configMap:
+              name: hestia-ci-cache-retention
+          - name: credential
+            secret:
+              secretName: hestia-ci-maintenance-gitlab
+              defaultMode: 0440
+              items:
+              - key: token
+                path: token

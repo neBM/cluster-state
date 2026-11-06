@@ -118,11 +118,75 @@ restore each registration's prior pause/tag/untagged state. Validate locally wit
 
 ## Hestia CI cache and workspace retention
 
-Two separate GitOps CronJobs in `ci` own regenerable CI storage:
+### Runner2 acquisition admission and independent restoration
 
-- `hestia-ci-store-gc` runs at 04:17 UTC for the existing Podman image store;
+The hourly minute47 unprivileged `ci-maintenance/hestia-ci-maintenance-admission` Job pauses
+Runner2 only after a fresh independent-recovery heartbeat and durable named-CAS
+pause intent. A preexisting pause is preserved with zero writes. Accepted work
+drains naturally for up to 20 minutes; no accepted job cancellation or manager
+signal is used. Runner2 jobs are queried with GitLab's supported scalar status
+filter for all nine nonterminal statuses: created, waiting_for_resource, preparing,
+waiting_for_callback, pending, manual, scheduled, then running (including native
+prepare), then canceling. Idle requires complete pagination for every filter,
+bounded to 100 pages each; missing/invalid pagination or ignored filters refuse.
+Completed job history is not scanned. The complete CI Pod snapshot must also show
+Hestia idle: Running/Pending jobs positively assigned to heracles/nyx are exempt
+because their hostPaths are node-local. Unassigned/Hestia/unknown-node active jobs,
+terminating jobs and unknown phases still block; ARM Runner3 is not paused daily.
+
+The privileged worker must win ADMITTED-to-CLAIMED for its exact native scheduled
+Job and Pod UID, and checks the current claim/deadline before every candidate.
+Its original 30-minute Job deadline is unchanged: draining consumes that budget.
+All old mount/open/device/snapshot/API guards remain, including immediately before
+the single UV-owner-native pressure backstop described below.
+
+The independent minutely `ci-maintenance/hestia-ci-maintenance-recovery` Job has a 45-second
+execution / 50-second native deadline. It CAS-seals future claims, then requires
+exact terminal Pod and terminated-container evidence for the coordinator, any
+claimed worker, and a prior restoration holder before baseline restoration.
+Unclaimed workers cannot pass a sealed CAS and need not retire first. FailureTarget,
+deletion, deadline expiry, missing Pods and NotReady nodes are not retirement proof.
+Retain recovery history (90 successes and failures) and do not add a short TTL.
+The next operation also waits for the previous restoration holder to retire.
+
+State is deliberately **metadata-only in Git** (`ssa: Merge`, prune disabled).
+Before activation the operator must qualify Flux field ownership, create dynamic
+`data["state.json"]` explicitly using schema1, the exact ConfigMap UID, current
+`policy_hash()` from the mounted two-file policy bundle, runner2, heartbeat0,
+phaseIDLE, operationnull and gc_holdernull. There is no automatic missing-state bootstrap or
+baseline-false default. A policy rollout requires a closed, reconciled operation
+and explicit operator migration of the policy identity; never reset a live latch.
+Controls alone mount the separately provisioned immutable token Secret read-only;
+no Secret API permissions are granted. Token rotation must update the declared
+expiry bound and requalify the closed policy identity before expiry.
+
+`Hestia CI Maintenance Recovery Unhealthy` is a **warning**, routed by the existing
+notify-only policy. It detects retained failed controller/worker Jobs and missing
+or stale independent successful runs (180 seconds), including credential/API errors.
+The in-state heartbeat refuses new pauses after150 seconds. At45 minutes an
+unclosed operation latches ALERT; ALERT refuses new cleanup/pauses and recovery
+Jobs fail visibly. An HTTP PUT timeout or crash with an unacknowledged durable
+write intent is remote-effect-unknown: latch ALERT, do not issue speculative PUTs.
+A readback alone cannot rule out a delayed write. The operator must establish
+remote request quiescence, exact owner retirement and actual Runner2 baseline,
+then explicitly reconcile the same state. Never delete the ConfigMap to silence
+the warning. Ordinary acknowledged pause plus coordinator failure restores through
+the independent Job; failed cleanup remains `cleanup-failed` even after restoration.
+Native metric selectors, warning delivery and scheduled failure behavior must be
+qualified by the release owner before enabling effects; fixtures are not that proof.
+
+Two separate GitOps CronJobs own regenerable CI storage:
+
+- `ci-maintenance-worker/hestia-ci-store-gc` runs at 04:17 UTC for the existing Podman image store;
   its scope and 168-hour image/container policy are unchanged.
-- `hestia-ci-cache-retention` runs hourly at minute 47 UTC on Hestia. It mounts only
+  Before any Podman mutation it claims the shared named ConfigMap's single
+  `gc_holder={identity,claimed_at}` UID/RV-CAS slot, only in IDLE/DONE, and
+  rechecks the shared complete Pod API gate. Native manual Jobs are supported.
+  Coordinator admission and Runner2 restoration retain this slot until exact
+  Pod/Job UID and all-container terminal proof; missing or replaced Pods never
+  clear it. Unretired GC claims latch ALERT after 45 minutes even in IDLE/DONE.
+  GC has only named state get/update and Pod/Job observation, never credentials.
+- `ci-maintenance-worker/hestia-ci-cache-retention` runs hourly at minute 47 UTC on Hestia. It mounts only
   `/var/lib/ci-builds-nocow` and `/var/lib/ci-cache-nocow` writable, never the
   image store, Docker, k3s/containerd, PVCs, or application data.
 
@@ -141,8 +205,37 @@ The earlier trigger and hourly cadence proactively preserve headroom, but cadenc
 alone does not guarantee a reserve: active consumers and safety guards can prevent
 cleanup, and filesystem usage can grow between runs.
 
-The job shares the existing immutable image and list-only service account.
-Both maintenance gates retain a complete namespace Pod-list fence: the maintenance
+The worker uses the qualified official UV 0.11.26/Python 3.14 image pinned to
+`ghcr.io/astral-sh/uv@sha256:d21c2dd538d409d050027f67cd09f0b84882cf59072cf77720b15e21f3fe6af5`
+and direct `/usr/local/bin/python3 -B /policy/cache-retention.py`. Store-GC keeps
+its separate Podman image and policy unchanged. The worker retains its host
+privileges and writable host roots; its dedicated service account and policy bundle live only in the
+GitOps-owned privileged-PSA `ci-maintenance-worker` namespace. Its cross-namespace
+bindings allow listing CI Pods and get/update only the named
+`ci-maintenance/hestia-ci-maintenance-state`; its local observer can list Pods and
+read Jobs for identity. It has no GitLab credential. Controls, state and the future
+token Secret remain in restricted `ci-maintenance`. Controls only observe Pods/Jobs
+in all three namespaces and update named state; no Secret API or workload writes.
+The existing CI role is unchanged and has no binding into either new namespace:
+its create/exec authority in `ci` cannot select or exec the worker/control SAs
+there. Before replacement credentials or activation, qualify native negative SARs
+for state/Secret and Pod create/exec in both namespaces, and read back actual Pod
+service accounts, namespaces and policy bundles. Source fixtures are not live proof.
+This closes the direct Kubernetes API/SA-selection/exec path, not the preexisting
+host trust boundary: malicious privileged node-root CI remains outside this claim.
+
+CI job templates, the worker and store-GC all require hard hostname anti-affinity
+over exactly `ci` and `ci-maintenance-worker`, retaining the same CI-label selector.
+Before merge/Flux reconciliation, the release owner must pause new acquisition on
+both Runner2 and Runner3 and let every accepted job finish naturally, then perform
+the routine GitOps manager template rollout. Read back effective generated config
+and new Pod affinity before restoring each prior acquisition baseline and running
+exact-main CI. No SIGTERM/restart of a manager with accepted work, CI cancellation,
+capacity/deadline change or imperative manager workaround is authorized.
+
+Store-GC retains its CI namespace fence; cache retention independently validates
+complete CI and worker-namespace Pod lists before its combined UID/conflict fence.
+The maintenance
 Pod's UID/labels/Hestia assignment must match and its phase must be Running.
 Hard CI-label hostname anti-affinity blocks new CI scheduling on Hestia. Other
 Running or Pending CI Pods block cleanup unless positively assigned to the known
@@ -162,7 +255,8 @@ property, not hostile-workload/RBAC isolation. Requalify both gates before chang
 the node inventory, CI storage sharing, Kubedock version, child-Pod templates or
 volume/copy behavior; do not extend the exemption to an unknown node by default.
 
-`hostPID` allows read-only `/proc` FD/cwd inspection by **device/inode**, so
+Read-only hostPath `/proc` at `/host/proc` replaces the former hostPID view for
+host FD/cwd/mount inspection by **device/inode**, so
 bind-mount/path aliases do not hide local consumers. Root and direct-child
 candidate symlinks, all symlinks inside cache namespaces, special entries,
 cross-filesystem trees, and descendant mounts (including same-device bind
@@ -170,8 +264,9 @@ mounts across visible process mount namespaces) protect the entire candidate.
 Only nested symlinks inside workspace directories are unlink-only leaves:
 absolute, relative, dangling, cyclic, file and directory links are never followed
 or opened, and their targets are never deleted. Their own identity and metadata
-participate in the pre-deletion proof and leaf-change checks. This does not change
-package/toolchain-cache eligibility, including Bun, Cargo or uv caches.
+participate in the pre-deletion proof and leaf-change checks. Generic deletion still denies cache links. The fixed `uv` child is always excluded
+from Python age and pressure deletion, even without links. Bun, Cargo, installed
+tools and managed Python are protected, not newly reclaimable classes.
 Unreadable process/mount metadata, malformed mount records, and inaccessible
 mount roots on the cleanup filesystem fail closed. Mount roots are skipped before
 resolution only when validated kernel device identities prove they belong to a
@@ -182,15 +277,53 @@ the final inspection. Protected entries are logged, never force-removed. If the
 capacity target cannot be reached in scope, the job fails rather than widening
 cleanup. Dry runs report candidates but cannot claim a post-deletion capacity.
 
+Only if ordinary retention triggered at 67% and still cannot reach 65%, the worker
+may run **one** `/usr/local/bin/uv --no-config --offline --no-python-downloads cache clean
+--cache-dir /var/lib/ci-cache-nocow/uv`, never `--force`, prune/retry, or Python
+fallback. The Runner mapping `UV_CACHE_DIR=/ci-cache/uv` must still resolve to this
+exact host child. Cache-only custody, ordinary no-follow ancestry, same device,
+validated CACHEDIR.TAG, cache-generation-only top-level names, complete mount/open
+guards and an unchanged streamed metadata fingerprint are required. UV proof alone
+admits link leaves without following targets; it grants no generic deletion rights.
+The qualified UV 0.11.26 cache buckets are archive, binaries, builds, environments,
+flat-index, git, interpreter, osv, python, sdists, simple and wheels, each with a
+`-vN` generation suffix (coexisting generations allowed). `python-vN` caches Python
+downloads and `binaries-vN` caches tool downloads: neither admits installed managed
+Python or tools. Plain `python`/`tools`, unknown buckets, root links and specials
+remain refused; protected sibling namespaces are unchanged.
+The binary SHA/version are checked against the qualified executor. The subprocess
+uses a minimal explicit environment, neutral cwd and closed stdin, inherited logs,
+a 330-second wait and bounded kill/reap on failure. UV's default native locks remain.
+Native clean may remove the cache root; only normal UV operations recreate it.
+Success is measured from actual filesystem use, not UV's hardlink byte count:
+65% maximum and at least **38,857,516,474 available bytes** are required after a
+pressure run. Insufficient reclaim, nonzero exit, timeout or reserve shortfall fail
+without another class or cleanup attempt.
+
+The worker now has private PID namespaces (`hostPID: false`,
+`shareProcessNamespace: false`), and Python must be container PID1 before spawning
+UV. Namespace-init teardown kills/waits for namespace children before init exits;
+the existing all-container terminal recovery fence therefore includes the native
+child boundary. If bounded reap cannot prove retirement, the worker fails and
+relies on that kernel containment; it does not claim child retirement. No new
+capability, runtime mount or sidecar is added. This is path-based native deletion
+under maintained scheduler/claimed-pause writer exclusion, not descriptor-relative
+UV removal or malicious-host-root race resistance. Actual host-proc visibility,
+PID-namespace retirement and default-lock behavior in this exact image require
+native release qualification. Before activation also verify effective cache-only
+custody/overrides, external cache-symlink dependents, root recreation ownership and
+SELinux, and the unchanged pause/drain/restoration gates. The administrator token
+remains revoked/absent until the release owner completes those checks.
+
 ```bash
-kubectl get cronjobs,jobs -n ci -l app=hestia-ci-cache-retention
-kubectl logs -n ci -l app=hestia-ci-cache-retention --tail=100
+kubectl get cronjobs,jobs -n ci-maintenance-worker -l app=hestia-ci-cache-retention
+kubectl logs -n ci-maintenance-worker -l app=hestia-ci-cache-retention --tail=100
 python3 scripts/test_hestia_ci_cache_retention.py
 ```
 
 The ConfigMap helper defaults to a dry run; the CronJob explicitly supplies
 `--execute`. A one-off dry-run Pod must retain the same service account,
-downward-API identity, labels, anti-affinity, hostPID and narrow mounts, omitting
+downward-API identity, labels, anti-affinity, private PID namespace and narrow mounts, omitting
 only `--execute`. There are no production path overrides or force/bypass flags.
 Use the approved retention owner rather than raw recursive deletion.
 

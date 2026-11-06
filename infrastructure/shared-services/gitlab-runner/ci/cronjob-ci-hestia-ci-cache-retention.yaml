@@ -2,7 +2,7 @@ apiVersion: batch/v1
 kind: CronJob
 metadata:
   name: hestia-ci-cache-retention
-  namespace: ci
+  namespace: ci-maintenance-worker
   labels:
     app: hestia-ci-cache-retention
 spec:
@@ -24,9 +24,10 @@ spec:
             ci.brmartin.co.uk/job: "true"
             ci.brmartin.co.uk/maintenance: "true"
         spec:
-          hostPID: true
+          hostPID: false
+          shareProcessNamespace: false
           automountServiceAccountToken: true
-          serviceAccountName: hestia-ci-store-gc
+          serviceAccountName: hestia-ci-maintenance-worker
           nodeSelector:
             kubernetes.io/arch: amd64
             kubernetes.io/hostname: hestia
@@ -36,15 +37,24 @@ spec:
               - labelSelector:
                   matchLabels:
                     ci.brmartin.co.uk/job: "true"
+                namespaces: [ci, ci-maintenance-worker]
                 topologyKey: kubernetes.io/hostname
           restartPolicy: Never
           containers:
           - name: retention
-            image: quay.io/podman/stable@sha256:c6c3feef40a5c825a98e62a11c8ed4c36ec603327d56eb629230a671e527c3dd
+            image: ghcr.io/astral-sh/uv@sha256:d21c2dd538d409d050027f67cd09f0b84882cf59072cf77720b15e21f3fe6af5
             imagePullPolicy: IfNotPresent
-            command: [python3, -B, /policy/cache-retention.py]
+            command: [/usr/local/bin/python3, -B, /policy/cache-retention.py]
             args: [--execute]
             env:
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
             - name: NODE_NAME
               valueFrom:
                 fieldRef:
@@ -61,8 +71,9 @@ spec:
                 cpu: 500m
                 memory: 512Mi
             securityContext:
-              # Host PID /proc inspection needs host DAC/ptrace and SELinux access.
-              # No runtime socket, runtime store, device or host root is mounted.
+              # Same host-proc observation as before, but private Python PID1:
+              # namespace teardown retires UV before container-terminal recovery.
+              # No additional capability, runtime store, socket or host root.
               privileged: true
               allowPrivilegeEscalation: true
               readOnlyRootFilesystem: true
@@ -70,6 +81,9 @@ spec:
               runAsGroup: 0
               runAsNonRoot: false
             volumeMounts:
+            - name: host-proc
+              mountPath: /host/proc
+              readOnly: true
             - name: builds
               mountPath: /var/lib/ci-builds-nocow
             - name: cache
@@ -78,6 +92,10 @@ spec:
               mountPath: /policy
               readOnly: true
           volumes:
+          - name: host-proc
+            hostPath:
+              path: /proc
+              type: Directory
           - name: builds
             hostPath:
               path: /var/lib/ci-builds-nocow

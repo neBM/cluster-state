@@ -51,9 +51,94 @@ class RunnerConfigTests(unittest.TestCase):
                     'requiredDuringSchedulingIgnoredDuringExecution': [{
                         'labelSelector': {'matchLabels': {'ci.brmartin.co.uk/job': 'true'}},
                         'topologyKey': 'kubernetes.io/hostname',
+                        'namespaces': ['ci', 'ci-maintenance-worker'],
                     }],
                 })
 
+    def test_maintenance_namespace_and_least_privilege(self):
+        # Dedicated namespace keeps the existing CI job SA's Secret/ConfigMap
+        # CRUD authority away from the administrator credential/restoration latch.
+        jobs = {o['metadata']['name']: o for o in self.objects if o['kind'] == 'CronJob'}
+        state, = [o for o in self.objects if o['kind'] == 'ConfigMap' and o['metadata']['name'] == 'hestia-ci-maintenance-state']
+        self.assertEqual(state['metadata']['namespace'], 'ci-maintenance')
+        self.assertNotIn('data', state)
+        self.assertEqual(state['metadata']['annotations']['kustomize.toolkit.fluxcd.io/ssa'], 'Merge')
+        for name, bound in (('admission', 1380), ('recovery', 50)):
+            job = jobs['hestia-ci-maintenance-' + name]
+            self.assertEqual(job['metadata']['namespace'], 'ci-maintenance')
+            self.assertEqual(job['spec']['jobTemplate']['spec']['activeDeadlineSeconds'], bound)
+            template = job['spec']['jobTemplate']['spec']['template']
+            self.assertNotIn('ci.brmartin.co.uk/job', template['metadata']['labels'])
+            self.assertNotIn('ci.brmartin.co.uk/maintenance', template['metadata']['labels'])
+            pod = template['spec']
+            self.assertNotIn('hostPID', pod)
+            self.assertTrue(pod['securityContext']['runAsNonRoot'])
+            self.assertTrue(all('hostPath' not in v for v in pod['volumes']))
+            container, = pod['containers']
+            self.assertEqual(container['securityContext']['capabilities']['drop'], ['ALL'])
+            self.assertTrue(container['securityContext']['readOnlyRootFilesystem'])
+            self.assertFalse(container['securityContext']['allowPrivilegeEscalation'])
+            self.assertIn({'name': 'credential', 'mountPath': '/credential', 'readOnly': True}, container['volumeMounts'])
+            policy, = [v for v in pod['volumes'] if v['name'] == 'policy']
+            self.assertTrue(any(o['kind'] == 'ConfigMap' and o['metadata']['namespace'] == 'ci-maintenance'
+                                and o['metadata']['name'] == policy['configMap']['name'] for o in self.objects))
+        worker = jobs['hestia-ci-cache-retention']['spec']['jobTemplate']['spec']['template']['spec']
+        self.assertFalse(worker['hostPID'])
+        self.assertFalse(worker['shareProcessNamespace'])
+        container, = worker['containers']
+        self.assertEqual(container['image'], 'ghcr.io/astral-sh/uv@sha256:d21c2dd538d409d050027f67cd09f0b84882cf59072cf77720b15e21f3fe6af5')
+        self.assertEqual(container['command'], ['/usr/local/bin/python3', '-B', '/policy/cache-retention.py'])
+        self.assertEqual(container['args'], ['--execute'])
+        self.assertEqual(container['resources'], {'requests': {'cpu': '10m', 'memory': '64Mi'}, 'limits': {'cpu': '500m', 'memory': '512Mi'}})
+        self.assertIn({'name': 'host-proc', 'mountPath': '/host/proc', 'readOnly': True}, container['volumeMounts'])
+        self.assertEqual([v for v in worker['volumes'] if 'hostPath' in v], [
+            {'name': 'host-proc', 'hostPath': {'path': '/proc', 'type': 'Directory'}},
+            {'name': 'builds', 'hostPath': {'path': '/var/lib/ci-builds-nocow', 'type': 'Directory'}},
+            {'name': 'cache', 'hostPath': {'path': '/var/lib/ci-cache-nocow', 'type': 'Directory'}}])
+        self.assertEqual(jobs['hestia-ci-cache-retention']['metadata']['namespace'], 'ci-maintenance-worker')
+        namespaces = {o['metadata']['name']: o for o in self.objects if o['kind'] == 'Namespace'}
+        self.assertEqual(namespaces['ci-maintenance-worker']['metadata']['labels']['pod-security.kubernetes.io/enforce'], 'privileged')
+        accounts = {(o['metadata']['namespace'], o['metadata']['name']) for o in self.objects if o['kind'] == 'ServiceAccount'}
+        self.assertIn(('ci-maintenance-worker', 'hestia-ci-maintenance-worker'), accounts)
+        self.assertNotIn(('ci', 'hestia-ci-maintenance-worker'), accounts)
+        policy, = [v for v in worker['volumes'] if v['name'] == 'policy']
+        for control in ('admission', 'recovery'):
+            control_pod = jobs['hestia-ci-maintenance-' + control]['spec']['jobTemplate']['spec']['template']['spec']
+            control_policy, = [v for v in control_pod['volumes'] if v['name'] == 'policy']
+            self.assertEqual(policy['configMap']['name'], control_policy['configMap']['name'])
+        self.assertTrue(any(o['kind'] == 'ConfigMap' and o['metadata']['namespace'] == 'ci-maintenance-worker'
+                            and o['metadata']['name'] == policy['configMap']['name'] for o in self.objects))
+        self.assertFalse(any('secret' in v for v in worker['volumes']))
+        self.assertEqual(worker['serviceAccountName'], 'hestia-ci-maintenance-worker')
+        for role in [o for o in self.objects if o['kind'] == 'Role' and o['metadata']['name'].startswith('hestia-ci-maintenance')]:
+            for rule in role['rules']:
+                self.assertNotIn('secrets', rule['resources'])
+                self.assertTrue(set(rule['verbs']) <= {'get', 'list', 'update'})
+                if 'configmaps' in rule['resources']:
+                    self.assertEqual(role['metadata']['namespace'], 'ci-maintenance')
+                    self.assertEqual(rule['resourceNames'], ['hestia-ci-maintenance-state'])
+        for binding in [o for o in self.objects if o['kind'] == 'RoleBinding' and o['metadata']['namespace'] == 'ci-maintenance']:
+            self.assertTrue(all(s['namespace'] == 'ci-maintenance' or
+                                s['namespace'] == 'ci-maintenance-worker' and s['name'] in {'hestia-ci-maintenance-worker', 'hestia-ci-store-gc'}
+                                for s in binding['subjects']))
+        state_binding, = [o for o in self.objects if o['kind'] == 'RoleBinding' and o['metadata']['name'] == 'hestia-ci-maintenance-state']
+        self.assertIn({'kind': 'ServiceAccount', 'name': 'hestia-ci-maintenance-worker', 'namespace': 'ci-maintenance-worker'}, state_binding['subjects'])
+        roles = {(o['metadata']['namespace'], o['metadata']['name']): o for o in self.objects if o['kind'] == 'Role'}
+        for binding in [o for o in self.objects if o['kind'] == 'RoleBinding' and o['metadata']['namespace'] in ('ci-maintenance', 'ci-maintenance-worker')]:
+            self.assertTrue(all(s.get('namespace') != 'ci' for s in binding['subjects']))
+        observer = roles['ci-maintenance-worker', 'hestia-ci-maintenance-observer']
+        bindings = [o for o in self.objects if o['kind'] == 'RoleBinding']
+        for identity, namespaces in ((('ci-maintenance-worker', 'hestia-ci-maintenance-worker'), ('ci', 'ci-maintenance-worker')),
+                                     (('ci-maintenance', 'hestia-ci-maintenance-admission'), ('ci', 'ci-maintenance', 'ci-maintenance-worker')),
+                                     (('ci-maintenance', 'hestia-ci-maintenance-recovery'), ('ci', 'ci-maintenance', 'ci-maintenance-worker'))):
+            for namespace in namespaces:
+                granted = [roles[namespace, b['roleRef']['name']] for b in bindings
+                           if b['metadata']['namespace'] == namespace and any(
+                               (s.get('namespace'), s.get('name')) == identity for s in b['subjects'])]
+                self.assertTrue(any('pods' in rule['resources'] and 'list' in rule['verbs']
+                                    for role in granted for rule in role['rules']), (identity, namespace))
+        self.assertEqual(observer['rules'], [{'apiGroups': [''], 'resources': ['pods'], 'verbs': ['list']},
+                                             {'apiGroups': ['batch'], 'resources': ['jobs'], 'verbs': ['get']}])
     def test_internal_metrics_service_and_policy(self):
         service, = [o for o in self.objects if o["kind"] == "Service"]
         policy, = [o for o in self.objects if o["kind"] == "CiliumNetworkPolicy"]
@@ -94,7 +179,7 @@ class RunnerConfigTests(unittest.TestCase):
     def test_architecture_admission_and_generator(self):
         self.assertEqual(sorted(m["metadata"]["name"] for m in self.managers),
                          ["gitlab-runner"])
-        maps = {obj["metadata"]["name"]: obj["data"] for obj in self.objects if obj["kind"] == "ConfigMap"}
+        maps = {obj["metadata"]["name"]: obj.get("data", {}) for obj in self.objects if obj["kind"] == "ConfigMap"}
         pins = {image["name"]: image for image in yaml.safe_load((RUNNERS / "kustomization.yaml").read_text())["images"]}
         system_ids = []
         for manager in self.managers:
@@ -176,6 +261,7 @@ class RunnerConfigTests(unittest.TestCase):
                         # Runner chooses its version-coupled, selector-aware native helper.
                         self.assertNotIn("helper_image", runner["kubernetes"], f"{arch}/{lane}")
                         k = runner["kubernetes"]
+                        self.assertEqual(k['affinity']['pod_anti_affinity']['required_during_scheduling_ignored_during_execution'][0]['namespaces'], ['ci', 'ci-maintenance-worker'])
                         self.assertTrue(k["privileged"])
                         self.assertFalse(k["enable_service_links"])
                         self.assertEqual(k["cpu_request"], "250m" if lane == "amd64" else "500m")
