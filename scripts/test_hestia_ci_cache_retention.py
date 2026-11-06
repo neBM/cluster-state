@@ -96,7 +96,7 @@ class AdmissionTests(unittest.TestCase):
                                  'controller': True, 'uid': 'cron-uid'}]},
             'spec': {'template': {'spec': copy.deepcopy(p['spec'])}}} for p in snapshot}
         state = {'schema': 1, 'runner': 2, 'uid': 'state-uid', 'policy': self.policy,
-                 'heartbeat': self.clock, 'phase': 'IDLE', 'operation': None}
+                 'heartbeat': self.clock, 'phase': 'IDLE', 'operation': None, 'gc_holder': None}
         self.api = FakeAPI(state, snapshot, jobs)
         self.store = a.Store(self.api, self.policy)
         self.gl = FakeGitLab()
@@ -143,6 +143,130 @@ class AdmissionTests(unittest.TestCase):
         with self.assertRaises(a.Refuse):
             self.coordinate()
         self.assertIsNone(self.state()['operation']['worker'])
+
+    def add_gc(self):
+        gc = copy.deepcopy(self.worker)
+        gc['metadata'].update(name='gc', uid='gc-uid', labels={
+            'app': 'hestia-ci-store-gc', 'ci.brmartin.co.uk/job': 'true',
+            'ci.brmartin.co.uk/maintenance': 'true'}, ownerReferences=[{
+                'kind': 'Job', 'name': 'gc-job', 'uid': 'gc-job-uid', 'controller': True}])
+        gc['spec']['serviceAccountName'] = 'hestia-ci-store-gc'
+        self.api.snapshot.append(gc)
+        self.api.jobs['gc-job'] = {'metadata': {'namespace': a.WORKER_NAMESPACE,
+            'name': 'gc-job', 'uid': 'gc-job-uid'}, 'spec': {'template': {'spec': copy.deepcopy(gc['spec'])}}}
+        return a.pod_identity(gc)
+
+    def claim_gc(self, who):
+        a.gc_claim(self.store, who, lambda: None, now=lambda: self.clock)
+
+    def test_gc_claim_durable_before_effect_and_failure_zero_effects(self):
+        who = self.add_gc()
+        trace = []
+        def gate():
+            trace.append(self.state()['gc_holder'])
+        a.gc_claim(self.store, who, gate, now=lambda: self.clock)
+        self.assertIsNone(trace[0])
+        self.assertEqual(trace[1]['identity'], who)
+        self.finish('gc')
+        self.recover()
+        self.assertIsNone(self.state()['gc_holder'])
+        self.assertEqual(self.gl.puts, [])
+        self.api.fail_save = True
+        trace.clear()
+        with self.assertRaises(OSError):
+            a.gc_claim(self.store, who, gate, now=lambda: self.clock)
+        self.assertEqual(len(trace), 1)
+
+    def test_gc_wins_coordinator_waits_and_restoration_waits_for_exact_retirement(self):
+        who = self.add_gc()
+        self.claim_gc(who)
+        with self.assertRaises(a.Refuse):
+            self.coordinate()
+        self.assertEqual(self.state()['phase'], 'CLOSING')
+        self.assertIsNone(self.state()['operation']['worker'])
+        self.finish('coord')
+        gc = self.api.snapshot[-1]
+        for change in ('running', 'phase-only', 'missing', 'replacement', 'job-replacement'):
+            saved = copy.deepcopy(gc)
+            if change == 'phase-only':
+                gc['status']['phase'] = 'Succeeded'
+            elif change == 'missing':
+                self.api.snapshot.remove(gc)
+            elif change == 'replacement':
+                gc['metadata']['uid'] = 'other'
+            elif change == 'job-replacement':
+                gc['metadata']['ownerReferences'][0]['uid'] = 'other'
+            self.recover()
+            self.assertEqual(self.gl.puts, [{'paused': True}], change)
+            if change == 'missing':
+                self.api.snapshot.append(gc)
+            gc.clear()
+            gc.update(saved)
+        self.finish('gc')
+        self.recover()
+        self.assertEqual(self.gl.puts, [{'paused': True}, {'paused': False}])
+        self.assertEqual(self.state()['phase'], 'DONE')
+        self.assertIsNone(self.state()['gc_holder'])
+
+    def test_gc_late_claim_and_stale_cas_are_fenced(self):
+        who = self.add_gc()
+        cm, stale = self.store.read()
+        self.coordinate()
+        for phase in ('ADMITTED', 'CLAIMED', 'CLOSING', 'RESTORING', 'ALERT'):
+            state = self.state()
+            state['phase'] = phase
+            state['operation']['claimed'] = True
+            self.save(state)
+            with self.assertRaises(a.Refuse):
+                self.claim_gc(who)
+        stale['gc_holder'] = {'identity': who, 'claimed_at': self.clock}
+        with self.assertRaises(a.Conflict):
+            self.store.save(cm, stale)
+        self.assertIsNone(self.state()['gc_holder'])
+
+    def test_idle_unknown_gc_has_bounded_warning_and_strict_schema(self):
+        who = self.add_gc()
+        self.claim_gc(who)
+        state = self.state()
+        state['gc_holder']['claimed_at'] = True
+        with self.assertRaises(a.Refuse):
+            self.save(state)
+        self.api.snapshot.pop()
+        self.clock += 2700
+        with self.assertRaises(a.Refuse):
+            self.recover()
+        self.assertEqual(self.state()['phase'], 'ALERT')
+        self.assertEqual(self.gl.puts, [])
+
+    def test_gc_start_real_cas_loses_to_coordinator_without_effects(self):
+        who = self.add_gc()
+        original = self.store.save
+        trace = []
+        def race(cm, state):
+            if state['gc_holder'] is not None and not trace:
+                trace.append('coordinator-wins')
+                self.coordinate()
+            return original(cm, state)
+        gates = []
+        with patch.object(self.store, 'save', race), self.assertRaises(a.Conflict):
+            a.gc_claim(self.store, who, lambda: gates.append('gate'), now=lambda: self.clock)
+        self.assertEqual(gates, ['gate'])
+        self.assertIsNone(self.state()['gc_holder'])
+        self.assertEqual(self.state()['phase'], 'ADMITTED')
+
+    def test_coordinator_cas_loses_to_gc_before_pause(self):
+        who = self.add_gc()
+        original = self.store.save
+        raced = []
+        def race(cm, state):
+            if state['phase'] == 'PAUSE_INTENT' and not raced:
+                raced.append(True)
+                self.claim_gc(who)
+            return original(cm, state)
+        with patch.object(self.store, 'save', race), self.assertRaises(a.Conflict):
+            self.coordinate()
+        self.assertEqual(self.gl.puts, [])
+        self.assertEqual(self.state()['gc_holder']['identity'], who)
 
     def test_worker_job_generation_namespace_and_bundle_bound(self):
         for field in ('namespace', 'uid', 'name'):
@@ -1297,20 +1421,11 @@ class GateTests(unittest.TestCase):
             'spec': {'nodeName': 'hestia'}, 'status': {'phase': phase}}]}
 
     def gate_results(self, case):
-        # Execute the actual embedded GC gate, replacing only its input I/O.
-        source = (CI / 'cronjob-ci-hestia-ci-store-gc.yaml').read_text()
-        code = textwrap.dedent(source.split("python3 - <<'PY' || gate_rc=$?\n", 1)[1].split('\n              PY', 1)[0])
-        class OriginalOS:
-            environ = {'POD_UID': 'self'}
-        namespace = {'json': json, 'os': OriginalOS, 'fixture': case}
-        rewritten = code.replace('import json\n', '').replace('import os\n', '')
-        rewritten = rewritten.replace('with open("/tmp/pods.json", "rb") as stream:\n    payload = json.load(stream)', 'payload = fixture')
-        embedded = 0
-        with contextlib.redirect_stdout(io.StringIO()):
-            try:
-                exec(rewritten, namespace)
-            except SystemExit as error:
-                embedded = 75 if error.code == 75 else 1
+        # GC and UV now execute the same production gate, not duplicate parsers.
+        try:
+            embedded = 0 if r.pod_gate(case, 'self') else 75
+        except r.Refuse:
+            embedded = 1
         try:
             retention = 0 if r.pod_gate(case, 'self') else 75
         except r.Refuse:

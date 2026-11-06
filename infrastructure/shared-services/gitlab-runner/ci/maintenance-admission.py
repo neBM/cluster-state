@@ -73,15 +73,21 @@ def policy_hash():
 
 def validate(state, uid, policy):
     require(type(state) is dict and set(state) == {
-        'schema', 'uid', 'policy', 'runner', 'heartbeat', 'phase', 'operation'}, 'invalid state fields')
+        'schema', 'uid', 'policy', 'runner', 'heartbeat', 'phase', 'operation', 'gc_holder'}, 'invalid state fields')
     require(type(state['schema']) is int and state['schema'] == 1
             and type(state['runner']) is int and state['runner'] == 2
             and state['uid'] == uid and text(uid) and state['policy'] == policy
             and type(state['heartbeat']) is int and state['heartbeat'] >= 0
             and state['phase'] in PHASES, 'invalid state identity or policy')
+    gc = state['gc_holder']
+    if gc is not None:
+        require(type(gc) is dict and set(gc) == {'identity', 'claimed_at'}
+                and type(gc['claimed_at']) is int and gc['claimed_at'] >= 0, 'invalid GC holder')
+        identity(gc['identity'])
+        require(gc['identity']['namespace'] == WORKER_NAMESPACE, 'wrong GC namespace')
     op = state['operation']
     if op is None:
-        require(state['phase'] == 'IDLE', 'missing operation')
+        require(state['phase'] in {'IDLE', 'ALERT'}, 'missing operation')
         return state
     require(type(op) is dict and set(op) == {
         'id', 'slot', 'coordinator', 'worker', 'claimed', 'holder', 'baseline',
@@ -266,6 +272,35 @@ def runner(api):
     return value['paused']
 
 
+def retire_gc(state, snapshot):
+    """Only exact, all-container retirement releases the constant-size slot."""
+    if state['gc_holder'] is not None and terminal(snapshot, state['gc_holder']['identity']):
+        state['gc_holder'] = None
+    return state['gc_holder'] is None
+
+
+def gc_claim(store, me, gate, now=time.time):
+    require(me['namespace'] == WORKER_NAMESPACE, 'wrong GC namespace')
+    own = next((p for p in pods(store.api, WORKER_NAMESPACE) if pod_identity(p) == me), None)
+    require(own is not None and own['metadata']['labels'].get('app') == 'hestia-ci-store-gc', 'GC identity absent')
+    job, _ = store.api.request('GET', '/apis/batch/v1/namespaces/' + WORKER_NAMESPACE + '/jobs/'
+                              + urllib.parse.quote(me['job'], safe=''))
+    meta = job.get('metadata', {})
+    template = job.get('spec', {}).get('template', {})
+    require(meta.get('namespace') == WORKER_NAMESPACE and meta.get('name') == me['job']
+            and meta.get('uid') == me['job_uid'] and not meta.get('deletionTimestamp')
+            and own['spec'].get('serviceAccountName') == 'hestia-ci-store-gc'
+            and template.get('spec', {}).get('serviceAccountName') == 'hestia-ci-store-gc'
+            and bundle(template) == bundle(own), 'GC Job generation or policy changed')
+    # Manual Jobs are supported: identity is native Job UID, not a UV schedule.
+    gate()
+    cm, state = store.read()
+    require(state['phase'] in {'IDLE', 'DONE'} and state['gc_holder'] is None, 'GC admission closed')
+    state['gc_holder'] = {'identity': me, 'claimed_at': int(now())}
+    store.save(cm, state)  # Exact named UID/RV CAS and readback precede effects.
+    gate()
+
+
 def drained(api):
     # Supported scalar status filter avoids completed history. Idle requires every
     # filter's complete bounded pagination; foreign statuses mean ignored filtering.
@@ -363,7 +398,7 @@ def coordinate(store, gitlab, me, now=time.time, sleep=time.sleep):
         require(state['phase'] == 'DRAINING' and state['operation']['coordinator'] == me,
                 'drain ownership sealed')
         snapshot = snapshot_all(store.api)
-        if runner(gitlab) and drained(gitlab) and ci_drained(snapshot):
+        if retire_gc(state, snapshot) and runner(gitlab) and drained(gitlab) and ci_drained(snapshot):
             workers = [p for p in snapshot if p['metadata']['namespace'] == WORKER_NAMESPACE
                        and p['metadata'].get('labels', {}).get('app') == 'hestia-ci-cache-retention'
                        and bundle(p) == bundle(own)
@@ -398,6 +433,13 @@ def recover(store, gitlab, me, now=time.time):
     state['heartbeat'] = int(now())
     store.save(cm, state)
     cm, state = store.read()
+    if state['gc_holder'] is not None:
+        if not retire_gc(state, snapshot_all(store.api)):
+            if now() >= state['gc_holder']['claimed_at'] + 2700:
+                alert(store, cm, state, 'GC-retirement-horizon-exceeded')
+            return
+        store.save(cm, state)
+        cm, state = store.read()
     if state['phase'] in {'IDLE', 'DONE'}:
         return
     op = state['operation']
@@ -460,6 +502,7 @@ class WorkerFence:
             if op is not None and op['worker'] == self.me:
                 require(self.now() < op['cleanup_by'], 'worker deadline expired')
                 if state['phase'] == 'ADMITTED':
+                    require(state['gc_holder'] is None, 'GC holder not retired')
                     state['phase'], op['claimed'] = 'CLAIMED', True
                     self.store.save(cm, state)
                     self.operation = op['id']
@@ -494,7 +537,19 @@ def self_identity(api):
 
 
 def main():
-    require(sys.argv[1:] in (['coordinate'], ['recover']), 'expected coordinate or recover')
+    require(sys.argv[1:] in (['coordinate'], ['recover'], ['gc-claim']), 'expected coordinate, recover or gc-claim')
+    if sys.argv[1] == 'gc-claim':
+        require(os.environ.get('POD_NAMESPACE') == WORKER_NAMESPACE, 'GC namespace refused')
+        # No GitLab client, management token or credential access on this path.
+        import importlib.util
+        spec = importlib.util.spec_from_file_location('retention', Path(__file__).with_name('cache-retention.py'))
+        require(spec is not None and spec.loader is not None, 'policy loader unavailable')
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        store = kube_store()
+        gc_claim(store, self_identity(store.api), module.api_gate)
+        print('Kubernetes API gate passed; durable GC holder claimed', flush=True)
+        return
     require(os.environ.get('POD_NAMESPACE') == 'ci-maintenance', 'control namespace refused')
     # Independent execution wall bound; Job deadline is a second, native bound.
     def expired(*_):

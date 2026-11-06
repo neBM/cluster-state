@@ -49,6 +49,9 @@ subjects:
 - kind: ServiceAccount
   name: hestia-ci-maintenance-worker
   namespace: ci-maintenance-worker
+- kind: ServiceAccount
+  name: hestia-ci-store-gc
+  namespace: ci-maintenance-worker
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
@@ -133,6 +136,9 @@ subjects:
 - kind: ServiceAccount
   name: hestia-ci-maintenance-worker
   namespace: ci-maintenance-worker
+- kind: ServiceAccount
+  name: hestia-ci-store-gc
+  namespace: ci-maintenance-worker
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
@@ -165,4 +171,7 @@ subjects:
   namespace: ci-maintenance
 - kind: ServiceAccount
   name: hestia-ci-maintenance-worker
+  namespace: ci-maintenance-worker
+- kind: ServiceAccount
+  name: hestia-ci-store-gc
   namespace: ci-maintenance-worker

@@ -119,7 +119,7 @@ class RunnerConfigTests(unittest.TestCase):
                     self.assertEqual(rule['resourceNames'], ['hestia-ci-maintenance-state'])
         for binding in [o for o in self.objects if o['kind'] == 'RoleBinding' and o['metadata']['namespace'] == 'ci-maintenance']:
             self.assertTrue(all(s['namespace'] == 'ci-maintenance' or
-                                s['namespace'] == 'ci-maintenance-worker' and s['name'] == 'hestia-ci-maintenance-worker'
+                                s['namespace'] == 'ci-maintenance-worker' and s['name'] in {'hestia-ci-maintenance-worker', 'hestia-ci-store-gc'}
                                 for s in binding['subjects']))
         state_binding, = [o for o in self.objects if o['kind'] == 'RoleBinding' and o['metadata']['name'] == 'hestia-ci-maintenance-state']
         self.assertIn({'kind': 'ServiceAccount', 'name': 'hestia-ci-maintenance-worker', 'namespace': 'ci-maintenance-worker'}, state_binding['subjects'])

@@ -153,7 +153,7 @@ State is deliberately **metadata-only in Git** (`ssa: Merge`, prune disabled).
 Before activation the operator must qualify Flux field ownership, create dynamic
 `data["state.json"]` explicitly using schema1, the exact ConfigMap UID, current
 `policy_hash()` from the mounted two-file policy bundle, runner2, heartbeat0,
-phaseIDLE and operationnull. There is no automatic missing-state bootstrap or
+phaseIDLE, operationnull and gc_holdernull. There is no automatic missing-state bootstrap or
 baseline-false default. A policy rollout requires a closed, reconciled operation
 and explicit operator migration of the policy identity; never reset a live latch.
 Controls alone mount the separately provisioned immutable token Secret read-only;
@@ -177,8 +177,15 @@ qualified by the release owner before enabling effects; fixtures are not that pr
 
 Two separate GitOps CronJobs own regenerable CI storage:
 
-- `ci/hestia-ci-store-gc` runs at 04:17 UTC for the existing Podman image store;
+- `ci-maintenance-worker/hestia-ci-store-gc` runs at 04:17 UTC for the existing Podman image store;
   its scope and 168-hour image/container policy are unchanged.
+  Before any Podman mutation it claims the shared named ConfigMap's single
+  `gc_holder={identity,claimed_at}` UID/RV-CAS slot, only in IDLE/DONE, and
+  rechecks the shared complete Pod API gate. Native manual Jobs are supported.
+  Coordinator admission and Runner2 restoration retain this slot until exact
+  Pod/Job UID and all-container terminal proof; missing or replaced Pods never
+  clear it. Unretired GC claims latch ALERT after 45 minutes even in IDLE/DONE.
+  GC has only named state get/update and Pod/Job observation, never credentials.
 - `ci-maintenance-worker/hestia-ci-cache-retention` runs hourly at minute 47 UTC on Hestia. It mounts only
   `/var/lib/ci-builds-nocow` and `/var/lib/ci-cache-nocow` writable, never the
   image store, Docker, k3s/containerd, PVCs, or application data.
