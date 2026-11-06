@@ -296,7 +296,7 @@ def test_runtime_gate(module: ModuleType) -> None:
             assert t.state()['gc_holder']['identity'] == me
             print('Kubernetes API gate passed')
         ''').replace('FIXTURES', repr(str(ROOT / 'scripts/test_hestia_ci_cache_retention.py'))))
-        script = module.GC_SCRIPT.replace('python3 -B /policy/maintenance-admission.py gc-claim', f'{sys.executable} -B {driver}').replace("/tmp/", str(root) + "/")
+        script = module.GC_SCRIPT.replace("/tmp/", str(root) + "/").replace('python3 -B /policy/maintenance-admission.py gc-claim', f'{sys.executable} -B {driver}')
         base_env = {
             "PATH": f"{bin_dir}:/usr/bin:/bin",
             "KUBERNETES_SERVICE_HOST": "127.0.0.1",
