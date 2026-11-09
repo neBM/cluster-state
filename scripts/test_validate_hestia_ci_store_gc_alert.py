@@ -276,10 +276,23 @@ def test_runtime_gate(module: ModuleType) -> None:
             spec.loader.exec_module(f)
             t = f.AdmissionTests()
             t.setUp()
-            t.add_gc()
+            scheduled = os.environ.get('SCHEDULED_GC')
+            if scheduled:
+                t.scheduled_gc()
+            else:
+                t.add_gc()
             gc = t.api.snapshot[-1]
             gc['metadata'].update(uid='maintenance-uid', name='hestia-ci-store-gc-test')
             me = f.a.pod_identity(gc)
+            if scheduled:
+                t.clock = t.slot + 1
+                if scheduled != 'missing':
+                    t.gl.pages['running'] = {'1': ([{'id': 8, 'status': 'running'}], {'X-Next-Page': ''})}
+                    def drain(_):
+                        assert t.gl.puts == [{'paused': True}]
+                        t.gl.pages.clear()
+                        t.clock += 2
+                    f.a.coordinate(t.store, t.gl, t.me, now=lambda: t.clock, sleep=drain)
             def response(request, **kwargs):
                 path = Path(os.environ['PODS_FIXTURE'])
                 payload = json.loads(path.read_bytes())
@@ -294,6 +307,9 @@ def test_runtime_gate(module: ModuleType) -> None:
             with patch.object(f.r.ssl, 'create_default_context'), patch.object(Path, 'read_text', return_value='fixture-token'), patch.object(f.r.urllib.request, 'urlopen', response), patch.object(f.r, 'wait_for_gate', lambda fetch, uid: original(fetch, uid, sleep=lambda _: None)):
                 f.a.gc_claim(t.store, me, f.r.api_gate, now=lambda: t.clock)
             assert t.state()['gc_holder']['identity'] == me
+            if scheduled:
+                assert t.state()['operation']['claimed'] is True
+                assert t.state()['operation']['worker'] == me
             print('Kubernetes API gate passed')
         ''').replace('FIXTURES', repr(str(ROOT / 'scripts/test_hestia_ci_cache_retention.py'))))
         script = module.GC_SCRIPT.replace("/tmp/", str(root) + "/").replace('python3 -B /policy/maintenance-admission.py gc-claim', f'{sys.executable} -B {driver}')
@@ -309,6 +325,13 @@ def test_runtime_gate(module: ModuleType) -> None:
             "PODMAN_CALLS": str(calls),
         }
         cases = (
+            ('scheduled-backlog-admitted', {'metadata': {'continue': ''}, 'items': [self_pod]},
+             stale_external, True, 'Kubernetes API gate passed', 3),
+            ('scheduled-missing', {'metadata': {'continue': ''}, 'items': [self_pod]},
+             [], False, 'GC admission missing', 0),
+            ('scheduled-pending-ci', {'metadata': {'continue': ''}, 'items': [self_pod,
+             pod('accepted', 'accepted-ci', 'Pending', '', {module.JOB_LABEL: 'true'})]},
+             [], False, 'active CI Pod', 0),
             (
                 "self-pending-then-running",
                 {"metadata": {"continue": ""}, "items": [pod("maintenance-uid", "hestia-ci-store-gc-test", "Pending", "hestia", self_labels)]},
@@ -401,6 +424,8 @@ def test_runtime_gate(module: ModuleType) -> None:
             external_fixture.write_text(json.dumps(external))
             calls.unlink(missing_ok=True)
             env = base_env | {"PODS_FIXTURE": str(pods_fixture), "EXTERNAL_FIXTURE": str(external_fixture)}
+            if name.startswith('scheduled-'):
+                env['SCHEDULED_GC'] = 'missing' if name == 'scheduled-missing' else 'admitted'
             if name == "self-pending-then-running":
                 next_fixture = root / "running-pods.json"
                 next_fixture.write_text(json.dumps({"metadata": {"continue": ""}, "items": [self_pod]}))
@@ -471,10 +496,15 @@ def main() -> int:
     with tempfile.TemporaryDirectory(prefix="hestia-validator-") as temporary:
         parent = Path(temporary)
         gc = "infrastructure/shared-services/gitlab-runner/ci/cronjob-ci-hestia-ci-store-gc.yaml"
+        control = 'infrastructure/shared-services/gitlab-runner/ci/cronjob-ci-hestia-ci-store-gc-admission.yaml'
         role = "infrastructure/shared-services/gitlab-runner/ci/role-ci-hestia-ci-store-gc.yaml"
         alert = "infrastructure/observability-ui/grafana/_grafana_alert_rules.yaml"
         wrapper = "scripts/validate_kustomize.sh"
         mutations = (
+            ('gc-control-late-schedule', control, 'schedule: 16 4 * * *', 'schedule: 17 4 * * *', 'GC control pins and schedule'),
+            ('gc-control-wrong-sa', control, 'serviceAccountName: hestia-ci-maintenance-admission', 'serviceAccountName: hestia-ci-store-gc', 'GC control pins and schedule'),
+            ('gc-control-expanded-deadline', control, 'activeDeadlineSeconds: 1380', 'activeDeadlineSeconds: 1800', 'GC control pins and schedule'),
+            ('gc-control-escalation', control, 'allowPrivilegeEscalation: false', 'allowPrivilegeEscalation: true', 'GC control pins and schedule'),
             ("gc-aliased-graph-root-mount", gc, f"            - mountPath: {module.GC_MOUNT_PATH}\n              name: podman-storage\n", "            - mountPath: /var/lib/containers/storage\n              name: podman-storage\n", "GC volumeMounts"),
             ("gc-aliased-graph-root-option", gc, f"                --root={module.GC_MOUNT_PATH}\n", "                --root=/var/lib/containers/storage\n", "GC script"),
             ("gc-wrong-runroot-option", gc, f"                --runroot={module.GC_RUNROOT_PATH}\n", "                --runroot=/run/containers/storage\n", "GC script"),

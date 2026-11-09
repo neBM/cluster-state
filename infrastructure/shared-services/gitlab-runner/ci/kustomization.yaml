@@ -6,6 +6,7 @@ resources:
 - cronjob-ci-hestia-ci-store-gc.yaml
 - cronjob-ci-hestia-ci-cache-retention.yaml
 - cronjob-ci-hestia-ci-maintenance-admission.yaml
+- cronjob-ci-hestia-ci-store-gc-admission.yaml
 - cronjob-ci-hestia-ci-maintenance-recovery.yaml
 - configmap-ci-hestia-ci-maintenance-state.yaml
 - rbac-ci-hestia-ci-maintenance.yaml

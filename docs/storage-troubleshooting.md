@@ -122,7 +122,11 @@ restore each registration's prior pause/tag/untagged state. Validate locally wit
 
 The hourly minute47 unprivileged `ci-maintenance/hestia-ci-maintenance-admission` Job pauses
 Runner2 only after a fresh independent-recovery heartbeat and durable named-CAS
-pause intent. A preexisting pause is preserved with zero writes. Accepted work
+pause intent. Daily build-store GC uses the same protocol through unprivileged
+`ci-maintenance/hestia-ci-store-gc-admission` at 04:16 UTC, with an explicit
+60-second offset to the native 04:17 UTC worker slot. Both controls reuse the
+same admission service account and credential; workers never receive that credential.
+A preexisting pause is preserved with zero writes. Accepted work
 drains naturally for up to 20 minutes; no accepted job cancellation or manager
 signal is used. Runner2 jobs are queried with GitLab's supported scalar status
 filter for all nine nonterminal statuses: created, waiting_for_resource, preparing,
@@ -179,9 +183,18 @@ Two separate GitOps CronJobs own regenerable CI storage:
 
 - `ci-maintenance-worker/hestia-ci-store-gc` runs at 04:17 UTC for the existing Podman image store;
   its scope and 168-hour image/container policy are unchanged.
-  Before any Podman mutation it claims the shared named ConfigMap's single
-  `gc_holder={identity,claimed_at}` UID/RV-CAS slot, only in IDLE/DONE, and
-  rechecks the shared complete Pod API gate. Native manual Jobs are supported.
+  Scheduled GC requires exact native Job/Pod/policy identity and the daily slot's
+  one-shot ADMITTED-to-CLAIMED CAS, atomically recording the shared named ConfigMap's
+  single `gc_holder={identity,claimed_at}` slot. Missing, late, sealed or wrong-slot
+  control admission never falls back to manual GC. While awaiting a grant, GC
+  continues the complete Pod API consumer gate and refuses/releases the node if
+  accepted CI materializes, including Pending CI. Waiting ends at the logical
+  slot's 20-minute drain boundary, never after a restored/sealed operation.
+  A terminal refused/unclaimed worker permits prompt controller closure rather
+  than holding acquisition until the cleanup deadline. The native 1800-second
+  worker and 1380-second control deadlines and recovery horizons are unchanged.
+  Unowned native manual Jobs remain supported only in a quiet IDLE/DONE window,
+  with the existing durable `gc_holder` CAS and complete API gate before effects.
   Coordinator admission and Runner2 restoration retain this slot until exact
   Pod/Job UID and all-container terminal proof; missing or replaced Pods never
   clear it. Unretired GC claims latch ALERT after 45 minutes even in IDLE/DONE.

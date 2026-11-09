@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
-"""Focused stdlib retention fixtures; never call production main()/host cleanup."""
+"""Focused stdlib retention/admission fixtures; never perform host cleanup."""
 import contextlib
 import copy
+import importlib.machinery
 import importlib.util
 import io
 import json
@@ -155,6 +156,513 @@ class AdmissionTests(unittest.TestCase):
         self.api.jobs['gc-job'] = {'metadata': {'namespace': a.WORKER_NAMESPACE,
             'name': 'gc-job', 'uid': 'gc-job-uid'}, 'spec': {'template': {'spec': copy.deepcopy(gc['spec'])}}}
         return a.pod_identity(gc)
+
+    def scheduled_gc(self):
+        who = self.add_gc()
+        self.slot = self.slot // 86400 * 86400 + 4 * 3600 + 17 * 60
+        self.clock = self.slot - 50
+        self.coordinator['metadata']['labels']['app'] = 'hestia-ci-store-gc-admission'
+        for name, cron, slot in (('coord-job', 'hestia-ci-store-gc-admission', self.slot - 60),
+                                ('gc-job', 'hestia-ci-store-gc', self.slot)):
+            meta = self.api.jobs[name]['metadata']
+            meta['ownerReferences'] = [{'kind': 'CronJob', 'name': cron, 'controller': True, 'uid': 'cron-uid'}]
+            meta['annotations'] = {'batch.kubernetes.io/cronjob-scheduled-timestamp':
+                a.dt.datetime.fromtimestamp(slot, a.dt.timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')}
+        state = self.state()
+        state['heartbeat'] = self.clock
+        self.save(state)
+        return who
+
+    def test_scheduled_gc_backlog_pause_drain_claim_retire_restore(self):
+        who = self.scheduled_gc()
+        self.gl.pages['running'] = {'1': ([{'id': 8, 'status': 'running'}], {'X-Next-Page': ''})}
+        def natural_drain(_):
+            self.assertEqual(self.gl.puts, [{'paused': True}])
+            self.assertEqual(self.state()['phase'], 'DRAINING')
+            self.gl.pages.clear()
+            self.clock = self.slot + 1
+        a.coordinate(self.store, self.gl, self.me, now=lambda: self.clock, sleep=natural_drain)
+        self.assertEqual(self.state()['operation']['slot'], self.slot)
+        self.assertEqual(self.state()['operation']['worker'], who)
+        self.claim_gc(who)
+        self.assertTrue(self.state()['operation']['claimed'])
+        self.assertEqual(self.state()['gc_holder']['identity'], who)
+        self.finish('coord')
+        self.recover()
+        self.assertTrue(self.gl.paused)
+        gc = self.api.snapshot[-1]
+        gc['spec']['initContainers'] = [{'name': 'init'}]
+        gc['spec']['ephemeralContainers'] = [{'name': 'debug'}]
+        self.finish('gc')
+        self.recover()
+        self.assertTrue(self.gl.paused)  # Main/phase termination is insufficient.
+        for key, name in (('initContainerStatuses', 'init'), ('ephemeralContainerStatuses', 'debug')):
+            gc['status'][key] = [{'name': name, 'state': {'terminated': {'exitCode': 0}}}]
+        self.recover()
+        self.assertEqual(self.state()['phase'], 'DONE')
+        self.assertIsNone(self.state()['gc_holder'])
+        self.assertEqual(self.gl.puts, [{'paused': True}, {'paused': False}])
+
+    def test_scheduled_gc_never_falls_back_to_idle_manual_claim(self):
+        who = self.scheduled_gc()
+        self.clock = self.slot + 1
+        with self.assertRaises(a.Refuse):
+            self.claim_gc(who)
+        self.assertIsNone(self.state()['gc_holder'])
+
+    def gc_gate(self):
+        payload = {'metadata': {}, 'items': copy.deepcopy([
+            p for p in self.api.snapshot if p['metadata']['namespace'] in {'ci', a.WORKER_NAMESPACE}])}
+        self.assertTrue(r.pod_gate(payload, 'gc-uid'))
+
+    def test_scheduled_gc_pending_ci_during_wait_releases_without_claim(self):
+        who = self.scheduled_gc()
+        self.finish('worker')
+        self.clock = self.slot + 1
+        state = self.state()
+        state['phase'] = 'DRAINING'
+        state['operation'] = a.new_operation(self.slot, self.me, self.policy)
+        state['operation']['write'] = 'none'
+        self.save(state)
+        def materialize(_):
+            job = copy.deepcopy(self.worker)
+            job['metadata'].update(namespace='ci', name='accepted', uid='accepted',
+                                   labels={'ci.brmartin.co.uk/job': 'true'})
+            job['spec']['nodeName'] = ''
+            job['status']['phase'] = 'Pending'
+            self.api.snapshot.append(job)
+            self.clock += 2
+        with self.assertRaisesRegex(r.Refuse, 'active CI Pod'):
+            a.gc_claim(self.store, who, self.gc_gate, now=lambda: self.clock, sleep=materialize)
+        self.assertIsNone(self.state()['gc_holder'])
+        self.assertFalse(self.state()['operation']['claimed'])
+        self.finish('gc', 'Failed')
+        self.finish('coord', 'Failed')
+        self.recover()
+        self.assertEqual(self.state()['phase'], 'DONE')
+        # A running coordinator also detects a terminal refusal before drain.
+        self.setUp()
+        self.scheduled_gc()
+        self.finish('gc', 'Failed')
+        with self.assertRaisesRegex(a.Refuse, 'retired before admission'):
+            self.coordinate()
+        self.finish('coord', 'Failed')
+        self.recover()
+        self.assertFalse(self.gl.paused)
+
+    def test_scheduled_gc_wait_to_grant_and_entrypoint_no_management_access(self):
+        who = self.scheduled_gc()
+        self.finish('worker')
+        self.clock = self.slot + 1
+        state = self.state()
+        state['phase'] = 'DRAINING'
+        state['operation'] = a.new_operation(self.slot, self.me, self.policy)
+        state['operation']['write'] = 'none'
+        self.save(state)
+        def grant(_):
+            state = self.state()
+            state['phase'] = 'ADMITTED'
+            state['operation']['worker'] = who
+            self.save(state)
+            self.clock += 2
+        a.gc_claim(self.store, who, self.gc_gate, now=lambda: self.clock, sleep=grant)
+        self.assertEqual(self.state()['phase'], 'CLAIMED')
+        self.setUp()
+        who = self.add_gc()
+        # Actual entrypoint/import split with inert input I/O; no client/token.
+        with patch.object(a, 'kube_store', return_value=self.store), \
+                patch.object(a, 'self_identity', return_value=who), \
+                patch.object(a, 'HTTP', side_effect=AssertionError('management client forbidden')), \
+                patch.object(Path, 'read_text', side_effect=AssertionError('credential read forbidden')), \
+                patch.object(importlib.util, 'module_from_spec', return_value=SimpleNamespace(api_gate=lambda: None)), \
+                patch.object(importlib.machinery.SourceFileLoader, 'exec_module'), \
+                patch.object(a.sys, 'argv', ['maintenance-admission.py', 'gc-claim']), \
+                patch.dict(os.environ, {'POD_NAMESPACE': a.WORKER_NAMESPACE}), \
+                contextlib.redirect_stdout(io.StringIO()):
+            a.main()
+        self.assertEqual(self.state()['gc_holder']['identity'], who)
+
+    def test_scheduled_gc_missing_sealed_cross_slot_and_expired_release_promptly(self):
+        for kind in ('IDLE', 'DONE', 'CLOSING', 'RESTORING', 'ALERT', 'cross-slot', 'expired', 'late-gate'):
+            with self.subTest(kind=kind):
+                self.setUp()
+                who = self.scheduled_gc()
+                self.coordinate()
+                self.clock = self.slot + 1
+                state = self.state()
+                if kind == 'cross-slot':
+                    state['phase'] = 'DRAINING'
+                    state['operation'] = a.new_operation(self.slot + 1800, self.me, self.policy)
+                    state['operation']['write'] = 'none'
+                elif kind == 'expired':
+                    self.clock = self.slot + 1200
+                elif kind == 'late-gate':
+                    pass  # A complete consumer snapshot crosses the wait bound.
+                elif kind == 'IDLE':
+                    state['phase'], state['operation'] = 'IDLE', None
+                else:
+                    state['phase'] = kind
+                    if kind == 'DONE':
+                        state['operation']['restored'] = True
+                self.save(state)
+                def gate():
+                    if kind == 'late-gate':
+                        self.clock = self.slot + 1200
+                with self.assertRaises(a.Refuse):
+                    a.gc_claim(self.store, who, gate, now=lambda: self.clock, sleep=self.fail)
+                self.assertIsNone(self.state()['gc_holder'])
+
+    def test_scheduled_gc_identity_mutations_never_claim(self):
+        for kind in ('hour', 'minute', 'owner', 'owner-uid', 'owner-shape', 'uid', 'sa', 'bundle'):
+            with self.subTest(kind=kind):
+                self.setUp()
+                who = self.scheduled_gc()
+                self.coordinate()
+                self.clock = self.slot + 1
+                job = self.api.jobs['gc-job']
+                meta = job['metadata']
+                if kind in {'hour', 'minute'}:
+                    stamp = meta['annotations']['batch.kubernetes.io/cronjob-scheduled-timestamp']
+                    meta['annotations']['batch.kubernetes.io/cronjob-scheduled-timestamp'] = stamp.replace(
+                        '04:17', '05:17' if kind == 'hour' else '04:47')
+                elif kind == 'owner':
+                    meta['ownerReferences'][0]['name'] = a.CACHE
+                elif kind == 'owner-uid':
+                    meta['ownerReferences'][0]['uid'] = ''
+                elif kind == 'owner-shape':
+                    meta['ownerReferences'] = [None]
+                elif kind == 'uid':
+                    meta['uid'] = 'replacement'
+                elif kind == 'sa':
+                    job['spec']['template']['spec']['serviceAccountName'] = a.CACHE_CONTROL
+                else:
+                    job['spec']['template']['spec']['volumes'][0]['configMap']['name'] += '-other'
+                with self.assertRaises(a.Refuse):
+                    a.gc_claim(self.store, who, lambda: None, now=lambda: self.clock, sleep=self.fail)
+                self.assertIsNone(self.state()['gc_holder'])
+
+    def test_scheduled_gc_claim_cas_seal_and_duplicate_are_one_shot(self):
+        who = self.scheduled_gc()
+        self.coordinate()
+        self.clock = self.slot + 1
+        original = self.store.save
+        def seal(cm, state):
+            if state['phase'] == 'CLAIMED':
+                other_cm, other = self.store.read()
+                other['phase'] = 'CLOSING'
+                original(other_cm, other)
+            return original(cm, state)
+        with patch.object(self.store, 'save', seal), self.assertRaises(a.Conflict):
+            self.claim_gc(who)
+        self.assertIsNone(self.state()['gc_holder'])
+        self.setUp()
+        who = self.scheduled_gc()
+        self.coordinate()
+        self.clock = self.slot + 1
+        self.claim_gc(who)
+        with self.assertRaises(a.Refuse):
+            self.claim_gc(who)
+        self.assertEqual(self.state()['gc_holder']['identity'], who)
+
+    def test_scheduled_gc_terminal_unclaimed_restores_promptly(self):
+        self.scheduled_gc()
+        self.coordinate()
+        self.finish('coord')
+        self.finish('gc', 'Failed')
+        self.recover()
+        self.assertEqual(self.state()['phase'], 'DONE')
+        self.assertEqual(self.state()['operation']['outcome'], 'worker-unclaimed')
+        self.assertFalse(self.gl.paused)
+
+    def test_scheduled_gc_previous_slot_blocks_hourly_until_retired(self):
+        who = self.scheduled_gc()
+        self.coordinate()
+        self.clock = self.slot + 1
+        self.claim_gc(who)
+        self.finish('coord')
+        self.clock = self.slot + 1801  # Next hourly :47 cache slot.
+        self.coordinator['metadata']['labels']['app'] = a.CACHE_CONTROL
+        meta = self.api.jobs['coord-job']['metadata']
+        meta['ownerReferences'][0]['name'] = a.CACHE_CONTROL
+        meta['annotations']['batch.kubernetes.io/cronjob-scheduled-timestamp'] = (
+            a.dt.datetime.fromtimestamp(self.slot + 1800, a.dt.timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ'))
+        with self.assertRaisesRegex(a.Refuse, 'operation not closed'):
+            self.coordinate()
+        self.recover()
+        self.assertEqual(self.gl.puts, [{'paused': True}])
+        self.finish('gc')
+        self.recover()
+        self.assertEqual(self.gl.puts, [{'paused': True}, {'paused': False}])
+        self.assertEqual(self.state()['phase'], 'DONE')
+        # The frozen cache entrypoint supplies neither a slot nor a gate.
+        self.hourly_worker_slot(self.slot + 1800)
+        self.assert_cache_refuses_within_control_window()
+
+    def hourly_worker_slot(self, slot):
+        self.api.jobs['worker-job']['metadata']['annotations']['batch.kubernetes.io/cronjob-scheduled-timestamp'] = (
+            a.dt.datetime.fromtimestamp(slot, a.dt.timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ'))
+
+    def assert_cache_refuses_within_control_window(self, transition=None):
+        start = self.clock
+        def poll(seconds):
+            self.clock += seconds
+            if transition is not None:
+                transition()
+        fence = a.WorkerFence(self.store, self.who, now=lambda: self.clock)
+        with self.assertRaises(a.Refuse):
+            fence.claim(sleep=poll)
+        self.assertLessEqual(self.clock - start, 90, 'unclaimed cache worker retained Hestia')
+        self.assertIsNone(fence.operation)
+
+    def test_cache_foreign_claimed_to_done_between_polls_releases(self):
+        who = self.scheduled_gc()
+        self.coordinate()
+        self.clock = self.slot + 1
+        self.claim_gc(who)
+        self.finish('coord')
+        self.clock = self.slot + 1801
+        self.hourly_worker_slot(self.slot + 1800)
+        def restore():
+            self.finish('gc')
+            self.recover()
+        self.assert_cache_refuses_within_control_window(restore)
+
+    def test_cache_pregrant_consumer_arrival_releases_without_claim(self):
+        cases = ((wait_phase, node, phase)
+                 for wait_phase in ('IDLE', 'PAUSE_INTENT', 'DRAINING')
+                 for node, phase in (('', 'Pending'), ('hestia', 'Pending'),
+                                     ('hestia', 'Running'), ('unknown', 'Running')))
+        for wait_phase, node, phase in cases:
+            with self.subTest(wait_phase=wait_phase, node=node, phase=phase):
+                self.setUp()
+                if wait_phase != 'IDLE':
+                    state = self.state()
+                    state['phase'] = wait_phase
+                    state['operation'] = a.new_operation(self.slot, self.me, self.policy)
+                    if wait_phase == 'DRAINING':
+                        state['operation']['write'] = 'none'
+                    self.save(state)
+                start = self.clock
+                def materialize(seconds):
+                    job = copy.deepcopy(self.worker)
+                    job['metadata'].update(namespace='ci', name='accepted', uid='accepted',
+                                           labels={'ci.brmartin.co.uk/job': 'true'})
+                    job['spec']['nodeName'] = node
+                    job['status']['phase'] = phase
+                    self.api.snapshot.append(job)
+                    self.clock += seconds
+                fence = a.WorkerFence(self.store, self.who, now=lambda: self.clock)
+                with self.assertRaisesRegex((a.Refuse, r.Refuse), 'active CI Pod'):
+                    fence.claim(sleep=materialize)
+                self.assertLessEqual(self.clock - start, 2)
+                self.assertIsNone(fence.operation)
+                self.assertEqual(self.gl.puts, [])
+
+    def test_cache_start_before_pause_from_idle_or_previous_gc_done_can_claim(self):
+        for previous_gc in (False, True):
+            with self.subTest(previous_gc=previous_gc):
+                self.setUp()
+                if previous_gc:
+                    who = self.scheduled_gc()
+                    self.coordinate()
+                    self.clock = self.slot + 1
+                    self.claim_gc(who)
+                    self.finish('coord')
+                    self.finish('gc')
+                    self.recover()
+                    self.finish('recovery')
+                    self.slot += 1800
+                    self.clock = self.slot + 1
+                    self.coordinator['metadata']['labels']['app'] = a.CACHE_CONTROL
+                    self.coordinator['status'] = copy.deepcopy(self.worker['status'])
+                    meta = self.api.jobs['coord-job']['metadata']
+                    meta['ownerReferences'][0]['name'] = a.CACHE_CONTROL
+                    meta['annotations']['batch.kubernetes.io/cronjob-scheduled-timestamp'] = (
+                        a.dt.datetime.fromtimestamp(self.slot, a.dt.timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ'))
+                    self.hourly_worker_slot(self.slot)
+                    state = self.state()
+                    state['heartbeat'] = self.clock
+                    self.save(state)
+                def grant(seconds):
+                    self.clock += seconds
+                    self.coordinate()
+                fence = a.WorkerFence(self.store, self.who, now=lambda: self.clock)
+                fence.claim(sleep=grant)
+                self.assertEqual(self.state()['phase'], 'CLAIMED')
+                self.assertEqual(self.state()['operation']['slot'], self.slot)
+
+    def test_cache_pending_self_published_running_can_claim(self):
+        for start in ('ADMITTED', 'IDLE', 'heracles', 'nyx'):
+            with self.subTest(start=start):
+                self.setUp()
+                self.worker['status']['phase'] = 'Pending'
+                if start != 'IDLE':
+                    self.coordinate()
+                if start in {'heracles', 'nyx'}:
+                    remote = copy.deepcopy(self.worker)
+                    remote['metadata'].update(namespace='ci', name='remote', uid='remote',
+                                              labels={'ci.brmartin.co.uk/job': 'true'})
+                    remote['spec']['nodeName'] = start
+                    self.api.snapshot.append(remote)
+                sleeps = []
+                fence = a.WorkerFence(self.store, self.who, now=lambda: self.clock)
+                def publish(seconds):
+                    sleeps.append(seconds)
+                    self.assertIsNone(fence.operation)
+                    op = self.state()['operation']
+                    self.assertTrue(op is None or not op['claimed'])
+                    self.assertEqual(self.worker['status']['phase'], 'Pending')
+                    self.clock += seconds
+                    self.worker['status']['phase'] = 'Running'
+                    if start == 'IDLE':
+                        self.coordinate()
+                fence.claim(sleep=publish)
+                self.assertEqual(sleeps, [2])
+                self.assertEqual(self.state()['phase'], 'CLAIMED')
+                self.assertTrue(self.state()['operation']['claimed'])
+                fence.check()
+
+    def test_cache_persistent_pending_self_is_bounded_and_unclaimed(self):
+        for admitted in (False, True):
+            with self.subTest(admitted=admitted):
+                self.setUp()
+                self.worker['status']['phase'] = 'Pending'
+                if admitted:
+                    self.coordinate()
+                start, sleeps = self.clock, []
+                fence = a.WorkerFence(self.store, self.who, now=lambda: self.clock)
+                def poll(seconds):
+                    sleeps.append(seconds)
+                    self.clock += seconds
+                    self.assertIsNone(fence.operation)
+                    op = self.state()['operation']
+                    self.assertTrue(op is None or not op['claimed'])
+                with self.assertRaisesRegex(a.Refuse, 'did not become Running'):
+                    fence.claim(sleep=poll)
+                self.assertEqual(sleeps, [2] * 14)
+                self.assertEqual(self.clock - start, 28)
+                self.assertIsNone(fence.operation)
+                self.assertEqual(self.state()['phase'], 'ADMITTED' if admitted else 'IDLE')
+
+    def test_cache_pending_self_consumer_arrival_refuses_without_claim(self):
+        for namespace in ('ci', a.WORKER_NAMESPACE):
+            with self.subTest(namespace=namespace):
+                self.setUp()
+                self.worker['status']['phase'] = 'Pending'
+                self.coordinate()
+                sleeps = []
+                def materialize(seconds):
+                    sleeps.append(seconds)
+                    self.assertFalse(self.state()['operation']['claimed'])
+                    self.clock += seconds
+                    job = copy.deepcopy(self.worker)
+                    job['metadata'].update(namespace=namespace, name='accepted', uid='accepted')
+                    job['spec']['nodeName'] = ''
+                    self.api.snapshot.append(job)
+                fence = a.WorkerFence(self.store, self.who, now=lambda: self.clock)
+                with self.assertRaisesRegex(a.Refuse, 'active CI Pod'):
+                    fence.claim(sleep=materialize)
+                self.assertEqual(sleeps, [2])
+                self.assertFalse(self.state()['operation']['claimed'])
+                self.assertIsNone(fence.operation)
+
+    def test_cache_pending_self_invalidated_during_wait_refuses_immediately(self):
+        for kind in ('uid', 'owner', 'labels', 'app', 'node', 'deleting', 'unknown', 'job-uid'):
+            with self.subTest(kind=kind):
+                self.setUp()
+                self.worker['status']['phase'] = 'Pending'
+                self.coordinate()
+                sleeps = []
+                def invalidate(seconds):
+                    sleeps.append(seconds)
+                    self.assertEqual(len(sleeps), 1, 'invalid self was retried')
+                    self.assertFalse(self.state()['operation']['claimed'])
+                    self.clock += seconds
+                    if kind == 'uid':
+                        self.worker['metadata']['uid'] = 'replacement'
+                    elif kind == 'owner':
+                        self.worker['metadata']['ownerReferences'][0]['uid'] = 'replacement'
+                    elif kind == 'labels':
+                        self.worker['metadata']['labels']['ci.brmartin.co.uk/maintenance'] = 'false'
+                    elif kind == 'app':
+                        self.worker['metadata']['labels']['app'] = a.GC
+                    elif kind == 'node':
+                        self.worker['spec']['nodeName'] = 'heracles'
+                    elif kind == 'deleting':
+                        self.worker['metadata']['deletionTimestamp'] = '2026-11-09T00:00:00Z'
+                    elif kind == 'unknown':
+                        self.worker['status']['phase'] = 'Unknown'
+                    else:
+                        self.api.jobs['worker-job']['metadata']['uid'] = 'replacement'
+                fence = a.WorkerFence(self.store, self.who, now=lambda: self.clock)
+                with self.assertRaises(a.Refuse):
+                    fence.claim(sleep=invalidate)
+                self.assertEqual(sleeps, [2])
+                self.assertFalse(self.state()['operation']['claimed'])
+                self.assertIsNone(fence.operation)
+
+    def test_cache_pending_self_rechecks_complete_unique_snapshots(self):
+        for kind in ('incomplete', 'malformed', 'duplicate'):
+            with self.subTest(kind=kind):
+                self.setUp()
+                self.worker['status']['phase'] = 'Pending'
+                self.coordinate()
+                original, sleeps = self.api.request, []
+                def request(method, path, body=None):
+                    value, headers = original(method, path, body)
+                    if sleeps and path.startswith(a.PODS):
+                        assert isinstance(value, dict)
+                        if kind == 'incomplete':
+                            value['metadata']['continue'] = 'next'
+                        elif kind == 'malformed':
+                            value['items'].append({'metadata': {}})
+                        else:
+                            duplicate = copy.deepcopy(self.worker)
+                            duplicate['metadata']['namespace'] = 'ci'
+                            value['items'].append(duplicate)
+                    return value, headers
+                def poll(seconds):
+                    sleeps.append(seconds)
+                    self.assertEqual(len(sleeps), 1, 'invalid snapshot was retried')
+                    self.clock += seconds
+                fence = a.WorkerFence(self.store, self.who, now=lambda: self.clock)
+                with patch.object(self.api, 'request', request), self.assertRaises(a.Refuse):
+                    fence.claim(sleep=poll)
+                self.assertEqual(sleeps, [2])
+                self.assertFalse(self.state()['operation']['claimed'])
+                self.assertIsNone(fence.operation)
+
+    def test_cache_same_slot_done_or_foreign_worker_grant_never_waits(self):
+        for phase in ('DONE', 'ADMITTED', 'CLAIMED'):
+            with self.subTest(phase=phase):
+                self.setUp()
+                self.coordinate()
+                state = self.state()
+                state['phase'] = phase
+                if phase == 'DONE':
+                    state['operation']['restored'] = True
+                else:
+                    state['operation']['worker'] = dict(self.who, uid='replacement')
+                    state['operation']['claimed'] = phase == 'CLAIMED'
+                self.save(state)
+                with self.assertRaises(a.Refuse):
+                    a.WorkerFence(self.store, self.who, now=lambda: self.clock).claim(sleep=self.fail)
+
+    def test_scheduled_gc_duplicate_worker_and_wrong_control_schedule_refused(self):
+        self.scheduled_gc()
+        duplicate = copy.deepcopy(self.api.snapshot[-1])
+        duplicate['metadata'].update(name='gc-duplicate', uid='gc-duplicate')
+        self.api.snapshot.append(duplicate)
+        with self.assertRaisesRegex(a.Refuse, 'ambiguous worker'):
+            self.coordinate()
+        self.assertIsNone(self.state()['operation']['worker'])
+        self.setUp()
+        self.scheduled_gc()
+        self.api.jobs['coord-job']['metadata']['annotations']['batch.kubernetes.io/cronjob-scheduled-timestamp'] = (
+            a.dt.datetime.fromtimestamp(self.slot, a.dt.timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ'))
+        with self.assertRaises(a.Refuse):
+            self.coordinate()
+        self.assertEqual(self.gl.puts, [])
 
     def claim_gc(self, who):
         a.gc_claim(self.store, who, lambda: None, now=lambda: self.clock)

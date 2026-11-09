@@ -33,6 +33,16 @@ PHASES = {'IDLE', 'PAUSE_INTENT', 'DRAINING', 'ADMITTED', 'CLAIMED',
 # Observe pre-execution first, then running (including native prepare), then canceling.
 ACTIVE = ('created', 'waiting_for_resource', 'preparing', 'waiting_for_callback',
           'pending', 'manual', 'scheduled', 'running', 'canceling')
+# Disjoint logical worker slots keep schema 1 constant-sized. GC control is
+# scheduled one minute earlier, before the worker competes for Hestia's slot.
+CACHE = 'hestia-ci-cache-retention'
+GC = 'hestia-ci-store-gc'
+CACHE_CONTROL = 'hestia-ci-maintenance-admission'
+GC_CONTROL = 'hestia-ci-store-gc-admission'
+
+
+def gc_slot(slot):
+    return slot % 86400 == 4 * 3600 + 17 * 60
 
 
 class Refuse(RuntimeError):
@@ -103,7 +113,7 @@ def validate(state, uid, policy):
     require(all(type(op[k]) is bool for k in ('claimed', 'baseline', 'restore_required', 'restored'))
             and op['baseline'] is False and op['restore_required'] is True
             and all(type(op[k]) is int for k in ('slot', 'drain_by', 'cleanup_by', 'recover_by'))
-            and op['slot'] % 3600 == 47 * 60
+            and (op['slot'] % 3600 == 47 * 60 or gc_slot(op['slot']))
             and op['drain_by'] == op['slot'] + 1200
             and op['cleanup_by'] == op['slot'] + 1800
             and op['recover_by'] == op['slot'] + 2700
@@ -225,26 +235,37 @@ def bundle(pod):
     return name
 
 
-def scheduled(api, pod, cron):
+def scheduled(api, pod, cron, allow_manual=False):
     ident = pod_identity(pod)
-    namespace = WORKER_NAMESPACE if cron == 'hestia-ci-cache-retention' else 'ci-maintenance'
+    require(cron in {CACHE, GC, CACHE_CONTROL, GC_CONTROL}, 'unknown scheduled role')
+    namespace = WORKER_NAMESPACE if cron in {CACHE, GC} else 'ci-maintenance'
     require(ident['namespace'] == namespace, 'wrong scheduled namespace')
     job, _ = api.request('GET', '/apis/batch/v1/namespaces/' + ident['namespace'] + '/jobs/' + urllib.parse.quote(ident['job'], safe=''))
     require(job.get('metadata', {}).get('uid') == ident['job_uid']
             and job['metadata'].get('namespace') == namespace
-            and job['metadata'].get('name') == ident['job'], 'Job generation changed')
+            and job['metadata'].get('name') == ident['job']
+            and not job['metadata'].get('deletionTimestamp'), 'Job generation changed')
     template = job.get('spec', {}).get('template', {})
-    sa = 'hestia-ci-maintenance-worker' if namespace == WORKER_NAMESPACE else cron
+    sa = GC if cron == GC else 'hestia-ci-maintenance-worker' if cron == CACHE else CACHE_CONTROL
     require(pod['spec'].get('serviceAccountName') == sa
             and template.get('spec', {}).get('serviceAccountName') == sa
             and bundle(template) == bundle(pod), 'Job policy or service account changed')
     refs = job['metadata'].get('ownerReferences', [])
-    require(len(refs) == 1 and refs[0].get('kind') == 'CronJob' and refs[0].get('name') == cron
+    if (allow_manual and cron == GC and refs == []
+            and 'batch.kubernetes.io/cronjob-scheduled-timestamp' not in job['metadata'].get('annotations', {})):
+        return None
+    require(type(refs) is list and len(refs) == 1 and type(refs[0]) is dict
+            and refs[0].get('kind') == 'CronJob' and refs[0].get('name') == cron
             and refs[0].get('controller') is True and text(refs[0].get('uid')), 'not a scheduled native Job')
     annotation = job['metadata'].get('annotations', {}).get('batch.kubernetes.io/cronjob-scheduled-timestamp')
-    require(type(annotation) is str and re.fullmatch(r'\d{4}-\d\d-\d\dT\d\d:47:00Z', annotation) is not None,
+    require(type(annotation) is str and re.fullmatch(r'\d{4}-\d\d-\d\dT\d\d:\d\d:00Z', annotation) is not None,
             'missing exact UTC schedule')
-    return int(dt.datetime.strptime(annotation, '%Y-%m-%dT%H:%M:%SZ').replace(tzinfo=dt.timezone.utc).timestamp())
+    slot = int(dt.datetime.strptime(annotation, '%Y-%m-%dT%H:%M:%SZ').replace(tzinfo=dt.timezone.utc).timestamp())
+    if cron == GC_CONTROL:
+        slot += 60  # Explicit logical worker-slot offset, not start-time inference.
+    require(gc_slot(slot) if cron in {GC, GC_CONTROL} else slot % 3600 == 47 * 60,
+            'wrong native schedule slot')
+    return slot
 
 
 def terminal(snapshot, ident):
@@ -279,7 +300,7 @@ def retire_gc(state, snapshot):
     return state['gc_holder'] is None
 
 
-def gc_claim(store, me, gate, now=time.time):
+def gc_claim(store, me, gate, now=time.time, sleep=time.sleep):
     require(me['namespace'] == WORKER_NAMESPACE, 'wrong GC namespace')
     own = next((p for p in pods(store.api, WORKER_NAMESPACE) if pod_identity(p) == me), None)
     require(own is not None and own['metadata']['labels'].get('app') == 'hestia-ci-store-gc', 'GC identity absent')
@@ -292,7 +313,18 @@ def gc_claim(store, me, gate, now=time.time):
             and own['spec'].get('serviceAccountName') == 'hestia-ci-store-gc'
             and template.get('spec', {}).get('serviceAccountName') == 'hestia-ci-store-gc'
             and bundle(template) == bundle(own), 'GC Job generation or policy changed')
-    # Manual Jobs are supported: identity is native Job UID, not a UV schedule.
+    # Any scheduling evidence must authenticate as daily GC. Never downgrade a
+    # malformed/foreign/late scheduled Job to the quiet-window manual path.
+    refs = meta.get('ownerReferences', [])
+    require(type(refs) is list, 'invalid GC Job owners')
+    if refs or 'batch.kubernetes.io/cronjob-scheduled-timestamp' in meta.get('annotations', {}):
+        slot = scheduled(store.api, own, GC)
+        fence = WorkerFence(store, me, now=now)
+        fence.claim(sleep=sleep, gate=gate, slot=slot)
+        gate()
+        fence.check()
+        return
+    # Unowned native manual Jobs retain the existing quiet IDLE/DONE CAS path.
     gate()
     cm, state = store.read()
     require(state['phase'] in {'IDLE', 'DONE'} and state['gc_holder'] is None, 'GC admission closed')
@@ -328,11 +360,14 @@ def drained(api):
     return True
 
 
-def ci_drained(snapshot):
+def ci_drained(snapshot, self_uid=None):
     for pod in snapshot:
         labels = pod['metadata'].get('labels')
         require(type(labels) is dict, 'missing Pod labels')
-        if labels.get('ci.brmartin.co.uk/job') == 'true' and labels.get('ci.brmartin.co.uk/maintenance') != 'true':
+        if pod['metadata']['uid'] == self_uid:
+            continue
+        if labels.get('ci.brmartin.co.uk/job') == 'true' and (self_uid is not None
+                or labels.get('ci.brmartin.co.uk/maintenance') != 'true'):
             phase = pod['status']['phase']
             if pod['metadata'].get('deletionTimestamp') or phase not in {'Running', 'Pending', 'Succeeded', 'Failed'}:
                 return False
@@ -362,8 +397,12 @@ def coordinate(store, gitlab, me, now=time.time, sleep=time.sleep):
     snapshot = snapshot_all(store.api)
     own = next((p for p in snapshot if p['metadata']['uid'] == me['uid']), None)
     require(own is not None and pod_identity(own) == me, 'coordinator absent')
-    slot = scheduled(store.api, own, 'hestia-ci-maintenance-admission')
-    require(0 <= now() - slot <= 90, 'late/old schedule refused')
+    cron = own['metadata']['labels'].get('app')
+    require(cron in {CACHE_CONTROL, GC_CONTROL}, 'wrong coordinator role')
+    slot = scheduled(store.api, own, cron)
+    worker_cron = GC if cron == GC_CONTROL else CACHE
+    control_slot = slot - 60 if cron == GC_CONTROL else slot
+    require(0 <= now() - control_slot <= 90, 'late/old schedule refused')
     cm, state = store.read()
     require(state['phase'] in {'IDLE', 'DONE'}, 'operation not closed')
     require(0 <= now() - state['heartbeat'] <= 150 and now() + 2700 < TOKEN_EXPIRY,
@@ -398,13 +437,19 @@ def coordinate(store, gitlab, me, now=time.time, sleep=time.sleep):
         require(state['phase'] == 'DRAINING' and state['operation']['coordinator'] == me,
                 'drain ownership sealed')
         snapshot = snapshot_all(store.api)
+        candidates = [p for p in snapshot if p['metadata']['namespace'] == WORKER_NAMESPACE
+                      and p['metadata'].get('labels', {}).get('app') == worker_cron
+                      and bundle(p) == bundle(own)
+                      and not p['metadata'].get('deletionTimestamp')
+                      and scheduled(store.api, p, worker_cron, allow_manual=worker_cron == GC) == slot]
+        require(len(candidates) <= 1, 'ambiguous worker generation')
+        if candidates and terminal(snapshot, pod_identity(candidates[0])):
+            state['operation']['worker'] = pod_identity(candidates[0])
+            state['phase'], state['operation']['outcome'] = 'CLOSING', 'worker-refused'
+            store.save(cm, state)
+            raise Refuse('worker retired before admission')
         if retire_gc(state, snapshot) and runner(gitlab) and drained(gitlab) and ci_drained(snapshot):
-            workers = [p for p in snapshot if p['metadata']['namespace'] == WORKER_NAMESPACE
-                       and p['metadata'].get('labels', {}).get('app') == 'hestia-ci-cache-retention'
-                       and bundle(p) == bundle(own)
-                       and p['status']['phase'] in {'Pending', 'Running'} and not p['metadata'].get('deletionTimestamp')
-                       and scheduled(store.api, p, 'hestia-ci-cache-retention') == slot]
-            require(len(workers) <= 1, 'ambiguous worker generation')
+            workers = [p for p in candidates if p['status']['phase'] in {'Pending', 'Running'}]
             if workers:
                 state['operation']['worker'] = pod_identity(workers[0])
                 state['operation']['outcome'] = 'admitted'
@@ -450,7 +495,7 @@ def recover(store, gitlab, me, now=time.time):
         if now() < op['drain_by'] and not terminal(snapshot, op['coordinator']):
             return
     elif state['phase'] in {'ADMITTED', 'CLAIMED'}:
-        if now() < op['cleanup_by'] and not (op['claimed'] and terminal(snapshot, op['worker'])):
+        if now() < op['cleanup_by'] and not terminal(snapshot, op['worker']):
             return
     if state['phase'] != 'RESTORING':
         # CAS seal races the only ADMITTED->CLAIMED CAS. Never erase claim latch.
@@ -494,16 +539,91 @@ class WorkerFence:
         require(me['namespace'] == WORKER_NAMESPACE, 'wrong worker namespace')
         self.store, self.me, self.now, self.operation = store, me, now, None
 
-    def claim(self, sleep=time.sleep):
+    def claim(self, sleep=time.sleep, gate=None, slot=None):
         end = self.now() + 1200
+        cache_slot, generation = None, None
+        pending_observations = 0
+        if slot is None:
+            # The frozen hourly caller supplies no flags. Authenticate its own
+            # native slot, not the operation left by a different maintenance Job.
+            own = next((p for p in pods(self.store.api, WORKER_NAMESPACE)
+                        if pod_identity(p) == self.me), None)
+            require(own is not None and own['metadata']['labels'].get('app') == CACHE,
+                    'cache worker identity absent')
+            cache_slot = scheduled(self.store.api, own, CACHE)
+            require(cache_slot <= self.now() < cache_slot + 1200, 'cache worker slot expired')
+            end = cache_slot + 1200
+        if slot is not None:
+            require(gc_slot(slot) and slot <= self.now() < slot + 1200, 'GC worker slot expired')
+            end = slot + 1200
         while self.now() < end:
+            cache_running = True
+            if cache_slot is not None:
+                # No control namespace observations or management credential.
+                # Include other maintenance workers, and never exempt Pending CI.
+                snapshot = pods(self.store.api) + pods(self.store.api, WORKER_NAMESPACE)
+                require(len({p['metadata']['uid'] for p in snapshot}) == len(snapshot),
+                        'duplicate snapshot UID')
+                own = next((p for p in snapshot if p['metadata']['namespace'] == WORKER_NAMESPACE
+                            and pod_identity(p) == self.me), None)
+                if own is None:
+                    raise Refuse('cache worker identity absent')
+                require(own['spec'].get('nodeName') == 'hestia'
+                        and own['status']['phase'] in {'Running', 'Pending'}
+                        and own['metadata']['labels'].get('app') == CACHE
+                        and own['metadata']['labels'].get('ci.brmartin.co.uk/job') == 'true'
+                        and own['metadata']['labels'].get('ci.brmartin.co.uk/maintenance') == 'true'
+                        and not own['metadata'].get('deletionTimestamp'), 'cache worker identity invalid')
+                require(scheduled(self.store.api, own, CACHE) == cache_slot, 'cache worker slot changed')
+                require(ci_drained(snapshot, self.me['uid']), 'active CI Pod')
+                require(self.now() < end, 'cache worker slot expired during gate')
+                cache_running = own['status']['phase'] == 'Running'
+                if not cache_running:
+                    # Match the frozen caller's 15-observation / 2s startup
+                    # bound, without resetting either native admission deadline.
+                    pending_observations += 1
+                    require(pending_observations < 15, 'maintenance Pod did not become Running')
+            if gate is not None:
+                # A waiting GC must release Hestia if accepted CI materializes.
+                # This is the same API consumer gate as the final effect gate.
+                gate()
+            if slot is not None:
+                require(self.now() < end, 'GC worker slot expired during gate')
             cm, state = self.store.read()
             op = state['operation']
+            if cache_slot is not None:
+                if (op is None and state['phase'] == 'IDLE'
+                        or op is not None and op['slot'] < cache_slot and state['phase'] == 'DONE'):
+                    # A healthy controller may start just after its worker. Only
+                    # its existing 90s start window permits waiting on old DONE;
+                    # consumer checks above release the node if CI needs it.
+                    require(generation is None and self.now() < cache_slot + 90,
+                            'cache coordinator start window closed')
+                    sleep(min(2, cache_slot + 90 - self.now()))
+                    continue
+                require(op is not None and op['slot'] == cache_slot
+                        and state['phase'] in {'PAUSE_INTENT', 'DRAINING', 'ADMITTED'}
+                        and op['worker'] in (None, self.me)
+                        and (generation is None or op['id'] == generation),
+                        'cache admission wrong-slot, replaced or sealed')
+                generation = op['id']
+            if slot is not None:
+                require(op is not None and op['slot'] == slot
+                        and state['phase'] in {'PAUSE_INTENT', 'DRAINING', 'ADMITTED'}
+                        and op['worker'] in (None, self.me), 'GC admission missing, wrong-slot or sealed')
+                # The control-only CAS authenticates coordinator identity and
+                # cross-namespace bundle equality before granting this worker.
+                # Workers have no control-namespace Pod/Job observation grant.
             if op is not None and op['worker'] == self.me:
                 require(self.now() < op['cleanup_by'], 'worker deadline expired')
                 if state['phase'] == 'ADMITTED':
                     require(state['gc_holder'] is None, 'GC holder not retired')
+                    if not cache_running:
+                        sleep(2)
+                        continue  # No claim/effects until the API publishes Running.
                     state['phase'], op['claimed'] = 'CLAIMED', True
+                    if slot is not None:
+                        state['gc_holder'] = {'identity': self.me, 'claimed_at': int(self.now())}
                     self.store.save(cm, state)
                     self.operation = op['id']
                     self.check()
@@ -519,6 +639,9 @@ class WorkerFence:
         require(state['phase'] == 'CLAIMED' and op['id'] == self.operation
                 and op['worker'] == self.me and op['claimed'] is True
                 and op['write'] == 'none' and self.now() < op['cleanup_by'], 'worker fence revoked')
+        if gc_slot(op['slot']):
+            require(state['gc_holder'] is not None and state['gc_holder']['identity'] == self.me,
+                    'GC holder fence revoked')
 
 
 def kube_store():
