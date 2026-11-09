@@ -63,8 +63,10 @@ class RunnerConfigTests(unittest.TestCase):
         self.assertEqual(state['metadata']['namespace'], 'ci-maintenance')
         self.assertNotIn('data', state)
         self.assertEqual(state['metadata']['annotations']['kustomize.toolkit.fluxcd.io/ssa'], 'Merge')
-        for name, bound in (('admission', 1380), ('recovery', 50)):
-            job = jobs['hestia-ci-maintenance-' + name]
+        self.assertEqual(jobs['hestia-ci-store-gc-admission']['spec']['schedule'], '16 4 * * *')
+        for name, bound in (('hestia-ci-maintenance-admission', 1380),
+                            ('hestia-ci-store-gc-admission', 1380), ('hestia-ci-maintenance-recovery', 50)):
+            job = jobs[name]
             self.assertEqual(job['metadata']['namespace'], 'ci-maintenance')
             self.assertEqual(job['spec']['jobTemplate']['spec']['activeDeadlineSeconds'], bound)
             template = job['spec']['jobTemplate']['spec']['template']
@@ -102,10 +104,14 @@ class RunnerConfigTests(unittest.TestCase):
         self.assertIn(('ci-maintenance-worker', 'hestia-ci-maintenance-worker'), accounts)
         self.assertNotIn(('ci', 'hestia-ci-maintenance-worker'), accounts)
         policy, = [v for v in worker['volumes'] if v['name'] == 'policy']
-        for control in ('admission', 'recovery'):
-            control_pod = jobs['hestia-ci-maintenance-' + control]['spec']['jobTemplate']['spec']['template']['spec']
+        for control in ('hestia-ci-maintenance-admission', 'hestia-ci-store-gc-admission', 'hestia-ci-maintenance-recovery'):
+            control_pod = jobs[control]['spec']['jobTemplate']['spec']['template']['spec']
             control_policy, = [v for v in control_pod['volumes'] if v['name'] == 'policy']
             self.assertEqual(policy['configMap']['name'], control_policy['configMap']['name'])
+        gc_control = copy.deepcopy(jobs['hestia-ci-store-gc-admission']['spec'])
+        gc_control['schedule'] = '47 * * * *'
+        gc_control['jobTemplate']['spec']['template']['metadata']['labels'] = {'app': 'hestia-ci-maintenance-admission'}
+        self.assertEqual(gc_control, jobs['hestia-ci-maintenance-admission']['spec'])
         self.assertTrue(any(o['kind'] == 'ConfigMap' and o['metadata']['namespace'] == 'ci-maintenance-worker'
                             and o['metadata']['name'] == policy['configMap']['name'] for o in self.objects))
         self.assertFalse(any('secret' in v for v in worker['volumes']))

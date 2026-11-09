@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import argparse
+import copy
 import re
 import shutil
 import subprocess
@@ -185,6 +186,14 @@ def pod_spec(cronjob: dict[str, Any]) -> dict[str, Any]:
 
 
 def validate_gc(resources: list[dict[str, Any]], checks: Checks) -> None:
+    control = checks.one(resources, 'CronJob', 'hestia-ci-store-gc-admission')
+    cache_control = checks.one(resources, 'CronJob', 'hestia-ci-maintenance-admission')
+    checks.equal(control.get('metadata', {}).get('namespace'), 'ci-maintenance', 'GC control namespace')
+    if control and cache_control:
+        expected = copy.deepcopy(cache_control['spec'])
+        expected['schedule'] = '16 4 * * *'
+        expected['jobTemplate']['spec']['template']['metadata']['labels'] = {'app': 'hestia-ci-store-gc-admission'}
+        checks.equal(control.get('spec'), expected, 'GC control pins and schedule')
     cronjob = checks.one(resources, "CronJob", "hestia-ci-store-gc")
     service_account = checks.one(resources, "ServiceAccount", "hestia-ci-store-gc")
     role = checks.one(resources, "Role", "hestia-ci-store-gc")
