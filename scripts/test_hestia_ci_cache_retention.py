@@ -393,6 +393,119 @@ class AdmissionTests(unittest.TestCase):
         self.finish('gc')
         self.recover()
         self.assertEqual(self.gl.puts, [{'paused': True}, {'paused': False}])
+        self.assertEqual(self.state()['phase'], 'DONE')
+        # The frozen cache entrypoint supplies neither a slot nor a gate.
+        self.hourly_worker_slot(self.slot + 1800)
+        self.assert_cache_refuses_within_control_window()
+
+    def hourly_worker_slot(self, slot):
+        self.api.jobs['worker-job']['metadata']['annotations']['batch.kubernetes.io/cronjob-scheduled-timestamp'] = (
+            a.dt.datetime.fromtimestamp(slot, a.dt.timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ'))
+
+    def assert_cache_refuses_within_control_window(self, transition=None):
+        start = self.clock
+        def poll(seconds):
+            self.clock += seconds
+            if transition is not None:
+                transition()
+        fence = a.WorkerFence(self.store, self.who, now=lambda: self.clock)
+        with self.assertRaises(a.Refuse):
+            fence.claim(sleep=poll)
+        self.assertLessEqual(self.clock - start, 90, 'unclaimed cache worker retained Hestia')
+        self.assertIsNone(fence.operation)
+
+    def test_cache_foreign_claimed_to_done_between_polls_releases(self):
+        who = self.scheduled_gc()
+        self.coordinate()
+        self.clock = self.slot + 1
+        self.claim_gc(who)
+        self.finish('coord')
+        self.clock = self.slot + 1801
+        self.hourly_worker_slot(self.slot + 1800)
+        def restore():
+            self.finish('gc')
+            self.recover()
+        self.assert_cache_refuses_within_control_window(restore)
+
+    def test_cache_pregrant_consumer_arrival_releases_without_claim(self):
+        cases = ((wait_phase, node, phase)
+                 for wait_phase in ('IDLE', 'PAUSE_INTENT', 'DRAINING')
+                 for node, phase in (('', 'Pending'), ('hestia', 'Pending'),
+                                     ('hestia', 'Running'), ('unknown', 'Running')))
+        for wait_phase, node, phase in cases:
+            with self.subTest(wait_phase=wait_phase, node=node, phase=phase):
+                self.setUp()
+                if wait_phase != 'IDLE':
+                    state = self.state()
+                    state['phase'] = wait_phase
+                    state['operation'] = a.new_operation(self.slot, self.me, self.policy)
+                    if wait_phase == 'DRAINING':
+                        state['operation']['write'] = 'none'
+                    self.save(state)
+                start = self.clock
+                def materialize(seconds):
+                    job = copy.deepcopy(self.worker)
+                    job['metadata'].update(namespace='ci', name='accepted', uid='accepted',
+                                           labels={'ci.brmartin.co.uk/job': 'true'})
+                    job['spec']['nodeName'] = node
+                    job['status']['phase'] = phase
+                    self.api.snapshot.append(job)
+                    self.clock += seconds
+                fence = a.WorkerFence(self.store, self.who, now=lambda: self.clock)
+                with self.assertRaisesRegex((a.Refuse, r.Refuse), 'active CI Pod'):
+                    fence.claim(sleep=materialize)
+                self.assertLessEqual(self.clock - start, 2)
+                self.assertIsNone(fence.operation)
+                self.assertEqual(self.gl.puts, [])
+
+    def test_cache_start_before_pause_from_idle_or_previous_gc_done_can_claim(self):
+        for previous_gc in (False, True):
+            with self.subTest(previous_gc=previous_gc):
+                self.setUp()
+                if previous_gc:
+                    who = self.scheduled_gc()
+                    self.coordinate()
+                    self.clock = self.slot + 1
+                    self.claim_gc(who)
+                    self.finish('coord')
+                    self.finish('gc')
+                    self.recover()
+                    self.finish('recovery')
+                    self.slot += 1800
+                    self.clock = self.slot + 1
+                    self.coordinator['metadata']['labels']['app'] = a.CACHE_CONTROL
+                    self.coordinator['status'] = copy.deepcopy(self.worker['status'])
+                    meta = self.api.jobs['coord-job']['metadata']
+                    meta['ownerReferences'][0]['name'] = a.CACHE_CONTROL
+                    meta['annotations']['batch.kubernetes.io/cronjob-scheduled-timestamp'] = (
+                        a.dt.datetime.fromtimestamp(self.slot, a.dt.timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ'))
+                    self.hourly_worker_slot(self.slot)
+                    state = self.state()
+                    state['heartbeat'] = self.clock
+                    self.save(state)
+                def grant(seconds):
+                    self.clock += seconds
+                    self.coordinate()
+                fence = a.WorkerFence(self.store, self.who, now=lambda: self.clock)
+                fence.claim(sleep=grant)
+                self.assertEqual(self.state()['phase'], 'CLAIMED')
+                self.assertEqual(self.state()['operation']['slot'], self.slot)
+
+    def test_cache_same_slot_done_or_foreign_worker_grant_never_waits(self):
+        for phase in ('DONE', 'ADMITTED', 'CLAIMED'):
+            with self.subTest(phase=phase):
+                self.setUp()
+                self.coordinate()
+                state = self.state()
+                state['phase'] = phase
+                if phase == 'DONE':
+                    state['operation']['restored'] = True
+                else:
+                    state['operation']['worker'] = dict(self.who, uid='replacement')
+                    state['operation']['claimed'] = phase == 'CLAIMED'
+                self.save(state)
+                with self.assertRaises(a.Refuse):
+                    a.WorkerFence(self.store, self.who, now=lambda: self.clock).claim(sleep=self.fail)
 
     def test_scheduled_gc_duplicate_worker_and_wrong_control_schedule_refused(self):
         self.scheduled_gc()

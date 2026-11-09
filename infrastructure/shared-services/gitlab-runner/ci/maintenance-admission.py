@@ -360,11 +360,14 @@ def drained(api):
     return True
 
 
-def ci_drained(snapshot):
+def ci_drained(snapshot, self_uid=None):
     for pod in snapshot:
         labels = pod['metadata'].get('labels')
         require(type(labels) is dict, 'missing Pod labels')
-        if labels.get('ci.brmartin.co.uk/job') == 'true' and labels.get('ci.brmartin.co.uk/maintenance') != 'true':
+        if pod['metadata']['uid'] == self_uid:
+            continue
+        if labels.get('ci.brmartin.co.uk/job') == 'true' and (self_uid is not None
+                or labels.get('ci.brmartin.co.uk/maintenance') != 'true'):
             phase = pod['status']['phase']
             if pod['metadata'].get('deletionTimestamp') or phase not in {'Running', 'Pending', 'Succeeded', 'Failed'}:
                 return False
@@ -538,10 +541,35 @@ class WorkerFence:
 
     def claim(self, sleep=time.sleep, gate=None, slot=None):
         end = self.now() + 1200
+        cache_slot, generation = None, None
+        if slot is None:
+            # The frozen hourly caller supplies no flags. Authenticate its own
+            # native slot, not the operation left by a different maintenance Job.
+            own = next((p for p in pods(self.store.api, WORKER_NAMESPACE)
+                        if pod_identity(p) == self.me), None)
+            require(own is not None and own['metadata']['labels'].get('app') == CACHE,
+                    'cache worker identity absent')
+            cache_slot = scheduled(self.store.api, own, CACHE)
+            require(cache_slot <= self.now() < cache_slot + 1200, 'cache worker slot expired')
+            end = cache_slot + 1200
         if slot is not None:
             require(gc_slot(slot) and slot <= self.now() < slot + 1200, 'GC worker slot expired')
             end = slot + 1200
         while self.now() < end:
+            if cache_slot is not None:
+                # No control namespace observations or management credential.
+                # Include other maintenance workers, and never exempt Pending CI.
+                snapshot = pods(self.store.api) + pods(self.store.api, WORKER_NAMESPACE)
+                require(len({p['metadata']['uid'] for p in snapshot}) == len(snapshot),
+                        'duplicate snapshot UID')
+                require(any(pod_identity(p) == self.me and p['spec'].get('nodeName') == 'hestia'
+                            and p['status']['phase'] == 'Running'
+                            and p['metadata']['labels'].get('ci.brmartin.co.uk/job') == 'true'
+                            and p['metadata']['labels'].get('ci.brmartin.co.uk/maintenance') == 'true'
+                            and not p['metadata'].get('deletionTimestamp') for p in snapshot
+                            if p['metadata']['namespace'] == WORKER_NAMESPACE), 'cache worker not running')
+                require(ci_drained(snapshot, self.me['uid']), 'active CI Pod')
+                require(self.now() < end, 'cache worker slot expired during gate')
             if gate is not None:
                 # A waiting GC must release Hestia if accepted CI materializes.
                 # This is the same API consumer gate as the final effect gate.
@@ -550,6 +578,22 @@ class WorkerFence:
                 require(self.now() < end, 'GC worker slot expired during gate')
             cm, state = self.store.read()
             op = state['operation']
+            if cache_slot is not None:
+                if (op is None and state['phase'] == 'IDLE'
+                        or op is not None and op['slot'] < cache_slot and state['phase'] == 'DONE'):
+                    # A healthy controller may start just after its worker. Only
+                    # its existing 90s start window permits waiting on old DONE;
+                    # consumer checks above release the node if CI needs it.
+                    require(generation is None and self.now() < cache_slot + 90,
+                            'cache coordinator start window closed')
+                    sleep(min(2, cache_slot + 90 - self.now()))
+                    continue
+                require(op is not None and op['slot'] == cache_slot
+                        and state['phase'] in {'PAUSE_INTENT', 'DRAINING', 'ADMITTED'}
+                        and op['worker'] in (None, self.me)
+                        and (generation is None or op['id'] == generation),
+                        'cache admission wrong-slot, replaced or sealed')
+                generation = op['id']
             if slot is not None:
                 require(op is not None and op['slot'] == slot
                         and state['phase'] in {'PAUSE_INTENT', 'DRAINING', 'ADMITTED'}
