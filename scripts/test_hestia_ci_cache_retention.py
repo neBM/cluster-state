@@ -491,6 +491,147 @@ class AdmissionTests(unittest.TestCase):
                 self.assertEqual(self.state()['phase'], 'CLAIMED')
                 self.assertEqual(self.state()['operation']['slot'], self.slot)
 
+    def test_cache_pending_self_published_running_can_claim(self):
+        for start in ('ADMITTED', 'IDLE', 'heracles', 'nyx'):
+            with self.subTest(start=start):
+                self.setUp()
+                self.worker['status']['phase'] = 'Pending'
+                if start != 'IDLE':
+                    self.coordinate()
+                if start in {'heracles', 'nyx'}:
+                    remote = copy.deepcopy(self.worker)
+                    remote['metadata'].update(namespace='ci', name='remote', uid='remote',
+                                              labels={'ci.brmartin.co.uk/job': 'true'})
+                    remote['spec']['nodeName'] = start
+                    self.api.snapshot.append(remote)
+                sleeps = []
+                fence = a.WorkerFence(self.store, self.who, now=lambda: self.clock)
+                def publish(seconds):
+                    sleeps.append(seconds)
+                    self.assertIsNone(fence.operation)
+                    op = self.state()['operation']
+                    self.assertTrue(op is None or not op['claimed'])
+                    self.assertEqual(self.worker['status']['phase'], 'Pending')
+                    self.clock += seconds
+                    self.worker['status']['phase'] = 'Running'
+                    if start == 'IDLE':
+                        self.coordinate()
+                fence.claim(sleep=publish)
+                self.assertEqual(sleeps, [2])
+                self.assertEqual(self.state()['phase'], 'CLAIMED')
+                self.assertTrue(self.state()['operation']['claimed'])
+                fence.check()
+
+    def test_cache_persistent_pending_self_is_bounded_and_unclaimed(self):
+        for admitted in (False, True):
+            with self.subTest(admitted=admitted):
+                self.setUp()
+                self.worker['status']['phase'] = 'Pending'
+                if admitted:
+                    self.coordinate()
+                start, sleeps = self.clock, []
+                fence = a.WorkerFence(self.store, self.who, now=lambda: self.clock)
+                def poll(seconds):
+                    sleeps.append(seconds)
+                    self.clock += seconds
+                    self.assertIsNone(fence.operation)
+                    op = self.state()['operation']
+                    self.assertTrue(op is None or not op['claimed'])
+                with self.assertRaisesRegex(a.Refuse, 'did not become Running'):
+                    fence.claim(sleep=poll)
+                self.assertEqual(sleeps, [2] * 14)
+                self.assertEqual(self.clock - start, 28)
+                self.assertIsNone(fence.operation)
+                self.assertEqual(self.state()['phase'], 'ADMITTED' if admitted else 'IDLE')
+
+    def test_cache_pending_self_consumer_arrival_refuses_without_claim(self):
+        for namespace in ('ci', a.WORKER_NAMESPACE):
+            with self.subTest(namespace=namespace):
+                self.setUp()
+                self.worker['status']['phase'] = 'Pending'
+                self.coordinate()
+                sleeps = []
+                def materialize(seconds):
+                    sleeps.append(seconds)
+                    self.assertFalse(self.state()['operation']['claimed'])
+                    self.clock += seconds
+                    job = copy.deepcopy(self.worker)
+                    job['metadata'].update(namespace=namespace, name='accepted', uid='accepted')
+                    job['spec']['nodeName'] = ''
+                    self.api.snapshot.append(job)
+                fence = a.WorkerFence(self.store, self.who, now=lambda: self.clock)
+                with self.assertRaisesRegex(a.Refuse, 'active CI Pod'):
+                    fence.claim(sleep=materialize)
+                self.assertEqual(sleeps, [2])
+                self.assertFalse(self.state()['operation']['claimed'])
+                self.assertIsNone(fence.operation)
+
+    def test_cache_pending_self_invalidated_during_wait_refuses_immediately(self):
+        for kind in ('uid', 'owner', 'labels', 'app', 'node', 'deleting', 'unknown', 'job-uid'):
+            with self.subTest(kind=kind):
+                self.setUp()
+                self.worker['status']['phase'] = 'Pending'
+                self.coordinate()
+                sleeps = []
+                def invalidate(seconds):
+                    sleeps.append(seconds)
+                    self.assertEqual(len(sleeps), 1, 'invalid self was retried')
+                    self.assertFalse(self.state()['operation']['claimed'])
+                    self.clock += seconds
+                    if kind == 'uid':
+                        self.worker['metadata']['uid'] = 'replacement'
+                    elif kind == 'owner':
+                        self.worker['metadata']['ownerReferences'][0]['uid'] = 'replacement'
+                    elif kind == 'labels':
+                        self.worker['metadata']['labels']['ci.brmartin.co.uk/maintenance'] = 'false'
+                    elif kind == 'app':
+                        self.worker['metadata']['labels']['app'] = a.GC
+                    elif kind == 'node':
+                        self.worker['spec']['nodeName'] = 'heracles'
+                    elif kind == 'deleting':
+                        self.worker['metadata']['deletionTimestamp'] = '2026-11-09T00:00:00Z'
+                    elif kind == 'unknown':
+                        self.worker['status']['phase'] = 'Unknown'
+                    else:
+                        self.api.jobs['worker-job']['metadata']['uid'] = 'replacement'
+                fence = a.WorkerFence(self.store, self.who, now=lambda: self.clock)
+                with self.assertRaises(a.Refuse):
+                    fence.claim(sleep=invalidate)
+                self.assertEqual(sleeps, [2])
+                self.assertFalse(self.state()['operation']['claimed'])
+                self.assertIsNone(fence.operation)
+
+    def test_cache_pending_self_rechecks_complete_unique_snapshots(self):
+        for kind in ('incomplete', 'malformed', 'duplicate'):
+            with self.subTest(kind=kind):
+                self.setUp()
+                self.worker['status']['phase'] = 'Pending'
+                self.coordinate()
+                original, sleeps = self.api.request, []
+                def request(method, path, body=None):
+                    value, headers = original(method, path, body)
+                    if sleeps and path.startswith(a.PODS):
+                        assert isinstance(value, dict)
+                        if kind == 'incomplete':
+                            value['metadata']['continue'] = 'next'
+                        elif kind == 'malformed':
+                            value['items'].append({'metadata': {}})
+                        else:
+                            duplicate = copy.deepcopy(self.worker)
+                            duplicate['metadata']['namespace'] = 'ci'
+                            value['items'].append(duplicate)
+                    return value, headers
+                def poll(seconds):
+                    sleeps.append(seconds)
+                    self.assertEqual(len(sleeps), 1, 'invalid snapshot was retried')
+                    self.clock += seconds
+                fence = a.WorkerFence(self.store, self.who, now=lambda: self.clock)
+                with patch.object(self.api, 'request', request), self.assertRaises(a.Refuse):
+                    fence.claim(sleep=poll)
+                self.assertEqual(sleeps, [2])
+                self.assertFalse(self.state()['operation']['claimed'])
+                self.assertIsNone(fence.operation)
+
     def test_cache_same_slot_done_or_foreign_worker_grant_never_waits(self):
         for phase in ('DONE', 'ADMITTED', 'CLAIMED'):
             with self.subTest(phase=phase):

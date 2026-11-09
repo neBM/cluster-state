@@ -542,6 +542,7 @@ class WorkerFence:
     def claim(self, sleep=time.sleep, gate=None, slot=None):
         end = self.now() + 1200
         cache_slot, generation = None, None
+        pending_observations = 0
         if slot is None:
             # The frozen hourly caller supplies no flags. Authenticate its own
             # native slot, not the operation left by a different maintenance Job.
@@ -556,20 +557,32 @@ class WorkerFence:
             require(gc_slot(slot) and slot <= self.now() < slot + 1200, 'GC worker slot expired')
             end = slot + 1200
         while self.now() < end:
+            cache_running = True
             if cache_slot is not None:
                 # No control namespace observations or management credential.
                 # Include other maintenance workers, and never exempt Pending CI.
                 snapshot = pods(self.store.api) + pods(self.store.api, WORKER_NAMESPACE)
                 require(len({p['metadata']['uid'] for p in snapshot}) == len(snapshot),
                         'duplicate snapshot UID')
-                require(any(pod_identity(p) == self.me and p['spec'].get('nodeName') == 'hestia'
-                            and p['status']['phase'] == 'Running'
-                            and p['metadata']['labels'].get('ci.brmartin.co.uk/job') == 'true'
-                            and p['metadata']['labels'].get('ci.brmartin.co.uk/maintenance') == 'true'
-                            and not p['metadata'].get('deletionTimestamp') for p in snapshot
-                            if p['metadata']['namespace'] == WORKER_NAMESPACE), 'cache worker not running')
+                own = next((p for p in snapshot if p['metadata']['namespace'] == WORKER_NAMESPACE
+                            and pod_identity(p) == self.me), None)
+                if own is None:
+                    raise Refuse('cache worker identity absent')
+                require(own['spec'].get('nodeName') == 'hestia'
+                        and own['status']['phase'] in {'Running', 'Pending'}
+                        and own['metadata']['labels'].get('app') == CACHE
+                        and own['metadata']['labels'].get('ci.brmartin.co.uk/job') == 'true'
+                        and own['metadata']['labels'].get('ci.brmartin.co.uk/maintenance') == 'true'
+                        and not own['metadata'].get('deletionTimestamp'), 'cache worker identity invalid')
+                require(scheduled(self.store.api, own, CACHE) == cache_slot, 'cache worker slot changed')
                 require(ci_drained(snapshot, self.me['uid']), 'active CI Pod')
                 require(self.now() < end, 'cache worker slot expired during gate')
+                cache_running = own['status']['phase'] == 'Running'
+                if not cache_running:
+                    # Match the frozen caller's 15-observation / 2s startup
+                    # bound, without resetting either native admission deadline.
+                    pending_observations += 1
+                    require(pending_observations < 15, 'maintenance Pod did not become Running')
             if gate is not None:
                 # A waiting GC must release Hestia if accepted CI materializes.
                 # This is the same API consumer gate as the final effect gate.
@@ -605,6 +618,9 @@ class WorkerFence:
                 require(self.now() < op['cleanup_by'], 'worker deadline expired')
                 if state['phase'] == 'ADMITTED':
                     require(state['gc_holder'] is None, 'GC holder not retired')
+                    if not cache_running:
+                        sleep(2)
+                        continue  # No claim/effects until the API publishes Running.
                     state['phase'], op['claimed'] = 'CLAIMED', True
                     if slot is not None:
                         state['gc_holder'] = {'identity': self.me, 'claimed_at': int(self.now())}
