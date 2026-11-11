@@ -43,16 +43,29 @@ GC_SCRIPT = f'''set -euo pipefail
 
 python3 -B /policy/maintenance-admission.py gc-claim
 
-podman_store=(
-  podman
-  --tmpdir=/tmp/libpod
-  --root={GC_MOUNT_PATH}
-  --runroot={GC_RUNROOT_PATH}
-  --storage-driver=overlay
-)
-"${{podman_store[@]}}" container prune --force --filter until=168h
-"${{podman_store[@]}}" ps -a --external --filter until=168h --format json > /tmp/external-containers.json
-python3 - <<'PY' > /tmp/external-container-ids
+for storage_driver in overlay vfs; do
+  echo "CI store GC driver=${{storage_driver}}"
+  podman_store=(
+    podman
+    --tmpdir=/tmp/libpod
+    --root={GC_MOUNT_PATH}
+    --runroot={GC_RUNROOT_PATH}
+    --storage-driver=overlay
+  )
+  if [[ "$storage_driver" == vfs ]]; then
+    # Keep VFS metadata separate from the persistent overlay libpod DB.
+    podman_store=(
+      podman
+      --tmpdir=/tmp/libpod-vfs
+      --root={GC_MOUNT_PATH}
+      --runroot={GC_RUNROOT_PATH}/vfs
+      --storage-driver=vfs
+      --transient-store
+    )
+  fi
+  "${{podman_store[@]}}" container prune --force --filter until=168h
+  "${{podman_store[@]}}" ps -a --external --filter until=168h --format json > /tmp/external-containers.json
+  python3 - <<'PY' > /tmp/external-container-ids
 import json
 import re
 import time
@@ -73,11 +86,12 @@ for container in containers:
         raise SystemExit("Podman returned a recent external container through the 168h filter; refusing cleanup")
     print(container_id)
 PY
-mapfile -t stale_external_ids < /tmp/external-container-ids
-if (( ${{#stale_external_ids[@]}} )); then
-  "${{podman_store[@]}}" rm --force "${{stale_external_ids[@]}}"
-fi
-"${{podman_store[@]}}" image prune --all --force --filter until=168h
+  mapfile -t stale_external_ids < /tmp/external-container-ids
+  if (( ${{#stale_external_ids[@]}} )); then
+    "${{podman_store[@]}}" rm --force "${{stale_external_ids[@]}}"
+  fi
+  "${{podman_store[@]}}" image prune --all --force --filter until=168h
+done
 '''
 
 ALERT_EXPR = '''
@@ -258,6 +272,9 @@ def validate_gc(resources: list[dict[str, Any]], checks: Checks) -> None:
         "GC container environment",
     )
     checks.true("--filter until=168h" in actual_script, "GC operations must be age-bounded at 168h")
+    checks.true("for storage_driver in overlay vfs; do" in actual_script, "GC must cover overlay and VFS stores")
+    checks.true("--transient-store" in actual_script and "--runroot=/run/ci-containers-prune/vfs" in actual_script
+                and "--tmpdir=/tmp/libpod-vfs" in actual_script, "VFS GC must isolate native transient metadata and scratch")
     checks.true('"${podman_store[@]}" rm --force "${stale_external_ids[@]}"' in actual_script, "GC must remove stale external containers through Podman's documented force path")
     checks.true("image prune --all --force" in actual_script, "GC must prune unused images through Podman")
     checks.true("python3 -B /policy/maintenance-admission.py gc-claim" in actual_script, "GC must use shared named-CAS admission")

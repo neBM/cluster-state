@@ -55,6 +55,24 @@ class RunnerConfigTests(unittest.TestCase):
                     }],
                 })
 
+    def test_store_gc_covers_overlay_and_vfs(self):
+        job, = [o for o in self.objects if o['kind'] == 'CronJob'
+                and o['metadata']['name'] == 'hestia-ci-store-gc']
+        container, = job['spec']['jobTemplate']['spec']['template']['spec']['containers']
+        script, = container['args']
+        self.assertIn('for storage_driver in overlay vfs; do', script)
+        self.assertIn('echo "CI store GC driver=${storage_driver}"', script)
+        self.assertIn('--storage-driver=overlay', script)
+        self.assertIn('--storage-driver=vfs', script)
+        self.assertIn('--transient-store', script)
+        self.assertIn('--runroot=/run/ci-containers-prune/vfs', script)
+        self.assertIn('--tmpdir=/tmp/libpod-vfs', script)
+        self.assertEqual(script.count('python3 -B /policy/maintenance-admission.py gc-claim'), 1)
+        self.assertLess(script.index('gc-claim'), script.index('for storage_driver'))
+        self.assertIn('container prune --force --filter until=168h', script)
+        self.assertIn('ps -a --external --filter until=168h --format json', script)
+        self.assertIn('image prune --all --force --filter until=168h', script)
+
     def test_maintenance_namespace_and_least_privilege(self):
         # Dedicated namespace keeps the existing CI job SA's Secret/ConfigMap
         # CRUD authority away from the administrator credential/restoration latch.

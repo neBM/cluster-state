@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import shlex
 import shutil
 import subprocess
 import sys
@@ -114,16 +115,16 @@ def test_podman_runtime_paths(module: ModuleType) -> None:
 
     failures = []
     tmpdir_options = [line.strip() for line in script.splitlines() if line.strip().startswith("--tmpdir=")]
-    if tmpdir_options != ["--tmpdir=/tmp/libpod"]:
-        failures.append(f"global Podman tmpdir expected ['--tmpdir=/tmp/libpod'], got {tmpdir_options!r}")
+    if tmpdir_options != ["--tmpdir=/tmp/libpod", "--tmpdir=/tmp/libpod-vfs"]:
+        failures.append(f"overlay/VFS Podman tmpdirs are not isolated: {tmpdir_options!r}")
 
     root_options = [line.strip() for line in script.splitlines() if line.strip().startswith("--root=")]
-    expected_root_options = [f"--root={module.GC_MOUNT_PATH}"]
+    expected_root_options = [f"--root={module.GC_MOUNT_PATH}"] * 2
     if root_options != expected_root_options:
         failures.append(f"Podman graph root expected {expected_root_options!r}, got {root_options!r}")
 
     runroot_options = [line.strip() for line in script.splitlines() if line.strip().startswith("--runroot=")]
-    expected_runroot_options = [f"--runroot={module.GC_RUNROOT_PATH}"]
+    expected_runroot_options = [f"--runroot={module.GC_RUNROOT_PATH}", f"--runroot={module.GC_RUNROOT_PATH}/vfs"]
     if runroot_options != expected_runroot_options:
         failures.append(f"Podman runroot expected {expected_runroot_options!r}, got {runroot_options!r}")
 
@@ -257,7 +258,11 @@ def test_runtime_gate(module: ModuleType) -> None:
             "set -euo pipefail\n"
             "if [[ \" $* \" == *\" ps -a --external \"* ]]; then\n"
             "  printf 'READ %s\\n' \"$*\" >>\"$PODMAN_CALLS\"\n"
-            "  cat \"$EXTERNAL_FIXTURE\"\n"
+            "  if [[ \" $* \" == *\" --storage-driver=vfs \"* ]]; then\n"
+            "    cat \"$VFS_EXTERNAL_FIXTURE\"\n"
+            "  else\n"
+            "    cat \"$EXTERNAL_FIXTURE\"\n"
+            "  fi\n"
             "else\n"
             "  printf 'MUTATE %s\\n' \"$*\" >>\"$PODMAN_CALLS\"\n"
             "fi\n"
@@ -310,9 +315,15 @@ def test_runtime_gate(module: ModuleType) -> None:
             if scheduled:
                 assert t.state()['operation']['claimed'] is True
                 assert t.state()['operation']['worker'] == me
+            with Path(os.environ['PODMAN_CALLS']).open('a') as stream:
+                print('CLAIM', file=stream)
             print('Kubernetes API gate passed')
         ''').replace('FIXTURES', repr(str(ROOT / 'scripts/test_hestia_ci_cache_retention.py'))))
-        script = module.GC_SCRIPT.replace("/tmp/", str(root) + "/").replace('python3 -B /policy/maintenance-admission.py gc-claim', f'{sys.executable} -B {driver}')
+        resources = module.render(ROOT, "infrastructure/shared-services")
+        cronjob, = [r for r in resources if r.get('kind') == 'CronJob'
+                    and r.get('metadata', {}).get('name') == 'hestia-ci-store-gc']
+        production_script, = module.pod_spec(cronjob)['containers'][0]['args']
+        script = production_script.replace("/tmp/", str(root) + "/").replace('python3 -B /policy/maintenance-admission.py gc-claim', f'{sys.executable} -B {driver}')
         base_env = {
             "PATH": f"{bin_dir}:/usr/bin:/bin",
             "KUBERNETES_SERVICE_HOST": "127.0.0.1",
@@ -417,13 +428,28 @@ def test_runtime_gate(module: ModuleType) -> None:
                 1,
             ),
         )
+        invalid_cases = (
+            ('recent', recent_external, 'recent external container'),
+            ('shape', {}, 'invalid shape'),
+            ('item', [None], 'invalid item'),
+            ('id', [{'Id': '--all', 'Created': 1}], 'identity is invalid'),
+            ('created', [{'Id': stale_id, 'Created': True}], 'identity is invalid'),
+        )
+        cases += tuple(
+            (f'{driver}-external-{name}', {'metadata': {'continue': ''}, 'items': [self_pod]},
+             external, False, expected, 1 if driver == 'overlay' else 3)
+            for driver in ('overlay', 'vfs') for name, external, expected in invalid_cases
+        )
         for name, pods, external, should_succeed, expected, expected_mutations in cases:
             pods_fixture = root / f"{name}-pods.json"
             external_fixture = root / f"{name}-external.json"
             pods_fixture.write_text(json.dumps(pods))
-            external_fixture.write_text(json.dumps(external))
+            external_fixture.write_text(json.dumps([] if name.startswith('vfs-') else external))
+            vfs_external_fixture = root / f"{name}-vfs-external.json"
+            vfs_external_fixture.write_text(json.dumps(external))
             calls.unlink(missing_ok=True)
-            env = base_env | {"PODS_FIXTURE": str(pods_fixture), "EXTERNAL_FIXTURE": str(external_fixture)}
+            env = base_env | {"PODS_FIXTURE": str(pods_fixture), "EXTERNAL_FIXTURE": str(external_fixture),
+                              "VFS_EXTERNAL_FIXTURE": str(vfs_external_fixture)}
             if name.startswith('scheduled-'):
                 env['SCHEDULED_GC'] = 'missing' if name == 'scheduled-missing' else 'admitted'
             if name == "self-pending-then-running":
@@ -440,6 +466,34 @@ def test_runtime_gate(module: ModuleType) -> None:
             combined = result.stdout + result.stderr
             call_lines = calls.read_text().splitlines() if calls.is_file() else []
             mutations = [line for line in call_lines if line.startswith("MUTATE ")]
+            if should_succeed:
+                expected_mutations *= 2
+                expected_calls = ['CLAIM']
+                for storage_driver in ('overlay', 'vfs'):
+                    options = [f'--tmpdir={root}/libpod' + ('-vfs' if storage_driver == 'vfs' else ''),
+                               f'--root={module.GC_MOUNT_PATH}',
+                               f'--runroot={module.GC_RUNROOT_PATH}' + ('/vfs' if storage_driver == 'vfs' else ''),
+                               f'--storage-driver={storage_driver}']
+                    if storage_driver == 'vfs':
+                        options.append('--transient-store')
+                    prefix = ' '.join(options)
+                    expected_calls.extend([
+                        f'MUTATE {prefix} container prune --force --filter until=168h',
+                        f'READ {prefix} ps -a --external --filter until=168h --format json',
+                    ])
+                    if external:
+                        expected_calls.append(f'MUTATE {prefix} rm --force {stale_id}')
+                    expected_calls.append(f'MUTATE {prefix} image prune --all --force --filter until=168h')
+                    if f'CI store GC driver={storage_driver}' not in combined:
+                        raise AssertionError(f'{name}: missing {storage_driver} log marker')
+                if [shlex.split(line) for line in call_lines] != [shlex.split(line) for line in expected_calls]:
+                    raise AssertionError(f'{name}: driver commands/admission order differ: {call_lines}')
+            elif mutations:
+                if not call_lines or call_lines[0] != 'CLAIM':
+                    raise AssertionError(f'{name}: mutation preceded shared admission: {call_lines}')
+                if any(' rm --force ' in line or 'image prune' in line for line in mutations
+                       if f'--storage-driver={"vfs" if name.startswith("vfs-") else "overlay"}' in line):
+                    raise AssertionError(f'{name}: unsafe cleanup after refused external discovery: {call_lines}')
             if should_succeed != (result.returncode == 0):
                 raise AssertionError(f"{name}: unexpected exit {result.returncode}:\n{combined}")
             if len(mutations) != expected_mutations:
@@ -506,14 +560,21 @@ def main() -> int:
             ('gc-control-expanded-deadline', control, 'activeDeadlineSeconds: 1380', 'activeDeadlineSeconds: 1800', 'GC control pins and schedule'),
             ('gc-control-escalation', control, 'allowPrivilegeEscalation: false', 'allowPrivilegeEscalation: true', 'GC control pins and schedule'),
             ("gc-aliased-graph-root-mount", gc, f"            - mountPath: {module.GC_MOUNT_PATH}\n              name: podman-storage\n", "            - mountPath: /var/lib/containers/storage\n              name: podman-storage\n", "GC volumeMounts"),
-            ("gc-aliased-graph-root-option", gc, f"                --root={module.GC_MOUNT_PATH}\n", "                --root=/var/lib/containers/storage\n", "GC script"),
-            ("gc-wrong-runroot-option", gc, f"                --runroot={module.GC_RUNROOT_PATH}\n", "                --runroot=/run/containers/storage\n", "GC script"),
+            ("gc-aliased-graph-root-option", gc, f"                  --root={module.GC_MOUNT_PATH}\n                  --runroot={module.GC_RUNROOT_PATH}\n", f"                  --root=/var/lib/containers/storage\n                  --runroot={module.GC_RUNROOT_PATH}\n", "GC script"),
+            ("gc-wrong-runroot-option", gc, f"                  --runroot={module.GC_RUNROOT_PATH}\n", "                  --runroot=/run/containers/storage\n", "GC script"),
             ("gc-wrong-target", gc, f"              path: {module.GC_HOST_PATH}\n              type: Directory\n            name: podman-storage\n", "              path: /var/lib/ci-containers-nocow\n              type: Directory\n            name: podman-storage\n", "GC volumes"),
             ("gc-cache-scope", gc, f"              path: {module.GC_HOST_PATH}\n              type: Directory\n            name: podman-storage\n", "              path: /var/lib/ci-cache-nocow\n              type: Directory\n            name: podman-storage\n", "GC volumes"),
             ("gc-hostpath-widening", gc, f"              path: {module.GC_HOST_PATH}\n              type: Directory\n            name: podman-storage\n", f"              path: {module.GC_HOST_PATH}\n              type: Directory\n            name: podman-storage\n          - hostPath:\n              path: /var/lib/ci-cache-nocow\n              type: Directory\n            name: extra-host-storage\n", "GC volumes"),
-            ("gc-missing-podman-tmpdir", gc, "                --tmpdir=/tmp/libpod\n", "", "GC script"),
-            ("gc-wrong-podman-tmpdir", gc, "                --tmpdir=/tmp/libpod\n", "                --tmpdir=/run/libpod\n", "GC script"),
-            ("gc-duplicate-podman-tmpdir", gc, "                --tmpdir=/tmp/libpod\n", "                --tmpdir=/tmp/libpod\n                --tmpdir=/tmp/libpod\n", "GC script"),
+            ("gc-missing-podman-tmpdir", gc, "                  --tmpdir=/tmp/libpod\n", "", "GC script"),
+            ("gc-wrong-podman-tmpdir", gc, "                  --tmpdir=/tmp/libpod\n", "                  --tmpdir=/run/libpod\n", "GC script"),
+            ("gc-duplicate-podman-tmpdir", gc, "                  --tmpdir=/tmp/libpod\n", "                  --tmpdir=/tmp/libpod\n                  --tmpdir=/tmp/libpod\n", "GC script"),
+            ('gc-overlay-only', gc, 'for storage_driver in overlay vfs; do', 'for storage_driver in overlay; do', 'GC script'),
+            ('gc-vfs-wrong-driver', gc, '--storage-driver=vfs', '--storage-driver=overlay', 'GC script'),
+            ('gc-vfs-persistent-metadata', gc, '                    --transient-store\n', '', 'GC script'),
+            ('gc-vfs-shared-runroot', gc, '--runroot=/run/ci-containers-prune/vfs', '--runroot=/run/ci-containers-prune', 'GC script'),
+            ('gc-vfs-shared-tmpdir', gc, '--tmpdir=/tmp/libpod-vfs', '--tmpdir=/tmp/libpod', 'GC script'),
+            ('gc-container-no-age', gc, 'container prune --force --filter until=168h', 'container prune --force', 'GC script'),
+            ('gc-image-no-age', gc, 'image prune --all --force --filter until=168h', 'image prune --all --force', 'GC script'),
             ("gc-missing-tmpdir-environment", gc, "            - name: TMPDIR\n              value: /tmp\n", "", "GC container environment"),
             ("gc-wrong-tmpdir-environment", gc, "            - name: TMPDIR\n              value: /tmp\n", "            - name: TMPDIR\n              value: /var/tmp\n", "GC container environment"),
             ("gc-duplicate-tmpdir-environment", gc, "            - name: TMPDIR\n              value: /tmp\n", "            - name: TMPDIR\n              value: /tmp\n            - name: TMPDIR\n              value: /tmp\n", "GC container environment"),
@@ -546,7 +607,7 @@ def main() -> int:
             ("gc-overlap", gc, "concurrencyPolicy: Forbid", "concurrencyPolicy: Allow", "CronJob concurrencyPolicy"),
             ("gc-no-scheduler-lock", gc, 'matchLabels:\n                    ci.brmartin.co.uk/job: "true"\n                namespaces: [ci, ci-maintenance-worker]\n                topologyKey:', 'matchLabels:\n                    ci.brmartin.co.uk/job: "false"\n                namespaces: [ci, ci-maintenance-worker]\n                topologyKey:', "GC scheduler exclusion"),
             ("gc-mutable-image", gc, module.GC_IMAGE, "quay.io/podman/stable:v5.8.2", "GC image"),
-            ("gc-raw-delete", gc, "              podman_store=(", "              rm -rf /var/lib/containers/storage\n              podman_store=(", "GC must not raw-delete storage"),
+            ("gc-raw-delete", gc, "              for storage_driver in overlay vfs; do", "              rm -rf /var/lib/containers/storage\n              for storage_driver in overlay vfs; do", "GC must not raw-delete storage"),
             ("gc-no-active-gate", gc, "python3 -B /policy/maintenance-admission.py gc-claim", "true", "GC script"),
             ("gc-no-external-cleanup", gc, "ps -a --external", "ps -a", "GC script"),
             ("gc-broad-rbac", role, "verbs:\n  - list", "verbs:\n  - list\n  - get", "GC Role rules"),

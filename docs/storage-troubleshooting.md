@@ -182,7 +182,13 @@ qualified by the release owner before enabling effects; fixtures are not that pr
 Two separate GitOps CronJobs own regenerable CI storage:
 
 - `ci-maintenance-worker/hestia-ci-store-gc` runs at 04:17 UTC for the existing Podman image store;
-  its scope and 168-hour image/container policy are unchanged.
+  its scope and 168-hour image/container policy are unchanged. After the single
+  shared GC claim, it runs the same age-bounded container, validated external-container,
+  and image cleanup for both `overlay` and `vfs`, logging the selected driver.
+  Overlay keeps its persistent libpod metadata; VFS uses Podman's native
+  `--transient-store` with `/run/ci-containers-prune/vfs` and `/tmp/libpod-vfs`
+  scratch so it does not open the overlay libpod database. Both still target only
+  `/var/lib/ci-containers-nocow/storage`; there is no recurring no-age retirement.
   Scheduled GC requires exact native Job/Pod/policy identity and the daily slot's
   one-shot ADMITTED-to-CLAIMED CAS, atomically recording the shared named ConfigMap's
   single `gc_holder={identity,claimed_at}` slot. Missing, late, sealed or wrong-slot
