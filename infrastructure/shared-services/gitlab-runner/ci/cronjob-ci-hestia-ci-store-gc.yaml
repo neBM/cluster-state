@@ -40,16 +40,29 @@ spec:
 
               python3 -B /policy/maintenance-admission.py gc-claim
 
-              podman_store=(
-                podman
-                --tmpdir=/tmp/libpod
-                --root=/var/lib/ci-containers-nocow/storage
-                --runroot=/run/ci-containers-prune
-                --storage-driver=overlay
-              )
-              "${podman_store[@]}" container prune --force --filter until=168h
-              "${podman_store[@]}" ps -a --external --filter until=168h --format json > /tmp/external-containers.json
-              python3 - <<'PY' > /tmp/external-container-ids
+              for storage_driver in overlay vfs; do
+                echo "CI store GC driver=${storage_driver}"
+                podman_store=(
+                  podman
+                  --tmpdir=/tmp/libpod
+                  --root=/var/lib/ci-containers-nocow/storage
+                  --runroot=/run/ci-containers-prune
+                  --storage-driver=overlay
+                )
+                if [[ "$storage_driver" == vfs ]]; then
+                  # Keep VFS metadata separate from the persistent overlay libpod DB.
+                  podman_store=(
+                    podman
+                    --tmpdir=/tmp/libpod-vfs
+                    --root=/var/lib/ci-containers-nocow/storage
+                    --runroot=/run/ci-containers-prune/vfs
+                    --storage-driver=vfs
+                    --transient-store
+                  )
+                fi
+                "${podman_store[@]}" container prune --force --filter until=168h
+                "${podman_store[@]}" ps -a --external --filter until=168h --format json > /tmp/external-containers.json
+                python3 - <<'PY' > /tmp/external-container-ids
               import json
               import re
               import time
@@ -70,11 +83,12 @@ spec:
                       raise SystemExit("Podman returned a recent external container through the 168h filter; refusing cleanup")
                   print(container_id)
               PY
-              mapfile -t stale_external_ids < /tmp/external-container-ids
-              if (( ${#stale_external_ids[@]} )); then
-                "${podman_store[@]}" rm --force "${stale_external_ids[@]}"
-              fi
-              "${podman_store[@]}" image prune --all --force --filter until=168h
+                mapfile -t stale_external_ids < /tmp/external-container-ids
+                if (( ${#stale_external_ids[@]} )); then
+                  "${podman_store[@]}" rm --force "${stale_external_ids[@]}"
+                fi
+                "${podman_store[@]}" image prune --all --force --filter until=168h
+              done
             command:
             - /bin/bash
             - -ceu
