@@ -1163,6 +1163,61 @@ groups:
             severity: critical
           isPaused: false
     - orgId: 1
+      name: ci-pod-review
+      folder: Infrastructure Alerts
+      interval: 1m
+      rules:
+        - uid: ci-pod-suspected-orphan-review-api
+          title: CI Pod Requires Review - Suspected Orphan
+          condition: C
+          data:
+            - refId: A
+              relativeTimeRange:
+                from: 600
+                to: 0
+              datasourceUid: prometheus
+              model:
+                datasource:
+                  type: prometheus
+                  uid: prometheus
+                # Keep standalone and Pod/Job-owned CI candidates in every phase.
+                # Exclude durable controller owners via existing metrics, not Pod labels.
+                # Age is a triage signal, never a job timeout or deletion grant.
+                expr: >-
+                  (max by(namespace, pod, uid) (time() - kube_pod_created{job="kubernetes-service-endpoints",namespace="ci"}) > 21600)
+                  * on(namespace, pod, uid) group_left(phase)
+                  (max by(namespace, pod, uid, phase) (kube_pod_status_phase{job="kubernetes-service-endpoints",namespace="ci"}) == 1)
+                  unless on(namespace, pod, uid)
+                  (max by(namespace, pod, uid) (kube_pod_owner{job="kubernetes-service-endpoints",namespace="ci",owner_is_controller="true",owner_kind=~"DaemonSet|ReplicaSet|StatefulSet"}))
+                instant: true
+                intervalMs: 1000
+                maxDataPoints: 43200
+                refId: A
+            - refId: C
+              datasourceUid: "-100"
+              model:
+                conditions:
+                  - evaluator:
+                      params: [0]
+                      type: gt
+                datasource:
+                  type: __expr__
+                  uid: "-100"
+                expression: A
+                intervalMs: 1000
+                maxDataPoints: 43200
+                refId: C
+                type: threshold
+          noDataState: OK
+          execErrState: Alerting
+          for: 10m
+          annotations:
+            description: CI Pod {{ $labels.namespace }}/{{ $labels.pod }} UID {{ $labels.uid }} (phase {{ $labels.phase }}) is older than six hours and requires review as a suspected orphan. Standalone and Pod/Job-owned candidates remain in scope, including legitimate long jobs; current DaemonSet/ReplicaSet/StatefulSet controller-owned Pods are excluded using kube_pod_owner. Missing owner data can cause review noise, never deletion permission. Age/phase does not prove Runner ownership or orphanhood or permit cancellation/deletion. Infrastructure recovery owns requester-driven explicit verification using docs/runner-orphan-recovery.md. Preserve logs/artifacts; verify job, manager and physical writer retirement. Pending/Running/Unknown, unreachable nodes or uncertainty mean retain and escalate. Notify-only; no automatic remediation.
+            summary: CI Pod {{ $labels.namespace }}/{{ $labels.pod }} requires review - suspected orphan, not deletion permission
+          labels:
+            severity: warning
+          isPaused: false
+    - orgId: 1
       name: ci-maintenance-recovery
       folder: Infrastructure Alerts
       interval: 1m
