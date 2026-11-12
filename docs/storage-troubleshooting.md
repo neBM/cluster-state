@@ -56,11 +56,32 @@ kubectl get --raw /api/v1/nodes/hestia/proxy/stats/summary | \
   jq '{node: .node.nodeName, fs: .node.fs, runtime: .node.runtime}'
 ```
 
-Do not assume image data is the largest consumer. The GitLab runner currently
-uses the `*-nocow` host paths declared under
-`infrastructure/shared-services/gitlab-runner/`. If old non-`nocow` paths such
-as `/var/lib/ci-cache` or `/var/lib/ci-containers` are large, remove them only
-after verifying that no live pod or manifest still references them:
+Do not assume image data is the largest consumer. GitLab Runner job storage is
+configured in `infrastructure/shared-services/gitlab-runner/runner-base/fragments/90-storage.toml`:
+
+- Only `containers-storage` at `/var/lib/containers` changes to a Pod-owned,
+  **disk-backed `emptyDir`** (`medium = ""`, not tmpfs). Buildah/Podman base images
+  and writable layers survive container restarts within the Pod, but are discarded
+  with the Pod. Each new job starts with a fresh graphroot rather than sharing
+  mutable container storage across jobs.
+- `repo` at `/builds` remains the writable hostPath `/var/lib/ci-builds-nocow`;
+  `ci-cache` at `/ci-cache` remains `/var/lib/ci-cache-nocow`. Workspace persistence,
+  dependency caches, the separate S3 cache, registry mounts and credentials are unchanged.
+- Runner 19.5.2's native
+  [volume handling](https://github.com/gitlabhq/gitlab-runner/blob/v19.5.2/executors/kubernetes/kubernetes.go)
+  suppresses its default `repo` volume and mount when an explicit mount matches
+  `builds_dir = "/builds"`. Keep the existing hostPath match and single `repo`
+  declaration; do not add a second workspace volume or mount.
+- Graphroot scratch consumes the scheduled node's kubelet storage. Hestia's whole
+  kubelet root and Pod logs have been moved to SATA/XFS; `emptyDir` itself does not
+  promise a separate disk on every eligible node. No scratch size quota or resource
+  change is introduced; node disk pressure and eviction still apply.
+
+This switch does **not** migrate or delete historical hostPath payloads at
+`/var/lib/ci-containers-nocow`. Keep host preparation, legacy store GC and
+workspace/cache retention until custody is separately verified for retirement.
+For older non-`nocow` paths such as `/var/lib/ci-cache` or `/var/lib/ci-containers`,
+verify references and mounts before any separately approved removal:
 
 ```bash
 rg -n '/var/lib/ci-(cache|containers)([^-]|$)' infrastructure docs
@@ -179,9 +200,10 @@ the independent Job; failed cleanup remains `cleanup-failed` even after restorat
 Native metric selectors, warning delivery and scheduled failure behavior must be
 qualified by the release owner before enabling effects; fixtures are not that proof.
 
-Two separate GitOps CronJobs own regenerable CI storage:
+Two separate GitOps CronJobs continue to maintain the hostPath workspace/cache
+and legacy container store, not the new Pod-owned graphroot:
 
-- `ci-maintenance-worker/hestia-ci-store-gc` runs at 04:17 UTC for the existing Podman image store;
+- `ci-maintenance-worker/hestia-ci-store-gc` runs at 04:17 UTC for the legacy Podman image store;
   its scope and 168-hour image/container policy are unchanged. After the single
   shared GC claim, it runs the same age-bounded container, validated external-container,
   and image cleanup for both `overlay` and `vfs`, logging the selected driver.

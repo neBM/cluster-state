@@ -20,7 +20,7 @@ from pathlib import Path
 
 import yaml
 
-from validate_gitlab_runner_templates import cpu_millicores, validate_pool_contract
+from validate_gitlab_runner_templates import cpu_millicores, validate_pool_contract, validate_storage_contract
 
 ROOT = Path(__file__).resolve().parent.parent
 RUNNERS = ROOT / "infrastructure/shared-services/gitlab-runner"
@@ -200,6 +200,37 @@ class RunnerConfigTests(unittest.TestCase):
             runner, = tomllib.loads("".join(value for key, value in sorted(config["data"].items())))["runners"]
             self.assertNotEqual(runner["kubernetes"]["pod_labels"].get("app"), "gitlab-runner")
 
+    def test_storage_contract_rejects_shared_graphroot_and_duplicate_mounts(self):
+        templates = [o for o in self.objects if o["kind"] == "ConfigMap"
+                     and "20-runner-header.toml" in o.get("data", {})]
+        self.assertEqual(len(templates), len(LANES))
+        for template in templates:
+            runner, = tomllib.loads("".join(value for key, value in sorted(template["data"].items())))["runners"]
+            self.assertEqual(validate_storage_contract(runner), [])
+            for case in ("graphroot-hostpath", "tmpfs", "ephemeral-workspace", "ephemeral-cache",
+                         "duplicate-repo", "duplicate-builds-mount", "different-builds-dir"):
+                with self.subTest(template=template["metadata"]["name"], case=case):
+                    bad = copy.deepcopy(runner)
+                    volumes = bad["kubernetes"]["volumes"]
+                    if case == "graphroot-hostpath":
+                        volume, = volumes.pop("empty_dir")
+                        volume.pop("medium")
+                        volume.update(host_path="/var/lib/ci-containers-nocow", read_only=False)
+                        volumes["host_path"].append(volume)
+                    elif case == "tmpfs":
+                        volumes["empty_dir"][0]["medium"] = "Memory"
+                    elif case in ("ephemeral-workspace", "ephemeral-cache"):
+                        index = 0 if case == "ephemeral-workspace" else 1
+                        volume = volumes["host_path"].pop(index)
+                        volumes["empty_dir"].append({"name": volume["name"], "mount_path": volume["mount_path"], "medium": ""})
+                    elif case == "duplicate-repo":
+                        volumes["pvc"] = [{"name": "repo", "mount_path": "/extra"}]
+                    elif case == "duplicate-builds-mount":
+                        volumes["empty_dir"].append({"name": "extra", "mount_path": "/builds", "medium": ""})
+                    else:
+                        bad["builds_dir"] = "/other-builds"
+                    self.assertTrue(validate_storage_contract(bad))
+
     def test_architecture_admission_and_generator(self):
         self.assertEqual(sorted(m["metadata"]["name"] for m in self.managers),
                          ["gitlab-runner"])
@@ -295,12 +326,7 @@ class RunnerConfigTests(unittest.TestCase):
                         self.assertEqual(k["namespace"], "ci")
                         self.assertEqual(k["pull_policy"], ["if-not-present"])
                         self.assertEqual(k["allowed_pull_policies"], ["always", "if-not-present", "never"])
-                        self.assertEqual(k["volumes"]["host_path"], [
-                            {"name": name, "mount_path": mount, "host_path": path, "read_only": False}
-                            for name, mount, path in (
-                                ("repo", "/builds", "/var/lib/ci-builds-nocow"),
-                                ("ci-cache", "/ci-cache", "/var/lib/ci-cache-nocow"),
-                                ("containers-storage", "/var/lib/containers", "/var/lib/ci-containers-nocow"))])
+                        self.assertEqual(validate_storage_contract(runner), [], f"{arch}/{lane}")
                         self.assertTrue({"DOCKER_HOST=tcp://kubedock:2475", "TESTCONTAINERS_RYUK_DISABLED=true",
                                          "TESTCONTAINERS_CHECKS_DISABLE=true"}.issubset(runner["environment"]))
                         self.assertEqual(runner["kubernetes"].get("image_pull_secrets", []),

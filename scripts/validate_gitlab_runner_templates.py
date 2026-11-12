@@ -20,6 +20,37 @@ def load_template(base_dir: Path, variant_dir: Path) -> str:
     return "".join(path.read_text() for path in ordered)
 
 
+def validate_storage_contract(runner: dict[str, Any]) -> list[str]:
+    """Make graphroot Pod-owned while preserving workspace/cache hostPaths.
+
+    Exact volume lists also reject duplicate repo names/mounts and alternative
+    backends. /builds must match builds_dir so Runner suppresses its default repo.
+    """
+    expected_volumes = {
+        "empty_dir": [
+            {"name": "containers-storage", "mount_path": "/var/lib/containers", "medium": ""},
+        ],
+        "host_path": [
+            {"name": "repo", "mount_path": "/builds",
+             "host_path": "/var/lib/ci-builds-nocow", "read_only": False},
+            {"name": "ci-cache", "mount_path": "/ci-cache",
+             "host_path": "/var/lib/ci-cache-nocow", "read_only": False},
+        ],
+        "config_map": [
+            {"name": "gitlab-runner-registries-conf", "mount_path": "/etc/containers/registries.conf",
+             "sub_path": "registries.conf", "read_only": True},
+            {"name": "gitlab-runner-docker-daemon", "mount_path": "/etc/docker/daemon.json",
+             "sub_path": "daemon.json", "read_only": True},
+        ],
+    }
+    errors = []
+    if runner.get("builds_dir") != "/builds":
+        errors.append("builds_dir must match the explicit repo mount at /builds")
+    if runner.get("kubernetes", {}).get("volumes") != expected_volumes:
+        errors.append("volumes must use disk-backed emptyDir graphroot, unchanged repo/ci-cache hostPaths and read-only registry config")
+    return errors
+
+
 def cpu_millicores(value: str) -> int:
     if value.endswith("m"):
         return int(value[:-1])
@@ -173,6 +204,9 @@ def main() -> int:
             templates[variant_dir.name] = tomllib.loads(template)
         except tomllib.TOMLDecodeError as exc:
             print(f"{variant_dir.name}: invalid runner template: {exc}", file=sys.stderr)
+            return 1
+        for error in validate_storage_contract(templates[variant_dir.name]["runners"][0]):
+            print(f"{variant_dir.name}: storage contract: {error}", file=sys.stderr)
             return 1
         print(f"  {variant_dir.name}: ok")
 
