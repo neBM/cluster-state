@@ -13,12 +13,12 @@
   host_path = "/var/lib/ci-cache-nocow"
   read_only = false
 
-# Node-local container storage for buildah/podman base images and writable layers.
-[[runners.kubernetes.volumes.host_path]]
+# Pod-owned buildah/podman graphroot: base images and writable layers are
+# disposable with the job Pod, not a shared persistent image cache.
+[[runners.kubernetes.volumes.empty_dir]]
   name = "containers-storage"
   mount_path = "/var/lib/containers"
-  host_path = "/var/lib/ci-containers-nocow"
-  read_only = false
+  medium = ""
 
 # In-cluster registry bypass for daemonless image tools.
 [[runners.kubernetes.volumes.config_map]]
