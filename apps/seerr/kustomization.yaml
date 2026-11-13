@@ -11,6 +11,6 @@ resources:
 
 images:
 - name: "ghcr.io/seerr-team/seerr"
-  newTag: "v3.5.1"
+  newTag: "v3.5.2"
 - name: "busybox"
   newTag: "1.38"
