@@ -422,6 +422,8 @@ class LegacyS3ConfigTests(unittest.TestCase):
         spec.loader.exec_module(validator)
         cls.validator = validator
         cls.docs = validator.kustomize(ROOT, "apps")
+        cls.release = next(d["data"] for d in cls.docs if d["kind"] == "ConfigMap"
+                           and d["metadata"]["name"] == "gitlab-release")
 
     def test_required_native_connection_consumers(self):
         active = {"gitlab-webservice", "gitlab-sidekiq"}
@@ -429,12 +431,12 @@ class LegacyS3ConfigTests(unittest.TestCase):
                      and any(v["name"] == "objectstore-connection"
                              for v in d["spec"]["template"]["spec"].get("volumes", []))}
         self.assertEqual(projected, active)
-        # Keep existing tuning/path checks on the historical Job, without new S3 input.
+        # Keep existing tuning/path checks on the versioned Job, without new S3 input.
         workloads = {
             ("gitlab-webservice", "webservice"): ("75m", "2100Mi", "3Gi"),
             ("gitlab-webservice", "workhorse"): ("100m", "32Mi", "256Mi"),
             ("gitlab-sidekiq", "sidekiq"): ("150m", "1600Mi", "2Gi"),
-            ("gitlab-migrations-v19.5.0-r1", "migrations"): ("75m", "2100Mi", "3Gi"),
+            ("gitlab-migrations-v19.5.5-r1", "migrations"): ("75m", "2100Mi", "3Gi"),
         }
         for (name, component), (cpu, memory, limit) in workloads.items():
             with self.subTest(consumer=name, container=component):
@@ -482,7 +484,8 @@ class LegacyS3ConfigTests(unittest.TestCase):
                 self.assertEqual(container["resources"], {
                     "requests": {"cpu": cpu, "memory": memory}, "limits": {"memory": limit},
                 })
-                self.assertTrue(container["image"].split("@", 1)[0].endswith(":v19.5.0"))
+                version_key = "migrationVersion" if workload["kind"] == "Job" else "appVersion"
+                self.assertTrue(container["image"].split("@", 1)[0].endswith(":" + self.release[version_key]))
                 if workload["kind"] == "Deployment":
                     self.assertEqual(workload["spec"]["replicas"], 1)
 
@@ -595,19 +598,22 @@ class LegacyS3ConfigTests(unittest.TestCase):
             self.assertEqual(len(mounts), len(container["volumeMounts"]))
             expected_config = "workhorse-config" if component == "workhorse" else "config-templates"
             self.assertEqual(mounts["/var/opt/gitlab/config/templates"]["name"], expected_config)
-            self.assertEqual(container["image"], f"registry.gitlab.com/gitlab-org/build/cng/gitlab-{component}-ce:v19.5.0")
+            self.assertEqual(container["image"], f"registry.gitlab.com/gitlab-org/build/cng/gitlab-{component}-ce:{self.release['appVersion']}")
             for path in ("/etc/gitlab/postgres", "/srv/gitlab/config/secrets.yml", "/etc/gitlab/registry"):
                 self.assertEqual(path in mounts, component == "webservice")
             self.assertEqual(mounts["/etc/gitlab/gitlab-workhorse"]["name"], "workhorse-secret")
             self.assertTrue(mounts["/etc/gitlab/gitlab-workhorse"]["readOnly"])
         self.assertEqual(self.validator.validate_legacy_artifact_tmp(docs), [])
 
-    def test_completed_migration_template_unchanged(self):
-        # The existing completed Job cannot acquire this web-tier rollout.
-        # Baseline e51997ea; a future migration must use a new version/run name.
+    def test_versioned_migration_template_preserves_runtime(self):
+        # Baseline e51997ea: only the image may change for the new versioned Job.
         job = next(d for d in self.docs if d["kind"] == "Job"
-                   and d["metadata"]["name"] == "gitlab-migrations-v19.5.0-r1")
-        template = json.dumps(job["spec"]["template"], sort_keys=True, separators=(",", ":")).encode()
+                   and d["metadata"]["name"] == "gitlab-migrations-v19.5.5-r1")
+        baseline = copy.deepcopy(job["spec"]["template"])
+        self.assertEqual(baseline["spec"]["containers"][0]["image"],
+                         "registry.gitlab.com/gitlab-org/build/cng/gitlab-webservice-ce:v19.5.5")
+        baseline["spec"]["containers"][0]["image"] = "registry.gitlab.com/gitlab-org/build/cng/gitlab-webservice-ce:v19.5.0"
+        template = json.dumps(baseline, sort_keys=True, separators=(",", ":")).encode()
         self.assertEqual(hashlib.sha256(template).hexdigest(),
                          "d498e353a5ead595ab53f28f55c6d043461ad8e3f43eacfd5eebe6bbb30158c7")
 
@@ -693,14 +699,14 @@ class LegacyS3ConfigTests(unittest.TestCase):
                 config["data"] = keys
                 self.assertTrue(self.validator.validate_legacy_workhorse_template(changed))
 
-    def test_historical_job_keeps_ordinary_lifecycle(self):
+    def test_versioned_job_keeps_ordinary_lifecycle(self):
         policy = "kustomize.toolkit.fluxcd.io/ssa"
         annotated = [d for d in self.docs if policy in d.get("metadata", {}).get("annotations", {})]
         self.assertEqual(annotated, [], "no create-only/apply-skipping exception")
         jobs = [d for d in self.docs if d["kind"] == "Job"
                 and d["metadata"].get("labels", {}).get("app") == "gitlab"
                 and d["metadata"].get("labels", {}).get("component") == "migrations"]
-        self.assertEqual([d["metadata"]["name"] for d in jobs], ["gitlab-migrations-v19.5.0-r1"])
+        self.assertEqual([d["metadata"]["name"] for d in jobs], ["gitlab-migrations-v19.5.5-r1"])
         job = jobs[0]
         for metadata in (job["metadata"], job["spec"]["template"]["metadata"]):
             for annotation in (policy, "kustomize.toolkit.fluxcd.io/force",
