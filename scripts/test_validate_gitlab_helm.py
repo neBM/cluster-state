@@ -426,17 +426,18 @@ class LegacyS3ConfigTests(unittest.TestCase):
                            and d["metadata"]["name"] == "gitlab-release")
 
     def test_required_native_connection_consumers(self):
-        active = {"gitlab-webservice", "gitlab-sidekiq"}
+        migration_job = f"gitlab-migrations-{self.release['migrationVersion']}-{self.release['migrationRunSuffix']}"
+        active = {"gitlab-webservice", "gitlab-sidekiq", migration_job}
         projected = {d["metadata"]["name"] for d in self.docs if d["kind"] in ("Deployment", "Job")
                      and any(v["name"] == "objectstore-connection"
                              for v in d["spec"]["template"]["spec"].get("volumes", []))}
         self.assertEqual(projected, active)
-        # Keep existing tuning/path checks on the versioned Job, without new S3 input.
+        # The new Job renders the same Rails template and needs its native input.
         workloads = {
             ("gitlab-webservice", "webservice"): ("75m", "2100Mi", "3Gi"),
             ("gitlab-webservice", "workhorse"): ("100m", "32Mi", "256Mi"),
             ("gitlab-sidekiq", "sidekiq"): ("150m", "1600Mi", "2Gi"),
-            ("gitlab-migrations-v19.5.5-r1", "migrations"): ("75m", "2100Mi", "3Gi"),
+            (migration_job, "migrations"): ("75m", "2100Mi", "3Gi"),
         }
         for (name, component), (cpu, memory, limit) in workloads.items():
             with self.subTest(consumer=name, container=component):
@@ -606,12 +607,24 @@ class LegacyS3ConfigTests(unittest.TestCase):
         self.assertEqual(self.validator.validate_legacy_artifact_tmp(docs), [])
 
     def test_versioned_migration_template_preserves_runtime(self):
-        # Baseline e51997ea: only the image may change for the new versioned Job.
+        # Baseline e51997ea: only the image and required native input may change.
         job = next(d for d in self.docs if d["kind"] == "Job"
-                   and d["metadata"]["name"] == "gitlab-migrations-v19.5.5-r1")
+                   and d["metadata"]["name"] ==
+                   f"gitlab-migrations-{self.release['migrationVersion']}-{self.release['migrationRunSuffix']}")
         baseline = copy.deepcopy(job["spec"]["template"])
         self.assertEqual(baseline["spec"]["containers"][0]["image"],
-                         "registry.gitlab.com/gitlab-org/build/cng/gitlab-webservice-ce:v19.5.5")
+                         f"registry.gitlab.com/gitlab-org/build/cng/gitlab-webservice-ce:{self.release['migrationVersion']}")
+        # Exact removal fails closed for missing, widened or writable projections;
+        # the retained hash protects every other field of the historical template.
+        baseline["spec"]["containers"][0]["volumeMounts"].remove({
+            "name": "objectstore-connection", "mountPath": "/etc/gitlab/objectstore", "readOnly": True,
+        })
+        baseline["spec"]["volumes"].remove({
+            "name": "objectstore-connection", "secret": {
+                "secretName": "gitlab-helm-objectstore", "optional": False,
+                "defaultMode": 420, "items": [{"key": "connection", "path": "connection"}],
+            },
+        })
         baseline["spec"]["containers"][0]["image"] = "registry.gitlab.com/gitlab-org/build/cng/gitlab-webservice-ce:v19.5.0"
         template = json.dumps(baseline, sort_keys=True, separators=(",", ":")).encode()
         self.assertEqual(hashlib.sha256(template).hexdigest(),
