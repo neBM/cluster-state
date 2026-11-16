@@ -20,4 +20,4 @@ images:
   # Preserve the previously running Plex image during storage recovery.
   digest: "sha256:6d778d41daae68f89115aa87a44ae14a96b23e71a2093da173b5a9aac4091336"
 - name: "ghcr.io/tautulli/tautulli"
-  newTag: "v2.19.1"
+  newTag: "v2.19.1@sha256:239cd6dbc429a0eb441bdf88a7a015871e2d4d6e02b6e6039af30c0487528a8e"
