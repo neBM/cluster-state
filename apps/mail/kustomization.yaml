@@ -39,4 +39,4 @@ images:
 - name: "nginx"
   newTag: "1.31-alpine"
 - name: "salvoxia/sogo"
-  digest: "sha256:8cea5a5dd1a5908031b8e98ffc3cfc3b3991520e18d507031ed7d040cafdf2ce"
+  digest: "sha256:2dedc0acece4da09ae39ec32d388bfbf125e4c4c9ab5dfbd9832375f8285d733"
