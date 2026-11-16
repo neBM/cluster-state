@@ -1,8 +1,20 @@
-# Temporary old-runtime preservation for controlled source capture/resumption.
-# Apply from the outer apps layer, after the legacy tag replacements; never pin
-# the shared webservice repository globally (the completed Job must not change).
+# Immutable serving-runtime pins for the controlled CE 19.5.5 application stage.
+# Apply from the outer apps layer, after the appVersion tag replacements. Keep
+# these pins aligned with appVersion; do not globally pin the shared webservice
+# repository, because migrationVersion independently owns the versioned Job.
 # Pins change Pod templates: hold/ACK the root/apps owners before merge/apply.
-# Remove with legacy retirement in Task6; do not pin the native chart's updater.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gitlab-gitaly
+  namespace: default
+spec:
+  template:
+    spec:
+      containers:
+      - name: gitaly
+        image: registry.gitlab.com/gitlab-org/build/cng/gitaly:v19.5.5@sha256:55c24ff0d32e2c33ecba63c381577d2639480dacac3a5ac61530a8d841ee8029
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -13,7 +25,7 @@ spec:
     spec:
       containers:
       - name: kas
-        image: registry.gitlab.com/gitlab-org/build/cng/gitlab-kas:v19.5.0@sha256:dd8e02add8cf5c1385b8840ace93b5f7c55e5e23f417b0fcdf64306d2cc71601
+        image: registry.gitlab.com/gitlab-org/build/cng/gitlab-kas:v19.5.5@sha256:73eb87788646d6e53ada6818dc6f82685bc884fb95fd04483ab745a742458631
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -25,7 +37,7 @@ spec:
     spec:
       containers:
       - name: registry
-        image: registry.gitlab.com/gitlab-org/build/cng/gitlab-container-registry:v19.5.0@sha256:e5a1fddd2f6b5db0f27b60848558ec562f4845e9873c115337cef11a386d4191
+        image: registry.gitlab.com/gitlab-org/build/cng/gitlab-container-registry:v19.5.5@sha256:afe47d3f109806b6a375c1a1b6ff337f01c173ee5ffd474dbb862ccdc07fb3af
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -37,7 +49,7 @@ spec:
     spec:
       containers:
       - name: sidekiq
-        image: registry.gitlab.com/gitlab-org/build/cng/gitlab-sidekiq-ce:v19.5.0@sha256:673fab0dd56bbcc653984ad63c5977d3846da3fe7ced48ec38bb82b6158e3386
+        image: registry.gitlab.com/gitlab-org/build/cng/gitlab-sidekiq-ce:v19.5.5@sha256:aa52502b94c24358f6b0aa88554e390fe5b573d5fcf628afb54a7315413978aa
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -49,6 +61,6 @@ spec:
     spec:
       containers:
       - name: webservice
-        image: registry.gitlab.com/gitlab-org/build/cng/gitlab-webservice-ce:v19.5.0@sha256:517def09396d5e6a736a26b474758695a1a0bc557544af0a3e8c29684c969fc8
+        image: registry.gitlab.com/gitlab-org/build/cng/gitlab-webservice-ce:v19.5.5@sha256:5295722587541db99409e78bb77ea39216655e513968f8812a3dba7c68af1703
       - name: workhorse
-        image: registry.gitlab.com/gitlab-org/build/cng/gitlab-workhorse-ce:v19.5.0@sha256:aab34f7dfe65bb6d5571035b52ed051b9d9eb7c5a6dd4f947810abfff5a2f0d1
+        image: registry.gitlab.com/gitlab-org/build/cng/gitlab-workhorse-ce:v19.5.5@sha256:1e09477d126f75d2501a5bd75e28af79709dc1cfb158e14b04089b8b327cce49

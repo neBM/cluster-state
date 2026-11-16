@@ -33,7 +33,7 @@ generatorOptions:
 configMapGenerator:
 - name: gitlab-release
   literals:
-  - appVersion=v19.5.0
+  - appVersion=v19.5.5
   # renovate: datasource=docker depName=registry.gitlab.com/gitlab-org/build/cng/gitlab-webservice-ce
   - migrationVersion=v19.5.5
   - migrationRunSuffix=r1
