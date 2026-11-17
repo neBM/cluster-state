@@ -15,8 +15,9 @@ generatorOptions:
 configMapGenerator:
 - name: feedback-release
   literals:
-  - migrationVersion=v2
+  - migrationVersion=v3
   - migrationRunSuffix=r1
+  - migrationImage=registry.brmartin.co.uk:443/ben/cluster-state/feedback-migrations:v3
 replacements:
 - source:
     kind: ConfigMap
@@ -47,17 +48,16 @@ replacements:
 - source:
     kind: ConfigMap
     name: feedback-release
-    fieldPath: data.migrationVersion
+    fieldPath: data.migrationImage
   targets:
   - select:
       kind: Job
       labelSelector: app=feedback-api,component=migrations
     fieldPaths:
     - spec.template.spec.containers.0.image
-    options:
-      delimiter: ':'
-      index: 1
 
 images:
 - name: postgrest/postgrest
-  newTag: v14.18
+  newTag: v16.6@sha256:5ce030c153500fe90ba157da4da8ba99ab51d3bc7b95e071bd0b544b67a632f7
+- name: python
+  newTag: 3.13-alpine@sha256:420cd0bf0f3998275875e02ecd5808168cf0843cbb4d3c536432f729247b2acc
