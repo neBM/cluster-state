@@ -17,7 +17,7 @@ configMapGenerator:
   literals:
   - migrationVersion=v3
   - migrationRunSuffix=r1
-  - migrationImage=registry.brmartin.co.uk:443/ben/cluster-state/feedback-migrations:v3
+  - migrationImage=registry.brmartin.co.uk:443/ben/cluster-state/feedback-migrations:v3@sha256:a16474563370cfc6497c277218aa9cb0535000ec8818ca9df83f6841fec25d37
 replacements:
 - source:
     kind: ConfigMap
