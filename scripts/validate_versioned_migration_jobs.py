@@ -207,17 +207,75 @@ def parse_job_documents(rendered: str) -> list[tuple[str, str]]:
     return jobs
 
 
-def validate_job_name_matches_image(name: str, image: str) -> None:
-    if ":" not in image:
-        raise SystemExit(f"{name}: image {image!r} is missing a tag")
+def parse_migration_image(image: str) -> tuple[str, str]:
+    # Split the digest before the tag: registry ports and sha256 colons are not tags.
+    reference, separator, digest = image.partition("@")
+    if separator and re.fullmatch(r"sha256:[0-9a-f]{64}", digest) is None:
+        raise ValueError(f"invalid sha256 digest in image {image!r}")
+    repository, separator, tag = reference.rpartition(":")
+    component = r"[a-z0-9]+(?:(?:[._]|__|-+)[a-z0-9]+)*"
+    repository_pattern = rf"(?:[a-z0-9][a-z0-9.-]*(?::[0-9]+)?/)?{component}(?:/{component})*"
+    if (
+        not separator
+        or re.fullmatch(repository_pattern, repository) is None
+        or re.fullmatch(r"[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}", tag) is None
+    ):
+        raise ValueError(f"image {image!r} requires a repository and valid tag")
+    return repository, tag
 
-    image_tag = image.rsplit(":", 1)[1]
+
+def validate_job_name_matches_image(name: str, image: str) -> None:
+    try:
+        _, image_tag = parse_migration_image(image)
+    except ValueError as exc:
+        raise SystemExit(f"{name}: {exc}") from exc
     if f"-{image_tag}-" in name or name.endswith(f"-{image_tag}"):
         return
 
     raise SystemExit(
         f"{name}: rendered job name does not contain image tag {image_tag!r} from {image!r}"
     )
+
+
+def validate_feedback_migration_release(
+    kustomization: str,
+    rendered: str,
+    latest_migration: int,
+    producer_repository: str,
+) -> None:
+    documents = list(yaml.load_all(rendered, Loader=UniqueKeySafeLoader))
+    releases = [
+        doc for doc in documents if isinstance(doc, dict)
+        and doc.get("kind") == "ConfigMap"
+        and doc.get("metadata", {}).get("name") == "feedback-release"
+    ]
+    jobs = [doc for doc in documents if isinstance(doc, dict) and doc.get("kind") == "Job"]
+    if len(releases) != 1 or len(jobs) != 1:
+        raise ValueError("expected exactly one feedback-release ConfigMap and migration Job")
+    release = releases[0].get("data", {})
+    version = release.get("migrationVersion")
+    expected_version = f"v{latest_migration}"
+    if version != expected_version:
+        raise ValueError(f"migrationVersion must match highest SQL migration {expected_version}")
+    # The native package job extracts this exact unquoted literal with sed.
+    producer_versions = re.findall(r"^  - migrationVersion=(.*)$", kustomization, re.MULTILINE)
+    if producer_versions != [version]:
+        raise ValueError("migrationVersion literal must be readable by the native image producer")
+    suffix = release.get("migrationRunSuffix")
+    if not isinstance(suffix, str) or re.fullmatch(r"r[1-9]\d*", suffix) is None:
+        raise ValueError("invalid migrationRunSuffix")
+    image = release.get("migrationImage")
+    if not isinstance(image, str):
+        raise ValueError("feedback-release requires migrationImage")
+    repository, tag = parse_migration_image(image)
+    if repository != producer_repository or tag != version:
+        raise ValueError("migrationImage must match the native producer repository and migrationVersion")
+    job = jobs[0]
+    if job["metadata"]["name"] != f"feedback-migrations-{version}-{suffix}":
+        raise ValueError("feedback migration Job identity must match version and run suffix")
+    containers = job.get("spec", {}).get("template", {}).get("spec", {}).get("containers", [])
+    if len(containers) != 1 or containers[0].get("image") != image:
+        raise ValueError("feedback migration Job must use the whole migrationImage reference")
 
 
 def main() -> int:
@@ -237,6 +295,25 @@ def main() -> int:
 
     for path in TARGETS:
         rendered = render(path)
+        if path == "apps/feedback":
+            try:
+                ci = yaml.safe_load((REPO_ROOT / ".gitlab-ci.yml").read_text())
+                # Native GitLab project registry prefix (including its explicit port).
+                producer_repository = ci["variables"]["FEEDBACK_MIGRATIONS_IMAGE"].replace(
+                    "${CI_REGISTRY_IMAGE}", "registry.brmartin.co.uk:443/ben/cluster-state"
+                )
+                latest_migration = max(
+                    int(sql.name.split("_", 1)[0])
+                    for sql in (REPO_ROOT / path / "migrations").glob("[0-9]*_*.sql")
+                )
+                validate_feedback_migration_release(
+                    (REPO_ROOT / path / "kustomization.yaml").read_text(),
+                    rendered,
+                    latest_migration,
+                    producer_repository,
+                )
+            except (OSError, ValueError, KeyError, yaml.YAMLError) as exc:
+                raise SystemExit(f"{path}: {exc}") from exc
         jobs = parse_job_documents(rendered)
         if not jobs:
             raise SystemExit(f"{path}: no rendered Job found")
