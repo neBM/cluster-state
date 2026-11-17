@@ -214,7 +214,9 @@ def parse_migration_image(image: str) -> tuple[str, str]:
         raise ValueError(f"invalid sha256 digest in image {image!r}")
     repository, separator, tag = reference.rpartition(":")
     component = r"[a-z0-9]+(?:(?:[._]|__|-+)[a-z0-9]+)*"
-    repository_pattern = rf"(?:[a-z0-9][a-z0-9.-]*(?::[0-9]+)?/)?{component}(?:/{component})*"
+    registry_label = r"[a-z0-9](?:[a-z0-9-]*[a-z0-9])?"
+    registry_host = rf"{registry_label}(?:\.{registry_label})*"
+    repository_pattern = rf"(?:{registry_host}(?::[0-9]+)?/)?{component}(?:/{component})*"
     if (
         not separator
         or re.fullmatch(repository_pattern, repository) is None

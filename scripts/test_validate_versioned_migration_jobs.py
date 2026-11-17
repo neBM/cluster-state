@@ -138,6 +138,9 @@ class MigrationImageReferenceTests(unittest.TestCase):
         for repository in (
             "registry.example/namespace/migrations",
             "registry.example:443/namespace/migrations",
+            "localhost/namespace/migrations",
+            "localhost:5000/namespace/migrations",
+            "registry-1.a:443/name_space/repo__name/migrations--job",
         ):
             for suffix in ("", "@sha256:" + "a" * 64):
                 with self.subTest(repository=repository, suffix=suffix):
@@ -147,6 +150,10 @@ class MigrationImageReferenceTests(unittest.TestCase):
 
     def test_rejects_malformed_or_mismatched_release_references(self) -> None:
         for image in (
+            "registry..example:443/ns/migrations:v3",
+            "registry-.example:443/ns/migrations:v3",
+            "registry.-example:443/ns/migrations:v3",
+            "registry.example.:443/ns/migrations:v3",
             "registry.example:443/namespace/migrations",
             "registry.example:443/namespace/migrations@sha256:" + "a" * 64,
             "registry.example:443/namespace/migrations:v2@sha256:" + "a" * 64,
