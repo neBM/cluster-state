@@ -60,4 +60,4 @@ replacements:
 
 images:
 - name: postgrest/postgrest
-  newTag: v14.18
+  newTag: v16.6@sha256:5ce030c153500fe90ba157da4da8ba99ab51d3bc7b95e071bd0b544b67a632f7
