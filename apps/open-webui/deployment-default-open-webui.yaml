@@ -101,6 +101,14 @@ spec:
           requests:
             cpu: 25m
             memory: 1280Mi
+        startupProbe:
+          httpGet:
+            path: /health
+            port: 8080
+            scheme: HTTP
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 60
         terminationMessagePath: /dev/termination-log
         terminationMessagePolicy: File
         volumeMounts:
