@@ -102,6 +102,12 @@ def verify(ci: dict) -> None:
     assert generic["script"] == ["./scripts/validate_kustomize.sh"]
     assert not generic.get("before_script"), "Helm/chart bootstrap must not run globally"
     assert {n["job"] for n in generic["needs"] if not n.get("optional", False)} >= {"validate:ci-wiring"}
+    wiring = effective(ci, "validate:ci-wiring")
+    assert wiring["script"] == [
+        "uv --no-config run --script scripts/test_ci_wiring.py",
+        "uv --no-config run --locked --script scripts/test_render_schema.py",
+    ], "CI wiring must run the locked native render/schema regression"
+    assert not wiring.get("before_script"), "render/schema regressions must not bootstrap Helm"
     helm = "\n".join(effective(ci, "validate:gitlab")["before_script"])
     assert "helm-v4.2.4-linux-${helm_arch}.tar.gz" in helm and "sha256sum -c" in helm
     for module in MODULES:
@@ -109,6 +115,11 @@ def verify(ci: dict) -> None:
         assert job["variables"]["DRIVER_MODULE"] == module
         assert job["script"] == ['cd "drivers/${DRIVER_MODULE}"', "unset FILER_ADDR", "go test ./..."]
     for mode in (("merge_request_event", "", False), ("push", "main", True)):
+        for dependency in ("scripts/validate_kustomize.sh", "scripts/validate_render_schema.py",
+                           "scripts/validate_render_schema.py.lock", "scripts/test_render_schema.py",
+                           "scripts/test_render_schema.py.lock", ".gitlab-ci.yml"):
+            assert {"validate:ci-wiring", "validate:manifests"} <= selected(ci, dependency, *mode), \
+                f"render/schema regression missing shared dependency {dependency}"
         for suite, (job, path) in SUITES.items():
             assert job in selected(ci, path, *mode), f"{job}: missing domain trigger"
             assert effective(ci, job)["script"] == [f"./scripts/validate_contracts.sh {suite}"]

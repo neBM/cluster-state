@@ -607,6 +607,7 @@ validate:ci-wiring:
   extends: .contract_job
   script:
     - uv --no-config run --script scripts/test_ci_wiring.py
+    - uv --no-config run --locked --script scripts/test_render_schema.py
   rules: *validate_manifest_rules
 
 validate:application-safety:
