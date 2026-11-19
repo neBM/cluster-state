@@ -69,10 +69,17 @@ Symptom when this drifts: a new Cilium/Hubble component on hestia fails with `no
 ### Flux / Kustomize
 
 ```bash
-# Render every supported entrypoint
+# Render/schema only: follow actual Flux spec.path graph plus inactive candidates
 ./scripts/validate_kustomize.sh
 
-# Render the full cluster state
+# Explicit paths check ONLY these renders, without unrelated application suites
+./scripts/validate_kustomize.sh infrastructure/storage/nfs-csi apps
+
+# Focused client-only regression checks (no live cluster)
+uv --no-config run --locked --script scripts/test_render_schema.py
+./scripts/test_restic_backup.sh
+
+# Render the root Flux objects (does NOT render all child workloads)
 kubectl kustomize clusters/k3s-homelab > /dev/null
 
 # Bootstrap or refresh Flux system objects
@@ -86,6 +93,12 @@ kubectl get receiver cluster-state -n flux-system -o jsonpath='{.status.webhookP
 ```
 
 ### Kubernetes
+
+For client-only validation dependencies, exact Flux Schema v0.17.0 tool/catalog
+pins, scratch installation and architecture support, see [README validation](README.md#validation).
+Do not fold application/security/admission suites back into `validate_kustomize.sh`.
+An ordinary Restic image update belongs in its source Kustomization, not in a
+second version assertion in `test_restic_backup.sh`.
 
 ```bash
 # KUBECONFIG is already set in the shell environment — kubectl works directly

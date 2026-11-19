@@ -173,11 +173,13 @@ printf 'restic backup script tests passed\n'
 
 # Reuse the repository's pinned PyYAML/uv toolchain for offline rendered checks.
 uv --no-config run --no-project --with PyYAML==6.0.3 python - "${repo_root}" <<'PY'
+import copy
 import os
 from pathlib import Path
 import shutil
 import subprocess
 import sys
+import tempfile
 import unittest
 
 import yaml
@@ -192,7 +194,32 @@ def render(path):
     return {(doc["kind"], doc["metadata"]["name"]): doc for doc in yaml.safe_load_all(output)}
 
 
-restic = render("infrastructure/storage/restic-backup")
+restic_path = root / "infrastructure/storage/restic-backup"
+
+
+def selected_restic_image(path):
+    # This Kustomization owns ordinary dependency selection; the contract checks
+    # render consistency, not a second independently maintained version pin.
+    kustomization = yaml.safe_load((path / "kustomization.yaml").read_text())
+    selection, = [image for image in kustomization["images"] if image["name"] == "restic/restic"]
+    image = selection.get("newName", selection["name"])
+    if selection.get("newTag"):
+        image += ":" + selection["newTag"]
+    if selection.get("digest"):
+        image += "@" + selection["digest"]
+    if not selection.get("newTag") and not selection.get("digest"):
+        raise AssertionError("Restic selection must have a tag or digest")
+    return image
+
+
+def assert_restic_images(documents, expected):
+    for name in ("restic-critical-pvc-backup", "restic-repo-maintenance"):
+        container, = documents["CronJob", name]["spec"]["jobTemplate"]["spec"]["template"]["spec"]["containers"]
+        if container["image"] != expected:
+            raise AssertionError(f"{name}: rendered image {container['image']!r} != selected {expected!r}")
+
+
+restic = render(restic_path)
 grafana = render("infrastructure/observability-ui/grafana")
 policy = yaml.safe_load(restic["ConfigMap", "restic-backup-scripts"]["data"]["backup-policy.yaml"])
 sources = """dovecot-mailboxes-sw factorio-data-sw gitlab-repositories-sw gitlab-shared-sw
@@ -202,6 +229,31 @@ sources = """dovecot-mailboxes-sw factorio-data-sw gitlab-repositories-sw gitlab
 
 
 class ResticManifests(unittest.TestCase):
+    def test_both_jobs_render_the_source_image_selection(self):
+        assert_restic_images(restic, selected_restic_image(restic_path))
+
+    def test_ordinary_image_update_needs_no_contract_version_edit(self):
+        with tempfile.TemporaryDirectory(prefix="restic-image-update-") as temporary:
+            candidate = Path(temporary) / "restic-backup"
+            shutil.copytree(restic_path, candidate)
+            source = candidate / "kustomization.yaml"
+            config = yaml.safe_load(source.read_text())
+            selection, = config["images"]
+            selection.pop("digest", None)
+            selection["newTag"] = "contract-update"
+            source.write_text(yaml.safe_dump(config))
+            expected = selected_restic_image(candidate)
+            self.assertNotEqual(expected, selected_restic_image(restic_path))
+            assert_restic_images(render(candidate), expected)
+
+    def test_rendered_image_drift_is_rejected_for_either_job(self):
+        for name in ("restic-critical-pvc-backup", "restic-repo-maintenance"):
+            with self.subTest(job=name):
+                inconsistent = copy.deepcopy(restic)
+                inconsistent["CronJob", name]["spec"]["jobTemplate"]["spec"]["template"]["spec"]["containers"][0]["image"] = "unexpected/image:drift"
+                with self.assertRaisesRegex(AssertionError, "rendered image"):
+                    assert_restic_images(inconsistent, selected_restic_image(restic_path))
+
     def test_existing_repository_is_statically_prebound_and_retained(self):
         self.assertIn(("PersistentVolume", "restic-repository"), list(restic))
         self.assertIn(("PersistentVolumeClaim", "restic-repository"), list(restic))
@@ -239,7 +291,6 @@ class ResticManifests(unittest.TestCase):
                 self.assertNotIn("nodeAffinity", pod.get("affinity", {}))
                 self.assertEqual([m for m in container["volumeMounts"] if m["name"] == "repo"], [{"name": "repo", "mountPath": "/repo"}])
                 self.assertEqual(container["resources"], {"requests": {"cpu": "100m", "memory": memory}, "limits": {"cpu": "500m", "memory": limit}})
-                self.assertEqual(container["image"], "restic/restic:0.19.1")
                 self.assertEqual(container["command"], ["/bin/sh", "/config/" + script])
                 self.assertEqual(volumes["secrets"]["secret"]["secretName"], "restic-backup-secrets")
                 self.assertEqual(volumes["secrets"]["secret"]["items"], [{"key": "RESTIC_PASSWORD", "path": "password"}])
