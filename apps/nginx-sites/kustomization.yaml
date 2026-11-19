@@ -12,4 +12,4 @@ images:
 - name: "nginx"
   newTag: "alpine"
 - name: "php"
-  newTag: "8.5-fpm-alpine"
+  newTag: "8.6-fpm-alpine"
