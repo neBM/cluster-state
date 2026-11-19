@@ -13,7 +13,7 @@ from typing import NoReturn
 ROOT = Path(__file__).resolve().parent.parent
 IMAGE = ROOT / "apps/hermes-workspace/image"
 CI = ROOT / ".gitlab-ci.yml"
-VALIDATION_ENTRYPOINT = ROOT / "scripts/validate_kustomize.sh"
+VALIDATION_ENTRYPOINT = ROOT / "scripts/validate_contracts.sh"
 VERIFY_HELPER = ROOT / "scripts/verify_hermes_workspace_image.sh"
 BUILDAH_IMAGE = (
     "quay.io/buildah/stable@sha256:"
@@ -530,14 +530,18 @@ def job_tags(block: str) -> list[str]:
 
 
 def require_direct_rules(block: str, condition: str, label: str) -> None:
-    changes = "".join(f"        - {path}\n" for path in WORKSPACE_CHANGES)
-    expected = f"  rules:\n    - if: '{condition}'\n      changes:\n{changes}"
+    # Preserve publication/MR eligibility and minimum trigger closure, without
+    # making harmless additional dependency paths an implementation contract.
+    expected = f"  rules:\n    - if: '{condition}'\n      changes:\n"
     require(block, expected, f"direct {label} rules")
     if block.count("  rules:\n") != 1:
         fail(f"{label} must have exactly one direct rules list")
     actual = block[block.index("  rules:\n") :].strip()
-    if actual != expected.strip():
-        fail(f"{label} rules must contain only the exact pipeline condition and changes")
+    paths = re.findall(r"^        - ([^\s]+)$", actual, re.MULTILINE)
+    if len(paths) != len(set(paths)) or not set(WORKSPACE_CHANGES) <= set(paths):
+        fail(f"{label} rules must retain duplicate-free required change paths")
+    if actual != (expected + "".join(f"        - {path}\n" for path in paths)).strip():
+        fail(f"{label} rules must retain the exact pipeline condition and a changes list")
     forbid(block, r"^  rules:\s*\*", f"indirect {label} rules")
 
 
@@ -735,17 +739,24 @@ def validate_publisher(job: str) -> None:
     if re.search(r"^  tags:", job, re.MULTILINE):
         fail(f"{label} must be untagged, got {job_tags(job)!r}")
     require_direct_rules(job, MAIN_CONDITION, label)
-    expected_needs = """  needs:
-    - job: package:hermes-workspace:amd64
-      artifacts: true
-    - job: package:hermes-workspace:arm64
-      artifacts: true
-    - job: validate:manifests
-      artifacts: false
-"""
     needs_match = re.search(r"^  needs:\n.*?(?=^  image:)", job, re.MULTILINE | re.DOTALL)
-    if needs_match is None or needs_match.group(0) != expected_needs:
-        fail("workspace index fan-in must need exactly both leaf artifacts and manifest validation")
+    required_needs = {
+        "gate:release": "false",
+        "package:hermes-workspace:amd64": "true",
+        "package:hermes-workspace:arm64": "true",
+        "validate:manifests": "false",
+        "validate:workspace-contracts": "false",
+        "validate:application-safety": "false",
+    }
+    if needs_match is None:
+        fail("workspace index publisher must have explicit mandatory fan-in")
+    needs = re.findall(r"    - job: ([^\n]+)\n      artifacts: (true|false)\n", needs_match.group(0))
+    if len(needs) != len(dict(needs)) or not required_needs.items() <= dict(needs).items():
+        fail("workspace index fan-in must retain leaf artifacts and successful safety/contract gates")
+    if needs_match.group(0) != "  needs:\n" + "".join(
+        f"    - job: {name}\n      artifacts: {artifacts}\n" for name, artifacts in needs
+    ):
+        fail("workspace index fan-in must not make required gates optional")
     expected_artifacts = """  artifacts:
     name: hermes-workspace-image-${CI_COMMIT_SHA}
     paths:
@@ -865,12 +876,13 @@ def validate_ci(ci: str, validation_entrypoint: str) -> None:
         fail("exactly four native leaves and one index publisher must use pinned Buildah")
 
     validation_rules = top_level_block(ci, ".validate_manifest_rules")
-    helper_path = "scripts/verify_hermes_workspace_image.sh"
-    if validation_rules.count(helper_path) != 2:
-        fail("both manifest validation rule lists must trigger on verification-helper changes")
+    require(validation_rules, "- scripts/**/*", "generic validator dependency coverage")
+    contract_job = top_level_block(ci, "validate:workspace-contracts")
+    require(contract_job, "- scripts/**/*", "workspace contract dependency coverage")
+    require(contract_job, "./scripts/validate_contracts.sh workspace", "focused workspace invocation")
+    require(contract_job, '$CI_PIPELINE_SOURCE == "merge_request_event"', "workspace MR coverage")
+    require(contract_job, '$CI_COMMIT_BRANCH == "main"', "workspace main coverage")
     validator_path = "scripts/test_validate_hermes_workspace_image.py"
-    if ci.count(validator_path) != 2:
-        fail("both manifest validation change lists must trigger the workspace validator")
     command = f'python3 "${{repo_root}}/{validator_path}"'
     if validation_entrypoint.count(command) != 1:
         fail("repository validation entrypoint must run the workspace image validator exactly once")

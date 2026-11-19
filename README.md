@@ -62,16 +62,57 @@ https://flux-webhook.brmartin.co.uk$(kubectl get receiver cluster-state -n flux-
 ## Validation
 
 ```bash
-# Render every supported entrypoint
+# Render + schema-check the actual Flux path graph and inactive GitLab candidates
 ./scripts/validate_kustomize.sh
+
+# Check ONLY these entrypoints (no Flux-child expansion or application suites)
+./scripts/validate_kustomize.sh infrastructure/storage/nfs-csi apps
+
+# Focused render/schema regression controls and the independent Restic contract
+uv --no-config run --locked --script scripts/test_render_schema.py
+./scripts/test_restic_backup.sh
 
 # Inspect a specific layer
 kubectl kustomize infrastructure/platform
 kubectl kustomize apps
 
-# Compare the Flux bootstrap path to the live cluster
+# Compare the Flux bootstrap path to the live cluster (NOT part of validation)
 kubectl diff -k clusters/k3s-homelab/flux-system
 ```
+
+The render/schema command is client-only (`KUBECONFIG=/dev/null`): it never
+contacts the Kubernetes API, runs Helm/application suites, or applies resources.
+With no arguments it starts at the rendered Flux bootstrap, follows every
+repository `Kustomization.spec.path`, and builds each distinct path independently
+(including NFS CSI and overlapping storage leaves). Rendering a Flux object does
+**not** count as rendering its child path. It also retains the supported
+`infrastructure/storage` aggregate and explicitly checks the inactive
+`apps/gitlab-helm` and `apps/gitlab-redis` candidates without activating them.
+Explicit arguments are repository-relative directories; only those renders are
+checked. Existing explicit-namespace checks remain enforced.
+
+Dependencies: Bash, `uv`, Python 3.11+, and standalone `kustomize` or
+`kubectl kustomize`. The helper's adjacent uv lock pins PyYAML 6.0.3. Flux Schema
+**v0.17.0** is required: set `FLUX_SCHEMA_BIN=/path/to/flux-schema` or put that
+exact version in `PATH`. Otherwise the helper downloads the official release
+into disposable task scratch, verifies the committed release-archive SHA256,
+and deletes it afterward (Linux/macOS amd64/arm64; no system installation).
+Use `TMPDIR` to select task scratch. Cold runs need HTTPS access to GitHub release
+assets, raw.githubusercontent.com, and the uv package/index sources.
+
+Schema sources are pinned to immutable Git commits in
+`scripts/validate_render_schema.py`: Flux Schema catalog
+`4c71b2098ba84b738d811877463f5a2b2bfe443f` (the v0.17.0 release) and the CNCF
+ecosystem catalog `f6d98a45bed8110f8359ca0045370eeb9519c57b`.
+The `catalog/latest` directory inside the first commit is immutable; neither the
+moving CLI `default` nor daily `ecosystem` alias is used. Missing schemas,
+invalid resources, and CEL violations fail closed with no skips. Ambient Flux
+Schema configuration cannot override these checks. Catalog updates are deliberate
+source changes, not a side effect of ordinary workload image updates.
+These checks do not replace application behavior/security/admission or upgrade
+compatibility gates. Restic's independent tests derive the selected image from
+its Kustomization while retaining backup behavior, PVC, retention, and read-only
+source-mount contracts.
 
 ## CI/CD
 

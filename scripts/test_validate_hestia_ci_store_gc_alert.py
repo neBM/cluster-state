@@ -48,7 +48,7 @@ def fixture(parent: Path, name: str) -> Path:
     shutil.copytree(ROOT / "infrastructure", root / "infrastructure")
     (root / "scripts").mkdir(parents=True)
     for relative in (
-        "scripts/validate_kustomize.sh",
+        "scripts/validate_contracts.sh",
         "scripts/validate_hestia_ci_store_gc_alert.py",
         "scripts/test_validate_hestia_ci_store_gc_alert.py",
         ".gitlab-ci.yml",
@@ -553,7 +553,7 @@ def main() -> int:
         control = 'infrastructure/shared-services/gitlab-runner/ci/cronjob-ci-hestia-ci-store-gc-admission.yaml'
         role = "infrastructure/shared-services/gitlab-runner/ci/role-ci-hestia-ci-store-gc.yaml"
         alert = "infrastructure/observability-ui/grafana/_grafana_alert_rules.yaml"
-        wrapper = "scripts/validate_kustomize.sh"
+        wrapper = "scripts/validate_contracts.sh"
         mutations = (
             ('gc-control-late-schedule', control, 'schedule: 16 4 * * *', 'schedule: 17 4 * * *', 'GC control pins and schedule'),
             ('gc-control-wrong-sa', control, 'serviceAccountName: hestia-ci-maintenance-admission', 'serviceAccountName: hestia-ci-store-gc', 'GC control pins and schedule'),
@@ -612,7 +612,7 @@ def main() -> int:
             ("gc-no-external-cleanup", gc, "ps -a --external", "ps -a", "GC script"),
             ("gc-broad-rbac", role, "verbs:\n  - list", "verbs:\n  - list\n  - get", "GC Role rules"),
             ("gc-unprivileged", gc, "privileged: true", "privileged: false", "GC securityContext"),
-            ("gc-test-unlocked", wrapper, 'uv --no-config run --locked --script "${repo_root}/scripts/test_validate_hestia_ci_store_gc_alert.py"', 'python3 "${repo_root}/scripts/test_validate_hestia_ci_store_gc_alert.py"', "validate_kustomize GC/alert test call count"),
+            ("gc-test-unlocked", wrapper, 'uv --no-config run --locked --script "${repo_root}/scripts/test_validate_hestia_ci_store_gc_alert.py"', 'python3 "${repo_root}/scripts/test_validate_hestia_ci_store_gc_alert.py"', "validate_contracts GC/alert test call count"),
             ("alert-wrong-mount", alert, 'expr: |-\n                    (\n                      label_replace(\n                        min by(instance) (\n                          (\n                            node_filesystem_avail_bytes{job="kubernetes-service-endpoints",app_kubernetes_io_name="node-exporter",mountpoint="/srv/noisy",fstype="xfs"}', 'expr: |-\n                    (\n                      label_replace(\n                        min by(instance) (\n                          (\n                            node_filesystem_avail_bytes{job="kubernetes-service-endpoints",app_kubernetes_io_name="node-exporter",mountpoint="/srv/noisy-bind",fstype="xfs"}', "alert PromQL"),
             ("alert-wrong-job", alert, 'expr: |-\n                    (\n                      label_replace(\n                        min by(instance) (\n                          (\n                            node_filesystem_avail_bytes{job="kubernetes-service-endpoints"', 'expr: |-\n                    (\n                      label_replace(\n                        min by(instance) (\n                          (\n                            node_filesystem_avail_bytes{job="kubernetes-pods"', "alert PromQL"),
             ("alert-wrong-node", alert, 'max by(internal_ip, node) (kube_node_info{node="hestia"})\n                    )\n                    or', 'max by(internal_ip, node) (kube_node_info{node="nyx"})\n                    )\n                    or', "alert PromQL"),

@@ -12,10 +12,10 @@ repos:
   - repo: local
     hooks:
       - id: kustomize-render
-        name: Kustomize Render
+        name: Kustomize Render and Schema
         entry: ./scripts/validate_kustomize.sh
         language: system
-        files: ^(apps/|clusters/|infrastructure/|scripts/validate_kustomize\.sh)
+        files: ^(apps/|clusters/|infrastructure/|scripts/(validate_kustomize\.sh|validate_render_schema\.py(\.lock)?|test_render_schema\.py))
         pass_filenames: false
       - id: nomad-fmt
         name: Nomad Format
