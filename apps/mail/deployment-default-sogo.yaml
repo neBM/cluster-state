@@ -30,15 +30,15 @@ spec:
       automountServiceAccountToken: true
       containers:
       - env:
-        - name: DISABLE_CRON
-          value: '1'
+        - name: CRON_TMPWATCH
+          value: '0'
         image: salvoxia/sogo
         imagePullPolicy: Always
         livenessProbe:
           failureThreshold: 5
           httpGet:
             path: /SOGo
-            port: 80
+            port: http
             scheme: HTTP
           initialDelaySeconds: 30
           periodSeconds: 30
@@ -46,14 +46,14 @@ spec:
           timeoutSeconds: 10
         name: sogo
         ports:
-        - containerPort: 80
+        - containerPort: 8080
           name: http
           protocol: TCP
         readinessProbe:
           failureThreshold: 3
           httpGet:
             path: /SOGo
-            port: 80
+            port: http
             scheme: HTTP
           initialDelaySeconds: 15
           periodSeconds: 15
@@ -75,7 +75,7 @@ spec:
       enableServiceLinks: true
       initContainers:
       - args:
-        - envsubst '$$SOGO_DB_URL $$LDAP_BIND_PW' < /tmpl/sogo.conf.tmpl > /srv/etc/sogo.conf
+        - umask 027; envsubst '$$SOGO_DB_URL $$LDAP_BIND_PW' < /tmpl/sogo.conf.tmpl > /srv/etc/sogo.conf
           && echo 'sogo.conf written'
         command:
         - /bin/sh
@@ -114,7 +114,11 @@ spec:
           name: srv-etc
       restartPolicy: Always
       schedulerName: default-scheduler
-      securityContext: {}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 999
+        runAsGroup: 999
+        fsGroup: 999
       shareProcessNamespace: false
       terminationGracePeriodSeconds: 30
       volumes:
