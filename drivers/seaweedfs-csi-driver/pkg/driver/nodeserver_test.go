@@ -9,6 +9,7 @@ import (
 
 	"github.com/container-storage-interface/spec/lib/go/csi"
 	"github.com/seaweedfs/seaweedfs/weed/pb/filer_pb"
+	"k8s.io/mount-utils"
 )
 
 func capWithMountGroup(mg string) *csi.VolumeCapability {
@@ -610,12 +611,22 @@ func TestNodePublishVolume_WarmCacheHealthyStaging_DoesNotReStage(t *testing.T) 
 	}
 	ns.volumes.Store(volumeID, ns.rebuildVolumeFromStaging(volumeID, stagingTargetPath))
 
-	// NodePublishVolume will proceed to Volume.Publish which calls
-	// mountutil.Mount for a real bind mount; that fails in an unprivileged
-	// test environment. We expect an error, but it must come from Publish
-	// (i.e. AFTER the cache-hit fast path was correctly selected) — NOT
-	// from stageNewVolumeFunc. The assertions below verify this.
-	_, _ = ns.NodePublishVolume(context.Background(), publishRequestForTest(volumeID, stagingTargetPath, targetPath))
+	// Exercise Publish without granting the test real bind-mount authority.
+	origMountutil := mountutil
+	fakeMount := mount.NewFakeMounter(nil)
+	mountutil = fakeMount
+	t.Cleanup(func() { mountutil = origMountutil })
+
+	if _, err := ns.NodePublishVolume(context.Background(), publishRequestForTest(volumeID, stagingTargetPath, targetPath)); err != nil {
+		t.Fatalf("NodePublishVolume returned error: %v", err)
+	}
+	wantMount := mount.FakeAction{Action: mount.FakeActionMount, Source: stagingTargetPath, Target: targetPath}
+	if got := fakeMount.GetLog(); len(got) != 1 || got[0] != wantMount {
+		t.Fatalf("publish mount actions = %+v, want [%+v]", got, wantMount)
+	}
+	if got := fakeMount.MountPoints[0].Opts; len(got) != 1 || got[0] != "bind" {
+		t.Errorf("publish mount options = %v, want [bind]", got)
+	}
 
 	if stagerCalled {
 		t.Error("stageNewVolumeFunc was called on a warm-cache HEALTHY staging path — the v0.1.8 fix is too aggressive and broke the fast path")

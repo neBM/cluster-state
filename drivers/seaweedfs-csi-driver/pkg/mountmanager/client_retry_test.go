@@ -272,8 +272,10 @@ func TestNewEventRecorder_NoEnv(t *testing.T) {
 func TestNewEventRecorder_NoCluster(t *testing.T) {
 	t.Setenv("POD_NAME", "csi-node-test")
 	t.Setenv("POD_NAMESPACE", "default")
-	// rest.InClusterConfig() will fail outside a pod — recorder should
-	// return nil, not panic.
+	// Force the out-of-cluster path even when this test runs inside a pod.
+	// InClusterConfig checks these before reading the service-account token.
+	t.Setenv("KUBERNETES_SERVICE_HOST", "")
+	t.Setenv("KUBERNETES_SERVICE_PORT", "")
 	rec := NewEventRecorder()
 	if rec != nil {
 		t.Errorf("NewEventRecorder() = %v, want nil outside in-cluster", rec)
