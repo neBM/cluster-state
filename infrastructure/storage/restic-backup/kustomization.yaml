@@ -22,4 +22,4 @@ configMapGenerator:
 
 images:
 - name: "restic/restic"
-  newTag: "0.19.1"
+  newTag: "0.20.0"
