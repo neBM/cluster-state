@@ -24,9 +24,17 @@ spec:
         reloader.stakater.com/auto: 'true'
         reloader.stakater.com/rollout-strategy: restart
       labels:
+        spread-group: heavy
         app: rspamd
         environment: prod
     spec:
+      topologySpreadConstraints:
+      - maxSkew: 1
+        topologyKey: kubernetes.io/hostname
+        whenUnsatisfiable: ScheduleAnyway
+        labelSelector:
+          matchLabels:
+            spread-group: heavy
       automountServiceAccountToken: true
       containers:
       - image: rspamd/rspamd
