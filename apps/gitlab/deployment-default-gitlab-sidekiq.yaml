@@ -22,9 +22,17 @@ spec:
       annotations:
         elastic.co/dataset: kubernetes.container_logs.gitlab
       labels:
+        spread-group: heavy
         app: gitlab
         component: sidekiq
     spec:
+      topologySpreadConstraints:
+      - maxSkew: 1
+        topologyKey: kubernetes.io/hostname
+        whenUnsatisfiable: ScheduleAnyway
+        labelSelector:
+          matchLabels:
+            spread-group: heavy
       automountServiceAccountToken: true
       containers:
       - env:

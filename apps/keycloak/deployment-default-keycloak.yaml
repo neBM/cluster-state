@@ -18,9 +18,17 @@ spec:
   template:
     metadata:
       labels:
+        spread-group: heavy
         app: keycloak
         environment: prod
     spec:
+      topologySpreadConstraints:
+      - maxSkew: 1
+        topologyKey: kubernetes.io/hostname
+        whenUnsatisfiable: ScheduleAnyway
+        labelSelector:
+          matchLabels:
+            spread-group: heavy
       automountServiceAccountToken: true
       containers:
       - args:
