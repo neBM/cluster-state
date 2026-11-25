@@ -20,7 +20,7 @@ spec:
   template:
     metadata:
       annotations:
-        checksum/scrape-config: c7b417d659212330bc46640e59dc024b23aab3b1cf9b8f683f9490d612dda636
+        checksum/scrape-config: fe69c87057a9ca8161f709a9e49c3c3ea0a6d2b6a1d9420d24b1d9ecd1d21de5
         prometheus.io/port: '8428'
         prometheus.io/scrape: 'true'
       labels:
