@@ -30,6 +30,16 @@ spec:
           matchLabels:
             spread-group: heavy
       automountServiceAccountToken: true
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: kubernetes.io/hostname
+                operator: NotIn
+                values:
+                - nyx
+
       containers:
       - args:
         - start
