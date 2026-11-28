@@ -18,7 +18,7 @@ import yaml
 ROOT = Path(__file__).resolve().parent.parent
 # cpu request, memory request, memory limit; no new CPU ceilings.
 RESOURCES = {
-    "gitaly": ("50m", "300Mi", "512Mi"),
+    "gitaly": ("50m", "512Mi", "2Gi"),
     "kas": ("50m", "128Mi", "512Mi"),
     "registry": ("100m", "64Mi", "256Mi"),
     "sidekiq": ("150m", "1600Mi", "2Gi"),
